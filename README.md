@@ -354,6 +354,36 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 
 **Note**: Alpha releases are created automatically on every push to `main`. If builds are failing, binaries won't be available until compilation errors are fixed.
 
+### 📦 Release Artifacts
+
+Every successful release includes binaries for all platforms, automatically uploaded to GitHub Releases:
+
+```
+GitHub Release Page
+├── rb-linux-x86_64          (Linux Intel/AMD)
+├── rb-linux-x86_64.sha256   (checksum)
+├── rb-linux-aarch64         (Linux ARM64)
+├── rb-linux-aarch64.sha256  (checksum)
+├── rb-macos-x86_64          (macOS Intel)
+├── rb-macos-x86_64.sha256   (checksum)
+├── rb-macos-aarch64         (macOS Apple Silicon)
+├── rb-macos-aarch64.sha256  (checksum)
+├── rb-windows-x86_64.exe    (Windows)
+└── rb-windows-x86_64.exe.sha256 (checksum)
+```
+
+**Direct download links** (replace `VERSION` with actual version):
+```
+https://github.com/forattini-dev/redblue/releases/download/VERSION/rb-linux-x86_64
+https://github.com/forattini-dev/redblue/releases/download/VERSION/rb-macos-aarch64
+https://github.com/forattini-dev/redblue/releases/download/VERSION/rb-windows-x86_64.exe
+```
+
+**Or use the installer** (automatically selects correct platform):
+```bash
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+```
+
 ### Configuration
 
 redblue uses a flexible YAML configuration system with global defaults and per-domain overrides.
