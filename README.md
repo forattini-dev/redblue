@@ -30,8 +30,11 @@
 **redblue** replaces your entire security toolkit with a single, self-contained binary. No installation scripts, no dependency chains, no version conflicts. Just download and execute.
 
 ```bash
-# Install
-curl -O https://releases.redblue.io/latest/redblue && chmod +x redblue
+# Install (one-liner - auto-detects your platform)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+
+# Or install latest alpha (bleeding edge)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
 
 # Scan networks
 rb network ports scan 192.168.1.1 --preset common
@@ -253,17 +256,59 @@ This isn't about reinventing the wheel. It's about **respecting the incredible t
 
 | Requirement | Specification |
 |-------------|---------------|
-| **OS** | Linux, macOS, Windows (WSL2) |
+| **OS** | Linux, macOS, Windows |
 | **RAM** | 512MB minimum (2GB recommended) |
 | **Disk** | 5MB free space |
 | **Rust** | 1.70+ (for building from source) |
 | **Dependencies** | None (static binary) |
 
-### Building from Source
+### 🚀 Quick Install (Recommended)
+
+The installer automatically detects your platform (Linux/macOS/Windows, x86_64/ARM64) and downloads the correct binary:
+
+```bash
+# Install latest stable release
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+
+# Install latest alpha (bleeding edge)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
+
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --version v0.1.0
+
+# Custom install directory
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --install-dir /usr/local/bin
+```
+
+**Supported platforms:**
+- Linux: x86_64, aarch64 (ARM64)
+- macOS: x86_64 (Intel), aarch64 (Apple Silicon)
+- Windows: x86_64
+
+### 📥 Manual Download
+
+Download the binary directly from GitHub Releases:
+
+```bash
+# Linux x86_64
+wget https://github.com/forattini-dev/redblue/releases/latest/download/rb-linux-x86_64
+chmod +x rb-linux-x86_64
+sudo mv rb-linux-x86_64 /usr/local/bin/rb
+
+# macOS Apple Silicon (M1/M2)
+wget https://github.com/forattini-dev/redblue/releases/latest/download/rb-macos-aarch64
+chmod +x rb-macos-aarch64
+sudo mv rb-macos-aarch64 /usr/local/bin/rb
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/forattini-dev/redblue/releases/latest/download/rb-windows-x86_64.exe" -OutFile "rb.exe"
+```
+
+### 🔨 Building from Source
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/redblue
+git clone https://github.com/forattini-dev/redblue
 cd redblue
 
 # Build release binary (optimized)
@@ -273,26 +318,18 @@ cargo build --release
 ./target/release/redblue
 
 # Install to ~/.local/bin/rb
-./install.sh
-```
-
-### Quick Install
-
-```bash
-# Using the install script
-./install.sh
-
-# Or manual installation
-cargo build --release
 cp target/release/redblue ~/.local/bin/rb
 chmod +x ~/.local/bin/rb
 ```
 
-### Verification
+### ✅ Verification
 
 ```bash
 # Check version
 rb --version
+
+# Test installation
+rb help
 
 # Test DNS lookup
 rb dns record lookup google.com
