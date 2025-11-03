@@ -218,7 +218,12 @@ This isn't about reinventing the wheel. It's about **respecting the incredible t
 - [Motivation](#-motivation)
 - [Installation](#-installation)
   - [System Requirements](#system-requirements)
-  - [Building from Source](#building-from-source)
+  - [Quick Install](#-quick-install-recommended)
+  - [Manual Download](#-manual-download)
+  - [Building from Source](#-building-from-source)
+  - [Verification](#-verification)
+  - [Release Artifacts](#-release-artifacts)
+  - [Uninstallation](#️-uninstallation)
   - [Configuration](#configuration)
 - [Features](#-features)
   - [Network Scanning](#network-scanning)
@@ -382,6 +387,44 @@ https://github.com/forattini-dev/redblue/releases/download/VERSION/rb-windows-x8
 **Or use the installer** (automatically selects correct platform):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+```
+
+### 🗑️ Uninstallation
+
+Removing redblue is simple and clean:
+
+```bash
+# Interactive uninstall (asks for confirmation)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/uninstall.sh | bash
+
+# Force uninstall (no confirmations)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/uninstall.sh | bash -s -- --force
+```
+
+**What gets removed:**
+- ✅ Binary files (`rb`) from common locations
+- ✅ Optionally: config files (`.redblue.toml`, `.redblue.yaml`)
+- ✅ Optionally: database files (`*.rdb`)
+
+**The uninstaller will:**
+1. Search for all installations in common directories
+2. Show what will be removed
+3. Ask for confirmation (unless `--force`)
+4. Remove binaries (with sudo if needed)
+5. Optionally clean up config and data files
+
+**Manual uninstallation:**
+```bash
+# Remove binary
+sudo rm /usr/local/bin/rb
+# Or from user directory
+rm ~/.local/bin/rb
+
+# Remove config files (optional)
+rm .redblue.toml .redblue.yaml
+
+# Remove database files (optional)
+rm *.rdb
 ```
 
 ### Configuration
