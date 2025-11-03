@@ -1,0 +1,23 @@
+# RedBlue Configuration File
+# Place this file as .redblue.yaml or .redblue.yml in your working directory
+
+# Scan preset: passive, stealth, or aggressive
+preset: stealth
+
+# Output format: text, json, or both
+output: both
+
+# Save results to file
+output_file: scan-results.json
+
+# Performance settings
+threads: 20
+rate_limit: 10  # requests per second
+
+# Wordlists for enumeration
+wordlists:
+  subdomains: /usr/share/wordlists/subdomains-top1000.txt
+  directories: /usr/share/wordlists/common.txt
+
+# Custom settings
+# Any key-value pairs here will be accessible in the config

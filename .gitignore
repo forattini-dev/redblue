@@ -1,0 +1,52 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+*.rdb
+
+# Cargo
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+test_results/
+*.log
+
+# Security scan results
+scan_results/
+*.json
+*.csv
+*.xml
+
+# Tasks
+DONE.md
+TODO.md
+test-ctf.sh
+
+# Agents
+AGENTS.md
+CLAUDE.md
+
+# Tests
+ctf-data/
+wordlists/
+
+# Release artifacts
+rb-*
+*.sha256
+*.tar.gz
+*.zip
+
+# Config files
+.redblue.toml
+.redblue.yaml

@@ -1,0 +1,6 @@
+# Generated benchmark artifacts
+results/
+*.log
+*.txt
+*.json
+*.csv

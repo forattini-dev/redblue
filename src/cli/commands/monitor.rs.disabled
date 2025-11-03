@@ -1,0 +1,444 @@
+/// Protocol Monitoring Commands
+///
+/// Implements `rb monitor` commands for TCP, UDP, and ICMP protocol monitoring
+/// - rb monitor tcp list    - List TCP connections
+/// - rb monitor tcp stats   - Show TCP statistics
+/// - rb monitor udp list    - List UDP flows
+/// - rb monitor udp stats   - Show UDP statistics
+/// - rb monitor icmp stats  - Show ICMP statistics
+
+use crate::cli::commands::{Command, Route};
+use crate::cli::output::Output;
+use crate::cli::CliContext;
+use crate::modules::monitor::{ProtocolMonitor, TcpState};
+use std::time::Duration;
+
+pub struct MonitorCommand;
+
+impl Command for MonitorCommand {
+    fn domain(&self) -> &str {
+        "monitor"
+    }
+
+    fn resource(&self) -> &str {
+        "protocol"
+    }
+
+    fn description(&self) -> &str {
+        "Monitor network protocols (TCP, UDP, ICMP)"
+    }
+
+    fn routes(&self) -> Vec<Route> {
+        vec![
+            Route {
+                verb: "tcp list",
+                summary: "List active TCP connections",
+                usage: "rb monitor tcp list",
+            },
+            Route {
+                verb: "tcp stats",
+                summary: "Show TCP statistics",
+                usage: "rb monitor tcp stats",
+            },
+            Route {
+                verb: "udp list",
+                summary: "List active UDP flows",
+                usage: "rb monitor udp list",
+            },
+            Route {
+                verb: "udp stats",
+                summary: "Show UDP statistics",
+                usage: "rb monitor udp stats",
+            },
+            Route {
+                verb: "icmp list",
+                summary: "List ICMP hosts",
+                usage: "rb monitor icmp list",
+            },
+            Route {
+                verb: "icmp stats",
+                summary: "Show ICMP statistics",
+                usage: "rb monitor icmp stats",
+            },
+        ]
+    }
+
+    fn examples(&self) -> Vec<(&str, &str)> {
+        vec![
+            ("List TCP connections", "rb monitor tcp list"),
+            ("Show TCP statistics", "rb monitor tcp stats"),
+            ("List UDP flows", "rb monitor udp list"),
+            ("Show ICMP statistics", "rb monitor icmp stats"),
+        ]
+    }
+
+    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+        execute(ctx)
+    }
+}
+
+pub fn execute(ctx: &CliContext) -> Result<(), String> {
+    // Get resource (tcp, udp, icmp)
+    let resource = ctx
+        .resource
+        .as_ref()
+        .ok_or("Missing resource. Usage: rb monitor <tcp|udp|icmp> <verb>")?;
+
+    // Get verb (list, stats)
+    let verb = ctx
+        .verb
+        .as_ref()
+        .ok_or("Missing verb. Usage: rb monitor <resource> <list|stats>")?;
+
+    match resource.as_str() {
+        "tcp" => execute_tcp(verb, ctx),
+        "udp" => execute_udp(verb, ctx),
+        "icmp" => execute_icmp(verb, ctx),
+        _ => {
+            print_help();
+            Err(format!(
+                "Unknown resource '{}'. Valid options: tcp, udp, icmp",
+                resource
+            ))
+        }
+    }
+}
+
+fn execute_tcp(verb: &str, _ctx: &CliContext) -> Result<(), String> {
+    let monitor = ProtocolMonitor::new();
+
+    match verb {
+        "list" => {
+            Output::header("TCP Connections");
+            println!();
+
+            let connections = monitor.tcp.active_connections();
+
+            if connections.is_empty() {
+                Output::info("No TCP connections currently tracked");
+                Output::info("Hint: TCP connections will appear here when you perform scans");
+                return Ok(());
+            }
+
+            // Table header
+            println!(
+                "{:<20} {:<20} {:<12} {:<10} {:<10}",
+                "Local Address", "Remote Address", "State", "Bytes Sent", "Bytes Recv"
+            );
+            println!("{}", "-".repeat(80));
+
+            for conn in connections {
+                let state_color = match conn.state {
+                    TcpState::Established => "\x1b[32m", // Green
+                    TcpState::SynSent => "\x1b[33m",     // Yellow
+                    TcpState::SynReceived => "\x1b[33m", // Yellow
+                    TcpState::Closing => "\x1b[31m",     // Red
+                    TcpState::Closed => "\x1b[90m",      // Gray
+                };
+
+                println!(
+                    "{:<20} {:<20} {}{:<12}\x1b[0m {:<10} {:<10}",
+                    format!("{}", conn.local_addr),
+                    format!("{}", conn.remote_addr),
+                    state_color,
+                    format!("{:?}", conn.state),
+                    conn.bytes_sent,
+                    conn.bytes_received
+                );
+            }
+
+            println!();
+            Output::success(&format!("Total connections: {}", connections.len()));
+
+            Ok(())
+        }
+        "stats" => {
+            Output::header("TCP Statistics");
+            println!();
+
+            let stats = monitor.tcp.stats();
+
+            Output::subheader("Connection Statistics");
+            Output::item("Total connections", &stats.total_connections.to_string());
+            Output::item(
+                "Active connections",
+                &stats.active_connections.to_string(),
+            );
+            Output::item("Established connections", &stats.established_connections.to_string());
+            println!();
+
+            Output::subheader("Data Transfer");
+            Output::item("Bytes sent", &format_bytes(stats.total_bytes_sent));
+            Output::item(
+                "Bytes received",
+                &format_bytes(stats.total_bytes_received),
+            );
+
+            if let Some(avg_rtt) = stats.average_rtt_ms {
+                println!();
+                Output::subheader("Performance");
+                Output::item("Average RTT", &format!("{:.2} ms", avg_rtt));
+            }
+
+            println!();
+            Output::subheader("Connection State Distribution");
+            for (state, count) in &stats.connections_by_state {
+                Output::item(state, &count.to_string());
+            }
+
+            Ok(())
+        }
+        _ => {
+            print_help();
+            Err(format!("Unknown verb '{}'. Valid options: list, stats", verb))
+        }
+    }
+}
+
+fn execute_udp(verb: &str, _ctx: &CliContext) -> Result<(), String> {
+    let monitor = ProtocolMonitor::new();
+
+    match verb {
+        "list" => {
+            Output::header("UDP Flows");
+            println!();
+
+            let flows = monitor.udp.active_flows(Duration::from_secs(300)); // 5 min idle timeout
+
+            if flows.is_empty() {
+                Output::info("No UDP flows currently tracked");
+                Output::info("Hint: UDP flows will appear here when you perform scans");
+                return Ok(());
+            }
+
+            // Table header
+            println!(
+                "{:<20} {:<20} {:<12} {:<12} {:<10}",
+                "Local Address", "Remote Address", "Packets Out", "Packets In", "Last Seen"
+            );
+            println!("{}", "-".repeat(85));
+
+            for flow in flows {
+                let elapsed = flow.last_activity.elapsed();
+                let last_activity = if elapsed.as_secs() < 60 {
+                    format!("{}s ago", elapsed.as_secs())
+                } else {
+                    format!("{}m ago", elapsed.as_secs() / 60)
+                };
+
+                println!(
+                    "{:<20} {:<20} {:<12} {:<12} {:<10}",
+                    format!("{}", flow.local_addr),
+                    format!("{}", flow.remote_addr),
+                    flow.packets_sent,
+                    flow.packets_received,
+                    last_activity
+                );
+            }
+
+            println!();
+            Output::success(&format!("Total flows: {}", flows.len()));
+
+            Ok(())
+        }
+        "stats" => {
+            Output::header("UDP Statistics");
+            println!();
+
+            let stats = monitor.udp.stats();
+
+            Output::subheader("Flow Statistics");
+            Output::item("Total flows", &stats.total_flows.to_string());
+            Output::item("Active flows", &stats.active_flows.to_string());
+            println!();
+
+            Output::subheader("Packet Statistics");
+            Output::item("Packets sent", &stats.total_packets_sent.to_string());
+            Output::item(
+                "Packets received",
+                &stats.total_packets_received.to_string(),
+            );
+            println!();
+
+            Output::subheader("Data Transfer");
+            Output::item("Bytes sent", &format_bytes(stats.total_bytes_sent));
+            Output::item(
+                "Bytes received",
+                &format_bytes(stats.total_bytes_received),
+            );
+
+            Ok(())
+        }
+        _ => {
+            print_help();
+            Err(format!("Unknown verb '{}'. Valid options: list, stats", verb))
+        }
+    }
+}
+
+fn execute_icmp(verb: &str, _ctx: &CliContext) -> Result<(), String> {
+    let monitor = ProtocolMonitor::new();
+
+    match verb {
+        "stats" => {
+            Output::header("ICMP Statistics");
+            println!();
+
+            let stats = monitor.icmp.overall_stats();
+
+            Output::subheader("Overall Statistics");
+            Output::item("Monitored hosts", &stats.total_hosts.to_string());
+            Output::item("Packets sent", &stats.total_packets_sent.to_string());
+            Output::item(
+                "Packets received",
+                &stats.total_packets_received.to_string(),
+            );
+            Output::item("Packets lost", &stats.total_packets_lost.to_string());
+
+            if stats.total_packets_sent > 0 {
+                let loss_rate = (stats.total_packets_lost as f64
+                    / stats.total_packets_sent as f64)
+                    * 100.0;
+                let loss_color = if loss_rate == 0.0 {
+                    "\x1b[32m" // Green
+                } else if loss_rate < 10.0 {
+                    "\x1b[33m" // Yellow
+                } else {
+                    "\x1b[31m" // Red
+                };
+
+                Output::item(
+                    "Packet loss rate",
+                    &format!("{}{:.2}%\x1b[0m", loss_color, loss_rate),
+                );
+            }
+
+            if stats.total_packets_received > 0 {
+                println!();
+                Output::subheader("Round-Trip Time");
+                Output::item("Average RTT", &format!("{:.3} ms", stats.average_rtt_ms));
+            }
+
+            println!();
+            Output::subheader("ICMP Type Statistics");
+            Output::item(
+                "Echo Request (8)",
+                &stats.type_stats.echo_request.to_string(),
+            );
+            Output::item("Echo Reply (0)", &stats.type_stats.echo_reply.to_string());
+            Output::item(
+                "Dest Unreachable (3)",
+                &stats.type_stats.dest_unreachable.to_string(),
+            );
+            Output::item(
+                "Time Exceeded (11)",
+                &stats.type_stats.time_exceeded.to_string(),
+            );
+            Output::item("Redirect (5)", &stats.type_stats.redirect.to_string());
+            Output::item("Other", &stats.type_stats.other.to_string());
+
+            Ok(())
+        }
+        "list" => {
+            Output::header("ICMP Host Statistics");
+            println!();
+
+            let hosts = monitor.icmp.all_hosts();
+
+            if hosts.is_empty() {
+                Output::info("No ICMP hosts currently tracked");
+                Output::info("Hint: Use 'rb network ping <host>' to track ICMP statistics");
+                return Ok(());
+            }
+
+            // Table header
+            println!(
+                "{:<18} {:<8} {:<8} {:<8} {:<12} {:<12}",
+                "Host", "Sent", "Received", "Lost", "Loss %", "Avg RTT"
+            );
+            println!("{}", "-".repeat(75));
+
+            for host_stats in hosts {
+                let loss_rate = host_stats.packet_loss_rate();
+                let loss_color = if loss_rate == 0.0 {
+                    "\x1b[32m" // Green
+                } else if loss_rate < 10.0 {
+                    "\x1b[33m" // Yellow
+                } else {
+                    "\x1b[31m" // Red
+                };
+
+                println!(
+                    "{:<18} {:<8} {:<8} {:<8} {}{:<12.2}\x1b[0m {:<12.3}",
+                    host_stats.host.to_string(),
+                    host_stats.packets_sent,
+                    host_stats.packets_received,
+                    host_stats.packets_lost,
+                    loss_color,
+                    loss_rate,
+                    host_stats.avg_rtt_ms
+                );
+            }
+
+            println!();
+            Output::success(&format!("Total hosts: {}", hosts.len()));
+
+            Ok(())
+        }
+        _ => {
+            print_help();
+            Err(format!(
+                "Unknown verb '{}'. Valid options: stats, list",
+                verb
+            ))
+        }
+    }
+}
+
+/// Format bytes in human-readable format
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} bytes", bytes)
+    }
+}
+
+pub fn print_help() {
+    println!("\n{}", "\x1b[1mUSAGE:\x1b[0m");
+    println!("  rb monitor <resource> <verb>");
+
+    println!("\n{}", "\x1b[1mRESOURCES:\x1b[0m");
+    println!("  tcp     Monitor TCP connections");
+    println!("  udp     Monitor UDP flows");
+    println!("  icmp    Monitor ICMP packets");
+
+    println!("\n{}", "\x1b[1mVERBS:\x1b[0m");
+    println!("  list    List active connections/flows/hosts");
+    println!("  stats   Show protocol statistics");
+
+    println!("\n{}", "\x1b[1mEXAMPLES:\x1b[0m");
+    println!("  # List TCP connections");
+    println!("  rb monitor tcp list");
+    println!();
+    println!("  # Show TCP statistics");
+    println!("  rb monitor tcp stats");
+    println!();
+    println!("  # List UDP flows");
+    println!("  rb monitor udp list");
+    println!();
+    println!("  # Show ICMP statistics");
+    println!("  rb monitor icmp stats");
+    println!();
+    println!("  # List ICMP hosts");
+    println!("  rb monitor icmp list");
+    println!();
+}

@@ -1,0 +1,117 @@
+# RedBlue CTF Testing Environment (Simplified)
+# Complete vulnerable infrastructure for testing all redblue capabilities
+#
+# Usage:
+#   docker compose -f docker-compose.ctf.yml up -d
+#   docker compose -f docker-compose.ctf.yml down
+#
+# ⚠️ WARNING: These containers are INTENTIONALLY VULNERABLE!
+# DO NOT expose these services to the internet or untrusted networks.
+# Use ONLY in isolated testing environments.
+
+networks:
+  ctf-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24
+
+services:
+  # 1. DVWA - Damn Vulnerable Web Application
+  # Tests: web scanning, SQLi, XSS, CSRF, security headers
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: ctf-dvwa
+    ports:
+      - "20888:80"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.10
+    restart: unless-stopped
+
+  # 2. Vulnerable MySQL 5.5 (old version, weak authentication)
+  # Tests: port scanning, banner grabbing, MySQL enumeration, brute force
+  mysql:
+    image: mysql:5.5
+    container_name: ctf-mysql
+    ports:
+      - "23306:3306"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.12
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: dvwa
+      MYSQL_USER: dvwa
+      MYSQL_PASSWORD: password
+    restart: unless-stopped
+    command: --bind-address=0.0.0.0
+
+  # 3. Vulnerable SSH Server (weak credentials)
+  # Tests: SSH banner grabbing, brute force, privilege escalation
+  ssh-server:
+    image: rastasheep/ubuntu-sshd:16.04
+    container_name: ctf-ssh
+    ports:
+      - "20022:22"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.13
+    restart: unless-stopped
+    # Default credentials: root/root
+
+  # 4. Vulnerable Apache with directory listing
+  # Tests: directory fuzzing, file enumeration, security headers
+  apache-open:
+    image: httpd:2.4
+    container_name: ctf-apache
+    ports:
+      - "20890:80"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.15
+    volumes:
+      - ./ctf-data/apache:/usr/local/apache2/htdocs
+    restart: unless-stopped
+
+  # 5. Old nginx with known vulnerabilities
+  # Tests: web server fingerprinting, version detection
+  nginx-old:
+    image: nginx:1.10  # Old version with CVEs
+    container_name: ctf-nginx
+    ports:
+      - "20891:80"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.16
+    volumes:
+      - ./ctf-data/nginx:/usr/share/nginx/html
+    restart: unless-stopped
+
+  # 6. Redis (no authentication)
+  # Tests: Redis enumeration, unauthorized access
+  redis:
+    image: redis:5.0
+    container_name: ctf-redis
+    ports:
+      - "26379:6379"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.17
+    restart: unless-stopped
+    command: redis-server --protected-mode no
+
+  # 7. MongoDB (no authentication)
+  # Tests: NoSQL enumeration, data extraction
+  mongodb:
+    image: mongo:4.0
+    container_name: ctf-mongodb
+    ports:
+      - "27018:27017"
+    networks:
+      ctf-network:
+        ipv4_address: 172.25.0.18
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ""
+      MONGO_INITDB_ROOT_PASSWORD: ""

@@ -1,0 +1,10 @@
+/// Load testing and performance benchmarking
+pub mod load_generator;
+pub mod pool;
+pub mod stats;
+pub mod thread_pool;
+
+pub use load_generator::{LoadConfig, LoadGenerator, LoadTestResults};
+pub use pool::{ConnectionPool, PooledHttpClient};
+pub use stats::{AtomicStatsCollector, Percentile, RequestStats, StatsAggregator};
+pub use thread_pool::ThreadPool;
