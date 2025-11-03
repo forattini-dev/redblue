@@ -9,7 +9,7 @@ use crate::cli::{
 use crate::config;
 use crate::intelligence::{banner_analysis, service_detection, timing_analysis};
 use crate::modules::network::scanner::PortScanner;
-use crate::persistence::PersistenceManager;
+use crate::storage::client::PersistenceManager;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -45,6 +45,12 @@ impl Command for ScanCommand {
                 summary: "Discover and scan all hosts in a subnet (CIDR notation)",
                 usage: "rb network ports subnet <cidr> [--preset common]",
             },
+            // TODO: Implement list_ports method for database queries
+            // Route {
+            //     verb: "list",
+            //     summary: "List stored open ports from scan database",
+            //     usage: "rb network ports list [host] [--db <file>]",
+            // },
         ]
     }
 
@@ -136,6 +142,7 @@ impl Command for ScanCommand {
             "scan" => self.scan_ports(ctx),
             "range" => self.scan_range(ctx),
             "subnet" => self.scan_subnet(ctx),
+            // "list" => self.list_ports(ctx), // TODO: Implement
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(

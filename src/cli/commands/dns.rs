@@ -3,9 +3,12 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
-use crate::persistence::{PersistenceManager, QueryManager};
 use crate::protocols::dns::{DnsClient, DnsRecordType};
-use crate::storage::schema::DnsRecordType as StorageDnsRecordType;
+use crate::storage::client::{PersistenceManager, QueryManager};
+use crate::storage::schema::{DnsRecordType as StorageDnsRecordType, SubdomainSource};
+use crate::wordlists::WordlistManager;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct DnsCommand;
 
@@ -134,10 +137,7 @@ impl Command for DnsCommand {
                 "Get specific record type from database",
                 "rb dns record get google.com:A",
             ),
-            (
-                "Describe all DNS data",
-                "rb dns record describe google.com",
-            ),
+            ("Describe all DNS data", "rb dns record describe google.com"),
         ]
     }
 
@@ -164,7 +164,16 @@ impl Command for DnsCommand {
                     "{}",
                     Validator::suggest_command(
                         verb,
-                        &["lookup", "all", "resolve", "reverse", "bruteforce", "list", "get", "describe"]
+                        &[
+                            "lookup",
+                            "all",
+                            "resolve",
+                            "reverse",
+                            "bruteforce",
+                            "list",
+                            "get",
+                            "describe"
+                        ]
                     )
                 );
                 Err("Invalid verb".to_string())
@@ -222,23 +231,8 @@ impl DnsCommand {
         // Save DNS records to database
         if pm.is_enabled() {
             for answer in &answers {
-                // Convert record type to u8
-                let record_type_id = match record_type {
-                    DnsRecordType::A => 1,
-                    DnsRecordType::AAAA => 2,
-                    DnsRecordType::CNAME => 5,
-                    DnsRecordType::MX => 15,
-                    DnsRecordType::NS => 2,
-                    DnsRecordType::TXT => 16,
-                    DnsRecordType::SOA => 6,
-                    _ => 0,
-                };
-
-                // Convert answer data to bytes
-                let value_str = answer.display_value();
-                let data = value_str.as_bytes();
-
-                if let Err(e) = pm.add_dns_record(domain, record_type_id, answer.ttl, data) {
+                let value = answer.display_value();
+                if let Err(e) = pm.add_dns_record(domain, answer.record_type, answer.ttl, &value) {
                     eprintln!("Warning: Failed to save DNS record to database: {}", e);
                 }
             }
@@ -654,12 +648,155 @@ impl DnsCommand {
 
         Validator::validate_domain(domain)?;
 
-        if ctx.get_flag("wordlist").is_none() {
-            Output::warning("No wordlist provided. Use --wordlist <FILE>");
+        // Get wordlist
+        let default_wordlist = "subdomains-top100".to_string();
+        let wordlist_name = ctx.get_flag("wordlist").unwrap_or(&default_wordlist);
+
+        let wordlist_manager = WordlistManager::new()?;
+        let wordlist = wordlist_manager.get(&wordlist_name)?;
+
+        Output::header(&format!("Subdomain Brute Force: {}", domain));
+        Output::item("Wordlist", &wordlist_name);
+        Output::item("Entries", &wordlist.len().to_string());
+        println!();
+
+        // DNS server
+        let default_server = "8.8.8.8".to_string();
+        let dns_server = ctx.get_flag("server").unwrap_or(&default_server);
+
+        // Thread count
+        let thread_count = ctx
+            .get_flag("threads")
+            .and_then(|t| t.parse::<usize>().ok())
+            .unwrap_or(50);
+
+        Output::spinner_start(&format!(
+            "Scanning {} subdomains with {} threads",
+            wordlist.len(),
+            thread_count
+        ));
+
+        // Shared results container
+        let found_subdomains = Arc::new(Mutex::new(Vec::new()));
+        let wordlist = Arc::new(wordlist);
+
+        // Create work queue
+        let work_index = Arc::new(Mutex::new(0));
+
+        // Spawn worker threads
+        let mut handles = vec![];
+        for _ in 0..thread_count {
+            let wordlist_clone = Arc::clone(&wordlist);
+            let found_clone = Arc::clone(&found_subdomains);
+            let work_clone = Arc::clone(&work_index);
+            let domain_clone = domain.to_string();
+            let dns_server_clone = dns_server.clone();
+
+            let handle = thread::spawn(move || {
+                let client = DnsClient::new(&dns_server_clone);
+
+                loop {
+                    // Get next work item
+                    let index = {
+                        let mut idx = work_clone.lock().unwrap();
+                        if *idx >= wordlist_clone.len() {
+                            break;
+                        }
+                        let current = *idx;
+                        *idx += 1;
+                        current
+                    };
+
+                    let subdomain_part = &wordlist_clone[index];
+                    let full_subdomain = format!("{}.{}", subdomain_part, domain_clone);
+
+                    // Try to resolve
+                    if let Ok(response) = client.query(&full_subdomain, DnsRecordType::A) {
+                        if !response.is_empty() {
+                            // Extract IPs
+                            let ips: Vec<String> = response
+                                .iter()
+                                .filter_map(|answer| answer.as_ip())
+                                .collect();
+
+                            if !ips.is_empty() {
+                                found_clone.lock().unwrap().push((full_subdomain, ips));
+                            }
+                        }
+                    }
+                }
+            });
+
+            handles.push(handle);
         }
 
-        Output::warning("Subdomain brute force not yet implemented");
-        println!("\nComing soon! See EXAMPLES.md for implementation guide.");
+        // Wait for all threads to complete
+        for handle in handles {
+            let _ = handle.join();
+        }
+
+        Output::spinner_done();
+
+        // Display results
+        let results = found_subdomains.lock().unwrap();
+
+        if results.is_empty() {
+            Output::warning("No subdomains found");
+            return Ok(());
+        }
+
+        Output::section(&format!("Found {} subdomains", results.len()));
+        println!();
+
+        for (subdomain, ips) in results.iter() {
+            Output::success(&format!("{}", subdomain));
+            for ip in ips {
+                Output::dim(&format!("  → {}", ip));
+            }
+        }
+
+        // Database persistence
+        let persist_flag = if ctx.has_flag("persist") {
+            Some(true)
+        } else if ctx.has_flag("no-persist") {
+            Some(false)
+        } else {
+            None
+        };
+
+        let mut pm = PersistenceManager::new(domain, persist_flag)?;
+
+        if pm.is_enabled() {
+            for (subdomain, ips) in results.iter() {
+                let ip_u32s: Vec<u32> = ips
+                    .iter()
+                    .filter_map(|ip_str| {
+                        ip_str
+                            .parse::<std::net::Ipv4Addr>()
+                            .ok()
+                            .map(|ip| u32::from(ip))
+                    })
+                    .collect();
+
+                if let Err(e) = pm.add_subdomain(domain, subdomain, 0, &ip_u32s) {
+                    eprintln!("Warning: Failed to save subdomain to database: {}", e);
+                }
+            }
+
+            Output::success(&format!(
+                "✓ Saved {} subdomains to {}.rdb",
+                results.len(),
+                domain
+            ));
+        }
+
+        println!();
+        Output::success(&format!(
+            "Scan complete: {}/{} found",
+            results.len(),
+            wordlist.len()
+        ));
+
         Ok(())
     }
 
@@ -747,10 +884,7 @@ impl DnsCommand {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         for record in &records {
             let type_str = format!("{:?}", record.record_type);
-            println!(
-                "{:<8} {:<46} {}",
-                type_str, record.value, record.ttl
-            );
+            println!("{:<8} {:<46} {}", type_str, record.value, record.ttl);
         }
 
         Ok(())
@@ -790,7 +924,10 @@ impl DnsCommand {
 
         let db_path = self.get_db_path(ctx, domain)?;
 
-        Output::header(&format!("Querying DNS Record: {} {}", domain, record_type_str));
+        Output::header(&format!(
+            "Querying DNS Record: {} {}",
+            domain, record_type_str
+        ));
 
         let mut query =
             QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -815,7 +952,11 @@ impl DnsCommand {
             return Ok(());
         }
 
-        Output::success(&format!("Found {} {} record(s)", matching_records.len(), record_type_str));
+        Output::success(&format!(
+            "Found {} {} record(s)",
+            matching_records.len(),
+            record_type_str
+        ));
         println!();
 
         for record in matching_records {
@@ -885,11 +1026,7 @@ impl DnsCommand {
         Ok(())
     }
 
-    fn get_db_path(
-        &self,
-        ctx: &CliContext,
-        domain: &str,
-    ) -> Result<std::path::PathBuf, String> {
+    fn get_db_path(&self, ctx: &CliContext, domain: &str) -> Result<std::path::PathBuf, String> {
         if let Some(db_path) = ctx.get_flag("db") {
             return Ok(std::path::PathBuf::from(db_path));
         }

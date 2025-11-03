@@ -129,13 +129,7 @@ impl Broker {
                     let log_file = self.config.log_file.clone();
 
                     thread::spawn(move || {
-                        Self::handle_client(
-                            stream,
-                            client,
-                            clients_clone,
-                            verbose,
-                            log_file,
-                        );
+                        Self::handle_client(stream, client, clients_clone, verbose, log_file);
                     });
                 }
                 Err(e) => {

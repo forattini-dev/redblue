@@ -166,8 +166,8 @@ impl RedBlueConfig {
     pub fn load_from_file(path: &str) -> Result<Self, String> {
         use std::fs;
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read config file: {}", e))?;
 
         Self::parse_toml(&content)
     }
@@ -238,7 +238,10 @@ impl RedBlueConfig {
         let path = ".redblue.toml";
 
         if Path::new(path).exists() {
-            return Err("Config file already exists. Delete .redblue.toml first or edit it manually.".to_string());
+            return Err(
+                "Config file already exists. Delete .redblue.toml first or edit it manually."
+                    .to_string(),
+            );
         }
 
         let content = r#"# RedBlue Configuration File
@@ -281,8 +284,7 @@ timeout_ms = 5000
 # verify_ssl = true
 "#;
 
-        fs::write(path, content)
-            .map_err(|e| format!("Failed to write config file: {}", e))?;
+        fs::write(path, content).map_err(|e| format!("Failed to write config file: {}", e))?;
 
         Ok(())
     }

@@ -27,7 +27,7 @@ pub enum EndpointType {
 pub struct RelayConfig {
     pub source: EndpointType,
     pub destination: EndpointType,
-    pub fork: bool,     // Allow multiple simultaneous connections
+    pub fork: bool, // Allow multiple simultaneous connections
     pub verbose: bool,
     pub timeout: Duration,
 }
@@ -188,7 +188,8 @@ impl Relay {
                                 dest_stream.set_read_timeout(Some(timeout)).ok();
 
                                 // Relay
-                                if let Err(e) = bidirectional_copy_static(client_stream, dest_stream)
+                                if let Err(e) =
+                                    bidirectional_copy_static(client_stream, dest_stream)
                                 {
                                     if verbose {
                                         eprintln!("[!] Relay error for {}: {}", client_addr, e);
@@ -351,11 +352,7 @@ impl Relay {
     }
 
     /// Bidirectional copy between two TCP streams
-    fn bidirectional_copy(
-        &self,
-        stream1: TcpStream,
-        stream2: TcpStream,
-    ) -> Result<(), String> {
+    fn bidirectional_copy(&self, stream1: TcpStream, stream2: TcpStream) -> Result<(), String> {
         bidirectional_copy_static(stream1, stream2)
     }
 }

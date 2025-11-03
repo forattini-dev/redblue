@@ -19,13 +19,15 @@ pub mod network;
 pub mod web;
 
 // SSL/TLS
-pub mod tls {
-    pub mod audit;
-    pub mod auditor; // ✅ Re-enabled - TLS auditor now available via CLI
-    pub mod cipher;
-    pub mod ct_logs;
-    pub mod scanner;
-}
+// TODO: These modules need refactoring to use new crate::crypto and modules::network::tls
+// pub mod tls {
+//     pub mod audit;
+//     pub mod auditor;
+//     pub mod cipher;
+#[path = "tls/ct-logs.rs"]
+pub mod ct_logs;
+//     pub mod scanner;
+// }
 
 // Data Collection
 pub mod collection {
@@ -36,6 +38,7 @@ pub mod collection {
 
 // Cloud Security
 pub mod cloud {
+    #[path = "s3-scanner.rs"]
     pub mod s3_scanner;
     pub mod takeover;
 }

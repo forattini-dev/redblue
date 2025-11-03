@@ -6,8 +6,8 @@ use crate::modules::recon::subdomain::{
     load_wordlist_from_file, EnumerationSource, SubdomainEnumerator,
 };
 use crate::modules::recon::urlharvest::UrlHarvester;
-use crate::persistence::{PersistenceManager, QueryManager};
 use crate::protocols::whois::WhoisClient;
+use crate::storage::client::PersistenceManager;
 use crate::storage::SubdomainSource;
 use std::net::Ipv4Addr;
 
@@ -28,7 +28,6 @@ impl Command for ReconCommand {
 
     fn routes(&self) -> Vec<Route> {
         vec![
-            // Action verbs - execute reconnaissance
             Route {
                 verb: "whois",
                 summary: "Query WHOIS information for a domain",
@@ -62,17 +61,17 @@ impl Command for ReconCommand {
             // RESTful verbs - query stored data
             Route {
                 verb: "list",
-                summary: "List all reconnaissance data for a domain from database",
+                summary: "List all subdomains for a domain from database",
                 usage: "rb recon domain list <domain> [--db <file>]",
             },
             Route {
                 verb: "get",
-                summary: "Get specific reconnaissance data (whois) from database",
-                usage: "rb recon domain get <domain>:whois [--db <file>]",
+                summary: "Get specific subdomain info from database",
+                usage: "rb recon domain get <subdomain> [--db <file>]",
             },
             Route {
                 verb: "describe",
-                summary: "Get detailed reconnaissance summary from database",
+                summary: "Get detailed OSINT data from database",
                 usage: "rb recon domain describe <domain> [--db <file>]",
             },
         ]
@@ -132,6 +131,19 @@ impl Command for ReconCommand {
                 "Filter by file extension",
                 "rb recon domain urls example.com --extensions js,php,asp",
             ),
+            // RESTful examples
+            (
+                "List all saved subdomains",
+                "rb recon domain list example.com",
+            ),
+            (
+                "Get specific subdomain info",
+                "rb recon domain get api.example.com",
+            ),
+            (
+                "Describe all recon data",
+                "rb recon domain describe example.com",
+            ),
         ]
     }
 
@@ -150,16 +162,16 @@ impl Command for ReconCommand {
             "osint" => self.osint(ctx),
             "email" => self.email(ctx),
             // RESTful verbs
-            "list" => self.list_recon(ctx),
-            "get" => self.get_recon(ctx),
-            "describe" => self.describe_recon(ctx),
+            "list" => self.list_subdomains(ctx),
+            "get" => self.get_subdomain(ctx),
+            "describe" => self.describe_domain(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
                     "{}",
                     Validator::suggest_command(
                         verb,
-                        &["whois", "subdomains", "harvest", "osint", "email", "list", "get", "describe"]
+                        &["whois", "subdomains", "harvest", "urls", "osint", "email", "list", "get", "describe"]
                     )
                 );
                 Err("Invalid verb".to_string())
@@ -205,35 +217,15 @@ impl ReconCommand {
 
         // Save WHOIS data to database
         if pm.is_enabled() {
-            // Serialize WHOIS result to bytes (simple format)
-            let mut whois_data = String::new();
-            whois_data.push_str(&format!("Domain: {}\n", domain));
-            if let Some(ref registrar) = result.registrar {
-                whois_data.push_str(&format!("Registrar: {}\n", registrar));
-            }
-            if let Some(ref org) = result.registrant_org {
-                whois_data.push_str(&format!("Organization: {}\n", org));
-            }
-            if let Some(ref country) = result.registrant_country {
-                whois_data.push_str(&format!("Country: {}\n", country));
-            }
-            if let Some(ref created) = result.creation_date {
-                whois_data.push_str(&format!("Created: {}\n", created));
-            }
-            if let Some(ref updated) = result.updated_date {
-                whois_data.push_str(&format!("Updated: {}\n", updated));
-            }
-            if let Some(ref expires) = result.expiration_date {
-                whois_data.push_str(&format!("Expires: {}\n", expires));
-            }
-            for ns in &result.name_servers {
-                whois_data.push_str(&format!("Nameserver: {}\n", ns));
-            }
-            for status in &result.status {
-                whois_data.push_str(&format!("Status: {}\n", status));
-            }
+            let registrar = result
+                .registrar
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string());
+            let created = parse_whois_timestamp(result.creation_date.as_deref());
+            let expires = parse_whois_timestamp(result.expiration_date.as_deref());
+            let nameservers = result.name_servers.clone();
 
-            if let Err(e) = pm.add_whois(domain, whois_data.as_bytes()) {
+            if let Err(e) = pm.add_whois(domain, &registrar, created, expires, &nameservers) {
                 eprintln!("Warning: Failed to save WHOIS data to database: {}", e);
             }
         }
@@ -740,187 +732,109 @@ fn map_subdomain_source(source: &EnumerationSource) -> SubdomainSource {
     }
 }
 
-    // ===== RESTful Commands - Query Stored Data =====
+fn parse_whois_timestamp(value: Option<&str>) -> u32 {
+    value.and_then(parse_whois_date).unwrap_or(0)
+}
 
-    fn list_recon(&self, ctx: &CliContext) -> Result<(), String> {
-        let domain = ctx.target.as_ref().ok_or("Missing target domain")?;
-        let db_path = self.get_db_path(ctx, domain)?;
+fn parse_whois_date(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
 
-        Output::header(&format!("Listing Reconnaissance Data: {}", domain));
-        Output::info(&format!("Database: {}", db_path.display()));
+    let mut parts_iter = trimmed.split(|c| c == 'T' || c == ' ' || c == '\t');
+    let date_part = parts_iter.next()?.trim();
+    if date_part.is_empty() {
+        return None;
+    }
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+    let mut segments: Vec<&str> = date_part
+        .split(|c| c == '-' || c == '/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
 
-        // Check for WHOIS data
-        let whois = query.get_whois(domain).map_err(|e| format!("Query failed: {}", e))?;
+    if segments.len() != 3 {
+        return None;
+    }
 
-        // Check for subdomains
-        let subdomains = query.list_subdomains(domain).map_err(|e| format!("Query failed: {}", e))?;
+    let year = segments[0].parse::<i32>().ok()?;
+    let month = segments[1].parse::<u32>().ok()?;
+    let day_str = segments[2]
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
+        .trim();
+    let day = day_str.parse::<u32>().ok()?;
 
-        if whois.is_none() && subdomains.is_empty() {
-            Output::warning("No reconnaissance data found in database");
-            Output::info(&format!(
-                "Run reconnaissance first: rb recon domain whois {} --persist",
-                domain
-            ));
-            return Ok(());
-        }
+    if year < 1970 || month == 0 || month > 12 || day == 0 {
+        return None;
+    }
 
-        println!();
-        if let Some(_) = whois {
-            Output::success("✓ WHOIS data available");
-        }
+    let mut month_lengths = [31u32, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if is_leap_year(year) {
+        month_lengths[1] = 29;
+    }
 
-        if !subdomains.is_empty() {
-            Output::success(&format!("✓ {} subdomain(s) found", subdomains.len()));
-        }
+    if day > month_lengths[(month - 1) as usize] {
+        return None;
+    }
+
+    let mut days = 0u64;
+    for y in 1970..year {
+        days += if is_leap_year(y) { 366 } else { 365 };
+    }
+    for m in 1..month {
+        days += month_lengths[(m - 1) as usize] as u64;
+    }
+    days += (day - 1) as u64;
+
+    Some((days * 86_400) as u32)
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+impl ReconCommand {
+    /// List all subdomains for a domain from database (RESTful)
+    fn list_subdomains(&self, ctx: &CliContext) -> Result<(), String> {
+        let domain = ctx.target.as_ref().ok_or(
+            "Missing domain. Usage: rb recon domain list <domain> [--db file]"
+        )?;
+
+        // TODO: Implement database query for subdomains
+        // For now, return a placeholder message
+        Output::header(&format!("Subdomains for {}", domain));
+        Output::info("[COMING SOON] Query database for saved subdomains");
+        Output::info(&format!("Command: rb recon domain list {}", domain));
 
         Ok(())
     }
 
-    fn get_recon(&self, ctx: &CliContext) -> Result<(), String> {
-        let target = ctx
-            .target
-            .as_ref()
-            .ok_or("Missing target (format: domain:TYPE)")?;
+    /// Get specific subdomain info from database (RESTful)
+    fn get_subdomain(&self, ctx: &CliContext) -> Result<(), String> {
+        let subdomain = ctx.target.as_ref().ok_or(
+            "Missing subdomain. Usage: rb recon domain get <subdomain> [--db file]"
+        )?;
 
-        let parts: Vec<&str> = target.split(':').collect();
-        if parts.len() != 2 {
-            return Err(
-                "Invalid format. Use: rb recon domain get <domain>:whois".to_string(),
-            );
-        }
-
-        let domain = parts[0];
-        let data_type = parts[1].to_lowercase();
-
-        if data_type != "whois" {
-            return Err(format!(
-                "Invalid data type: {}. Valid types: whois",
-                data_type
-            ));
-        }
-
-        let db_path = self.get_db_path(ctx, domain)?;
-
-        Output::header(&format!("Querying WHOIS Data: {}", domain));
-
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
-
-        let whois = query
-            .get_whois(domain)
-            .map_err(|e| format!("Query failed: {}", e))?;
-
-        match whois {
-            Some(record) => {
-                Output::success("WHOIS Record Found");
-                println!();
-
-                Output::item("Domain", &record.domain);
-                Output::item("Registrar", &record.registrar);
-                Output::item("Created", &record.creation_date);
-                Output::item("Expires", &record.expiration_date);
-                Output::item("Updated", &record.updated_date);
-
-                if !record.name_servers.is_empty() {
-                    println!("\nName Servers:");
-                    for ns in &record.name_servers {
-                        println!("  • {}", ns);
-                    }
-                }
-
-                if !record.status.is_empty() {
-                    println!("\nStatus:");
-                    for status in &record.status {
-                        println!("  • {}", status);
-                    }
-                }
-            }
-            None => {
-                Output::warning("No WHOIS data found in database");
-                Output::info(&format!(
-                    "Run WHOIS first: rb recon domain whois {} --persist",
-                    domain
-                ));
-            }
-        }
+        // TODO: Implement database query for specific subdomain
+        Output::header(&format!("Subdomain Info: {}", subdomain));
+        Output::info("[COMING SOON] Query database for subdomain details");
+        Output::info(&format!("Command: rb recon domain get {}", subdomain));
 
         Ok(())
     }
 
-    fn describe_recon(&self, ctx: &CliContext) -> Result<(), String> {
-        let domain = ctx.target.as_ref().ok_or("Missing target domain")?;
-        let db_path = self.get_db_path(ctx, domain)?;
+    /// Get detailed OSINT data from database (RESTful)
+    fn describe_domain(&self, ctx: &CliContext) -> Result<(), String> {
+        let domain = ctx.target.as_ref().ok_or(
+            "Missing domain. Usage: rb recon domain describe <domain> [--db file]"
+        )?;
 
-        Output::header(&format!("Reconnaissance Summary: {}", domain));
-        Output::info(&format!("Database: {}", db_path.display()));
-
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
-
-        let whois = query.get_whois(domain).map_err(|e| format!("Query failed: {}", e))?;
-        let subdomains = query.list_subdomains(domain).map_err(|e| format!("Query failed: {}", e))?;
-
-        if whois.is_none() && subdomains.is_empty() {
-            Output::warning("No reconnaissance data found in database");
-            Output::info(&format!(
-                "Run reconnaissance first: rb recon domain whois {} --persist",
-                domain
-            ));
-            return Ok(());
-        }
-
-        println!();
-        println!("📊 Data Summary:");
-        println!("━━━━━━━━━━━━━━━━");
-
-        if let Some(record) = whois {
-            println!("  ✓ WHOIS");
-            println!("    Registrar: {}", record.registrar);
-            println!("    Expires: {}", record.expiration_date);
-            println!("    Name Servers: {}", record.name_servers.len());
-        } else {
-            println!("  ✗ WHOIS (not available)");
-        }
-
-        if !subdomains.is_empty() {
-            println!("  ✓ Subdomains: {}", subdomains.len());
-            println!("\n    Top subdomains:");
-            for (i, subdomain) in subdomains.iter().take(10).enumerate() {
-                println!("      {}. {}", i + 1, subdomain);
-            }
-            if subdomains.len() > 10 {
-                println!("      ... and {} more", subdomains.len() - 10);
-            }
-        } else {
-            println!("  ✗ Subdomains (not available)");
-        }
+        // TODO: Implement comprehensive database query
+        Output::header(&format!("Domain Intelligence: {}", domain));
+        Output::info("[COMING SOON] Query database for all recon data");
+        Output::info(&format!("Command: rb recon domain describe {}", domain));
+        Output::info("Will include: subdomains, WHOIS, harvested data, URLs");
 
         Ok(())
-    }
-
-    fn get_db_path(
-        &self,
-        ctx: &CliContext,
-        domain: &str,
-    ) -> Result<std::path::PathBuf, String> {
-        if let Some(db_path) = ctx.get_flag("db") {
-            return Ok(std::path::PathBuf::from(db_path));
-        }
-
-        let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
-        let base = domain.trim_start_matches("www.").to_lowercase();
-        let candidate = cwd.join(format!("{}.rdb", &base));
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-
-        Err(format!(
-            "Database not found: {}\nRun reconnaissance first: rb recon domain whois {} --persist",
-            candidate.display(),
-            domain
-        ))
     }
 }

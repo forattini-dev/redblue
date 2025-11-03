@@ -14,7 +14,7 @@
 //! - RFC 4492: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS
 //! - RFC 8422: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS 1.2 and Earlier
 
-use super::crypto::SecureRandom;
+// use super::crypto::SecureRandom; // FIXME: Old stub, use crate::crypto instead
 use super::p256::P256Point;
 
 /// ECDH key pair for ephemeral key exchange

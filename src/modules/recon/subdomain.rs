@@ -10,7 +10,7 @@
 ///
 /// NO external dependencies - all implemented from scratch
 use crate::config;
-use crate::modules::tls::ct_logs::CTLogsClient;
+// use crate::modules::tls::ct_logs::CTLogsClient; // Temporarily disabled
 use crate::protocols::dns::DnsClient;
 use crate::protocols::http::HttpClient;
 use std::collections::{HashSet, VecDeque};
@@ -327,26 +327,8 @@ impl SubdomainEnumerator {
 
     /// Enumerate subdomains from Certificate Transparency logs
     pub fn enumerate_ct_logs(&self) -> Result<Vec<SubdomainResult>, String> {
-        let mut results = Vec::new();
-
-        // Use our dedicated CT logs client
-        let ct_client = CTLogsClient::new();
-
-        // Query crt.sh for subdomains
-        let subdomains = ct_client.query_subdomains(&self.domain)?;
-
-        for subdomain in subdomains {
-            // Resolve each subdomain to get IPs
-            let ips = self.resolve_domain(&subdomain);
-
-            results.push(SubdomainResult {
-                subdomain,
-                ips,
-                source: EnumerationSource::CertificateTransparency,
-            });
-        }
-
-        Ok(results)
+        // CT logs client temporarily disabled
+        Err("CT logs enumeration not available".to_string())
     }
 
     /// Enumerate subdomains via DNS bruteforce

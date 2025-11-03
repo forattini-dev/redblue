@@ -4,6 +4,26 @@ use crate::storage::encoding::{read_string, read_varu32, write_string, write_var
 use crate::storage::schema::{DnsRecordData, DnsRecordType};
 use crate::storage::segments::utils::StringTable;
 
+fn encode_string_table(table: &StringTable) -> Vec<u8> {
+    let mut buf = Vec::new();
+    write_varu32(&mut buf, table.len() as u32);
+    for value in table.entries() {
+        write_string(&mut buf, value);
+    }
+    buf
+}
+
+fn decode_string_table(bytes: &[u8]) -> Result<StringTable, DecodeError> {
+    let mut pos = 0usize;
+    let count = read_varu32(bytes, &mut pos)? as usize;
+    let mut table = StringTable::new();
+    for _ in 0..count {
+        let value = read_string(bytes, &mut pos)?;
+        table.intern(value);
+    }
+    Ok(table)
+}
+
 #[derive(Debug, Clone)]
 struct Entry {
     domain_id: u32,
@@ -13,10 +33,109 @@ struct Entry {
     timestamp: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct DomainRange {
     start: usize,
     len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DnsDirEntry {
+    domain_id: u32,
+    record_count: u32,
+    payload_offset: u64,
+    payload_len: u64,
+}
+
+impl DnsDirEntry {
+    const SIZE: usize = 4 + 4 + 8 + 8;
+
+    fn write_all(entries: &[Self], buf: &mut Vec<u8>) {
+        for entry in entries {
+            buf.extend_from_slice(&entry.domain_id.to_le_bytes());
+            buf.extend_from_slice(&entry.record_count.to_le_bytes());
+            buf.extend_from_slice(&entry.payload_offset.to_le_bytes());
+            buf.extend_from_slice(&entry.payload_len.to_le_bytes());
+        }
+    }
+
+    fn read_all(bytes: &[u8], count: usize) -> Result<Vec<Self>, DecodeError> {
+        if bytes.len() != count * Self::SIZE {
+            return Err(DecodeError("invalid dns directory size"));
+        }
+        let mut entries = Vec::with_capacity(count);
+        let mut offset = 0usize;
+        for _ in 0..count {
+            let domain_id = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+            offset += 4;
+            let record_count = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+            offset += 4;
+            let payload_offset = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            offset += 8;
+            let payload_len = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            offset += 8;
+            entries.push(Self {
+                domain_id,
+                record_count,
+                payload_offset,
+                payload_len,
+            });
+        }
+        Ok(entries)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DnsSegmentHeader {
+    domain_count: u32,
+    record_count: u32,
+    directory_len: u64,
+    payload_len: u64,
+    strings_len: u64,
+}
+
+impl DnsSegmentHeader {
+    const MAGIC: [u8; 4] = *b"DN01";
+    const VERSION: u16 = 1;
+    const SIZE: usize = 4 + 2 + 2 + 4 + 4 + 8 + 8 + 8;
+
+    fn write(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&Self::MAGIC);
+        buf.extend_from_slice(&Self::VERSION.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes()); // reserved
+        buf.extend_from_slice(&self.domain_count.to_le_bytes());
+        buf.extend_from_slice(&self.record_count.to_le_bytes());
+        buf.extend_from_slice(&self.directory_len.to_le_bytes());
+        buf.extend_from_slice(&self.payload_len.to_le_bytes());
+        buf.extend_from_slice(&self.strings_len.to_le_bytes());
+    }
+
+    fn read(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() < Self::SIZE {
+            return Err(DecodeError("dns header too small"));
+        }
+        if &bytes[0..4] != Self::MAGIC {
+            return Err(DecodeError("invalid dns segment magic"));
+        }
+        let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());
+        if version != Self::VERSION {
+            return Err(DecodeError("unsupported dns segment version"));
+        }
+
+        let domain_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        let record_count = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        let directory_len = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
+        let payload_len = u64::from_le_bytes(bytes[24..32].try_into().unwrap());
+        let strings_len = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+
+        Ok(Self {
+            domain_count,
+            record_count,
+            directory_len,
+            payload_len,
+            strings_len,
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -25,6 +144,12 @@ pub struct DnsSegment {
     records: Vec<Entry>,
     domain_index: HashMap<u32, DomainRange>,
     sorted: bool,
+}
+
+pub struct DnsSegmentView {
+    strings: StringTable,
+    directory: Vec<DnsDirEntry>,
+    payload: Vec<u8>,
 }
 
 impl DnsSegment {
@@ -62,13 +187,13 @@ impl DnsSegment {
             });
 
         self.domain_index.clear();
-        let mut current_domain: Option<u32> = None;
+        let mut current: Option<u32> = None;
         let mut start = 0usize;
         for (idx, entry) in self.records.iter().enumerate() {
-            if current_domain == Some(entry.domain_id) {
+            if current == Some(entry.domain_id) {
                 continue;
             }
-            if let Some(active) = current_domain {
+            if let Some(active) = current {
                 self.domain_index.insert(
                     active,
                     DomainRange {
@@ -80,9 +205,9 @@ impl DnsSegment {
             } else {
                 start = idx;
             }
-            current_domain = Some(entry.domain_id);
+            current = Some(entry.domain_id);
         }
-        if let Some(active) = current_domain {
+        if let Some(active) = current {
             self.domain_index.insert(
                 active,
                 DomainRange {
@@ -139,74 +264,119 @@ impl DnsSegment {
 
     pub fn serialize(&mut self) -> Vec<u8> {
         self.ensure_index();
-        let mut buf = Vec::new();
 
-        write_varu32(&mut buf, self.strings.len() as u32);
-        for value in self.strings.entries() {
-            write_string(&mut buf, value);
+        let mut domain_entries: Vec<(u32, DomainRange)> = self
+            .domain_index
+            .iter()
+            .map(|(id, range)| (*id, *range))
+            .collect();
+        domain_entries.sort_by_key(|(id, _)| *id);
+
+        let mut directory = Vec::with_capacity(domain_entries.len());
+        let mut payload = Vec::new();
+
+        for (domain_id, range) in domain_entries {
+            let start_offset = payload.len() as u64;
+            let records_slice = &self.records[range.start..range.start + range.len];
+
+            let mut block = Vec::new();
+            write_varu32(&mut block, records_slice.len() as u32);
+            for entry in records_slice {
+                block.push(encode_type(entry.record_type));
+                write_varu32(&mut block, entry.value_id);
+                write_varu32(&mut block, entry.ttl);
+                write_varu32(&mut block, entry.timestamp);
+            }
+
+            let block_len = block.len() as u64;
+            payload.extend_from_slice(&block);
+            directory.push(DnsDirEntry {
+                domain_id,
+                record_count: records_slice.len() as u32,
+                payload_offset: start_offset,
+                payload_len: block_len,
+            });
         }
 
-        write_varu32(&mut buf, self.records.len() as u32);
-        for entry in &self.records {
-            write_varu32(&mut buf, entry.domain_id);
-            buf.push(entry.record_type as u8);
-            write_varu32(&mut buf, entry.value_id);
-            write_varu32(&mut buf, entry.ttl);
-            write_varu32(&mut buf, entry.timestamp);
-        }
+        let string_section = encode_string_table(&self.strings);
 
-        write_varu32(&mut buf, self.domain_index.len() as u32);
-        for (domain_id, range) in &self.domain_index {
-            write_varu32(&mut buf, *domain_id);
-            write_varu32(&mut buf, range.start as u32);
-            write_varu32(&mut buf, range.len as u32);
-        }
+        let directory_len = (directory.len() * DnsDirEntry::SIZE) as u64;
+        let payload_len = payload.len() as u64;
+        let strings_len = string_section.len() as u64;
 
+        let header = DnsSegmentHeader {
+            domain_count: directory.len() as u32,
+            record_count: self.records.len() as u32,
+            directory_len,
+            payload_len,
+            strings_len,
+        };
+
+        let mut buf = Vec::with_capacity(
+            DnsSegmentHeader::SIZE + directory_len as usize + payload.len() + string_section.len(),
+        );
+        header.write(&mut buf);
+        DnsDirEntry::write_all(&directory, &mut buf);
+        buf.extend_from_slice(&payload);
+        buf.extend_from_slice(&string_section);
         buf
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let mut pos = 0usize;
-        let string_count = read_varu32(bytes, &mut pos)? as usize;
-        let mut strings = StringTable::new();
-        for _ in 0..string_count {
-            let value = read_string(bytes, &mut pos)?;
-            strings.intern(value);
+        if bytes.len() < DnsSegmentHeader::SIZE {
+            return Err(DecodeError("dns segment too small"));
         }
+        let header = DnsSegmentHeader::read(bytes)?;
 
-        let record_count = read_varu32(bytes, &mut pos)? as usize;
-        let mut records = Vec::with_capacity(record_count);
-        for _ in 0..record_count {
-            let domain_id = read_varu32(bytes, &mut pos)?;
-            let record_type = bytes
-                .get(pos)
-                .copied()
-                .ok_or(DecodeError("unexpected eof (dns type)"))
-                .and_then(decode_type)?;
-            pos += 1;
-            let value_id = read_varu32(bytes, &mut pos)?;
-            let ttl = read_varu32(bytes, &mut pos)?;
-            let timestamp = read_varu32(bytes, &mut pos)?;
-            records.push(Entry {
-                domain_id,
-                value_id,
-                record_type,
-                ttl,
-                timestamp,
-            });
+        let mut offset = DnsSegmentHeader::SIZE;
+        let dir_end = offset
+            .checked_add(header.directory_len as usize)
+            .ok_or(DecodeError("dns directory overflow"))?;
+        if dir_end > bytes.len() {
+            return Err(DecodeError("dns directory out of bounds"));
         }
+        let directory_bytes = &bytes[offset..dir_end];
+        offset = dir_end;
 
-        let index_count = read_varu32(bytes, &mut pos)? as usize;
-        let mut domain_index = HashMap::with_capacity(index_count);
-        for _ in 0..index_count {
-            let domain_id = read_varu32(bytes, &mut pos)?;
-            let start = read_varu32(bytes, &mut pos)?;
-            let len = read_varu32(bytes, &mut pos)?;
+        let payload_end = offset
+            .checked_add(header.payload_len as usize)
+            .ok_or(DecodeError("dns payload overflow"))?;
+        if payload_end > bytes.len() {
+            return Err(DecodeError("dns payload out of bounds"));
+        }
+        let payload_bytes = &bytes[offset..payload_end];
+        offset = payload_end;
+
+        let strings_end = offset
+            .checked_add(header.strings_len as usize)
+            .ok_or(DecodeError("dns string table overflow"))?;
+        if strings_end > bytes.len() {
+            return Err(DecodeError("dns string table out of bounds"));
+        }
+        let strings_bytes = &bytes[offset..strings_end];
+
+        let directory = DnsDirEntry::read_all(directory_bytes, header.domain_count as usize)?;
+        let strings = decode_string_table(strings_bytes)?;
+
+        let mut records = Vec::with_capacity(header.record_count as usize);
+        let mut domain_index = HashMap::with_capacity(directory.len());
+
+        for entry in &directory {
+            let start_index = records.len();
+            let parsed_records = decode_records_block_entries(
+                payload_bytes,
+                entry.payload_offset,
+                entry.payload_len,
+                entry.record_count,
+                entry.domain_id,
+                strings.len(),
+            )?;
+            records.extend(parsed_records);
             domain_index.insert(
-                domain_id,
+                entry.domain_id,
                 DomainRange {
-                    start: start as usize,
-                    len: len as usize,
+                    start: start_index,
+                    len: entry.record_count as usize,
                 },
             );
         }
@@ -217,6 +387,69 @@ impl DnsSegment {
             domain_index,
             sorted: true,
         })
+    }
+}
+
+impl DnsSegmentView {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.len() < DnsSegmentHeader::SIZE {
+            return Err(DecodeError("dns segment too small"));
+        }
+        let header = DnsSegmentHeader::read(bytes)?;
+
+        let mut offset = DnsSegmentHeader::SIZE;
+        let dir_end = offset
+            .checked_add(header.directory_len as usize)
+            .ok_or(DecodeError("dns directory overflow"))?;
+        if dir_end > bytes.len() {
+            return Err(DecodeError("dns directory out of bounds"));
+        }
+        let directory_bytes = &bytes[offset..dir_end];
+        offset = dir_end;
+
+        let payload_end = offset
+            .checked_add(header.payload_len as usize)
+            .ok_or(DecodeError("dns payload overflow"))?;
+        if payload_end > bytes.len() {
+            return Err(DecodeError("dns payload out of bounds"));
+        }
+        let payload_bytes = &bytes[offset..payload_end];
+        offset = payload_end;
+
+        let strings_end = offset
+            .checked_add(header.strings_len as usize)
+            .ok_or(DecodeError("dns string table overflow"))?;
+        if strings_end > bytes.len() {
+            return Err(DecodeError("dns string table out of bounds"));
+        }
+        let strings_bytes = &bytes[offset..strings_end];
+
+        let directory = DnsDirEntry::read_all(directory_bytes, header.domain_count as usize)?;
+        let strings = decode_string_table(strings_bytes)?;
+
+        Ok(Self {
+            strings,
+            directory,
+            payload: payload_bytes.to_vec(),
+        })
+    }
+
+    pub fn records_for_domain(&self, domain: &str) -> Result<Vec<DnsRecordData>, DecodeError> {
+        let Some(domain_id) = self.strings.get_id(domain) else {
+            return Ok(Vec::new());
+        };
+        let Some(entry) = self.directory.iter().find(|dir| dir.domain_id == domain_id) else {
+            return Ok(Vec::new());
+        };
+
+        decode_records_block_data(
+            &self.payload,
+            entry.payload_offset,
+            entry.payload_len,
+            entry.record_count,
+            domain,
+            &self.strings,
+        )
     }
 }
 
@@ -244,6 +477,17 @@ impl<'a> Iterator for DnsIter<'a> {
     }
 }
 
+fn encode_type(record_type: DnsRecordType) -> u8 {
+    match record_type {
+        DnsRecordType::A => 1,
+        DnsRecordType::AAAA => 2,
+        DnsRecordType::MX => 3,
+        DnsRecordType::NS => 4,
+        DnsRecordType::TXT => 5,
+        DnsRecordType::CNAME => 6,
+    }
+}
+
 fn decode_type(byte: u8) -> Result<DnsRecordType, DecodeError> {
     match byte {
         1 => Ok(DnsRecordType::A),
@@ -254,6 +498,104 @@ fn decode_type(byte: u8) -> Result<DnsRecordType, DecodeError> {
         6 => Ok(DnsRecordType::CNAME),
         _ => Err(DecodeError("invalid dns record type")),
     }
+}
+
+fn decode_records_block_entries(
+    payload: &[u8],
+    offset: u64,
+    length: u64,
+    expected_count: u32,
+    domain_id: u32,
+    string_count: usize,
+) -> Result<Vec<Entry>, DecodeError> {
+    let mut cursor = offset as usize;
+    let end = cursor + length as usize;
+    if end > payload.len() {
+        return Err(DecodeError("dns payload slice out of bounds"));
+    }
+
+    let count = read_varu32(payload, &mut cursor)? as usize;
+    if count as u32 != expected_count {
+        return Err(DecodeError("dns record count mismatch"));
+    }
+
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        let record_type_byte = payload
+            .get(cursor)
+            .copied()
+            .ok_or(DecodeError("unexpected eof (dns type)"))?;
+        cursor += 1;
+        let record_type = decode_type(record_type_byte)?;
+        let value_id = read_varu32(payload, &mut cursor)?;
+        if (value_id as usize) >= string_count {
+            return Err(DecodeError("dns value id out of range"));
+        }
+        let ttl = read_varu32(payload, &mut cursor)?;
+        let timestamp = read_varu32(payload, &mut cursor)?;
+        records.push(Entry {
+            domain_id,
+            value_id,
+            record_type,
+            ttl,
+            timestamp,
+        });
+    }
+
+    if cursor != end {
+        return Err(DecodeError("dns payload length mismatch"));
+    }
+
+    Ok(records)
+}
+
+fn decode_records_block_data(
+    payload: &[u8],
+    offset: u64,
+    length: u64,
+    expected_count: u32,
+    domain: &str,
+    strings: &StringTable,
+) -> Result<Vec<DnsRecordData>, DecodeError> {
+    let mut cursor = offset as usize;
+    let end = cursor + length as usize;
+    if end > payload.len() {
+        return Err(DecodeError("dns payload slice out of bounds"));
+    }
+
+    let count = read_varu32(payload, &mut cursor)? as usize;
+    if count as u32 != expected_count {
+        return Err(DecodeError("dns record count mismatch"));
+    }
+
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        let record_type_byte = payload
+            .get(cursor)
+            .copied()
+            .ok_or(DecodeError("unexpected eof (dns type)"))?;
+        cursor += 1;
+        let record_type = decode_type(record_type_byte)?;
+        let value_id = read_varu32(payload, &mut cursor)?;
+        if (value_id as usize) >= strings.len() {
+            return Err(DecodeError("dns value id out of range"));
+        }
+        let ttl = read_varu32(payload, &mut cursor)?;
+        let timestamp = read_varu32(payload, &mut cursor)?;
+        records.push(DnsRecordData {
+            domain: domain.to_string(),
+            record_type,
+            value: strings.get(value_id).to_string(),
+            ttl,
+            timestamp,
+        });
+    }
+
+    if cursor != end {
+        return Err(DecodeError("dns payload length mismatch"));
+    }
+
+    Ok(records)
 }
 
 #[cfg(test)]
@@ -281,11 +623,10 @@ mod tests {
             domain: "other.org".into(),
             record_type: DnsRecordType::AAAA,
             value: "2001:db8::1".into(),
-            ttl: 1200,
+            ttl: 1_200,
             timestamp: 1_700_000_200,
         });
 
-        // Query before serialization
         let mut before = segment.clone();
         let example_records = before.records_for_domain("example.com");
         assert_eq!(example_records.len(), 2);
@@ -293,9 +634,7 @@ mod tests {
             .iter()
             .any(|r| matches!(r.record_type, DnsRecordType::MX)));
 
-        // Round-trip through bytes
-        let mut to_encode = segment.clone();
-        let bytes = to_encode.serialize();
+        let bytes = segment.serialize();
         let mut decoded = DnsSegment::deserialize(&bytes).expect("decode dns segment");
         let all = decoded.iter_mut().collect::<Vec<_>>();
         assert_eq!(all.len(), 3);
@@ -303,5 +642,42 @@ mod tests {
         let other = decoded.records_for_domain("other.org");
         assert_eq!(other.len(), 1);
         assert_eq!(other[0].value, "2001:db8::1");
+    }
+
+    #[test]
+    fn dns_segment_view_direct_access() {
+        let mut segment = DnsSegment::new();
+        segment.insert(DnsRecordData {
+            domain: "example.com".into(),
+            record_type: DnsRecordType::A,
+            value: "93.184.216.34".into(),
+            ttl: 300,
+            timestamp: 1_700_000_000,
+        });
+        segment.insert(DnsRecordData {
+            domain: "example.com".into(),
+            record_type: DnsRecordType::TXT,
+            value: "v=spf1 -all".into(),
+            ttl: 1800,
+            timestamp: 1_700_000_500,
+        });
+        segment.insert(DnsRecordData {
+            domain: "api.example.com".into(),
+            record_type: DnsRecordType::CNAME,
+            value: "lb.example.net".into(),
+            ttl: 400,
+            timestamp: 1_700_001_000,
+        });
+
+        let bytes = segment.serialize();
+        let view = DnsSegmentView::from_bytes(&bytes).expect("view");
+
+        let records = view.records_for_domain("example.com").expect("records");
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|r| r.value == "v=spf1 -all"));
+
+        let api_records = view.records_for_domain("api.example.com").expect("records");
+        assert_eq!(api_records.len(), 1);
+        assert_eq!(api_records[0].record_type, DnsRecordType::CNAME);
     }
 }

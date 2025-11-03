@@ -7,7 +7,7 @@ use crate::storage::encoding::DecodeError;
 use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
 use crate::storage::schema::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, SubdomainRecord,
-    SubdomainSource, TlsCertRecord, WhoisRecord,
+    SubdomainSource, TlsScanRecord, WhoisRecord,
 };
 use crate::storage::segments::hosts::HostSegment;
 use crate::storage::segments::ports::PortSegment;
@@ -219,11 +219,11 @@ impl Database {
         self.dirty = true;
     }
 
-    pub fn host_record(&self, ip: IpAddr) -> Option<HostIntelRecord> {
+    pub fn host_record(&mut self, ip: IpAddr) -> Option<HostIntelRecord> {
         self.hosts.get(ip)
     }
 
-    pub fn all_hosts(&self) -> Vec<HostIntelRecord> {
+    pub fn all_hosts(&mut self) -> Vec<HostIntelRecord> {
         self.hosts.all()
     }
 
@@ -266,32 +266,17 @@ impl Database {
         self.whois.get(domain)
     }
 
-    pub fn insert_tls(
-        &mut self,
-        domain: &str,
-        issuer: &str,
-        subject: &str,
-        not_before: u32,
-        not_after: u32,
-        sans: Vec<String>,
-        self_signed: bool,
-        timestamp: u32,
-    ) {
-        self.tls.insert(
-            domain,
-            issuer,
-            subject,
-            not_before,
-            not_after,
-            sans,
-            self_signed,
-            timestamp,
-        );
+    pub fn insert_tls_scan(&mut self, record: TlsScanRecord) {
+        self.tls.insert(record);
         self.dirty = true;
     }
 
-    pub fn get_tls(&self, domain: &str) -> Option<TlsCertRecord> {
-        self.tls.get(domain)
+    pub fn tls_scans_for_host(&self, host: &str) -> Vec<TlsScanRecord> {
+        self.tls.scans_for_host(host)
+    }
+
+    pub fn tls_scans(&self) -> impl Iterator<Item = TlsScanRecord> + '_ {
+        self.tls.iter()
     }
 
     pub fn insert_dns(&mut self, record: DnsRecordData) {
@@ -313,7 +298,7 @@ impl Database {
     }
 
     pub fn http_records(&mut self) -> impl Iterator<Item = HttpHeadersRecord> + '_ {
-        self.http.iter_mut()
+        self.http.iter()
     }
 
     pub fn http_for_host(&mut self, host: &str) -> Vec<HttpHeadersRecord> {
@@ -322,10 +307,6 @@ impl Database {
 
     pub fn whois_records(&self) -> impl Iterator<Item = WhoisRecord> + '_ {
         self.whois.iter()
-    }
-
-    pub fn tls_records(&self) -> impl Iterator<Item = TlsCertRecord> + '_ {
-        self.tls.iter()
     }
 }
 

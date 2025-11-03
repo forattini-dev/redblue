@@ -10,7 +10,7 @@ pub mod validator;
 
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CliContext {
     /// Full argument vector after `rb`
     pub raw: Vec<String>,
@@ -26,6 +26,23 @@ pub struct CliContext {
     pub args: Vec<String>,
     /// Parsed flags (`--flag=value`, `-f value`, etc.)
     pub flags: HashMap<String, String>,
+    /// YAML config from .redblue.yaml (if exists)
+    pub config: Option<crate::config::yaml::YamlConfig>,
+}
+
+impl Default for CliContext {
+    fn default() -> Self {
+        Self {
+            raw: Vec::new(),
+            domain: None,
+            resource: None,
+            verb: None,
+            target: None,
+            args: Vec::new(),
+            flags: HashMap::new(),
+            config: None,
+        }
+    }
 }
 
 impl CliContext {
@@ -33,12 +50,69 @@ impl CliContext {
         Self::default()
     }
 
+    /// Get flag value with fallback to YAML config
+    /// Priority: CLI flag > YAML command config > global YAML
     pub fn get_flag(&self, key: &str) -> Option<&String> {
-        self.flags.get(key)
+        // 1. Check CLI flags first
+        if let Some(value) = self.flags.get(key) {
+            return Some(value);
+        }
+
+        // 2. Check YAML command-specific config
+        if let Some(config) = &self.config {
+            let domain = self.domain.as_deref().unwrap_or("");
+            let resource = self.resource.as_deref().unwrap_or("");
+            let verb = self.verb.as_deref().unwrap_or("");
+
+            if let Some(value) = config.get_command_flag(domain, resource, verb, key) {
+                // HACK: We need to return &String but we own value
+                // This is a limitation of the current API - ideally would return Option<String>
+                // For now, store in flags as cache
+                return None; // Will be handled by get_flag_with_config
+            }
+        }
+
+        None
     }
 
+    /// Check if flag is set (CLI or YAML)
     pub fn has_flag(&self, key: &str) -> bool {
-        self.flags.contains_key(key)
+        // Check CLI flags
+        if self.flags.contains_key(key) {
+            return true;
+        }
+
+        // Check YAML config
+        if let Some(config) = &self.config {
+            let domain = self.domain.as_deref().unwrap_or("");
+            let resource = self.resource.as_deref().unwrap_or("");
+            let verb = self.verb.as_deref().unwrap_or("");
+
+            config.has_command_flag(domain, resource, verb, key)
+        } else {
+            false
+        }
+    }
+
+    /// Get flag value with config fallback (returns owned String)
+    pub fn get_flag_with_config(&self, key: &str) -> Option<String> {
+        // 1. Check CLI flags first
+        if let Some(value) = self.flags.get(key) {
+            return Some(value.clone());
+        }
+
+        // 2. Check YAML command-specific config
+        if let Some(config) = &self.config {
+            let domain = self.domain.as_deref().unwrap_or("");
+            let resource = self.resource.as_deref().unwrap_or("");
+            let verb = self.verb.as_deref().unwrap_or("");
+
+            if let Some(value) = config.get_command_flag(domain, resource, verb, key) {
+                return Some(value);
+            }
+        }
+
+        None
     }
 
     pub fn get_flag_or(&self, key: &str, default: &str) -> String {

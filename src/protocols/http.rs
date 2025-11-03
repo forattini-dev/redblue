@@ -5,8 +5,8 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-// use super::https::HttpsConnection; // Temporarily disabled
 use crate::config;
+use crate::modules::network::tls::{TlsConfig, TlsStream};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scheme {
     Http,
@@ -318,8 +318,32 @@ impl HttpClient {
         self.send(&request)
     }
 
-    fn send_https(&self, _request: &HttpRequest) -> Result<HttpResponse, String> {
-        Err("HTTPS temporarily disabled - TLS implementation incomplete".to_string())
+    fn send_https(&self, request: &HttpRequest) -> Result<HttpResponse, String> {
+        // Create TLS configuration
+        let tls_config = TlsConfig::default().with_timeout(self.timeout);
+
+        // Apply request delay if configured
+        if self.request_delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(self.request_delay_ms));
+        }
+
+        // Connect with TLS
+        let mut tls_stream = TlsStream::connect(request.host(), request.port(), tls_config)
+            .map_err(|e| format!("TLS connection failed: {}", e))?;
+
+        // Send HTTP request over TLS
+        let request_bytes = request.to_bytes();
+        tls_stream
+            .write_all(&request_bytes)
+            .map_err(|e| format!("Failed to write HTTPS request: {}", e))?;
+
+        // Read response (pre-allocate 16KB buffer for typical responses)
+        let mut buffer = Vec::with_capacity(16384);
+        tls_stream
+            .read_to_end(&mut buffer)
+            .map_err(|e| format!("Failed to read HTTPS response: {}", e))?;
+
+        HttpResponse::from_bytes(&buffer)
     }
 }
 

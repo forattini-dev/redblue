@@ -5,7 +5,7 @@
 ///
 /// This implements AES-GCM authenticated encryption WITHOUT external dependencies.
 /// Only uses Rust std library and our own AES implementation.
-use super::crypto::Aes128;
+// use super::crypto::Aes128; // FIXME: Old stub, use crate::crypto instead
 
 /// GHASH function for GCM mode
 /// Implements multiplication in GF(2^128)

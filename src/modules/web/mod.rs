@@ -15,8 +15,10 @@ pub mod fingerprinter;
 pub mod fuzzer;
 pub mod headers;
 pub mod linkfinder;
+#[path = "scanner-strategy.rs"]
 pub mod scanner_strategy;
 pub mod strategies;
+#[path = "vuln-scanner.rs"]
 pub mod vuln_scanner;
 
 // Re-export commonly used types

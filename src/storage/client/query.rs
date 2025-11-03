@@ -1,76 +1,148 @@
-// Query interface for RedDB - RESTful operations
+// Query interface for RedDb - RESTful operations
 // Provides list, get, describe, delete operations on stored data
 
-use crate::storage::reddb::RedDb;
+use crate::storage::encoding::{DecodeError, IpKey};
 use crate::storage::schema::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, TlsCertRecord, WhoisRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, TlsScanRecord, WhoisRecord,
 };
+use crate::storage::view::RedDbView;
 use std::io;
 use std::net::IpAddr;
 use std::path::Path;
 
 /// Query interface for reading stored scan data
 pub struct QueryManager {
-    db: RedDb,
+    view: RedDbView,
 }
 
 impl QueryManager {
     /// Open database for querying
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        let view = RedDbView::open(path)?;
+
         Ok(Self {
-            db: RedDb::open(path)?,
+            view,
         })
     }
 
     /// List all open ports for a specific IP
     pub fn list_ports(&mut self, ip: IpAddr) -> io::Result<Vec<u16>> {
-        self.db.get_open_ports(ip)
+        if let Some(ports) = self.view.ports() {
+            let records = ports.records_for_ip(&ip).map_err(decode_err_to_io)?;
+            let mut open: Vec<u16> = records
+                .into_iter()
+                .filter(|rec| matches!(rec.status, PortStatus::Open))
+                .map(|rec| rec.port)
+                .collect();
+            open.sort_unstable();
+            open.dedup();
+            return Ok(open);
+        }
+        Ok(Vec::new())
     }
 
     /// List all subdomains for a domain
     pub fn list_subdomains(&mut self, domain: &str) -> io::Result<Vec<String>> {
-        self.db.get_subdomains(domain)
+        if let Some(subdomains) = self.view.subdomains() {
+            let records = subdomains
+                .records_for_domain(domain)
+                .map_err(decode_err_to_io)?;
+            let mut values: Vec<String> =
+                records.into_iter().map(|record| record.subdomain).collect();
+            values.sort();
+            values.dedup();
+            return Ok(values);
+        }
+
+        Ok(Vec::new())
     }
 
     /// List all DNS records for a domain
     pub fn list_dns_records(&mut self, domain: &str) -> io::Result<Vec<DnsRecordData>> {
-        self.db.get_dns_records(domain)
+        if let Some(dns) = self.view.dns() {
+            let records = dns.records_for_domain(domain).map_err(decode_err_to_io)?;
+            return Ok(records);
+        }
+        Ok(Vec::new())
     }
 
     /// List all HTTP records for a host
     pub fn list_http_records(&mut self, host: &str) -> io::Result<Vec<HttpHeadersRecord>> {
-        self.db.get_http_by_host(host)
+        if let Some(http) = self.view.http() {
+            let mut records = http.records_for_host(host).map_err(decode_err_to_io)?;
+            records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            return Ok(records);
+        }
+        Ok(Vec::new())
     }
 
     /// Get WHOIS data for a specific domain
     pub fn get_whois(&mut self, domain: &str) -> io::Result<Option<WhoisRecord>> {
-        self.db.get_whois(domain)
-    }
-
-    /// Get TLS certificate for a domain
-    pub fn get_cert(&mut self, domain: &str) -> io::Result<Option<TlsCertRecord>> {
-        self.db.get_cert(domain)
+        if let Some(whois) = self.view.whois() {
+            return whois.get(domain).map_err(decode_err_to_io);
+        }
+        Ok(None)
     }
 
     /// Get specific port status
     pub fn get_port_status(&mut self, ip: IpAddr, port: u16) -> io::Result<Option<PortStatus>> {
-        let open_ports = self.db.get_open_ports(ip)?;
-        Ok(if open_ports.contains(&port) {
-            Some(PortStatus::Open)
-        } else {
-            None
-        })
+        if let Some(ports) = self.view.ports() {
+            let records = ports.records_for_ip(&ip).map_err(decode_err_to_io)?;
+            for record in records {
+                if record.port == port {
+                    return Ok(Some(record.status));
+                }
+            }
+            return Ok(None);
+        }
+        Ok(None)
     }
 
     /// Get stored host fingerprint
     pub fn get_host_fingerprint(&mut self, ip: IpAddr) -> io::Result<Option<HostIntelRecord>> {
-        self.db.get_host_fingerprint(ip)
+        if let Some(hosts) = self.view.hosts() {
+            return hosts
+                .get(ip)
+                .map_err(decode_err_to_io);
+        }
+        Ok(None)
     }
 
     /// List all stored host fingerprints
     pub fn list_hosts(&mut self) -> io::Result<Vec<HostIntelRecord>> {
-        self.db.list_host_fingerprints()
+        if let Some(hosts) = self.view.hosts() {
+            let mut records = hosts
+                .all()
+                .map_err(decode_err_to_io)?;
+            records.sort_by(|a, b| IpKey::from(&a.ip).cmp(&IpKey::from(&b.ip)));
+            return Ok(records);
+        }
+        Ok(Vec::new())
     }
+
+    /// List TLS scans for a given host
+    pub fn list_tls_scans(&mut self, host: &str) -> io::Result<Vec<TlsScanRecord>> {
+        if let Some(tls) = self.view.tls() {
+            let mut scans = tls.records_for_host(host).map_err(decode_err_to_io)?;
+            scans.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            return Ok(scans);
+        }
+        Ok(Vec::new())
+    }
+
+    /// Get the most recent TLS scan for a host
+    pub fn latest_tls_scan(&mut self, host: &str) -> io::Result<Option<TlsScanRecord>> {
+        if let Some(tls) = self.view.tls() {
+            let mut scans = tls.records_for_host(host).map_err(decode_err_to_io)?;
+            scans.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            return Ok(scans.into_iter().next());
+        }
+        Ok(None)
+    }
+}
+
+fn decode_err_to_io(err: DecodeError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, err.0)
 }
 
 /// Format helpers for displaying query results
@@ -122,30 +194,6 @@ pub mod format {
                 .nameservers
                 .iter()
                 .map(|ns| format!("  • {}", ns))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    }
-
-    pub fn format_cert(record: &TlsCertRecord) -> String {
-        format!(
-            "TLS Certificate\n\
-             ━━━━━━━━━━━━━━━\n\
-             Subject:     {}\n\
-             Issuer:      {}\n\
-             Not Before:  {}\n\
-             Not After:   {}\n\
-             Self-Signed: {}\n\
-             SANs:\n{}",
-            record.subject,
-            record.issuer,
-            record.not_before,
-            record.not_after,
-            if record.self_signed { "Yes" } else { "No" },
-            record
-                .sans
-                .iter()
-                .map(|san| format!("  • {}", san))
                 .collect::<Vec<_>>()
                 .join("\n")
         )
@@ -210,13 +258,13 @@ mod tests {
     use std::net::Ipv4Addr;
 
     #[test]
-    fn test_query_manager() {
-        // Integration test would require actual database file
-        // For now, just test that the API compiles
+    fn query_manager_compiles() {
+        // Placeholder to ensure module compiles; integration tests live elsewhere.
+        let _ = QueryManager::open("/tmp/non-existent.rdb");
     }
 
     #[test]
-    fn test_format_ports() {
+    fn format_ports_output() {
         let ports = vec![22, 80, 443];
         let formatted = format::format_ports(&ports);
         assert!(formatted.contains("Open Ports (3)"));
@@ -226,9 +274,15 @@ mod tests {
     }
 
     #[test]
-    fn test_format_empty_ports() {
-        let ports = vec![];
-        let formatted = format::format_ports(&ports);
-        assert_eq!(formatted, "No open ports found");
+    fn format_host_output() {
+        let record = HostIntelRecord {
+            ip: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            os_family: Some("linux".into()),
+            confidence: 0.85,
+            last_seen: 1_700_000_000,
+            services: Vec::new(),
+        };
+        let formatted = format::format_host(&record);
+        assert!(formatted.contains("linux"));
     }
 }

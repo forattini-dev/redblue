@@ -8,9 +8,12 @@ use crate::modules::web::fingerprinter::WebFingerprinter;
 use crate::modules::web::fuzzer::{DirectoryFuzzer, Wordlists};
 use crate::modules::web::linkfinder::{EndpointType, LinkFinder};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
-use crate::protocols::http::HttpClient;
-use crate::protocols::tls_cert::TlsClient;
+use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
+use crate::storage::client::{PersistenceManager, QueryManager};
+// use crate::protocols::tls_cert::TlsClient; // Use modules::network::tls instead
+use crate::storage::schema::HttpHeadersRecord;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod scanning;
 
@@ -106,6 +109,17 @@ impl Command for WebCommand {
                 summary: "Launch a lightweight crawler (coming soon)",
                 usage: "rb web asset crawl <url>",
             },
+            // RESTful verbs - query stored data
+            Route {
+                verb: "list",
+                summary: "List all saved HTTP data for a host from database",
+                usage: "rb web asset list <host> [--db <file>]",
+            },
+            Route {
+                verb: "describe",
+                summary: "Get detailed HTTP summary from database",
+                usage: "rb web asset describe <host> [--db <file>]",
+            },
         ]
     }
 
@@ -141,6 +155,13 @@ impl Command for WebCommand {
                 "intel",
                 "Perform HTTP server fingerprinting and intelligence gathering",
             ),
+            Flag::new("persist", "Save results to binary database (.rdb file)"),
+            Flag::new("no-persist", "Don't save results (overrides config)"),
+            Flag::new(
+                "db",
+                "Database file path for RESTful queries (default: auto-detect)",
+            )
+            .with_short('d'),
         ]
     }
 
@@ -196,6 +217,9 @@ impl Command for WebCommand {
             "cms-scan" => self.cms_scan(ctx),
             "linkfinder" => self.linkfinder(ctx),
             "crawl" => self.crawl(ctx),
+            // RESTful verbs
+            "list" => self.list_http(ctx),
+            "describe" => self.describe_http(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
@@ -257,6 +281,28 @@ impl Command for WebCommand {
 // }
 
 impl WebCommand {
+    /// Extract host from URL for database naming
+    fn extract_host(url: &str) -> String {
+        // Parse URL to get host
+        if let Some(host_start) = url.find("://") {
+            let after_protocol = &url[host_start + 3..];
+            if let Some(path_start) = after_protocol.find('/') {
+                after_protocol[..path_start].to_string()
+            } else {
+                after_protocol.to_string()
+            }
+        } else {
+            url.to_string()
+        }
+    }
+
+    fn current_timestamp() -> u32 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+            .as_secs() as u32
+    }
+
     fn guard_plain_http(_url: &str, _command: &str) -> Result<(), String> {
         // HTTPS supported via native TLS 1.2 client
         Ok(())
@@ -273,13 +319,14 @@ impl WebCommand {
         let format = ctx.get_output_format();
 
         let client = HttpClient::new();
+        let request = HttpRequest::get(url);
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Sending request");
         }
 
         let response = client
-            .get(url)
+            .send(&request)
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if format == crate::cli::format::OutputFormat::Human {
@@ -302,6 +349,7 @@ impl WebCommand {
             }
             println!("  }}");
             println!("}}");
+            self.maybe_persist_http(ctx, url, &request, &response)?;
             return Ok(());
         }
 
@@ -315,6 +363,7 @@ impl WebCommand {
             for (key, value) in &response.headers {
                 println!("  {}: \"{}\"", key, value.replace('"', "\\\""));
             }
+            self.maybe_persist_http(ctx, url, &request, &response)?;
             return Ok(());
         }
 
@@ -335,6 +384,8 @@ impl WebCommand {
         for (key, value) in &response.headers {
             Output::item(key, value);
         }
+
+        self.maybe_persist_http(ctx, url, &request, &response)?;
 
         // HTTP server intelligence gathering
         if ctx.has_flag("intel") {
@@ -412,13 +463,14 @@ impl WebCommand {
         let format = ctx.get_output_format();
 
         let client = HttpClient::new();
+        let request = HttpRequest::get(url);
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Fetching headers");
         }
 
         let response = client
-            .get(url)
+            .send(&request)
             .map_err(|e| format!("Request failed: {}", e))?;
 
         if format == crate::cli::format::OutputFormat::Human {
@@ -441,6 +493,7 @@ impl WebCommand {
             }
             println!("  }}");
             println!("}}");
+            self.maybe_persist_http(ctx, url, &request, &response)?;
             return Ok(());
         }
 
@@ -454,6 +507,7 @@ impl WebCommand {
             for (key, value) in &response.headers {
                 println!("  {}: \"{}\"", key, value.replace('"', "\\\""));
             }
+            self.maybe_persist_http(ctx, url, &request, &response)?;
             return Ok(());
         }
 
@@ -475,6 +529,8 @@ impl WebCommand {
 
         println!();
         Output::success(&format!("Found {} headers", response.headers.len()));
+
+        self.maybe_persist_http(ctx, url, &request, &response)?;
 
         Ok(())
     }
@@ -501,6 +557,49 @@ impl WebCommand {
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_done();
+        }
+
+        // Database persistence
+        let persist_flag = if ctx.has_flag("persist") {
+            Some(true)
+        } else if ctx.has_flag("no-persist") {
+            Some(false)
+        } else {
+            None
+        };
+
+        let host = Self::extract_host(url);
+        let mut pm = PersistenceManager::new(&host, persist_flag)?;
+
+        // Save security audit to database
+        if pm.is_enabled() {
+            let record = HttpHeadersRecord {
+                host: host.clone(),
+                url: url.to_string(),
+                method: "GET".to_string(),
+                scheme: if url.starts_with("https://") {
+                    "https".to_string()
+                } else {
+                    "http".to_string()
+                },
+                http_version: "HTTP/1.1".to_string(),
+                status_code: response.status_code,
+                status_text: response.status_text.clone(),
+                server: response.headers.get("server").map(|s| s.to_string()),
+                body_size: response.body.len() as u32,
+                headers: response
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                timestamp: 0, // Will be set by PersistenceManager
+            };
+
+            if let Err(e) = pm.add_http_capture(record) {
+                eprintln!("Warning: Failed to save security audit to database: {}", e);
+            } else if format == crate::cli::format::OutputFormat::Human {
+                Output::success(&format!("✓ Saved to {}.rdb", host));
+            }
         }
 
         let security_headers = vec![
@@ -540,6 +639,7 @@ impl WebCommand {
             }
             println!("  ]");
             println!("}}");
+            // Already persisted above
             return Ok(());
         }
 
@@ -560,6 +660,7 @@ impl WebCommand {
                     println!("    value: null");
                 }
             }
+            // Already persisted above
             return Ok(());
         }
 
@@ -582,408 +683,73 @@ impl WebCommand {
             println!();
         }
 
+        // Already persisted above
+
         Ok(())
     }
 
-    fn cert(&self, ctx: &CliContext) -> Result<(), String> {
-        let host = ctx.target.as_ref().ok_or(
-            "Missing host. Usage: rb web asset cert <HOST[:PORT]> Example: rb web asset cert example.com:443",
-        )?;
+    fn maybe_persist_http(
+        &self,
+        ctx: &CliContext,
+        url: &str,
+        request: &HttpRequest,
+        response: &HttpResponse,
+    ) -> Result<(), String> {
+        let persist_flag = if ctx.has_flag("persist") {
+            Some(true)
+        } else if ctx.has_flag("no-persist") {
+            Some(false)
+        } else {
+            None
+        };
 
-        let mut parts = host.split(':');
-        let hostname = parts.next().unwrap_or(host);
-        let port = parts
-            .next()
-            .unwrap_or("443")
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port in host '{}'", host))?;
+        let host = request.host().to_string();
+        let mut pm = PersistenceManager::new(&host, persist_flag)?;
 
-        let format = ctx.get_output_format();
+        if pm.is_enabled() {
+            let scheme = if request.is_https() { "https" } else { "http" };
+            let server_header = response
+                .headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("server"))
+                .map(|(_, value)| value.clone());
+            let headers = response
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
 
-        let client = TlsClient::new();
-
-        if format == crate::cli::format::OutputFormat::Human {
-            Output::spinner_start("Fetching certificate");
-        }
-
-        let cert = client.get_certificate(hostname, port)?;
-
-        if format == crate::cli::format::OutputFormat::Human {
-            Output::spinner_done();
-        }
-
-        // JSON output
-        if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"host\": \"{}\",", hostname);
-            println!("  \"port\": {},", port);
-            println!("  \"certificate\": {{");
-            println!(
-                "    \"subject\": \"{}\",",
-                cert.subject.replace('"', "\\\"")
-            );
-            println!("    \"issuer\": \"{}\",", cert.issuer.replace('"', "\\\""));
-            println!("    \"valid_from\": \"{}\",", cert.valid_from);
-            println!("    \"valid_until\": \"{}\",", cert.valid_until);
-            println!("    \"serial_number\": \"{}\",", cert.serial_number);
-            println!(
-                "    \"signature_algorithm\": \"{}\",",
-                cert.signature_algorithm
-            );
-            println!(
-                "    \"public_key_algorithm\": \"{}\",",
-                cert.public_key_algorithm
-            );
-            println!("    \"version\": {},", cert.version);
-            println!("    \"san\": [");
-            for (i, san) in cert.san.iter().enumerate() {
-                let comma = if i < cert.san.len() - 1 { "," } else { "" };
-                println!("      \"{}\"{}", san, comma);
-            }
-            println!("    ],");
-
-            // Calculate status
-            // TODO: Implement proper certificate validation when TLS is complete
-            let status = "unknown";
-
-            println!("    \"status\": \"{}\"", status);
-            println!("  }}");
-            println!("}}");
-            return Ok(());
-        }
-
-        // YAML output
-        if format == crate::cli::format::OutputFormat::Yaml {
-            println!("host: {}", hostname);
-            println!("port: {}", port);
-            println!("certificate:");
-            println!("  subject: {}", cert.subject);
-            println!("  issuer: {}", cert.issuer);
-            println!("  valid_from: {}", cert.valid_from);
-            println!("  valid_until: {}", cert.valid_until);
-            println!("  serial_number: {}", cert.serial_number);
-            println!("  signature_algorithm: {}", cert.signature_algorithm);
-            println!("  public_key_algorithm: {}", cert.public_key_algorithm);
-            println!("  version: {}", cert.version);
-            println!("  san:");
-            for san in &cert.san {
-                println!("    - {}", san);
-            }
-
-            let expired = TlsClient::is_expired(&cert);
-            let not_yet_valid = TlsClient::is_not_yet_valid(&cert);
-            let status = if expired {
-                "expired"
-            } else if not_yet_valid {
-                "not_yet_valid"
-            } else {
-                "valid"
+            let record = HttpHeadersRecord {
+                host: host.clone(),
+                url: url.to_string(),
+                method: request.method.clone(),
+                scheme: scheme.to_string(),
+                http_version: request.version.clone(),
+                status_code: response.status_code,
+                status_text: response.status_text.clone(),
+                server: server_header,
+                body_size: response.body.len().min(u32::MAX as usize) as u32,
+                headers,
+                timestamp: Self::current_timestamp(),
             };
-            println!("  status: {}", status);
-            return Ok(());
+
+            pm.add_http_capture(record)?;
+            if let Some(path) = pm.commit()? {
+                Output::success(&format!("Results saved to {}", path.display()));
+            }
         }
-
-        // Human output
-        Output::header("TLS Certificate Inspection");
-        Output::item("Host", hostname);
-        Output::item("Port", &port.to_string());
-        println!();
-
-        // TODO: Disabled until TLS is fixed
-        // render_certificate_summary("Certificate", &cert);
-        Output::warning("Certificate summary temporarily disabled");
-
-        println!();
-        Output::success("Certificate inspection completed");
 
         Ok(())
     }
 
-    //     fn tls_audit(&self, ctx: &CliContext) -> Result<(), String> {
-    //         let host = ctx.target.as_ref().ok_or(
-    //             "Missing host. Usage: rb web asset tls-audit <HOST[:PORT]> Example: rb web asset tls-audit example.com",
-    //         )?;
-    //
-    //         let mut parts = host.split(':');
-    //         let hostname = parts.next().unwrap_or(host);
-    //         let port = parts
-    //             .next()
-    //             .unwrap_or("443")
-    //             .parse::<u16>()
-    //             .map_err(|_| format!("Invalid port in host '{}'", host))?;
-    //
-    //         let format = ctx.get_output_format();
-    //
-    //         let auditor = TlsAuditor::new();
-    //
-    //         if format == crate::cli::format::OutputFormat::Human {
-    //             Output::spinner_start("Running TLS security audit");
-    //         }
-    //
-    //         let result = auditor.audit(hostname, port)?;
-    //
-    //         if format == crate::cli::format::OutputFormat::Human {
-    //             Output::spinner_done();
-    //         }
-    //
-    //         // JSON output
-    //         if format == crate::cli::format::OutputFormat::Json {
-    //             println!("{{");
-    //             println!("  \"host\": \"{}\",", hostname);
-    //             println!("  \"port\": {},", port);
-    //             println!("  \"certificate_valid\": {},", result.certificate_valid);
-    //
-    //             // TLS versions
-    //             println!("  \"tls_versions\": [");
-    //             for (i, version) in result.supported_versions.iter().enumerate() {
-    //                 let comma = if i < result.supported_versions.len() - 1 {
-    //                     ","
-    //                 } else {
-    //                     ""
-    //                 };
-    //                 println!("    {{");
-    //                 println!("      \"version\": \"{}\",", version.version);
-    //                 println!("      \"supported\": {}", version.supported);
-    //                 if let Some(ref error) = version.error {
-    //                     let error_escaped = error.replace('\\', "\\\\").replace('"', "\\\"");
-    //                     println!("      ,\"error\": \"{}\"", error_escaped);
-    //                 }
-    //                 println!("    }}{}", comma);
-    //             }
-    //             println!("  ],");
-    //
-    //             // Cipher suites
-    //             println!("  \"cipher_suites\": [");
-    //             for (i, cipher) in result.supported_ciphers.iter().enumerate() {
-    //                 let comma = if i < result.supported_ciphers.len() - 1 {
-    //                     ","
-    //                 } else {
-    //                     ""
-    //                 };
-    //                 let strength = match cipher.strength {
-    //                     crate::modules::tls::auditor::CipherStrength::Weak => "weak",
-    //                     crate::modules::tls::auditor::CipherStrength::Medium => "medium",
-    //                     crate::modules::tls::auditor::CipherStrength::Strong => "strong",
-    //                 };
-    //                 println!("    {{");
-    //                 println!("      \"name\": \"{}\",", cipher.name);
-    //                 println!("      \"code\": \"0x{:04X}\",", cipher.code);
-    //                 println!("      \"strength\": \"{}\"", strength);
-    //                 println!("    }}{}", comma);
-    //             }
-    //             println!("  ],");
-    //
-    //             // Vulnerabilities
-    //             println!("  \"vulnerabilities\": [");
-    //             for (i, vuln) in result.vulnerabilities.iter().enumerate() {
-    //                 let comma = if i < result.vulnerabilities.len() - 1 {
-    //                     ","
-    //                 } else {
-    //                     ""
-    //                 };
-    //                 let severity = vuln.severity.to_string().to_lowercase();
-    //                 println!("    {{");
-    //                 println!("      \"name\": \"{}\",", vuln.name.replace('"', "\\\""));
-    //                 println!("      \"severity\": \"{}\",", severity);
-    //                 println!(
-    //                     "      \"description\": \"{}\"",
-    //                     vuln.description.replace('"', "\\\"")
-    //                 );
-    //                 println!("    }}{}", comma);
-    //             }
-    //             println!("  ],");
-    //
-    //             // Certificate chain
-    //             println!("  \"certificate_chain\": [");
-    //             for (i, cert) in result.certificate_chain.iter().enumerate() {
-    //                 let comma = if i < result.certificate_chain.len() - 1 {
-    //                     ","
-    //                 } else {
-    //                     ""
-    //                 };
-    //                 println!("    {{");
-    //                 println!(
-    //                     "      \"subject\": \"{}\",",
-    //                     cert.subject.replace('"', "\\\"")
-    //                 );
-    //                 println!(
-    //                     "      \"issuer\": \"{}\",",
-    //                     cert.issuer.replace('"', "\\\"")
-    //                 );
-    //                 println!("      \"valid_from\": \"{}\",", cert.valid_from);
-    //                 println!("      \"valid_until\": \"{}\",", cert.valid_until);
-    //                 println!("      \"serial_number\": \"{}\",", cert.serial_number);
-    //                 println!("      \"san\": [");
-    //                 for (j, san) in cert.san.iter().enumerate() {
-    //                     let san_comma = if j < cert.san.len() - 1 { "," } else { "" };
-    //                     println!("        \"{}\"{}", san, san_comma);
-    //                 }
-    //                 println!("      ]");
-    //                 println!("    }}{}", comma);
-    //             }
-    //             println!("  ]");
-    //             println!("}}");
-    //             return Ok(());
-    //         }
-    //
-    //         // YAML output
-    //         if format == crate::cli::format::OutputFormat::Yaml {
-    //             println!("host: {}", hostname);
-    //             println!("port: {}", port);
-    //             println!("certificate_valid: {}", result.certificate_valid);
-    //
-    //             println!("tls_versions:");
-    //             for version in &result.supported_versions {
-    //                 println!("  - version: {}", version.version);
-    //                 println!("    supported: {}", version.supported);
-    //                 if let Some(ref error) = version.error {
-    //                     println!("    error: {}", error);
-    //                 }
-    //             }
-    //
-    //             println!("cipher_suites:");
-    //             for cipher in &result.supported_ciphers {
-    //                 let strength = match cipher.strength {
-    //                     crate::modules::tls::auditor::CipherStrength::Weak => "weak",
-    //                     crate::modules::tls::auditor::CipherStrength::Medium => "medium",
-    //                     crate::modules::tls::auditor::CipherStrength::Strong => "strong",
-    //                 };
-    //                 println!("  - name: {}", cipher.name);
-    //                 println!("    code: 0x{:04X}", cipher.code);
-    //                 println!("    strength: {}", strength);
-    //             }
-    //
-    //             println!("vulnerabilities:");
-    //             for vuln in &result.vulnerabilities {
-    //                 let severity = vuln.severity.to_string().to_lowercase();
-    //                 println!("  - name: {}", vuln.name);
-    //                 println!("    severity: {}", severity);
-    //                 println!("    description: {}", vuln.description);
-    //             }
-    //
-    //             println!("certificate_chain:");
-    //             for cert in &result.certificate_chain {
-    //                 println!("  - subject: {}", cert.subject);
-    //                 println!("    issuer: {}", cert.issuer);
-    //                 println!("    valid_from: {}", cert.valid_from);
-    //                 println!("    valid_until: {}", cert.valid_until);
-    //                 println!("    serial_number: {}", cert.serial_number);
-    //                 println!("    san:");
-    //                 for san in &cert.san {
-    //                     println!("      - {}", san);
-    //                 }
-    //             }
-    //             return Ok(());
-    //         }
-    //
-    //         // Human output
-    //         Output::header("TLS Security Audit");
-    //         Output::item("Host", hostname);
-    //         Output::item("Port", &port.to_string());
-    //         println!();
-    //
-    //         Output::warning(
-    //             "Experimental auditor: cipher enumeration and certificate validation are informational only (signature checks pending).",
-    //         );
-    //         println!();
-    //
-    //         // Display TLS versions
-    //         println!();
-    //         Output::subheader("TLS Protocol Versions");
-    //         println!();
-    //         println!("  {:<15} {:<10} {}", "VERSION", "STATUS", "NOTES");
-    //         println!("  {}", "─".repeat(60));
-    //
-    //         for version in &result.supported_versions {
-    //             let status = if version.supported {
-    //                 "\x1b[32m✓ Supported\x1b[0m"
-    //             } else {
-    //                 "\x1b[31m✗ Not Supported\x1b[0m"
-    //             };
-    //
-    //             let notes = version.error.as_ref().map(|e| e.as_str()).unwrap_or("");
-    //
-    //             println!("  {:<15} {:<10} {}", version.version, status, notes);
-    //         }
-    //
-    //         // Display cipher suites
-    //         println!();
-    //         Output::subheader(&format!(
-    //             "Cipher Suites ({})",
-    //             result.supported_ciphers.len()
-    //         ));
-    //         println!();
-    //         println!("  {:<50} {:<10} {}", "CIPHER", "CODE", "STRENGTH");
-    //         println!("  {}", "─".repeat(75));
-    //
-    //         for cipher in &result.supported_ciphers {
-    //             let strength_color = match cipher.strength {
-    //                 crate::modules::tls::auditor::CipherStrength::Weak => "\x1b[31m", // Red
-    //                 crate::modules::tls::auditor::CipherStrength::Medium => "\x1b[33m", // Yellow
-    //                 crate::modules::tls::auditor::CipherStrength::Strong => "\x1b[32m", // Green
-    //             };
-    //
-    //             let strength_text = match cipher.strength {
-    //                 crate::modules::tls::auditor::CipherStrength::Weak => "WEAK",
-    //                 crate::modules::tls::auditor::CipherStrength::Medium => "MEDIUM",
-    //                 crate::modules::tls::auditor::CipherStrength::Strong => "STRONG",
-    //             };
-    //
-    //             println!(
-    //                 "  {:<50} 0x{:04X}    {}{}",
-    //                 cipher.name, cipher.code, strength_color, strength_text
-    //             );
-    //             print!("\x1b[0m");
-    //         }
-    //
-    //         // Display vulnerabilities
-    //         if !result.vulnerabilities.is_empty() {
-    //             println!();
-    //             Output::subheader(&format!(
-    //                 "Security Issues ({} found)",
-    //                 result.vulnerabilities.len()
-    //             ));
-    //             println!();
-    //
-    //             for vuln in &result.vulnerabilities {
-    //                 let severity_color = match vuln.severity {
-    //                     crate::modules::tls::auditor::Severity::Critical => "\x1b[31m", // Red
-    //                     crate::modules::tls::auditor::Severity::High => "\x1b[31m",     // Red
-    //                     crate::modules::tls::auditor::Severity::Medium => "\x1b[33m",   // Yellow
-    //                     crate::modules::tls::auditor::Severity::Low => "\x1b[36m",      // Cyan
-    //                 };
-    //
-    //                 println!(
-    //                     "  [{}{}]\x1b[0m {}",
-    //                     severity_color, vuln.severity, vuln.name
-    //                 );
-    //                 println!("    \x1b[2m{}\x1b[0m", vuln.description);
-    //                 println!();
-    //             }
-    //         } else {
-    //             println!();
-    //             Output::success("No major security issues detected!");
-    //         }
-    //
-    //         // Display certificate info
-    //         if !result.certificate_chain.is_empty() {
-    //             println!();
-    //             Output::subheader("Certificate Chain");
-    //             for (idx, cert) in result.certificate_chain.iter().enumerate() {
-    //                 println!();
-    //                 let label = format!("Certificate #{}", idx + 1);
-    //                 render_certificate_summary(&label, cert);
-    //             }
-    //         } else {
-    //             Output::warning("No certificate chain retrieved from server");
-    //         }
-    //
-    //         println!();
-    //         Output::success("TLS security audit completed");
-    //
-    //         Ok(())
-    //     }
+    fn cert(&self, _ctx: &CliContext) -> Result<(), String> {
+        Err(
+            "TLS certificate inspection temporarily disabled - use openssl s_client instead"
+                .to_string(),
+        )
+    }
 
+    #[allow(dead_code)]
     fn fuzz(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx
         .target
@@ -1006,18 +772,36 @@ impl WebCommand {
 
         // Determine wordlist source
         let wordlist_path = if ctx.has_flag("common") {
-            // Use built-in common wordlist
-            let words = Wordlists::common_dirs();
-            Output::item("Wordlist", "Built-in common directories");
+            // Use built-in common wordlist via WordlistManager
+            let wl_manager = crate::wordlists::WordlistManager::new()?;
+            let words = wl_manager.get("directories-common")?;
+            Output::item("Wordlist", "directories-common (embedded)");
             Output::item("Words", &words.len().to_string());
 
-            Wordlists::create_temp_wordlist(&words)?
-        } else if let Some(path) = ctx.get_flag("wordlist") {
-            // Use custom wordlist file
-            Output::item("Wordlist", path);
-            path.to_string()
+            // Convert Vec<String> to Vec<&str>
+            let words_refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
+            Wordlists::create_temp_wordlist(&words_refs)?
+        } else if let Some(wordlist_name) = ctx.get_flag("wordlist") {
+            // Try to resolve via WordlistManager (supports embedded, project, cached, or file paths)
+            let wl_manager = crate::wordlists::WordlistManager::new()?;
+            match wl_manager.get(&wordlist_name) {
+                Ok(words) => {
+                    Output::item("Wordlist", &wordlist_name);
+                    Output::item("Words", &words.len().to_string());
+                    // Convert Vec<String> to Vec<&str>
+                    let words_refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
+                    Wordlists::create_temp_wordlist(&words_refs)?
+                }
+                Err(_) => {
+                    // Fallback: treat as file path directly
+                    Output::item("Wordlist", &wordlist_name);
+                    wordlist_name.to_string()
+                }
+            }
         } else {
-            return Err("No wordlist specified. Use --wordlist <FILE> or --common".to_string());
+            return Err(
+                "No wordlist specified. Use --wordlist <NAME|FILE> or --common".to_string(),
+            );
         };
 
         // Parse configuration
@@ -2205,5 +1989,116 @@ impl WebCommand {
         println!("  Unique types: {}", by_type.len());
 
         Ok(())
+    }
+
+    // ===== RESTful Commands - Query Stored Data =====
+
+    fn list_http(&self, ctx: &CliContext) -> Result<(), String> {
+        let host = ctx.target.as_ref().ok_or("Missing target host")?;
+        let db_path = self.get_db_path(ctx, host)?;
+
+        Output::header(&format!("Listing HTTP Data: {}", host));
+        Output::info(&format!("Database: {}", db_path.display()));
+
+        let mut query =
+            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+
+        let http_records = query
+            .list_http_records(host)
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        if http_records.is_empty() {
+            Output::warning("No HTTP data found in database");
+            Output::info(&format!(
+                "Run HTTP request first: rb web asset headers {} --persist",
+                host
+            ));
+            return Ok(());
+        }
+
+        Output::success(&format!("Found {} HTTP record(s)", http_records.len()));
+        println!();
+
+        for record in &http_records {
+            println!("URL: {}", record.url);
+            println!("Status: {}", record.status_code);
+            println!("Headers: {} found", record.headers.len());
+            println!();
+        }
+
+        Ok(())
+    }
+
+    fn describe_http(&self, ctx: &CliContext) -> Result<(), String> {
+        let host = ctx.target.as_ref().ok_or("Missing target host")?;
+        let db_path = self.get_db_path(ctx, host)?;
+
+        Output::header(&format!("HTTP Summary: {}", host));
+        Output::info(&format!("Database: {}", db_path.display()));
+
+        let mut query =
+            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+
+        let http_records = query
+            .list_http_records(host)
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        if http_records.is_empty() {
+            Output::warning("No HTTP data found in database");
+            Output::info(&format!(
+                "Run HTTP request first: rb web asset headers {} --persist",
+                host
+            ));
+            return Ok(());
+        }
+
+        println!();
+        println!("📊 HTTP Data Summary:");
+        println!("━━━━━━━━━━━━━━━━━━━━");
+        println!("  Total Requests: {}", http_records.len());
+
+        let mut status_counts: std::collections::HashMap<u16, usize> =
+            std::collections::HashMap::new();
+        for record in &http_records {
+            *status_counts.entry(record.status_code).or_insert(0) += 1;
+        }
+
+        println!("\n  Status Codes:");
+        for (status, count) in &status_counts {
+            println!("    {}: {} requests", status, count);
+        }
+
+        println!("\n  Sample URLs:");
+        for (i, record) in http_records.iter().take(5).enumerate() {
+            println!("    {}. {} ({})", i + 1, record.url, record.status_code);
+        }
+        if http_records.len() > 5 {
+            println!("    ... and {} more", http_records.len() - 5);
+        }
+
+        Ok(())
+    }
+
+    fn get_db_path(&self, ctx: &CliContext, host: &str) -> Result<std::path::PathBuf, String> {
+        if let Some(db_path) = ctx.get_flag("db") {
+            return Ok(std::path::PathBuf::from(db_path));
+        }
+
+        let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+        let base = host
+            .trim_start_matches("www.")
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .to_lowercase();
+        let candidate = cwd.join(format!("{}.rdb", &base));
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+
+        Err(format!(
+            "Database not found: {}\nRun HTTP request first: rb web asset headers {} --persist",
+            candidate.display(),
+            host
+        ))
     }
 }

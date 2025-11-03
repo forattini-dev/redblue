@@ -1,10 +1,11 @@
 pub mod cli;
 pub mod config;
 pub mod core;
+pub mod crypto;
 pub mod error;
 pub mod intelligence;
 pub mod modules;
-pub mod persistence;
 pub mod protocols;
 pub mod storage;
 pub mod utils;
+pub mod wordlists;

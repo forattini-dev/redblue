@@ -3,12 +3,12 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use crate::storage::schema::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource, TlsCertRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource, TlsScanRecord,
     WhoisRecord,
 };
 use crate::storage::store::Database;
 use crate::storage::tables::{
-    DnsTable, HostIntelTable, HttpTable, PortScanTable, SubdomainTable, TlsCertTable, WhoisTable,
+    DnsTable, HostIntelTable, HttpTable, PortScanTable, SubdomainTable, TlsScanTable, WhoisTable,
 };
 
 pub struct RedDb {
@@ -34,8 +34,8 @@ impl RedDb {
         WhoisTable::new(&mut self.store)
     }
 
-    pub fn certs(&mut self) -> TlsCertTable {
-        TlsCertTable::new(&mut self.store)
+    pub fn tls(&mut self) -> TlsScanTable {
+        TlsScanTable::new(&mut self.store)
     }
 
     pub fn dns(&mut self) -> DnsTable {
@@ -92,29 +92,17 @@ impl RedDb {
         self.whois().get(domain, 0)
     }
 
-    pub fn save_cert(
-        &mut self,
-        domain: &str,
-        issuer: &str,
-        subject: &str,
-        not_before: u32,
-        not_after: u32,
-        sans: Vec<String>,
-        self_signed: bool,
-    ) -> io::Result<()> {
-        self.certs().insert(
-            domain,
-            issuer,
-            subject,
-            not_before,
-            not_after,
-            sans,
-            self_signed,
-        )
+    pub fn save_tls_scan(&mut self, record: TlsScanRecord) -> io::Result<()> {
+        self.tls().insert(record)
     }
 
-    pub fn get_cert(&mut self, domain: &str) -> io::Result<Option<TlsCertRecord>> {
-        self.certs().get(domain)
+    pub fn tls_scans_for_host(&mut self, host: &str) -> io::Result<Vec<TlsScanRecord>> {
+        Ok(self.tls().for_host(host))
+    }
+
+    pub fn tls_scans(&mut self) -> io::Result<Vec<TlsScanRecord>> {
+        let table = self.tls();
+        Ok(table.iter().collect())
     }
 
     pub fn save_dns(&mut self, record: DnsRecordData) -> io::Result<()> {

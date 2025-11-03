@@ -1,13 +1,4 @@
-mod cli;
-mod config;
-mod core;
-mod error;
-mod intelligence;
-mod modules;
-mod persistence;
-mod protocols;
-mod storage;
-mod utils;
+use redblue::{cli, config};
 
 use std::env;
 use std::fs;

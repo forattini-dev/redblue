@@ -28,6 +28,10 @@ pub struct TlsAuditResult {
     pub vulnerabilities: Vec<Vulnerability>,
     pub certificate_valid: bool,
     pub certificate_chain: Vec<CertificateInfo>,
+    pub negotiated_version: Option<String>,
+    pub negotiated_cipher: Option<String>,
+    pub negotiated_cipher_code: Option<u16>,
+    pub negotiated_cipher_strength: Option<CipherStrength>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +107,10 @@ impl TlsAuditor {
             vulnerabilities: Vec::new(),
             certificate_valid: false,
             certificate_chain: Vec::new(),
+            negotiated_version: None,
+            negotiated_cipher: None,
+            negotiated_cipher_code: None,
+            negotiated_cipher_strength: None,
         };
 
         let scanner = TlsScanner::with_timeout(self.timeout);
@@ -153,13 +161,17 @@ impl TlsAuditor {
         }
 
         if tls12_supported {
+            result.negotiated_version = Some("TLS 1.2".to_string());
             if let Some(code) = negotiated_cipher {
+                let (name, strength) = cipher_meta(code);
+                result.negotiated_cipher = Some(name.clone());
+                result.negotiated_cipher_code = Some(code);
+                result.negotiated_cipher_strength = Some(strength.clone());
                 if !result
                     .supported_ciphers
                     .iter()
                     .any(|cipher| cipher.code == code)
                 {
-                    let (name, strength) = cipher_meta(code);
                     result.supported_ciphers.push(CipherInfo {
                         name,
                         code,

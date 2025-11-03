@@ -5,7 +5,7 @@ pub mod database;
 pub mod deps;
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod exploit; // ⚠️ Exploitation framework - AUTHORIZED USE ONLY
-// pub mod init; // ✅ Config init command - TEMPORARILY DISABLED (missing function)
+                 // pub mod init; // ✅ Config init command - TEMPORARILY DISABLED (missing function)
 pub mod magic;
 // pub mod monitor;  // Temporarily disabled - compilation errors
 pub mod nc; // ⚠️ Netcat - AUTHORIZED USE ONLY
@@ -15,9 +15,10 @@ pub mod recon;
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
-pub mod tls;
+// pub mod tls; // TODO: Needs refactoring
 pub mod trace;
 pub mod web; // ✅ Re-enabled with TLS routes!
+pub mod wordlist; // ✅ Wordlist management
 
 use crate::cli::{output::Output, CliContext};
 
@@ -102,7 +103,7 @@ pub fn all_commands() -> Vec<Box<dyn Command>> {
         Box::new(trace::TraceCommand),
         Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
         Box::new(web::WebCommand), // ✅ Re-enabled with TLS cert & audit!
-        Box::new(tls::TlsCommand), // ✅ TLS security testing
+        // Box::new(tls::TlsCommand), // TODO: Disabled until refactored
         Box::new(recon::ReconCommand),
         Box::new(exploit::ExploitCommand), // ⚠️ Exploitation framework
         Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
@@ -113,8 +114,9 @@ pub fn all_commands() -> Vec<Box<dyn Command>> {
         Box::new(bench::BenchCommand),
         Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
         Box::new(database::DatabaseCommand),
-        // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
-        // Box::new(monitor::MonitorCommand),  // Temporarily disabled
+        Box::new(wordlist::WordlistCommand), // ✅ Wordlist management
+                                             // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
+                                             // Box::new(monitor::MonitorCommand),  // Temporarily disabled
     ]
 }
 

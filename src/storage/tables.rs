@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::storage::schema::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus, SubdomainRecord,
-    SubdomainSource, TlsCertRecord, WhoisRecord,
+    SubdomainSource, TlsScanRecord, WhoisRecord,
 };
 use crate::storage::store::Database;
 
@@ -138,44 +138,32 @@ impl<'a> WhoisTable<'a> {
     }
 }
 
-pub struct TlsCertTable<'a> {
+pub struct TlsScanTable<'a> {
     db: &'a mut Database,
 }
 
-impl<'a> TlsCertTable<'a> {
+impl<'a> TlsScanTable<'a> {
     pub fn new(db: &'a mut Database) -> Self {
         Self { db }
     }
 
-    pub fn insert(
-        &mut self,
-        domain: &str,
-        issuer: &str,
-        subject: &str,
-        not_before: u32,
-        not_after: u32,
-        sans: Vec<String>,
-        self_signed: bool,
-    ) -> io::Result<()> {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as u32;
-        self.db.insert_tls(
-            domain,
-            issuer,
-            subject,
-            not_before,
-            not_after,
-            sans,
-            self_signed,
-            timestamp,
-        );
+    pub fn insert(&mut self, mut record: TlsScanRecord) -> io::Result<()> {
+        if record.timestamp == 0 {
+            record.timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as u32;
+        }
+        self.db.insert_tls_scan(record);
         Ok(())
     }
 
-    pub fn get(&self, domain: &str) -> io::Result<Option<TlsCertRecord>> {
-        Ok(self.db.get_tls(domain))
+    pub fn for_host(&self, host: &str) -> Vec<TlsScanRecord> {
+        self.db.tls_scans_for_host(host)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = TlsScanRecord> + '_ {
+        self.db.tls_scans()
     }
 }
 
@@ -239,11 +227,11 @@ impl<'a> HostIntelTable<'a> {
         Ok(())
     }
 
-    pub fn get(&self, ip: IpAddr) -> io::Result<Option<HostIntelRecord>> {
+    pub fn get(&mut self, ip: IpAddr) -> io::Result<Option<HostIntelRecord>> {
         Ok(self.db.host_record(ip))
     }
 
-    pub fn all(&self) -> io::Result<Vec<HostIntelRecord>> {
+    pub fn all(&mut self) -> io::Result<Vec<HostIntelRecord>> {
         Ok(self.db.all_hosts())
     }
 }

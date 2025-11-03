@@ -4,8 +4,11 @@
 /// This module provides real-time monitoring capabilities for various network protocols,
 /// allowing observation of connection states, traffic patterns, packet loss, and performance metrics.
 
+#[path = "icmp-monitor.rs"]
 pub mod icmp_monitor;
+#[path = "tcp-monitor.rs"]
 pub mod tcp_monitor;
+#[path = "udp-monitor.rs"]
 pub mod udp_monitor;
 
 pub use icmp_monitor::{IcmpMonitor, IcmpHostStats, PingResult, PingStatistics};

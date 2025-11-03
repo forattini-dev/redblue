@@ -5,14 +5,15 @@
 /// The implementation is intentionally scoped to what we need for HTTPS GET
 /// requests inside the project.
 use super::asn1::Asn1Object;
-use super::crypto::{
+// FIXME: Old stub, use crate::crypto instead
+/*use super::crypto::{
     aes128_cbc_decrypt, aes128_cbc_encrypt, hmac_sha256, sha1, sha256, tls12_prf, SecureRandom,
-};
-use super::ecdh::EcdhKeyPair;
+};*/
+/*use super::ecdh::EcdhKeyPair;
 use super::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 use super::p256::P256Point;
 use super::rsa::{BigInt, RsaPublicKey};
-use super::trust_store::{TrustPublicKey, TrustStore};
+use super::trust_store::{TrustPublicKey, TrustStore};*/
 use super::x509::{self, X509Certificate};
 use std::cmp::Ordering;
 use std::io::{self, Read, Write};

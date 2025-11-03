@@ -255,17 +255,37 @@ impl CTLogsClient {
 
     /// Make HTTP GET request using our HTTP client
     ///
-    /// Uses our pure Rust HTTP implementation (no external dependencies!)
+    /// Uses our pure Rust HTTP implementation with TLS from scratch!
     fn http_get(&self, url: &str) -> Result<String, String> {
+        use crate::modules::network::tls::{TlsConfig, TlsStream};
         use crate::protocols::http::HttpRequest;
-        use crate::protocols::https::HttpsConnection;
 
         let request = HttpRequest::get(url);
-        let connection =
-            HttpsConnection::new(request.host(), request.port()).with_timeout(self.timeout);
-        let response = connection.request(&request)?;
+        let host = request.host();
+        let port = if url.starts_with("https://") { 443 } else { 80 };
 
-        String::from_utf8(response.body)
+        // Use our TLS 1.2 implementation from scratch!
+        let config = TlsConfig::new().with_timeout(self.timeout);
+        let mut tls_stream = TlsStream::connect(host, port, config)?;
+
+        // Send HTTP request over TLS
+        let http_request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            request.path,
+            host
+        );
+
+        use std::io::Write;
+        tls_stream.write_all(http_request.as_bytes())
+            .map_err(|e| format!("Failed to send request: {}", e))?;
+
+        // Read response
+        use std::io::Read;
+        let mut response = Vec::new();
+        tls_stream.read_to_end(&mut response)
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        String::from_utf8(response)
             .map_err(|_| "Invalid UTF-8 in HTTP response body".to_string())
     }
 }

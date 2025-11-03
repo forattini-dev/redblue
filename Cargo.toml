@@ -15,6 +15,14 @@ strip = true
 opt-level = 1
 
 [dependencies]
-# ZERO DEPENDENCIES - NEVER ADD ANYTHING HERE
-# Everything is implemented from scratch using only Rust std library
-# This is a core principle of redblue - see CLAUDE.md and AGENTS.md
+# ZERO PROTOCOL DEPENDENCIES - Everything implemented from scratch
+#
+# We implement ALL protocols ourselves (DNS, HTTP, TLS, SOCKS, etc.)
+# NEVER add: hyper, reqwest, trust-dns, tokio, openssl, or similar
+#
+# EXCEPTION: libc for raw syscall access (PTY, terminal control, advanced socket options)
+# - libc is FFI bindings to kernel syscalls, NOT external protocol implementations
+# - Rust std internally uses libc too (std::net, std::fs, std::process all use it)
+# - Required for features impossible with Rust std alone (PTY allocation, ioctl, termios)
+#
+libc = "0.2"  # FFI to kernel syscalls (PTY/terminal/socket options)

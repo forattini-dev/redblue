@@ -7,6 +7,12 @@ use crate::config::yaml::YamlConfig;
 use crate::storage::session::SessionFile;
 use std::time::{Duration, Instant};
 
+// TODO: Import real modules when APIs are stable
+// use crate::protocols::dns::{DnsClient, DnsRecordType};
+// use crate::protocols::whois::WhoisClient;
+// use crate::modules::network::scanner::PortScanner;
+// use crate::protocols::http::HttpClient;
+
 pub struct MagicScan {
     target: String,
     preset: ScanPreset,
@@ -132,22 +138,22 @@ impl MagicScan {
         if self.preset.has_module(&Module::DnsPassive) {
             Output::task_start("DNS Records");
             self.sleep_with_jitter(100);
-            // TODO: Call DNS lookup module
-            let result = "Found 5 records (A, AAAA, MX, NS, TXT)";
+            // TODO: Integrate with protocols::dns::DnsClient
+            let result = "[COMING SOON] DNS lookups (A, MX, NS, TXT)";
             Output::task_done(result);
             self.session
-                .append_result("passive", "dns", "success", result)?;
+                .append_result("passive", "dns", "pending", result)?;
         }
 
         // WHOIS
         if self.preset.has_module(&Module::WhoisLookup) {
             Output::task_start("WHOIS Lookup");
             self.sleep_with_jitter(200);
-            // TODO: Call WHOIS module
-            let result = "Registrar: Example Inc, Expires: 2025-12-31";
+            // TODO: Integrate with protocols::whois::WhoisClient
+            let result = "[COMING SOON] WHOIS intelligence (registrar, expiry, nameservers)";
             Output::task_done(result);
             self.session
-                .append_result("passive", "whois", "success", result)?;
+                .append_result("passive", "whois", "pending", result)?;
         }
 
         // Certificate Transparency
@@ -208,11 +214,11 @@ impl MagicScan {
         if self.preset.has_module(&Module::HttpHeaders) {
             Output::task_start("HTTP Headers Analysis");
             self.sleep_with_jitter(200);
-            // TODO: Call HTTP headers module
-            let result = "Server: nginx/1.18.0, HSTS enabled";
+            // TODO: Integrate with protocols::http::HttpClient
+            let result = "[COMING SOON] HTTP security headers (HSTS, CSP, X-Frame-Options)";
             Output::task_done(result);
             self.session
-                .append_result("stealth", "http_headers", "success", result)?;
+                .append_result("stealth", "http_headers", "pending", result)?;
         }
 
         // DNS Enumeration
@@ -230,11 +236,11 @@ impl MagicScan {
         if self.preset.has_module(&Module::PortScanCommon) {
             Output::task_start("Port Scan (common ports only)");
             self.sleep_with_jitter(1000);
-            // TODO: Call port scanner
-            let result = "Open: 80, 443 | Filtered: 22";
+            // TODO: Integrate with modules::network::scanner::PortScanner
+            let result = "[COMING SOON] Scan common ports (21,22,80,443,3306,8080...)";
             Output::task_done(result);
             self.session
-                .append_result("stealth", "port_scan", "success", result)?;
+                .append_result("stealth", "port_scan", "pending", result)?;
         }
 
         println!();

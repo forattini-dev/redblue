@@ -50,3 +50,4 @@ rb-*
 # Config files
 .redblue.toml
 .redblue.yaml
+.redblue/*

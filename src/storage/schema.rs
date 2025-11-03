@@ -14,8 +14,8 @@ pub enum RecordType {
     Subdomain(SubdomainRecord),
     /// WHOIS: domain + registrar + dates + NS
     WhoisInfo(WhoisRecord),
-    /// TLS cert: domain + issuer + valid dates + SANs
-    TlsCert(TlsCertRecord),
+    /// TLS scan result with full metadata
+    TlsScan(TlsScanRecord),
     /// HTTP headers: URL + headers map
     HttpHeaders(HttpHeadersRecord),
     /// DNS record: domain + type + value
@@ -34,6 +34,32 @@ pub struct PortScanRecord {
     pub status: PortStatus, // 1 byte
     pub service_id: u8,     // 1 byte (service classification enum)
     pub timestamp: u32,     // 4 bytes (Unix time)
+}
+
+impl PortScanRecord {
+    pub fn new(ip: u32, port: u16, state: u8, service_id: u8) -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let status = match state {
+            0 => PortStatus::Open,
+            1 => PortStatus::Closed,
+            2 => PortStatus::Filtered,
+            _ => PortStatus::OpenFiltered,
+        };
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32;
+
+        Self {
+            ip: IpAddr::V4(std::net::Ipv4Addr::from(ip)),
+            port,
+            status,
+            service_id,
+            timestamp,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -80,6 +106,10 @@ pub struct TlsCertRecord {
     pub domain: String,
     pub issuer: String,
     pub subject: String,
+    pub serial_number: String,
+    pub signature_algorithm: String,
+    pub public_key_algorithm: String,
+    pub version: u8,
     pub not_before: u32,
     pub not_after: u32,
     pub sans: Vec<String>, // Subject Alternative Names
@@ -87,12 +117,71 @@ pub struct TlsCertRecord {
     pub timestamp: u32,
 }
 
-/// HTTP headers - compressed
+/// TLS scan result persisted from the auditor.
+#[derive(Debug, Clone)]
+pub struct TlsScanRecord {
+    pub host: String,
+    pub port: u16,
+    pub timestamp: u32,
+    pub negotiated_version: Option<String>,
+    pub negotiated_cipher: Option<String>,
+    pub negotiated_cipher_code: Option<u16>,
+    pub negotiated_cipher_strength: TlsCipherStrength,
+    pub certificate_valid: bool,
+    pub versions: Vec<TlsVersionRecord>,
+    pub ciphers: Vec<TlsCipherRecord>,
+    pub vulnerabilities: Vec<TlsVulnerabilityRecord>,
+    pub certificate_chain: Vec<TlsCertRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TlsVersionRecord {
+    pub version: String,
+    pub supported: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TlsCipherRecord {
+    pub name: String,
+    pub code: u16,
+    pub strength: TlsCipherStrength,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TlsCipherStrength {
+    Weak = 0,
+    Medium = 1,
+    Strong = 2,
+}
+
+#[derive(Debug, Clone)]
+pub struct TlsVulnerabilityRecord {
+    pub name: String,
+    pub severity: TlsSeverity,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TlsSeverity {
+    Low = 0,
+    Medium = 1,
+    High = 2,
+    Critical = 3,
+}
+
+/// HTTP capture - response metadata + headers
 #[derive(Debug, Clone)]
 pub struct HttpHeadersRecord {
+    pub host: String,
     pub url: String,
+    pub method: String,
+    pub scheme: String,
+    pub http_version: String,
     pub status_code: u16,
+    pub status_text: String,
     pub server: Option<String>,
+    pub body_size: u32,
     pub headers: Vec<(String, String)>,
     pub timestamp: u32,
 }
@@ -108,7 +197,7 @@ pub struct DnsRecordData {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DnsRecordType {
     A = 1,
     AAAA = 2,

@@ -101,12 +101,8 @@ impl Acl {
     /// Check if IP matches CIDR subnet
     fn matches_cidr(ip: IpAddr, network: IpAddr, prefix_len: u8) -> bool {
         match (ip, network) {
-            (IpAddr::V4(ip4), IpAddr::V4(net4)) => {
-                Self::matches_cidr_v4(ip4, net4, prefix_len)
-            }
-            (IpAddr::V6(ip6), IpAddr::V6(net6)) => {
-                Self::matches_cidr_v6(ip6, net6, prefix_len)
-            }
+            (IpAddr::V4(ip4), IpAddr::V4(net4)) => Self::matches_cidr_v4(ip4, net4, prefix_len),
+            (IpAddr::V6(ip6), IpAddr::V6(net6)) => Self::matches_cidr_v6(ip6, net6, prefix_len),
             _ => false, // IPv4 vs IPv6 mismatch
         }
     }
@@ -164,10 +160,16 @@ impl Acl {
         // Validate prefix length
         match ip {
             IpAddr::V4(_) if prefix_len > 32 => {
-                return Err(format!("IPv4 prefix length cannot exceed 32: {}", prefix_len))
+                return Err(format!(
+                    "IPv4 prefix length cannot exceed 32: {}",
+                    prefix_len
+                ))
             }
             IpAddr::V6(_) if prefix_len > 128 => {
-                return Err(format!("IPv6 prefix length cannot exceed 128: {}", prefix_len))
+                return Err(format!(
+                    "IPv6 prefix length cannot exceed 128: {}",
+                    prefix_len
+                ))
             }
             _ => {}
         }

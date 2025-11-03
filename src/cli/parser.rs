@@ -55,6 +55,9 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     let mut ctx = CliContext::new();
     ctx.raw = args.to_vec();
 
+    // Load YAML config from current directory if it exists
+    ctx.config = crate::config::yaml::YamlConfig::load_from_cwd();
+
     let mut i = 0;
     let mut positionals: Vec<String> = Vec::new();
 
