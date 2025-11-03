@@ -6,8 +6,10 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Size](https://img.shields.io/badge/size-427KB-green.svg)](https://github.com/yourusername/redblue/releases)
-[![Status](https://img.shields.io/badge/status-Phase%202%2090%25-brightgreen.svg)](#roadmap)
+[![Size](https://img.shields.io/badge/size-427KB-green.svg)](https://github.com/forattini-dev/redblue/releases)
+[![CI](https://github.com/forattini-dev/redblue/workflows/CI/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/ci.yml)
+[![Alpha Release](https://github.com/forattini-dev/redblue/workflows/Alpha%20Release/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/alpha-release.yml)
+[![GitHub release](https://img.shields.io/github/v/release/forattini-dev/redblue?include_prereleases&label=latest)](https://github.com/forattini-dev/redblue/releases)
 
 *Port scanning. DNS recon. Web testing. CMS auditing. TLS inspection. Network discovery.*
 *Subdomain takeover. OSINT harvesting. Exploitation framework. Database management.*
@@ -140,7 +142,7 @@ rb exploit payload privesc /path/to/target
 
 ```bash
 # Clone and build
-git clone https://github.com/yourusername/redblue
+git clone https://github.com/forattini-dev/redblue
 cd redblue
 ./install.sh
 
@@ -324,19 +326,33 @@ chmod +x ~/.local/bin/rb
 
 ### ✅ Verification
 
+After installation, verify redblue is working correctly:
+
 ```bash
 # Check version
 rb --version
 
-# Test installation
+# Show help
 rb help
 
-# Test DNS lookup
-rb dns record lookup google.com
-
-# Test port scan (localhost)
-rb network ports scan 127.0.0.1 --preset web
+# Quick tests (when builds are passing)
+rb dns record lookup google.com           # DNS test
+rb network ports scan 127.0.0.1 --preset web  # Port scan test
 ```
+
+### 🧪 Testing the Installer
+
+Want to test the install script without actually installing?
+
+```bash
+# Show help
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --help
+
+# Dry run - see what would be downloaded
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
+```
+
+**Note**: Alpha releases are created automatically on every push to `main`. If builds are failing, binaries won't be available until compilation errors are fixed.
 
 ### Configuration
 
