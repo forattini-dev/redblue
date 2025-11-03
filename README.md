@@ -15,7 +15,7 @@
 *Subdomain takeover. OSINT harvesting. Exploitation framework. Database management.*
 *Everything you need for offensive and defensive security operations.*
 
-[Quick Start](#-quick-start) • [Installation](#-installation) • [Features](#-features) • [Documentation](#-documentation) • [Roadmap](#-roadmap)
+[Quick Start](#-quick-start) • [Installation](#-installation) • [Features](#-features) • [📘 Docs](./docs) • [Roadmap](#-roadmap)
 
 </div>
 
@@ -23,7 +23,7 @@
 
 <div align="right">
 
-[📖 Full Documentation](#-table-of-contents) • [🚀 Quick Start](#-quick-start) • [💾 Download](#-installation)
+[📘 In-Depth Docs](#-in-depth-documentation) • [🚀 Quick Start](#-quick-start) • [💾 Download](#-installation)
 
 </div>
 
@@ -130,6 +130,73 @@ rb exploit payload privesc /path/to/target
 
 ---
 
+## 📘 In-Depth Documentation
+
+<div align="right">
+
+[⬆ Back to Top](#-redblue) • [📖 Table of Contents](#-table-of-contents)
+
+</div>
+
+This README provides a **quick overview** and **quick start guide**. For comprehensive, in-depth documentation on each domain and capability, see the [`./docs`](./docs) directory:
+
+### 📑 Domain Documentation
+
+Each domain has detailed documentation with usage examples, advanced techniques, and implementation details:
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**🌐 Network & Infrastructure**
+- **[Network](./docs/domains/NETWORK.md)** - Port scanning, host discovery, service fingerprinting, traceroute/MTR
+- **[DNS](./docs/domains/DNS.md)** - DNS enumeration, record queries, subdomain brute-forcing, zone transfers
+- **[TLS](./docs/domains/TLS.md)** - TLS/SSL auditing, cipher analysis, vulnerability testing
+
+</td>
+<td width="50%" valign="top">
+
+**🔍 Reconnaissance & OSINT**
+- **[Recon](./docs/domains/RECON.md)** - WHOIS, subdomains, data harvesting, historical URLs
+- **[Web](./docs/domains/WEB.md)** - HTTP testing, CMS scanning, headers analysis, directory fuzzing
+- **[Cloud](./docs/domains/CLOUD.md)** - Subdomain takeover, cloud service detection, S3/Azure scanning
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+**🛠️ Offensive Capabilities** *(AUTHORIZED TESTING ONLY)*
+- **[Exploit](./docs/domains/EXPLOIT.md)** - Privilege escalation, reverse shells, lateral movement, persistence
+- **[Code](./docs/domains/CODE.md)** - Secret detection, dependency scanning, SAST analysis
+
+</td>
+<td width="50%" valign="top">
+
+**📊 Data & Performance**
+- **[Database](./docs/domains/DATABASE.md)** - Query operations, export formats, subnet analysis
+- **[Collection](./docs/domains/COLLECTION.md)** - Screenshot capture, data archiving
+- **[Bench](./docs/domains/BENCH.md)** - Load testing, performance profiling
+
+</td>
+</tr>
+</table>
+
+### 🔧 Technical Documentation
+
+- **[CLI Semantics](./docs/CLI-SEMANTICS.md)** - Complete CLI syntax, command patterns, and kubectl-style design philosophy
+- **[Domain Documentation Index](./docs/domains/README.md)** - Overview of all domain capabilities and command mappings
+- **[NetCat Ultimate](./docs/NETCAT-ULTIMATE.md)** - Advanced networking techniques and NetCat replacement capabilities
+
+### 📝 Configuration & Examples
+
+- **[Configuration File](./docs/.redblue.example.yaml)** - Example YAML configuration with all available options
+- **[Examples](./docs/examples/)** - Real-world usage scenarios and automation scripts
+
+> 💡 **TIP**: Start with the domain documentation that matches your use case. Each document contains practical examples and explains the underlying implementation.
+
+---
+
 ## 🚀 Quick Start
 
 <div align="right">
@@ -214,6 +281,8 @@ This isn't about reinventing the wheel. It's about **respecting the incredible t
 ## 📚 Table of Contents
 
 - [TL;DR](#-tldr)
+- [Core Capabilities](#-core-capabilities)
+- [📘 In-Depth Documentation](#-in-depth-documentation)
 - [Quick Start](#-quick-start)
 - [Motivation](#-motivation)
 - [Installation](#-installation)
