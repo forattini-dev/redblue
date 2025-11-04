@@ -1586,4 +1586,48 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    #[ignore] // Run with: cargo test --release test_tls12_google_connection -- --ignored --nocapture
+    fn test_tls12_google_connection() {
+        use std::io::{Read, Write};
+
+        println!("\n🔐 Testing TLS 1.2 connection to google.com...");
+
+        // Try to connect with TLS 1.2
+        println!("⏳ Establishing connection...");
+        let mut client = match Tls12Client::connect("google.com", 443) {
+            Ok(c) => {
+                println!("✅ TLS 1.2 handshake succeeded!");
+                c
+            }
+            Err(e) => {
+                panic!("TLS 1.2 handshake failed: {}", e);
+            }
+        };
+
+        // Try to send HTTP request
+        println!("📤 Sending HTTP GET request...");
+        let request = "GET / HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n";
+        client
+            .write_all(request.as_bytes())
+            .expect("Failed to write request");
+
+        // Try to read response
+        println!("📥 Reading response...");
+        let mut buffer = [0u8; 1024];
+        match client.read(&mut buffer) {
+            Ok(n) if n > 0 => {
+                let response = String::from_utf8_lossy(&buffer[..n]);
+                if response.contains("HTTP/1.1") || response.contains("HTTP/1.0") {
+                    println!("✅ Got HTTP response ({} bytes)", n);
+                    println!("🎉 TLS 1.2 works perfectly!");
+                } else {
+                    panic!("Invalid HTTP response");
+                }
+            }
+            Ok(_) => panic!("Empty response"),
+            Err(e) => panic!("Read failed: {}", e),
+        }
+    }
 }
