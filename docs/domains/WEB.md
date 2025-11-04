@@ -21,6 +21,27 @@ The `web` domain provides comprehensive web application security testing includi
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### Shipping Today
+- Core HTTP engine and response analysis live in `src/modules/web/` (`headers.rs`, `fingerprinter.rs`, `fuzzer.rs`, `vuln-scanner.rs`, etc.), all built on `std::net::TcpStream` with no external crates.
+- CMS fingerprinting strategies (`strategies/wordpress.rs`, `drupal.rs`, `joomla.rs`, `ghost.rs`, `strapi.rs`) power `rb web asset scan` without relying on third-party signatures.
+- CLI verbs in `src/cli/commands/web.rs` expose `get`, `post`, `headers`, `security`, `scan`, and `fuzz` flows with shared output envelopes and persistence hooks.
+- Linkfinder and crawler modules extract URLs/JS endpoints, feeding discoveries back into the intelligence pipeline.
+
+### In Flight / Backlog
+- Directory fuzzing still needs adaptive rate limiting and wordlist rotation; integration with global wordlists (`wordlists/`) is pending.
+- Web crawler lacks robots.txt handling and depth limiting; add before exposing aggressive defaults.
+- Vulnerability scanner should expand beyond CMS to include generic misconfigurations (headers, default creds) and surface severity scoring.
+- Automated tests (`tests/web_smoke.rs` planned) should cover GET/POST, header parsing, and CMS fingerprint baselines.
+
+### Next Actions
+1. Implement persistent session support (cookies/auth) so chained requests can maintain state during scans.
+2. Add JSON/YAML rendering for `--intel` output to align with network/TLS domains.
+3. Document troubleshooting (timeouts, TLS handshake failures) once the TLS 1.3 work stabilizes.
+
+---
+
 ## Resource: `web asset`
 
 **Description:** Comprehensive web application security testing and reconnaissance.

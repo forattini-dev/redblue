@@ -12,6 +12,26 @@ The `cloud` domain provides cloud security testing including subdomain takeover 
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### Current Coverage
+- Subdomain takeover engine (`src/modules/cloud/takeover.rs`) fingerprints 20+ SaaS providers and maps confidence levels; it is surfaced through `src/cli/commands/cloud.rs`.
+- Early S3 enumeration plumbing exists in `src/modules/cloud/s3-scanner.rs` but is gated pending wordlist integration and rate limiting.
+- Findings persist into `.rdb` segments via `src/storage/segments/` so takeover results can be queried alongside DNS/network intel.
+
+### Gaps To Close
+- Batch scanning (`takeover-scan`) and CSV import/export remain stubs; need CLI verbs plus concurrency guards.
+- Azure/GCP object storage detection requires additional fingerprints and HTTP probe logic.
+- No automated tests currently cover cloud modules; add smoke tests hitting local fixtures before expanding provider coverage.
+- Remediation guidance (per-provider steps) should be templated for consistent output.
+
+### Recommended Next Steps
+1. Finish the S3 bucket scanner with list/get/head flows and add persistence for discovered ACL issues.
+2. Implement throttling/backoff to respect provider error responses during bulk scans.
+3. Extend documentation with troubleshooting (false positives, geo-blocked endpoints) once batch tooling lands.
+
+---
+
 ## Resource: `cloud asset`
 
 **Description:** Cloud asset security testing including subdomain takeover detection and cloud service enumeration.

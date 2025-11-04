@@ -12,6 +12,27 @@ The `recon` domain provides comprehensive information gathering and OSINT (Open 
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### Current Capabilities
+- WHOIS client (`src/modules/recon/whois/`) handles multi-TLD registry lookups with intelligent server selection, rate limiting, and optional raw dumps.
+- Subdomain discovery combines passive sources (crt.sh, Censys) with active bruteforce using wordlists under `wordlists/`; logic resides in `src/modules/recon/subdomains.rs`.
+- Data harvesting (`src/modules/recon/harvest.rs`) pulls OSINT feeds (Wayback, URLScan, OTX) and normalizes artifacts into `.rdb` segments.
+- CLI surface (`src/cli/commands/recon.rs`) exposes `whois`, `subdomains`, `harvest`, and `urls` verbs with shared persistence hooks and output envelopes.
+- Intelligence writes flow through `src/storage/segments/subdomains.rs` and the shared view/client stack, making discoveries available to other domains.
+
+### Known Gaps
+- Email reconnaissance and username OSINT verbs still point to placeholders; underlying modules need to be implemented or guarded with TODO(test) stubs.
+- Historical URL ingestion lacks dedupe/merge logic for large scopes; storage compaction remains a TODO once the storage façade lands.
+- Passive OSINT sources (Shodan, VirusTotal) are out-of-scope due to dependency policies—must rely on first-party scraping or JSON ingestion.
+
+### Immediate Actions
+1. Add smoke coverage (`tests/recon_domain.rs`) verifying WHOIS parsing and subdomain persistence.
+2. Flesh out `harvest` CLI help/examples with concrete JSON snapshots to match the HTTP/TLS docs.
+3. Document rate-limit/backoff guidance (e.g., polite sleeps, GDPR redaction handling) in this file’s troubleshooting section.
+
+---
+
 ## Resource: `recon domain`
 
 **Description:** Passive and active information gathering for domains, including registrar data, subdomains, emails, URLs, and historical intelligence.

@@ -10,6 +10,17 @@ Complete reference documentation for all redblue CLI domains.
 
 ---
 
+## Release Snapshot (Nov 2025)
+
+- CLI core (`rb [domain] [resource] [verb]`) delivers network, DNS, web, TLS, recon, exploit, database, collection, and benchmarking flows with contextual help, typo suggestions, and semantic coloring.
+- Network stack ships multi-threaded port scanning presets, service detection, traceroute/MTR scaffolding, and `.rdb` persistence.
+- DNS and recon cover RFC 1035 lookups, WHOIS (multi-TLD), passive/active subdomain collection, and OSINT harvesting.
+- Web tooling includes an HTTP/1.1 client, header analysis, CMS scanning, and TLS certificate inspection; TLS domain provides audit/cipher/vulnerability verbs.
+- Crypto foundation: pure Rust SHA-256, HMAC, TLS 1.2 PRF, AES-128 (CBC/GCM), RSA PKCS#1 v1.5, BigInt arithmetic, and TLS stream integration—no external crates.
+- UX wins: config generator (`rb config init create`), improved error messaging with verb/resource hints, kebab-case module alignment, `.rdb` storage standardization, and intelligence-rich output flags.
+
+---
+
 ## 📚 Available Domains
 
 <div align="right">

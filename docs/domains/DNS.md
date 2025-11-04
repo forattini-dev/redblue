@@ -20,6 +20,26 @@ The `dns` domain provides comprehensive DNS reconnaissance capabilities includin
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### What Ships Today
+- Packet crafting and parsing live under `src/modules/dns/` with zero external crates; lookups, resolution, and fingerprinting reuse the shared networking stack.
+- CLI verbs in `src/cli/commands/dns.rs` support `lookup`, `resolve`, and `enum` flows with persistence and intelligence flags; parser wiring resides in `src/cli/parser.rs`.
+- `tests/storage_roundtrip.rs` exercises persistence for DNS segments, while smoke coverage comes from `tests/tls_integration_test.rs` and the CLI TUI smoke harness.
+- Intelligent VERSION.BIND queries populate TLS/network intelligence segments through `src/storage/segments/dns.rs`.
+
+### Active Backlog
+- Parallelized subdomain brute-force and zone transfer helpers (AXFR) tied to wordlists (`wordlists/`) and `--intel` workflows.
+- DNSSEC validation primitives (signature verification, chain building) for compliance-focused scans.
+- Cached resolver for repeat queries plus rate limiting & exponential backoff against strict authoritative servers.
+
+### Recommended Next Steps
+1. Wire a `rb dns record enum` command that batches common record types and persists a unified report.
+2. Extend `.rdb` schema with resolver metadata (server IPs, RTT) for cross-domain intelligence.
+3. Document a troubleshooting section covering SERVFAIL/REFUSED handling and recursion limits.
+
+---
+
 ## Resource: `dns record`
 
 **Description:** Query, enumerate, and analyze DNS records for domain reconnaissance.
@@ -727,7 +747,7 @@ diff google.json cloudflare.json
 rb dns record all example.com --persist
 
 # Load later in REPL
-rb repl example.com.rdb
+rb repl example.com.rb-session
 ```
 
 ---

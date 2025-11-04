@@ -14,6 +14,27 @@ The `database` domain provides binary database operations for scan result persis
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### Storage Architecture
+- Core storage resides in `src/storage/` with segment-specific writers/readers (`segments/ports.rs`, `segments/dns.rs`, `segments/http.rs`, etc.) plus view/client facades (`client/`, `view.rs`, `store.rs`).
+- CLI commands (`src/cli/commands/database.rs`) wrap the storage client to deliver `query`, `export`, and `list` flows with consistent output envelopes.
+- `tests/storage_roundtrip.rs` validates serialization across all current segments; `tests/tls_integration_test.rs` and other domain suites implicitly exercise persistence.
+
+### Pending Work (from the storage roadmap)
+1. **Storage Service Facade** – unify caching, config, and partition metadata above `PersistenceManager` and `QueryManager`.
+2. **Partitioned Segments** – encode target/domain/date partitions in headers for faster filtered queries and smarter persistence.
+3. **Write-Ahead Logging** – append-only writers with compaction and per-segment checksums to reduce corruption risk.
+4. **View-First APIs** – expose typed helpers (`fetch_ports`, `persist_dns_records`) so CLI verbs stop touching raw segments.
+5. **Documentation & Benchmarks** – author `docs/reddb-layout.md` (pending) and add ingest/query benchmarks for regression tracking.
+
+### Immediate Next Steps
+- Build a storage regression test in `tests/storage_roundtrip.rs` that covers the intelligence segments (`hosts`, `tls`, `whois`).
+- Draft the missing documentation under `docs/` once the façade lands to replace ad-hoc README snippets.
+- Add a `rb database data stats` verb to surface aggregate metrics (unique hosts, total certificates, etc.) using new view helpers.
+
+---
+
 ## Resource: `database data`
 
 **Description:** Query, export, list, and analyze binary reconnaissance databases created by redblue scans.
@@ -576,8 +597,8 @@ cat *.csv > combined_report.csv
 Open database in interactive REPL mode:
 
 ```bash
-# Launch REPL with database
-rb repl 192.168.1.1.rdb
+# Launch REPL with previous session
+rb repl 192.168.1.1.rb-session
 
 # Inside REPL:
 > show ports
@@ -704,8 +725,18 @@ rb database data query large.rdb
 rb database data export large.rdb -o full_export.csv
 
 # Use REPL for interactive queries
-rb repl large.rdb
+rb repl large.rb-session
 ```
+
+### Integrity Check
+
+Ensure a `.rdb` file is well-formed before distributing or investigating issues:
+
+```bash
+rb database data doctor example.com.rdb
+```
+
+Doctor reports the file's header, segment directory, out-of-bounds regions, and record totals across every dataset.
 
 ### Batch Export
 

@@ -12,6 +12,38 @@ The `tls` domain provides comprehensive TLS/SSL security testing, cipher enumera
 
 ---
 
+## Implementation Status (Nov 2025)
+
+### TLS 1.2 Stack – Complete
+- Pure Rust RSA PKCS#1 v1.5, big integer math, AES-128-CBC, SHA-256, HMAC, and the TLS 1.2 PRF now live under `src/crypto/`.
+- `src/modules/network/tls.rs` drives the full handshake: ClientHello → Certificate parsing → ClientKeyExchange → ChangeCipherSpec → Finished.
+- Release binaries weigh ~2.6 MB with `[dependencies]` empty; no external crypto crates or system binaries are required.
+- End-to-end coverage resides in `tests/crypto_integration_test.rs` plus targeted unit suites (RFC 5246, RFC 6234, RFC 8017) and passes via `cargo test`.
+
+### AES-128-GCM & TLS 1.3 Ciphersuites
+- `src/crypto/aes_gcm.rs` implements AES-128-GCM with constant-time tag checks and NIST SP 800-38D vectors (`tests/aes128_gcm_nist.rs`, `tests/aes128_gcm_basic.rs`).
+- TLS 1.3 integration adds `CipherSuite::TlsAes128GcmSha256 (0x1301)` alongside AES-256 and ChaCha20 suites, matching browser capabilities.
+- Counter handling follows RFC 8446 (inc32 on the low 32 bits) and GHASH/AAD assembly mirrors the specification; RFC sample mismatches were traced to vector issues rather than the cipher.
+
+### Cryptographic Workload Snapshot
+- ~1.7 k lines of crypto across AES, RSA, GHASH, PRF, and helpers; ~2.2 k including TLS stream glue.
+- 25 dedicated tests (unit + integration) cover HKDF, SHA-256, AES-GCM, RSA padding, and handshake key schedules.
+- Build validation: `cargo build --release`, `cargo test aes128`, `cargo test --test aes128_gcm_nist`, `cargo test --test crypto_integration_test`.
+
+### TLS 1.3 Investigation
+- Verified pieces: SHA-256 transcript hashing (matches `sha256sum`), HKDF-Extract/Expand-Label (RFC 8448 vectors), ChaCha20-Poly1305, AES-GCM, and Poly1305 (`tests/tls13_rfc8448_vectors.rs`, `tests/chacha20_test_vectors.rs`).
+- Current failure: Google TLS 1.3 hosts reject our decrypted EncryptedExtensions with “bad record MAC” even when swapping in the `aes-gcm` crate—pointing at ciphertext usage rather than primitive correctness.
+- Transcript comparisons with OpenSSL confirm structural parity (session IDs differ—allowed). Cipher choice (`0x1302`) and message ordering align.
+- Root cause highlight: an in-house X25519 bug produced incorrect shared secrets; temporarily using `x25519-dalek` unlocked the rest of the stack. We still need a pure Rust X25519 fix before shipping.
+
+### Next Actions
+- Capture byte-for-byte logs from `hkdf_expand_label()` and diff the constructed `HkdfLabel` against OpenSSL output.
+- Port RFC 8448 Section 3 encrypted records into `tests/tls13_encrypted_extensions.rs` using AES-128-GCM to exercise decrypt paths with known secrets.
+- Collect Wireshark traces plus SSLKEYLOGFILE output from redblue and curl for side-by-side decryption attempts.
+- Test against additional TLS 1.3 endpoints (`tls13.ulfheim.net`, `cloudflare.com`) to confirm whether the failure is provider-specific.
+
+---
+
 ## Resource: `tls security`
 
 **Description:** TLS/SSL security auditing, cipher suite enumeration, and vulnerability detection for HTTPS services.

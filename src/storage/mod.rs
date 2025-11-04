@@ -10,6 +10,7 @@ pub mod client;
 pub mod encoding;
 pub mod layout;
 pub mod segments;
+pub mod service;
 pub mod store;
 
 pub mod reddb;
@@ -24,4 +25,5 @@ pub use reddb::RedDb;
 pub use schema::{
     PortScanRecord, PortStatus, SubdomainRecord, SubdomainSource, TlsCertRecord, WhoisRecord,
 };
+pub use service::{PartitionKey, PartitionMetadata, StorageService};
 pub use session::{SessionFile, SessionMetadata};

@@ -97,24 +97,28 @@ fn mix_columns(state: &mut [u8; 16]) {
 /// AES-256 key expansion
 /// Extends 256-bit key (32 bytes) to 15 round keys (240 bytes)
 fn aes256_key_expansion(key: &[u8; 32]) -> Vec<u8> {
-    let mut expanded = vec![0u8; 240]; // 15 rounds * 16 bytes
+    // AES-256 uses 15 round keys: 1 initial + 14 rounds
+    // Each round key is 16 bytes (4 words of 4 bytes)
+    // Total: 15 * 16 = 240 bytes = 60 words
+    let mut expanded = vec![0u8; 240];
 
-    // Copy original key (first 2 round keys)
+    // Copy original key (first 8 words = 32 bytes)
     expanded[..32].copy_from_slice(key);
 
     let mut rcon = 1u8;
 
-    for i in 2..15 {
-        let prev_offset = (i - 1) * 16;
-        let curr_offset = i * 16;
+    // Generate remaining 52 words (words 8-59)
+    for i in 8..60 {
+        let word_offset = i * 4;
+        let prev_word_offset = (i - 1) * 4;
 
-        if i % 2 == 0 {
-            // Every even round: use SubWord + RotWord + Rcon
+        if i % 8 == 0 {
+            // Every 8th word: RotWord + SubWord + Rcon
             let mut temp = [
-                expanded[prev_offset + 13],
-                expanded[prev_offset + 14],
-                expanded[prev_offset + 15],
-                expanded[prev_offset + 12],
+                expanded[prev_word_offset + 1], // RotWord
+                expanded[prev_word_offset + 2],
+                expanded[prev_word_offset + 3],
+                expanded[prev_word_offset + 0],
             ];
 
             // SubWord
@@ -122,22 +126,22 @@ fn aes256_key_expansion(key: &[u8; 32]) -> Vec<u8> {
                 *byte = SBOX[*byte as usize];
             }
 
-            // XOR with previous round key and Rcon
+            // XOR with word[i-8] and apply Rcon to first byte
             for j in 0..4 {
-                expanded[curr_offset + j] = expanded[curr_offset - 32 + j] ^ temp[j];
+                expanded[word_offset + j] = expanded[word_offset - 32 + j] ^ temp[j];
                 if j == 0 {
-                    expanded[curr_offset + j] ^= rcon;
+                    expanded[word_offset + j] ^= rcon;
                 }
             }
 
             rcon = gmul(rcon, 0x02);
-        } else {
-            // Odd rounds: use SubWord only
+        } else if i % 8 == 4 {
+            // Every 4th word after the 8th: SubWord only (no RotWord, no Rcon)
             let mut temp = [
-                expanded[prev_offset + 12],
-                expanded[prev_offset + 13],
-                expanded[prev_offset + 14],
-                expanded[prev_offset + 15],
+                expanded[prev_word_offset + 0],
+                expanded[prev_word_offset + 1],
+                expanded[prev_word_offset + 2],
+                expanded[prev_word_offset + 3],
             ];
 
             // SubWord
@@ -145,14 +149,16 @@ fn aes256_key_expansion(key: &[u8; 32]) -> Vec<u8> {
                 *byte = SBOX[*byte as usize];
             }
 
+            // XOR with word[i-8]
             for j in 0..4 {
-                expanded[curr_offset + j] = expanded[curr_offset - 32 + j] ^ temp[j];
+                expanded[word_offset + j] = expanded[word_offset - 32 + j] ^ temp[j];
             }
-        }
-
-        // Fill remaining bytes
-        for j in 4..16 {
-            expanded[curr_offset + j] = expanded[curr_offset + j - 4] ^ expanded[prev_offset + j];
+        } else {
+            // All other words: simple XOR
+            for j in 0..4 {
+                expanded[word_offset + j] =
+                    expanded[word_offset - 4 + j] ^ expanded[word_offset - 32 + j];
+            }
         }
     }
 
@@ -160,7 +166,7 @@ fn aes256_key_expansion(key: &[u8; 32]) -> Vec<u8> {
 }
 
 /// AES-256 block encryption
-fn aes256_encrypt_block(plaintext: &[u8; 16], key: &[u8; 32]) -> [u8; 16] {
+pub fn aes256_encrypt_block(plaintext: &[u8; 16], key: &[u8; 32]) -> [u8; 16] {
     let expanded_key = aes256_key_expansion(key);
     let mut state = *plaintext;
 
@@ -179,10 +185,8 @@ fn aes256_encrypt_block(plaintext: &[u8; 16], key: &[u8; 32]) -> [u8; 16] {
         // ShiftRows
         shift_rows(&mut state);
 
-        // MixColumns (not in final round)
-        if round < 13 {
-            mix_columns(&mut state);
-        }
+        // MixColumns (applied for rounds 1..13; final round handled after loop)
+        mix_columns(&mut state);
 
         // AddRoundKey
         let round_key_offset = round * 16;
@@ -203,24 +207,30 @@ fn aes256_encrypt_block(plaintext: &[u8; 16], key: &[u8; 32]) -> [u8; 16] {
     state
 }
 
-/// Increment a 128-bit counter (little-endian)
+/// Increment the counter portion of a GCM counter block (big-endian)
+///
+/// GCM counter block structure: | IV (12 bytes) | Counter (4 bytes) |
+/// Only the last 4 bytes (counter) are incremented, IV stays fixed.
 fn increment_counter(counter: &mut [u8; 16]) {
-    for i in (0..16).rev() {
+    // Increment only the last 4 bytes (bytes 12-15) as a 32-bit big-endian counter
+    for i in (12..16).rev() {
         counter[i] = counter[i].wrapping_add(1);
         if counter[i] != 0 {
-            break;
+            break; // No carry needed
         }
+        // If we wrapped to 0, continue to carry to the next byte
     }
 }
 
-/// CTR mode encryption/decryption
+/// CTR mode encryption/decryption for GCM
+/// NOTE: Counter starts at 2 because counter 1 is reserved for the authentication tag
 fn aes256_ctr(key: &[u8; 32], iv: &[u8; 12], data: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(data.len());
     let mut counter = [0u8; 16];
 
     // Initialize counter with IV (first 12 bytes) and counter value (last 4 bytes)
     counter[..12].copy_from_slice(iv);
-    counter[12..].copy_from_slice(&[0, 0, 0, 1]); // Counter starts at 1
+    counter[12..].copy_from_slice(&[0, 0, 0, 2]); // Counter starts at 2 (counter 1 is for tag)
 
     let mut offset = 0;
     while offset < data.len() {
@@ -240,60 +250,62 @@ fn aes256_ctr(key: &[u8; 32], iv: &[u8; 12], data: &[u8]) -> Vec<u8> {
     result
 }
 
-/// GHASH function for GCM authentication
-///
-/// GHASH is a universal hash function used in GCM mode.
-/// It computes: GHASH(H, X) where H is the hash key and X is the input.
-fn ghash(h: &[u8; 16], data: &[u8]) -> [u8; 16] {
-    let mut y = [0u8; 16];
-
-    // Process data in 16-byte blocks
-    for chunk in data.chunks(16) {
-        let mut block = [0u8; 16];
-        block[..chunk.len()].copy_from_slice(chunk);
-
-        // Y_i = (Y_{i-1} XOR X_i) * H
-        for i in 0..16 {
-            y[i] ^= block[i];
-        }
-        y = gmul_block(&y, h);
+#[inline]
+fn bytes_to_u128_be(bytes: &[u8; 16]) -> u128 {
+    let mut val = 0u128;
+    for &b in bytes {
+        val = (val << 8) | b as u128;
     }
-
-    y
+    val
 }
 
-/// Galois field multiplication of two 128-bit blocks
-/// Multiplies two polynomials in GF(2^128)
-fn gmul_block(x: &[u8; 16], y: &[u8; 16]) -> [u8; 16] {
-    let mut z = [0u8; 16];
-    let mut v = *y;
-
+#[inline]
+fn u128_to_bytes_be(val: u128) -> [u8; 16] {
+    let mut out = [0u8; 16];
     for i in 0..16 {
-        for bit in (0..8).rev() {
-            if (x[i] & (1 << bit)) != 0 {
-                // z = z XOR v
-                for j in 0..16 {
-                    z[j] ^= v[j];
-                }
-            }
+        out[15 - i] = (val >> (i * 8)) as u8;
+    }
+    out
+}
 
-            // Check if LSB of v is 1
-            let lsb = v[15] & 1;
+/// Multiply two field elements in GF(2^128) using the reduction polynomial
+/// defined in NIST SP 800-38D (x^128 + x^7 + x^2 + x + 1).
+#[inline]
+fn ghash_mul(mut x: u128, mut y: u128) -> u128 {
+    let mut z = 0u128;
+    const R: u128 = 0xe1 << 120;
 
-            // Right shift v by 1 bit
-            for j in (1..16).rev() {
-                v[j] = (v[j] >> 1) | (v[j - 1] << 7);
-            }
-            v[0] >>= 1;
-
-            // If LSB was 1, XOR with R (reduction polynomial)
-            if lsb == 1 {
-                v[0] ^= 0xe1; // R = 11100001 || 0^120
-            }
+    for _ in 0..128 {
+        if (x & (1u128 << 127)) != 0 {
+            z ^= y;
         }
+
+        let lsb = y & 1;
+        y >>= 1;
+        if lsb != 0 {
+            y ^= R;
+        }
+
+        x <<= 1;
     }
 
     z
+}
+
+/// GHASH function for GCM authentication.
+fn ghash(h: &[u8; 16], data: &[u8]) -> [u8; 16] {
+    let mut y = 0u128;
+    let h_val = bytes_to_u128_be(h);
+
+    for chunk in data.chunks(16) {
+        let mut block = [0u8; 16];
+        block[..chunk.len()].copy_from_slice(chunk);
+        let x = bytes_to_u128_be(&block);
+        y ^= x;
+        y = ghash_mul(y, h_val);
+    }
+
+    u128_to_bytes_be(y)
 }
 
 /// AES-256-GCM encryption
@@ -306,12 +318,7 @@ fn gmul_block(x: &[u8; 16], y: &[u8; 16]) -> [u8; 16] {
 ///
 /// # Returns
 /// Ciphertext || 16-byte authentication tag
-pub fn aes256_gcm_encrypt(
-    key: &[u8; 32],
-    iv: &[u8; 12],
-    aad: &[u8],
-    plaintext: &[u8],
-) -> Vec<u8> {
+pub fn aes256_gcm_encrypt(key: &[u8; 32], iv: &[u8; 12], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
     // Derive hash key H = AES(K, 0^128)
     let h = aes256_encrypt_block(&[0u8; 16], key);
 
@@ -418,6 +425,21 @@ pub fn aes256_gcm_decrypt(
     }
 
     if diff != 0 {
+        // Debug output
+        eprintln!(
+            "[aes_gcm][debug] Received tag: {}",
+            received_tag
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
+        eprintln!(
+            "[aes_gcm][debug] Computed tag: {}",
+            computed_tag
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
         return Err("Authentication tag verification failed".to_string());
     }
 
@@ -444,8 +466,8 @@ mod tests {
         assert_eq!(ciphertext_with_tag.len(), plaintext.len() + 16);
 
         // Decrypt should succeed
-        let decrypted = aes256_gcm_decrypt(&key, &iv, aad, &ciphertext_with_tag)
-            .expect("Decryption failed");
+        let decrypted =
+            aes256_gcm_decrypt(&key, &iv, aad, &ciphertext_with_tag).expect("Decryption failed");
         assert_eq!(&decrypted[..], plaintext);
     }
 
@@ -461,8 +483,8 @@ mod tests {
         // Should be just the tag (16 bytes)
         assert_eq!(ciphertext_with_tag.len(), 16);
 
-        let decrypted = aes256_gcm_decrypt(&key, &iv, aad, &ciphertext_with_tag)
-            .expect("Decryption failed");
+        let decrypted =
+            aes256_gcm_decrypt(&key, &iv, aad, &ciphertext_with_tag).expect("Decryption failed");
         assert_eq!(&decrypted[..], plaintext);
     }
 
@@ -497,6 +519,95 @@ mod tests {
 
         // Decryption should fail
         assert!(aes256_gcm_decrypt(&key, &iv, aad, &ciphertext_with_tag).is_err());
+    }
+
+    #[test]
+    fn test_aes256_block_known_vector() {
+        // NIST SP 800-38A F.5.1 AES-256 ECB test vector
+        let key = [
+            0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
+            0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
+            0x09, 0x14, 0xdf, 0xf4,
+        ];
+        let block = [
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93,
+            0x17, 0x2a,
+        ];
+        let expected = [
+            0xf3, 0xee, 0xd1, 0xbd, 0xb5, 0xd2, 0xa0, 0x3c, 0x06, 0x4b, 0x5a, 0x7e, 0x3d, 0xb1,
+            0x81, 0xf8,
+        ];
+        let result = aes256_encrypt_block(&block, &key);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_aes256_gcm_known_vector_zero() {
+        let key = [0x00u8; 32];
+        let iv = [0x00u8; 12];
+        let aad = [];
+        let plaintext = [0x00u8; 16];
+
+        let ciphertext_tag = aes256_gcm_encrypt(&key, &iv, &aad, &plaintext);
+        let (ciphertext, tag) = ciphertext_tag.split_at(plaintext.len());
+
+        let expected_ciphertext = [
+            0xce, 0xa7, 0x40, 0x3d, 0x4d, 0x60, 0x6b, 0x6e, 0x07, 0x4e, 0xc5, 0xd3, 0xba, 0xf3,
+            0x9d, 0x18,
+        ];
+        let expected_tag = [
+            0xd0, 0xd1, 0xc8, 0xa7, 0x99, 0x99, 0x6b, 0xf0, 0x26, 0x5b, 0x98, 0xb5, 0xd4, 0x8a,
+            0xb9, 0x19,
+        ];
+
+        assert_eq!(ciphertext, expected_ciphertext);
+        assert_eq!(tag, expected_tag);
+
+        let decrypted =
+            aes256_gcm_decrypt(&key, &iv, &aad, &ciphertext_tag).expect("decrypt zero vector");
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_aes256_gcm_known_vector_incremental() {
+        let mut key = [0u8; 32];
+        for (i, byte) in key.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        let mut iv = [0u8; 12];
+        for (i, byte) in iv.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        let mut aad = [0u8; 7];
+        for (i, byte) in aad.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        let mut plaintext = [0u8; 19];
+        for (i, byte) in plaintext.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        let ciphertext_tag = aes256_gcm_encrypt(&key, &iv, &aad, &plaintext);
+        let (ciphertext, tag) = ciphertext_tag.split_at(plaintext.len());
+
+        let expected_ciphertext = [
+            0x47, 0x03, 0xd4, 0x18, 0xc1, 0xe0, 0xc4, 0x1c, 0x85, 0x48, 0x9d, 0x80, 0xbd, 0xe4,
+            0x76, 0x62, 0x93, 0xc7, 0x95,
+        ];
+        let expected_tag = [
+            0xb8, 0x5a, 0x13, 0xe8, 0x00, 0x60, 0xf3, 0xd9, 0xd1, 0x7a, 0xda, 0x50, 0xd8, 0x36,
+            0x58, 0x60,
+        ];
+
+        assert_eq!(ciphertext, expected_ciphertext);
+        assert_eq!(tag, expected_tag);
+
+        let decrypted = aes256_gcm_decrypt(&key, &iv, &aad, &ciphertext_tag)
+            .expect("decrypt incremental vector");
+        assert_eq!(decrypted, plaintext);
     }
 
     #[test]

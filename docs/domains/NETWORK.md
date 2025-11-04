@@ -198,7 +198,7 @@ When `--persist` is used, results are saved to `./<target>.rdb` in binary format
 - Timestamps
 - Intelligence data (if `--intel` used)
 
-Database can be loaded later using REPL: `rb repl <target>.rdb`
+Session history can be loaded later using REPL: `rb repl <target>.rb-session`
 
 ---
 
@@ -844,7 +844,7 @@ rb network ports range 192.168.1.1 1 65535 --fast
 rb network ports scan target.com --preset common --persist
 
 # Load results later in REPL
-rb repl target.com.rdb
+rb repl target.com.rb-session
 ```
 
 ---
@@ -909,6 +909,53 @@ rb repl target.com.rdb
 - Efficient segment-oriented storage
 - Quick lookups and indexing
 - Cross-platform compatibility
+
+---
+
+## Netcat Replacement Summary
+
+### Feature Snapshot
+- `rb nc` now unifies classic `nc`, `ncat`, `socat`, and `cryptcat` workflows: TCP/UDP client+listener, port scanning, reverse shells, and file transfer.
+- TLS 1.2 handshakes ride on the in-house `src/modules/network/tls.rs` stack (SNI, RSA key exchange, AES-CBC/GCM).
+- Proxy support (`src/modules/network/proxy.rs`) covers SOCKS4, SOCKS5 (with auth), and HTTP CONNECT, while ACLs, relays, brokers, PTY shells, Unix sockets, and rate limiting live under `src/modules/network/`.
+- Optional Twofish-based symmetric encryption and connection logging give cryptcat-style secure sessions without external binaries.
+
+### Implementation Notes
+- Nine new modules (`tls.rs`, `proxy.rs`, `acl.rs`, `broker.rs`, `relay.rs`, `pty.rs`, `unix-socket.rs`, `twofish.rs`, `extras.rs`) account for ~3.7 k lines of Rust.
+- CLI surfaces listeners, relays, brokers, encryption, and file transfer through `src/cli/commands/nc.rs`; parser wiring sits in `src/cli/parser.rs`.
+- Multi-session chat, port relay, and forked handlers allow simultaneous operators—mirroring `socat`/`ncat --chat`.
+
+### Usage Highlights
+```bash
+rb nc listen 4444 --ssl --allow 10.0.0.0/24
+rb nc connect target.com 80 --proxy socks5://proxy:1080
+rb nc relay tcp:8080 tcp:backend:80 --fork
+rb nc unix /tmp/app.sock --send-file payload.bin
+```
+
+### Pending Enhancements
+- Harden automated tests around TLS listeners and encrypted transfers.
+- Expose per-session statistics via `rb nc sessions` (planned).
+- Extend documentation with end-to-end examples in `docs/examples/`.
+
+---
+
+## Intelligence Extraction
+
+### What We Capture
+- Every TCP handshake captures TTL, TCP options, window sizes, timing, and retransmission behavior for passive OS fingerprinting.
+- TLS negotiations feed JA3/JA4 fingerprints, certificate chain analysis, and cipher telemetry; HTTP responses surface headers, cookies, error pages, and security posture.
+- Infrastructure heuristics call out CDN/WAF/provider hints via response headers, certificate issuers, latency baselines, and cookie patterns.
+
+### Implementation Footprint
+- Intelligence engines reside in `src/intelligence/` (`tcp-fingerprint.rs`, `tls-fingerprint.rs`, `http-fingerprint.rs`, etc.) with shared collectors orchestrated by `connection-intel.rs`.
+- Detailed methodology lives in `docs/PASSIVE-FINGERPRINTING.md`; intelligence-aware CLI output appears when `--intel` is set on network commands.
+- `docs/domains/RECON.md` cross-refers to the same engine for WHOIS and OSINT enrichment.
+
+### Next Steps
+- Wire an explicit `rb intelligence fingerprint` verb for ad-hoc analysis.
+- Auto-trigger secondary collection (e.g., wildcard certificate → subdomain enum) via the upcoming Intelligence Graph.
+- Persist structured findings into `.rdb` segments so `rb network ports list` surfaces historical intelligence.
 
 ---
 

@@ -12,6 +12,7 @@
 use super::CliContext;
 
 /// RESTful verbs plus common security actions
+#[allow(dead_code)]
 const RESTFUL_VERBS: &[&str] = &[
     "list",
     "get",
@@ -55,8 +56,8 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     let mut ctx = CliContext::new();
     ctx.raw = args.to_vec();
 
-    // Load YAML config from current directory if it exists
-    ctx.config = crate::config::yaml::YamlConfig::load_from_cwd();
+    // Load YAML config from current directory (cached)
+    let cached_config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
 
     let mut i = 0;
     let mut positionals: Vec<String> = Vec::new();
@@ -98,50 +99,92 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
         i += 1;
     }
 
-    // Parse positional arguments following FINAL pattern:
-    // rb [domain] [verb] [resource] [subresource/target] [args...]
+    // Parse positional arguments following CLAUDE.md pattern:
+    // rb [domain] [resource] [verb] [target] [args...]
     if !positionals.is_empty() {
         ctx.domain = Some(positionals[0].clone());
     }
 
     if positionals.len() > 1 {
-        let second = &positionals[1];
+        ctx.resource = Some(positionals[1].clone());
+    }
 
-        // If second arg is a verb, use FINAL pattern
-        if RESTFUL_VERBS.contains(&second.as_str()) {
-            ctx.verb = Some(positionals[1].clone());
+    if positionals.len() > 2 {
+        ctx.verb = Some(positionals[2].clone());
+    }
 
-            if positionals.len() > 2 {
-                ctx.resource = Some(positionals[2].clone());
-            }
+    if positionals.len() > 3 {
+        ctx.target = Some(positionals[3].clone());
+    }
 
-            if positionals.len() > 3 {
-                ctx.target = Some(positionals[3].clone());
-            }
+    if positionals.len() > 4 {
+        ctx.args = positionals[4..].to_vec();
+    }
 
-            if positionals.len() > 4 {
-                ctx.args = positionals[4..].to_vec();
-            }
-        } else {
-            // Fallback: treat as old pattern for backward compat
-            // domain resource verb target
-            ctx.resource = Some(positionals[1].clone());
-
-            if positionals.len() > 2 {
-                ctx.verb = Some(positionals[2].clone());
-            }
-
-            if positionals.len() > 3 {
-                ctx.target = Some(positionals[3].clone());
-            }
-
-            if positionals.len() > 4 {
-                ctx.args = positionals[4..].to_vec();
-            }
-        }
+    if let Some(config) = cached_config {
+        apply_config_defaults(&mut ctx, config);
     }
 
     Ok(ctx)
+}
+
+fn apply_config_defaults(ctx: &mut CliContext, config: &crate::config::yaml::YamlConfig) {
+    if let Some(ref preset) = config.preset {
+        ctx.flags
+            .entry("preset".to_string())
+            .or_insert(preset.clone());
+    }
+
+    if let Some(threads) = config.threads {
+        ctx.flags
+            .entry("threads".to_string())
+            .or_insert(threads.to_string());
+    }
+
+    if let Some(rate_limit) = config.rate_limit {
+        ctx.flags
+            .entry("rate-limit".to_string())
+            .or_insert(rate_limit.to_string());
+    }
+
+    if let Some(ref output_format) = config.output_format {
+        ctx.flags
+            .entry("output".to_string())
+            .or_insert(output_format.clone());
+    }
+
+    if let Some(ref output_file) = config.output_file {
+        ctx.flags
+            .entry("output-file".to_string())
+            .or_insert(output_file.clone());
+    }
+
+    if config.auto_persist.unwrap_or(false) {
+        ctx.flags
+            .entry("persist".to_string())
+            .or_insert("true".to_string());
+    }
+
+    if config.no_color.unwrap_or(false) {
+        ctx.flags
+            .entry("no-color".to_string())
+            .or_insert("true".to_string());
+    }
+
+    if config.verbose.unwrap_or(false) {
+        ctx.flags
+            .entry("verbose".to_string())
+            .or_insert("true".to_string());
+    }
+
+    if let Some(domain) = ctx.domain.as_deref() {
+        let resource = ctx.resource.as_deref().unwrap_or("");
+        let verb = ctx.verb.as_deref().unwrap_or("");
+        let merged_flags = config.command_flags(domain, resource, verb);
+        for (key, value) in merged_flags {
+            ctx.flags.entry(key).or_insert(value);
+        }
+    }
 }
 
 #[cfg(test)]

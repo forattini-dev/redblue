@@ -28,7 +28,7 @@ impl MagicScan {
         preset_flag: Option<&str>,
     ) -> Result<Self, String> {
         // Try to load YAML config from current directory
-        let yaml_config = YamlConfig::load_from_cwd();
+        let yaml_config = YamlConfig::load_from_cwd_cached().cloned();
 
         // Determine preset (CLI flag > YAML > default)
         let preset = if let Some(preset_name) = preset_flag {

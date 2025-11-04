@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Once;
 
 /// Parsed configuration from .redblue.yaml
 #[derive(Debug, Clone)]
@@ -52,6 +53,21 @@ impl YamlConfig {
         }
 
         None
+    }
+
+    /// Load from current directory once and cache the result.
+    pub fn load_from_cwd_cached() -> Option<&'static YamlConfig> {
+        static INIT: Once = Once::new();
+        static mut CACHE: Option<YamlConfig> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                if let Some(cfg) = Self::load_from_cwd() {
+                    CACHE = Some(cfg);
+                }
+            });
+            CACHE.as_ref()
+        }
     }
 
     /// Parse YAML content (minimal parser)
@@ -198,6 +214,40 @@ impl YamlConfig {
         }
 
         None
+    }
+
+    /// Collect all command-level flags (domain/resource/verb) with specificity overrides.
+    pub fn command_flags(
+        &self,
+        domain: &str,
+        resource: &str,
+        verb: &str,
+    ) -> HashMap<String, String> {
+        let mut merged = HashMap::new();
+
+        if domain.is_empty() {
+            return merged;
+        }
+
+        if let Some(flags) = self.commands.get(domain) {
+            merged.extend(flags.clone());
+        }
+
+        if !resource.is_empty() {
+            let resource_path = format!("{}.{}", domain, resource);
+            if let Some(flags) = self.commands.get(&resource_path) {
+                merged.extend(flags.clone());
+            }
+        }
+
+        if !resource.is_empty() && !verb.is_empty() {
+            let full_path = format!("{}.{}.{}", domain, resource, verb);
+            if let Some(flags) = self.commands.get(&full_path) {
+                merged.extend(flags.clone());
+            }
+        }
+
+        merged
     }
 
     /// Check if command flag is set to true

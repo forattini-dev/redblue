@@ -1,10 +1,11 @@
+pub mod access; // ✅ Remote access - reverse shells & listeners (NEW!)
 pub mod bench;
 pub mod cloud;
 pub mod code;
-pub mod database;
+// pub mod database; // Temporarily disabled - missing file
 pub mod deps;
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
-pub mod exploit; // ⚠️ Exploitation framework - AUTHORIZED USE ONLY
+pub mod exploit; // ⚠️ Exploitation framework - AUTHORIZED USE ONLY (DEPRECATED - use 'access')
                  // pub mod init; // ✅ Config init command - TEMPORARILY DISABLED (missing function)
 pub mod magic;
 // pub mod monitor;  // Temporarily disabled - compilation errors
@@ -15,14 +16,127 @@ pub mod recon;
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
-// pub mod tls; // TODO: Needs refactoring
+// pub mod tls; // TODO: Fix missing dependencies (modules::tls, protocols::tls_cert, protocols::x509)
+#[path = "tls-intel.rs"]
+pub mod tls_intel; // ✅ NEW! TLS intelligence gathering
 pub mod trace;
 pub mod web; // ✅ Re-enabled with TLS routes!
 pub mod wordlist; // ✅ Wordlist management
 
 use crate::cli::{output::Output, CliContext};
+use std::collections::HashMap;
+use std::sync::Once;
 
-pub trait Command {
+struct CommandRegistry {
+    commands: Vec<Box<dyn Command>>,
+    domain_index: HashMap<String, Vec<usize>>,
+    resource_index: HashMap<String, HashMap<String, usize>>,
+}
+
+static INIT: Once = Once::new();
+static mut COMMAND_REGISTRY: Option<CommandRegistry> = None;
+
+impl CommandRegistry {
+    fn new() -> Self {
+        let mut commands: Vec<Box<dyn Command>> = vec![
+            Box::new(access::AccessCommand), // ✅ NEW! Remote access - rb access shell create
+            Box::new(scan::ScanCommand),
+            Box::new(network::NetworkCommand), // ✅ Host ping & discovery
+            // Box::new(ping::PingCommand),  // Temporarily disabled
+            Box::new(trace::TraceCommand),
+            Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
+            Box::new(web::WebCommand), // ✅ Re-enabled with TLS cert & audit!
+            // Box::new(tls::TlsCommand), // TODO: Fix dependencies first
+            Box::new(tls_intel::TlsIntelCommand), // ✅ NEW! TLS intelligence gathering
+            Box::new(recon::ReconCommand),
+            Box::new(exploit::ExploitCommand), // ⚠️ Exploitation framework (DEPRECATED - use 'access')
+            Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
+            Box::new(code::CodeCommand),
+            Box::new(deps::DepsCommand),
+            Box::new(cloud::CloudCommand),
+            Box::new(takeover::TakeoverCommand),
+            Box::new(bench::BenchCommand),
+            Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
+            Box::new(wordlist::WordlistCommand),     // ✅ Wordlist management
+                                                     // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
+                                                     // Box::new(monitor::MonitorCommand),  // Temporarily disabled
+        ];
+
+        // commands.extend(database::commands()); // Temporarily disabled
+
+        let mut domain_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut resource_index: HashMap<String, HashMap<String, usize>> = HashMap::new();
+
+        for (idx, command) in commands.iter().enumerate() {
+            domain_index
+                .entry(command.domain().to_string())
+                .or_default()
+                .push(idx);
+
+            resource_index
+                .entry(command.domain().to_string())
+                .or_default()
+                .insert(command.resource().to_string(), idx);
+        }
+
+        Self {
+            commands,
+            domain_index,
+            resource_index,
+        }
+    }
+
+    fn commands(&self) -> &[Box<dyn Command>] {
+        &self.commands
+    }
+
+    fn domain_indices(&self, domain: &str) -> Option<&Vec<usize>> {
+        self.domain_index.get(domain)
+    }
+
+    fn command(&self, index: usize) -> &dyn Command {
+        self.commands[index].as_ref()
+    }
+
+    fn find(&self, domain: &str, resource: &str) -> Option<&dyn Command> {
+        self.resource_index
+            .get(domain)
+            .and_then(|resources| resources.get(resource))
+            .map(|&idx| self.command(idx))
+    }
+}
+
+fn command_registry() -> &'static CommandRegistry {
+    unsafe {
+        INIT.call_once(|| {
+            COMMAND_REGISTRY = Some(CommandRegistry::new());
+        });
+        COMMAND_REGISTRY.as_ref().unwrap()
+    }
+}
+
+pub fn all_commands() -> &'static [Box<dyn Command>] {
+    command_registry().commands()
+}
+
+pub fn command_for(domain: &str, resource: &str) -> Option<&'static dyn Command> {
+    command_registry().find(domain, resource)
+}
+
+pub fn resources_for_domain(domain: &str) -> Vec<String> {
+    let registry = command_registry();
+    registry
+        .domain_indices(domain)
+        .map(|indices| {
+            indices
+                .iter()
+                .map(|&idx| registry.command(idx).resource().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub trait Command: Send + Sync {
     fn domain(&self) -> &str;
     fn resource(&self) -> &str;
     fn description(&self) -> &str;
@@ -76,18 +190,15 @@ pub struct Route {
 }
 
 pub fn print_domain_overview(domain: &str) -> Result<(), String> {
-    let domain_commands: Vec<_> = all_commands()
-        .into_iter()
-        .filter(|cmd| cmd.domain() == domain)
-        .collect();
-
-    if domain_commands.is_empty() {
-        return Err(format!("Unknown domain '{}'", domain));
-    }
+    let registry = command_registry();
+    let indices = registry
+        .domain_indices(domain)
+        .ok_or_else(|| format!("Unknown domain '{}'", domain))?;
 
     Output::header(&format!("Domain: {}", domain));
     println!("\nResources:");
-    for command in &domain_commands {
+    for &idx in indices {
+        let command = registry.command(idx);
         println!("  • {}", command.resource());
     }
     println!("\nUse: rb {} <resource> help", domain);
@@ -95,56 +206,46 @@ pub fn print_domain_overview(domain: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn all_commands() -> Vec<Box<dyn Command>> {
-    vec![
-        Box::new(scan::ScanCommand),
-        Box::new(network::NetworkCommand), // ✅ Host ping & discovery
-        // Box::new(ping::PingCommand),  // Temporarily disabled
-        Box::new(trace::TraceCommand),
-        Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
-        Box::new(web::WebCommand), // ✅ Re-enabled with TLS cert & audit!
-        // Box::new(tls::TlsCommand), // TODO: Disabled until refactored
-        Box::new(recon::ReconCommand),
-        Box::new(exploit::ExploitCommand), // ⚠️ Exploitation framework
-        Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
-        Box::new(code::CodeCommand),
-        Box::new(deps::DepsCommand),
-        Box::new(cloud::CloudCommand),
-        Box::new(takeover::TakeoverCommand),
-        Box::new(bench::BenchCommand),
-        Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
-        Box::new(database::DatabaseCommand),
-        Box::new(wordlist::WordlistCommand), // ✅ Wordlist management
-                                             // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
-                                             // Box::new(monitor::MonitorCommand),  // Temporarily disabled
-    ]
-}
-
 pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
+    use crate::cli::aliases::AliasResolver;
+
     let domain = ctx.domain.as_deref().ok_or_else(|| {
         "Missing domain. Syntax: rb <domain> <resource> <verb> [target]".to_string()
     })?;
 
     // Magic scan detection: if domain looks like a URL/domain, trigger magic scan
+    // Do this BEFORE alias resolution to avoid false positives
     if is_magic_scan_target(domain) && ctx.resource.is_none() {
         return magic::execute(ctx);
     }
 
+    // Resolve aliases to canonical names
+    let resolver = AliasResolver::new();
+    let (resolved_domain, resolved_resource, resolved_verb) =
+        resolver.resolve_all(domain, ctx.resource.as_deref(), ctx.verb.as_deref());
+
+    // Create new context with resolved names
+    let mut resolved_ctx = ctx.clone();
+    resolved_ctx.domain = Some(resolved_domain.clone());
+    resolved_ctx.resource = resolved_resource.clone();
+    resolved_ctx.verb = resolved_verb.clone();
+
+    // Use resolved names for the rest of dispatch
+    let domain = resolved_domain.as_str();
+    let registry = command_registry();
+
     // Netcat special case: standalone command like `rb nc listen 4444`
     // Only trigger if we have a resource (which will contain the verb)
-    if domain == "nc" && ctx.resource.is_some() {
-        if let Some(command) = all_commands().into_iter().find(|cmd| cmd.domain() == "nc") {
-            return command.execute(ctx);
+    if domain == "nc" && resolved_ctx.resource.is_some() {
+        if let Some(command) = registry.commands().iter().find(|cmd| cmd.domain() == "nc") {
+            return command.execute(&resolved_ctx);
         }
     }
 
-    if ctx.resource.as_deref() == Some("help") {
-        if let Some(target_resource) = ctx.verb.as_deref() {
-            if let Some(command) = all_commands()
-                .into_iter()
-                .find(|cmd| cmd.domain() == domain && cmd.resource() == target_resource)
-            {
-                print_help(&*command);
+    if resolved_ctx.resource.as_deref() == Some("help") {
+        if let Some(target_resource) = resolved_ctx.verb.as_deref() {
+            if let Some(command) = registry.find(domain, target_resource) {
+                print_help(command);
                 return Ok(());
             }
 
@@ -158,13 +259,17 @@ pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
         return Ok(());
     }
 
-    let resource = ctx.resource.as_deref().ok_or_else(|| {
+    let resource = resolved_ctx.resource.as_deref().ok_or_else(|| {
         // Get available resources for this domain
-        let resources: Vec<String> = all_commands()
-            .into_iter()
-            .filter(|cmd| cmd.domain() == domain)
-            .map(|cmd| cmd.resource().to_string())
-            .collect();
+        let resources: Vec<String> = registry
+            .domain_indices(domain)
+            .map(|indices| {
+                indices
+                    .iter()
+                    .map(|&idx| registry.command(idx).resource().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let resources_list = if !resources.is_empty() {
             format!(
@@ -182,12 +287,9 @@ pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
         )
     })?;
 
-    if ctx.verb.as_deref() == Some("help") {
-        if let Some(command) = all_commands()
-            .into_iter()
-            .find(|cmd| cmd.domain() == domain && cmd.resource() == resource)
-        {
-            print_help(&*command);
+    if resolved_ctx.verb.as_deref() == Some("help") {
+        if let Some(command) = registry.find(domain, resource) {
+            print_help(command);
             return Ok(());
         }
 
@@ -197,12 +299,17 @@ pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
         ));
     }
 
-    let verb = ctx.verb.as_deref().ok_or_else(|| {
+    let verb = resolved_ctx.verb.as_deref().ok_or_else(|| {
         // Get available verbs for this resource
-        let verbs: Vec<String> = all_commands()
-            .into_iter()
-            .find(|cmd| cmd.domain() == domain && cmd.resource() == resource)
-            .map(|cmd| cmd.routes().iter().map(|r| r.verb.to_string()).collect())
+        let verbs: Vec<String> = registry
+            .find(domain, resource)
+            .map(|command| {
+                command
+                    .routes()
+                    .iter()
+                    .map(|r| r.verb.to_string())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let verbs_list = if !verbs.is_empty() {
@@ -222,11 +329,8 @@ pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
         )
     })?;
 
-    if let Some(command) = all_commands()
-        .into_iter()
-        .find(|cmd| cmd.domain() == domain && cmd.resource() == resource)
-    {
-        return command.execute(ctx);
+    if let Some(command) = registry.find(domain, resource) {
+        return command.execute(&resolved_ctx);
     }
 
     Err(format!(
@@ -301,6 +405,7 @@ fn is_magic_scan_target(input: &str) -> bool {
     if input.contains('.') && !input.contains(' ') {
         // Simple check: if it's not a known CLI domain
         let known_domains = [
+            "access",
             "network",
             "dns",
             "web",
@@ -345,12 +450,13 @@ pub fn print_global_help() {
   rb <domain> <resource> <verb> [target] [FLAGS]
 
 {bold}DOMAINS:{reset}
+  access     ⚠️  Remote access - reverse shells & listeners (AUTHORIZED USE ONLY)
   network    Hosts, ports, and low-level telemetry
   dns        Records, zones, and resolvers
   web        Web assets and HTTP audits
   tls        TLS/SSL security testing and cipher enumeration
   recon      Asset intelligence and WHOIS insights
-  exploit    ⚠️  Exploitation framework (AUTHORIZED USE ONLY)
+  exploit    ⚠️  [DEPRECATED] Use 'access' instead
   code       Code security (secrets, dependencies)
   cloud      Cloud storage security (S3, Azure, GCS)
   bench      Load testing and performance benchmarking
@@ -383,7 +489,7 @@ pub fn print_global_help() {
 
 {bold}REPL (Interactive Mode):{reset}
   rb repl <target>         Enter interactive REPL for exploring scans
-  rb repl <file>.rdb      Open existing session file
+  rb repl <file>{session_ext}      Open existing session file
 
 {bold}GLOBAL COMMANDS:{reset}
   rb help                  Show global overview
@@ -395,6 +501,7 @@ For detailed documentation: Check docs/CLI_SEMANTICS.md and QUICKSTART.md
         title = title,
         bold = bold,
         dim = dim,
+        session_ext = crate::storage::session::SessionFile::EXTENSION,
         reset = reset
     );
 }
