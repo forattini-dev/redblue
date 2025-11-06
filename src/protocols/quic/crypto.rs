@@ -44,7 +44,8 @@ impl PacketKeySet {
     /// Encrypt payload with AES-128-GCM and append authentication tag.
     pub fn encrypt(&self, packet_number: u64, header: &[u8], payload: &[u8]) -> Vec<u8> {
         let nonce = self.build_nonce(packet_number);
-        aes128_gcm_encrypt(&self.key, &nonce, header, payload)
+        // QUIC AEAD: encrypt payload (plaintext), authenticate header (AAD)
+        aes128_gcm_encrypt(&self.key, &nonce, payload, header)
     }
 
     /// Decrypt payload with AES-128-GCM, returning plaintext.
@@ -55,7 +56,8 @@ impl PacketKeySet {
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, String> {
         let nonce = self.build_nonce(packet_number);
-        aes128_gcm_decrypt(&self.key, &nonce, header, ciphertext)
+        // QUIC AEAD: decrypt ciphertext (payload), verify header (AAD)
+        aes128_gcm_decrypt(&self.key, &nonce, ciphertext, header)
     }
 
     /// Apply header protection to the given header fields in-place.
