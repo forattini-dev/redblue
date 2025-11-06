@@ -1,6 +1,6 @@
 // REPL - Interactive mode for redblue (k9s-style)
 // Usage: rb repl <target>
-//        rb repl www.tetis.io.rdb
+//        rb repl www.tetis.io.rb-session
 
 use crate::cli::output::Output;
 use crate::storage::session::{SessionFile, SessionMetadata};
@@ -27,11 +27,13 @@ enum ReplContext {
 impl Repl {
     /// Create new REPL session
     pub fn new(target: String) -> Result<Self, String> {
-        // Check if target is a .rdb file or a domain
-        let session_path = if target.ends_with(".rdb") {
+        // Check if target is a session file or a domain
+        let session_path = if target.ends_with(SessionFile::EXTENSION) {
+            target.clone()
+        } else if target.ends_with(".rdb") {
             target.clone()
         } else {
-            format!("{}.rdb", target)
+            format!("{}{}", target, SessionFile::EXTENSION)
         };
 
         // Try to load existing session
@@ -223,7 +225,10 @@ impl Repl {
         println!("  show, ls, view      Show results for current context");
         println!("  all                 Show all results from all phases");
         println!("  summary, stats      Show scan statistics");
-        println!("  raw                 Show raw .rdb file contents");
+        println!(
+            "  raw                 Show raw {} file contents",
+            SessionFile::EXTENSION
+        );
 
         println!("\n\x1b[1mEXECUTION:\x1b[0m");
         println!("  run <preset>        Run new scan (passive|stealth|aggressive)");
@@ -450,7 +455,10 @@ impl Repl {
         let cmd = format!("{} --preset {}", self.target, preset);
 
         Output::info(&format!("Command: rb {}", cmd));
-        Output::warning("This will execute a real scan and update the .rdb file");
+        Output::warning(&format!(
+            "This will execute a real scan and update the {} file",
+            SessionFile::EXTENSION
+        ));
 
         // Execute via magic scan
         use crate::cli::commands::magic;

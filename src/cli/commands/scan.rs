@@ -1,5 +1,5 @@
 /// Network/ports command - Port scanning and network discovery
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{build_partition_attributes, print_help, Command, Flag, Route};
 use crate::cli::{
     format::OutputFormat,
     output::{Output, ProgressBar},
@@ -9,7 +9,7 @@ use crate::cli::{
 use crate::config;
 use crate::intelligence::{banner_analysis, service_detection, timing_analysis};
 use crate::modules::network::scanner::PortScanner;
-use crate::storage::client::PersistenceManager;
+use crate::storage::service::StorageService;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -259,7 +259,18 @@ impl ScanCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(&target_str_owned, persist_flag)?;
+        let storage = StorageService::global();
+        let attributes = build_partition_attributes(
+            ctx,
+            &target_str_owned,
+            [("preset", preset), ("mode", "scan")],
+        );
+        let mut pm = storage.persistence_for_target_with(
+            &target_str_owned,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         // Save port scan results to database
         if pm.is_enabled() {
@@ -275,13 +286,10 @@ impl ScanCommand {
                     _ => 0, // unknown
                 };
 
-                // Convert IpAddr to u32 (IPv4 only for now)
-                if let std::net::IpAddr::V4(ipv4) = target {
-                    let ip_u32 = u32::from(ipv4);
-                    if let Err(e) = pm.add_port_scan(ip_u32, result.port, 1, service_id) {
-                        // Log error but don't fail the scan
-                        eprintln!("Warning: Failed to save to database: {}", e);
-                    }
+                // Persist open port (state 0 = Open)
+                if let Err(e) = pm.add_port_scan(target, result.port, 0, service_id) {
+                    // Log error but don't fail the scan
+                    eprintln!("Warning: Failed to save to database: {}", e);
                 }
             }
         }
@@ -773,7 +781,17 @@ impl ScanCommand {
             // Save to database if persistence is enabled
             if persist_flag.is_some() {
                 let host_str = host_ip.to_string();
-                let mut pm = PersistenceManager::new(&host_str, persist_flag)?;
+                let attributes = build_partition_attributes(
+                    ctx,
+                    &host_str,
+                    [("mode", "subnet"), ("cidr", cidr)],
+                );
+                let mut pm = StorageService::global().persistence_for_target_with(
+                    &host_str,
+                    persist_flag,
+                    None,
+                    attributes,
+                )?;
 
                 for result in &open_ports {
                     let service_id = match result.service.as_deref() {
@@ -786,8 +804,10 @@ impl ScanCommand {
                         _ => 0,
                     };
 
-                    let ip_u32 = u32::from(*host_ip);
-                    if let Err(e) = pm.add_port_scan(ip_u32, result.port, 1, service_id) {
+                    // Persist open port (state 0 = Open)
+                    if let Err(e) =
+                        pm.add_port_scan(std::net::IpAddr::V4(*host_ip), result.port, 0, service_id)
+                    {
                         eprintln!("    Warning: Failed to save: {}", e);
                     }
                 }

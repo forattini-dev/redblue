@@ -8,6 +8,7 @@ pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod exploit; // ⚠️ Exploitation framework - AUTHORIZED USE ONLY (DEPRECATED - use 'access')
                  // pub mod init; // ✅ Config init command - TEMPORARILY DISABLED (missing function)
 pub mod magic;
+pub mod mcp;
 // pub mod monitor;  // Temporarily disabled - compilation errors
 pub mod nc; // ⚠️ Netcat - AUTHORIZED USE ONLY
 pub mod network;
@@ -24,8 +25,11 @@ pub mod web; // ✅ Re-enabled with TLS routes!
 pub mod wordlist; // ✅ Wordlist management
 
 use crate::cli::{output::Output, CliContext};
+use crate::storage::service::StorageService;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Once;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 struct CommandRegistry {
     commands: Vec<Box<dyn Command>>,
@@ -58,6 +62,7 @@ impl CommandRegistry {
             Box::new(bench::BenchCommand),
             Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
             Box::new(wordlist::WordlistCommand),     // ✅ Wordlist management
+            Box::new(mcp::McpCommand),               // ✅ Local MCP server bridge
                                                      // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
                                                      // Box::new(monitor::MonitorCommand),  // Temporarily disabled
         ];
@@ -134,6 +139,82 @@ pub fn resources_for_domain(domain: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+pub fn build_partition_attributes<I, K, V>(
+    ctx: &CliContext,
+    target: &str,
+    extra: I,
+) -> Vec<(String, String)>
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    let mut attributes = Vec::with_capacity(6);
+
+    if let Some(domain) = ctx.domain.as_deref() {
+        attributes.push(("domain".to_string(), domain.to_string()));
+    }
+
+    if let Some(resource) = ctx.resource.as_deref() {
+        attributes.push(("resource".to_string(), resource.to_string()));
+    }
+
+    if let Some(verb) = ctx.verb.as_deref() {
+        attributes.push(("verb".to_string(), verb.to_string()));
+    }
+
+    attributes.push(("target".to_string(), target.to_string()));
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+        .as_secs();
+    attributes.push(("run_ts".to_string(), timestamp.to_string()));
+
+    for (key, value) in extra.into_iter() {
+        attributes.push((key.into(), value.into()));
+    }
+
+    attributes
+}
+
+pub fn annotate_query_partition<I, K, V>(ctx: &CliContext, path: &Path, extra: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    let mut attributes = Vec::with_capacity(6);
+
+    if let Some(domain) = ctx.domain.as_deref() {
+        attributes.push(("query_domain".to_string(), domain.to_string()));
+    }
+
+    if let Some(resource) = ctx.resource.as_deref() {
+        attributes.push(("query_resource".to_string(), resource.to_string()));
+    }
+
+    if let Some(verb) = ctx.verb.as_deref() {
+        attributes.push(("query_verb".to_string(), verb.to_string()));
+    }
+
+    if let Some(target) = ctx.target.as_deref() {
+        attributes.push(("query_target".to_string(), target.to_string()));
+    }
+
+    if !ctx.raw.is_empty() {
+        attributes.push(("query_command".to_string(), ctx.raw.join(" ")));
+    }
+
+    for (key, value) in extra.into_iter() {
+        attributes.push((key.into(), value.into()));
+    }
+
+    let service = StorageService::global();
+    let key = StorageService::key_for_path(path);
+    service.annotate_partition(&key, attributes);
 }
 
 pub trait Command: Send + Sync {
@@ -463,6 +544,7 @@ pub fn print_global_help() {
   config     Configuration management
   database   Database operations and queries
   monitor    Protocol monitoring (TCP, UDP, ICMP)
+  mcp        Local Model Context Protocol bridge for tooling agents
 
 {bold}EXAMPLES:{reset}
   {dim}# Initialize config file{reset}
@@ -496,7 +578,7 @@ pub fn print_global_help() {
   rb <domain> help         List resources inside a domain
   rb version               Show version information
 
-For detailed documentation: Check docs/CLI_SEMANTICS.md and QUICKSTART.md
+For detailed documentation: Check docs/cli-semantics.md and QUICKSTART.md
 ",
         title = title,
         bold = bold,

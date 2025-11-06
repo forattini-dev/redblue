@@ -3,7 +3,8 @@
 
 #[cfg(test)]
 mod tls_tests {
-    use redblue::modules::network::tls::TlsStream;
+    use redblue::modules::network::tls::{TlsConfig, TlsStream, TlsVersion};
+    use std::io::{Read, Write};
     use std::time::Duration;
 
     #[test]
@@ -12,7 +13,10 @@ mod tls_tests {
         println!("\n=== Testing TLS Handshake with example.com ===");
 
         // Create TLS connection
-        let result = TlsStream::connect("example.com", 443, Duration::from_secs(10));
+        let config = TlsConfig::default()
+            .with_version(TlsVersion::Tls13)
+            .with_timeout(Duration::from_secs(10));
+        let result = TlsStream::connect("example.com", 443, config);
 
         match result {
             Ok(mut tls) => {
@@ -64,7 +68,10 @@ mod tls_tests {
     fn test_tls_handshake_google() {
         println!("\n=== Testing TLS Handshake with google.com ===");
 
-        let result = TlsStream::connect("google.com", 443, Duration::from_secs(10));
+        let config = TlsConfig::default()
+            .with_version(TlsVersion::Tls13)
+            .with_timeout(Duration::from_secs(10));
+        let result = TlsStream::connect("google.com", 443, config);
 
         match result {
             Ok(_) => {
@@ -85,11 +92,11 @@ mod tls_tests {
         println!("\n=== Verifying Crypto Modules ===");
 
         // Test that crypto modules are accessible
-        use redblue::crypto::{aes, hmac, prf, sha256};
+        use redblue::crypto::{hmac, prf, sha256};
 
         // Test SHA-256
         let data = b"Hello, World!";
-        let hash = sha256::hash(data);
+        let hash = sha256::sha256(data);
         println!("✓ SHA-256: {} bytes", hash.len());
         assert_eq!(hash.len(), 32);
 
@@ -103,7 +110,7 @@ mod tls_tests {
         let secret = &[0u8; 48];
         let label = b"test label";
         let seed = b"test seed";
-        let output = prf::prf(secret, label, seed, 64);
+        let output = prf::prf_tls12(secret, label, seed, 64);
         println!("✓ TLS PRF: {} bytes", output.len());
         assert_eq!(output.len(), 64);
 
@@ -155,7 +162,7 @@ mod tls_tests {
         let n = BigInt::from_u64(3233); // 61 * 53
         let e = BigInt::from_u64(17);
 
-        let pubkey = RsaPublicKey::new(n, e, 12); // ~12 bits
+        let pubkey = RsaPublicKey::new(n, e);
 
         // Encrypt a small message
         let message = b"Hi";

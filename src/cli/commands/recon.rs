@@ -1,5 +1,5 @@
 /// Recon/domain command - Information gathering and OSINT
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{build_partition_attributes, print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::recon::harvester::Harvester;
 use crate::modules::recon::subdomain::{
@@ -7,9 +7,9 @@ use crate::modules::recon::subdomain::{
 };
 use crate::modules::recon::urlharvest::UrlHarvester;
 use crate::protocols::whois::WhoisClient;
-use crate::storage::client::PersistenceManager;
+use crate::storage::service::StorageService;
 use crate::storage::SubdomainSource;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 
 pub struct ReconCommand;
 
@@ -171,7 +171,17 @@ impl Command for ReconCommand {
                     "{}",
                     Validator::suggest_command(
                         verb,
-                        &["whois", "subdomains", "harvest", "urls", "osint", "email", "list", "get", "describe"]
+                        &[
+                            "whois",
+                            "subdomains",
+                            "harvest",
+                            "urls",
+                            "osint",
+                            "email",
+                            "list",
+                            "get",
+                            "describe"
+                        ]
                     )
                 );
                 Err("Invalid verb".to_string())
@@ -213,7 +223,18 @@ impl ReconCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(&domain_owned, persist_flag)?;
+        let registrar_attr = result.registrar.as_deref().unwrap_or("unknown");
+        let attributes = build_partition_attributes(
+            ctx,
+            &domain_owned,
+            [("operation", "whois"), ("registrar", registrar_attr)],
+        );
+        let mut pm = StorageService::global().persistence_for_target_with(
+            &domain_owned,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         // Save WHOIS data to database
         if pm.is_enabled() {
@@ -504,15 +525,25 @@ impl ReconCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(domain, persist_flag)?;
+        let mode_value = if passive_only { "passive" } else { "hybrid" };
+        let attributes = build_partition_attributes(
+            ctx,
+            domain,
+            [("operation", "subdomains"), ("mode", mode_value)],
+        );
+        let mut pm = StorageService::global().persistence_for_target_with(
+            domain,
+            persist_flag,
+            None,
+            attributes,
+        )?;
         if pm.is_enabled() {
             for result in &results {
                 let source = map_subdomain_source(&result.source);
-                let ips: Vec<u32> = result
+                let ips: Vec<IpAddr> = result
                     .ips
                     .iter()
-                    .filter_map(|ip| ip.parse::<Ipv4Addr>().ok())
-                    .map(u32::from)
+                    .filter_map(|ip| ip.parse::<IpAddr>().ok())
                     .collect();
 
                 pm.add_subdomain(domain, &result.subdomain, source as u8, &ips)?;
@@ -796,9 +827,10 @@ fn is_leap_year(year: i32) -> bool {
 impl ReconCommand {
     /// List all subdomains for a domain from database (RESTful)
     fn list_subdomains(&self, ctx: &CliContext) -> Result<(), String> {
-        let domain = ctx.target.as_ref().ok_or(
-            "Missing domain. Usage: rb recon domain list <domain> [--db file]"
-        )?;
+        let domain = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing domain. Usage: rb recon domain list <domain> [--db file]")?;
 
         // TODO: Implement database query for subdomains
         // For now, return a placeholder message
@@ -811,9 +843,10 @@ impl ReconCommand {
 
     /// Get specific subdomain info from database (RESTful)
     fn get_subdomain(&self, ctx: &CliContext) -> Result<(), String> {
-        let subdomain = ctx.target.as_ref().ok_or(
-            "Missing subdomain. Usage: rb recon domain get <subdomain> [--db file]"
-        )?;
+        let subdomain = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing subdomain. Usage: rb recon domain get <subdomain> [--db file]")?;
 
         // TODO: Implement database query for specific subdomain
         Output::header(&format!("Subdomain Info: {}", subdomain));
@@ -825,9 +858,10 @@ impl ReconCommand {
 
     /// Get detailed OSINT data from database (RESTful)
     fn describe_domain(&self, ctx: &CliContext) -> Result<(), String> {
-        let domain = ctx.target.as_ref().ok_or(
-            "Missing domain. Usage: rb recon domain describe <domain> [--db file]"
-        )?;
+        let domain = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing domain. Usage: rb recon domain describe <domain> [--db file]")?;
 
         // TODO: Implement comprehensive database query
         Output::header(&format!("Domain Intelligence: {}", domain));

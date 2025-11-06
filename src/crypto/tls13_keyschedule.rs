@@ -12,9 +12,7 @@
 ///
 /// ✅ ZERO DEPENDENCIES - Pure Rust implementation
 /// Replaces: rustls key schedule, ring
-
-use super::hkdf::{derive_secret, hkdf_expand_label, hkdf_extract};
-use super::sha256::sha256;
+use super::tls13_hash::Tls13HashAlgorithm;
 
 /// TLS 1.3 Key Schedule State
 ///
@@ -27,36 +25,37 @@ use super::sha256::sha256;
 /// 6. Client Application Traffic Secret
 /// 7. Server Application Traffic Secret
 pub struct Tls13KeySchedule {
+    /// Active hash algorithm (derived from negotiated cipher suite)
+    hash_alg: Tls13HashAlgorithm,
+
     /// Current secret (progresses: early → handshake → master)
-    current_secret: [u8; 32],
+    current_secret: Vec<u8>,
 
     /// Client handshake traffic secret
-    pub client_handshake_traffic_secret: Option<[u8; 32]>,
+    pub client_handshake_traffic_secret: Option<Vec<u8>>,
 
     /// Server handshake traffic secret
-    pub server_handshake_traffic_secret: Option<[u8; 32]>,
+    pub server_handshake_traffic_secret: Option<Vec<u8>>,
 
     /// Client application traffic secret
-    pub client_application_traffic_secret: Option<[u8; 32]>,
+    pub client_application_traffic_secret: Option<Vec<u8>>,
 
     /// Server application traffic secret
-    pub server_application_traffic_secret: Option<[u8; 32]>,
+    pub server_application_traffic_secret: Option<Vec<u8>>,
 
     /// Handshake messages hash (transcript)
     handshake_hash: Vec<u8>,
 }
 
 impl Tls13KeySchedule {
-    /// Create a new TLS 1.3 key schedule
+    /// Create a new TLS 1.3 key schedule with the specified hash algorithm
     ///
     /// Initializes with Early Secret = HKDF-Extract(0, 0)
-    pub fn new() -> Self {
-        // RFC 8446 Section 7.1:
-        // Early Secret = HKDF-Extract(salt=0, IKM=0)
-        let zero_key = [0u8; 32];
-        let early_secret = hkdf_extract(None, &zero_key);
+    pub fn new(hash_alg: Tls13HashAlgorithm) -> Self {
+        let early_secret = hash_alg.hkdf_extract(None, &[]);
 
         Self {
+            hash_alg,
             current_secret: early_secret,
             client_handshake_traffic_secret: None,
             server_handshake_traffic_secret: None,
@@ -71,9 +70,25 @@ impl Tls13KeySchedule {
         self.handshake_hash.extend_from_slice(message);
     }
 
+    /// Replace the transcript with the provided bytes
+    pub fn set_transcript(&mut self, transcript: &[u8]) {
+        self.handshake_hash.clear();
+        self.handshake_hash.extend_from_slice(transcript);
+    }
+
     /// Get current transcript hash
-    fn get_transcript_hash(&self) -> [u8; 32] {
-        sha256(&self.handshake_hash)
+    fn get_transcript_hash(&self) -> Vec<u8> {
+        self.hash_alg.hash(&self.handshake_hash)
+    }
+
+    /// Expose the current transcript hash (ClientHello..latest message)
+    pub fn transcript_hash(&self) -> Vec<u8> {
+        self.get_transcript_hash()
+    }
+
+    /// Expose the current secret for debugging / tracing purposes
+    pub fn current_secret(&self) -> &[u8] {
+        &self.current_secret
     }
 
     /// Derive handshake secret from shared secret (e.g., X25519 output)
@@ -100,12 +115,12 @@ impl Tls13KeySchedule {
     ///   (EC)DHE -> HKDF-Extract = Handshake Secret
     /// ```
     pub fn derive_handshake_secret(&mut self, shared_secret: &[u8; 32]) {
-        // Derive-Secret for "derived"
-        let empty_hash = sha256(&[]);
-        let derived = derive_secret(&self.current_secret, b"derived", &empty_hash);
-
-        // HKDF-Extract with shared secret
-        let handshake_secret = hkdf_extract(Some(&derived), shared_secret);
+        let empty_hash = self.hash_alg.hash(&[]);
+        let derived = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"derived", &empty_hash)
+            .expect("Failed to derive handshake secret base");
+        let handshake_secret = self.hash_alg.hkdf_extract(Some(&derived), shared_secret);
 
         self.current_secret = handshake_secret;
     }
@@ -128,18 +143,16 @@ impl Tls13KeySchedule {
         let transcript_hash = self.get_transcript_hash();
 
         // Client handshake traffic secret
-        let client_secret = derive_secret(
-            &self.current_secret,
-            b"c hs traffic",
-            &transcript_hash,
-        );
+        let client_secret = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"c hs traffic", &transcript_hash)
+            .expect("Failed to derive client handshake traffic secret");
 
         // Server handshake traffic secret
-        let server_secret = derive_secret(
-            &self.current_secret,
-            b"s hs traffic",
-            &transcript_hash,
-        );
+        let server_secret = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"s hs traffic", &transcript_hash)
+            .expect("Failed to derive server handshake traffic secret");
 
         self.client_handshake_traffic_secret = Some(client_secret);
         self.server_handshake_traffic_secret = Some(server_secret);
@@ -157,12 +170,15 @@ impl Tls13KeySchedule {
     /// ```
     pub fn derive_master_secret(&mut self) {
         // Derive-Secret for "derived"
-        let empty_hash = sha256(&[]);
-        let derived = derive_secret(&self.current_secret, b"derived", &empty_hash);
+        let empty_hash = self.hash_alg.hash(&[]);
+        let derived = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"derived", &empty_hash)
+            .expect("Failed to derive master secret base");
 
         // HKDF-Extract with zero
-        let zero_key = [0u8; 32];
-        let master_secret = hkdf_extract(Some(&derived), &zero_key);
+        let zero_block = vec![0u8; self.hash_alg.hash_len()];
+        let master_secret = self.hash_alg.hkdf_extract(Some(&derived), &zero_block);
 
         self.current_secret = master_secret;
     }
@@ -193,18 +209,16 @@ impl Tls13KeySchedule {
         let transcript_hash = self.get_transcript_hash();
 
         // Client application traffic secret
-        let client_secret = derive_secret(
-            &self.current_secret,
-            b"c ap traffic",
-            &transcript_hash,
-        );
+        let client_secret = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"c ap traffic", &transcript_hash)
+            .expect("Failed to derive client application traffic secret");
 
         // Server application traffic secret
-        let server_secret = derive_secret(
-            &self.current_secret,
-            b"s ap traffic",
-            &transcript_hash,
-        );
+        let server_secret = self
+            .hash_alg
+            .derive_secret(&self.current_secret, b"s ap traffic", &transcript_hash)
+            .expect("Failed to derive server application traffic secret");
 
         self.client_application_traffic_secret = Some(client_secret);
         self.server_application_traffic_secret = Some(server_secret);
@@ -221,18 +235,21 @@ impl Tls13KeySchedule {
     /// * `key_length` - Length of encryption key (16 for AES-128, 32 for AES-256/ChaCha20)
     /// * `iv_length` - Length of IV (12 for GCM/ChaCha20-Poly1305)
     pub fn derive_traffic_keys(
-        traffic_secret: &[u8; 32],
+        &self,
+        traffic_secret: &[u8],
         key_length: u16,
         iv_length: u16,
-    ) -> (Vec<u8>, Vec<u8>) {
-        // RFC 8446 Section 7.3:
-        // [sender]_write_key = HKDF-Expand-Label(Secret, "key", "", key_length)
-        // [sender]_write_iv  = HKDF-Expand-Label(Secret, "iv", "", iv_length)
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let write_key = self
+            .hash_alg
+            .hkdf_expand_label(traffic_secret, b"key", b"", key_length as usize)
+            .map_err(|e| format!("Failed to derive traffic key: {}", e))?;
+        let write_iv = self
+            .hash_alg
+            .hkdf_expand_label(traffic_secret, b"iv", b"", iv_length as usize)
+            .map_err(|e| format!("Failed to derive traffic IV: {}", e))?;
 
-        let write_key = hkdf_expand_label(traffic_secret, b"key", b"", key_length);
-        let write_iv = hkdf_expand_label(traffic_secret, b"iv", b"", iv_length);
-
-        (write_key, write_iv)
+        Ok((write_key, write_iv))
     }
 
     /// Compute Finished verify_data
@@ -246,42 +263,52 @@ impl Tls13KeySchedule {
     ///     HMAC(finished_key, Transcript-Hash(Handshake Context))
     /// ```
     pub fn compute_finished_verify_data(
-        base_key: &[u8; 32],
-        transcript_hash: &[u8; 32],
-    ) -> [u8; 32] {
-        use super::hmac::hmac_sha256;
+        &self,
+        base_key: &[u8],
+        transcript_hash: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        let hash_len = self.hash_alg.hash_len();
+        if base_key.len() != hash_len {
+            return Err("Base key has unexpected length".to_string());
+        }
+        if transcript_hash.len() != hash_len {
+            return Err("Transcript hash has unexpected length".to_string());
+        }
 
-        // Derive finished key
-        let finished_key_vec = hkdf_expand_label(base_key, b"finished", b"", 32);
-        let mut finished_key = [0u8; 32];
-        finished_key.copy_from_slice(&finished_key_vec);
+        let finished_key = self
+            .hash_alg
+            .hkdf_expand_label(base_key, b"finished", b"", hash_len)
+            .map_err(|e| format!("Failed to derive Finished key: {}", e))?;
 
-        // Compute HMAC over transcript hash
-        hmac_sha256(&finished_key, transcript_hash)
+        Ok(self.hash_alg.hmac(&finished_key, transcript_hash))
     }
 
     /// Get client handshake finished verify_data
-    pub fn client_finished_verify_data(&self) -> [u8; 32] {
+    pub fn client_finished_verify_data(&self) -> Result<Vec<u8>, String> {
         let transcript_hash = self.get_transcript_hash();
-        let base_key = self.client_handshake_traffic_secret
-            .expect("Client handshake traffic secret not derived");
+        let base_key = self
+            .client_handshake_traffic_secret
+            .as_ref()
+            .ok_or_else(|| "Client handshake traffic secret not derived".to_string())?;
 
-        Self::compute_finished_verify_data(&base_key, &transcript_hash)
+        self.compute_finished_verify_data(base_key, &transcript_hash)
     }
 
     /// Get server handshake finished verify_data
-    pub fn server_finished_verify_data(&self) -> [u8; 32] {
+    pub fn server_finished_verify_data(&self) -> Result<Vec<u8>, String> {
         let transcript_hash = self.get_transcript_hash();
-        let base_key = self.server_handshake_traffic_secret
-            .expect("Server handshake traffic secret not derived");
+        let base_key = self
+            .server_handshake_traffic_secret
+            .as_ref()
+            .ok_or_else(|| "Server handshake traffic secret not derived".to_string())?;
 
-        Self::compute_finished_verify_data(&base_key, &transcript_hash)
+        self.compute_finished_verify_data(base_key, &transcript_hash)
     }
 }
 
 impl Default for Tls13KeySchedule {
     fn default() -> Self {
-        Self::new()
+        Self::new(Tls13HashAlgorithm::Sha256)
     }
 }
 
@@ -291,10 +318,10 @@ mod tests {
 
     #[test]
     fn test_key_schedule_initialization() {
-        let ks = Tls13KeySchedule::new();
+        let ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         // Should start with early secret (non-zero)
-        assert_ne!(ks.current_secret, [0u8; 32]);
+        assert_ne!(ks.current_secret, vec![0u8; 32]);
 
         // No traffic secrets yet
         assert!(ks.client_handshake_traffic_secret.is_none());
@@ -303,8 +330,8 @@ mod tests {
 
     #[test]
     fn test_handshake_secret_derivation() {
-        let mut ks = Tls13KeySchedule::new();
-        let early_secret = ks.current_secret;
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
+        let early_secret = ks.current_secret.clone();
 
         // Derive handshake secret from shared secret
         let shared_secret = [0x42u8; 32];
@@ -312,12 +339,12 @@ mod tests {
 
         // Secret should have changed
         assert_ne!(ks.current_secret, early_secret);
-        assert_ne!(ks.current_secret, [0u8; 32]);
+        assert_ne!(ks.current_secret, vec![0u8; 32]);
     }
 
     #[test]
     fn test_handshake_traffic_secrets() {
-        let mut ks = Tls13KeySchedule::new();
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         // Add some handshake messages
         ks.add_to_transcript(b"ClientHello");
@@ -335,30 +362,29 @@ mod tests {
         assert!(ks.server_handshake_traffic_secret.is_some());
 
         // Should be different
-        assert_ne!(
-            ks.client_handshake_traffic_secret.unwrap(),
-            ks.server_handshake_traffic_secret.unwrap()
-        );
+        let client = ks.client_handshake_traffic_secret.clone().unwrap();
+        let server = ks.server_handshake_traffic_secret.clone().unwrap();
+        assert_ne!(client, server);
     }
 
     #[test]
     fn test_master_secret_derivation() {
-        let mut ks = Tls13KeySchedule::new();
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
         let shared_secret = [0x42u8; 32];
 
         ks.derive_handshake_secret(&shared_secret);
-        let handshake_secret = ks.current_secret;
+        let handshake_secret = ks.current_secret.clone();
 
         ks.derive_master_secret();
 
         // Master secret should be different from handshake secret
         assert_ne!(ks.current_secret, handshake_secret);
-        assert_ne!(ks.current_secret, [0u8; 32]);
+        assert_ne!(ks.current_secret, vec![0u8; 32]);
     }
 
     #[test]
     fn test_application_traffic_secrets() {
-        let mut ks = Tls13KeySchedule::new();
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         // Full handshake simulation
         ks.add_to_transcript(b"ClientHello");
@@ -378,22 +404,20 @@ mod tests {
         assert!(ks.server_application_traffic_secret.is_some());
 
         // Should be different
-        assert_ne!(
-            ks.client_application_traffic_secret.unwrap(),
-            ks.server_application_traffic_secret.unwrap()
-        );
+        let client = ks.client_application_traffic_secret.clone().unwrap();
+        let server = ks.server_application_traffic_secret.clone().unwrap();
+        assert_ne!(client, server);
     }
 
     #[test]
     fn test_traffic_keys_derivation() {
         let traffic_secret = [0x42u8; 32];
+        let ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         // Derive keys for AES-256-GCM
-        let (write_key, write_iv) = Tls13KeySchedule::derive_traffic_keys(
-            &traffic_secret,
-            32, // AES-256 key length
-            12, // GCM IV length
-        );
+        let (write_key, write_iv) = ks
+            .derive_traffic_keys(&traffic_secret, 32, 12)
+            .expect("traffic key derivation failed");
 
         assert_eq!(write_key.len(), 32);
         assert_eq!(write_iv.len(), 12);
@@ -405,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_finished_verify_data() {
-        let mut ks = Tls13KeySchedule::new();
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         ks.add_to_transcript(b"ClientHello");
         ks.add_to_transcript(b"ServerHello");
@@ -415,8 +439,12 @@ mod tests {
         ks.derive_handshake_traffic_secrets();
 
         // Compute finished verify data
-        let client_verify = ks.client_finished_verify_data();
-        let server_verify = ks.server_finished_verify_data();
+        let client_verify = ks
+            .client_finished_verify_data()
+            .expect("client finished computation failed");
+        let server_verify = ks
+            .server_finished_verify_data()
+            .expect("server finished computation failed");
 
         // Should be 32 bytes (SHA-256)
         assert_eq!(client_verify.len(), 32);
@@ -426,13 +454,15 @@ mod tests {
         assert_ne!(client_verify, server_verify);
 
         // Should be deterministic
-        let client_verify2 = ks.client_finished_verify_data();
+        let client_verify2 = ks
+            .client_finished_verify_data()
+            .expect("client finished computation failed");
         assert_eq!(client_verify, client_verify2);
     }
 
     #[test]
     fn test_transcript_hash() {
-        let mut ks = Tls13KeySchedule::new();
+        let mut ks = Tls13KeySchedule::new(Tls13HashAlgorithm::Sha256);
 
         ks.add_to_transcript(b"Message1");
         let hash1 = ks.get_transcript_hash();

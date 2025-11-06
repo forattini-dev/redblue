@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use crate::storage::encoding::{read_varu32, write_varu32, DecodeError, IpKey};
 use crate::storage::schema::{PortScanRecord, PortStatus};
@@ -151,8 +152,10 @@ pub struct PortSegment {
 }
 
 pub struct PortSegmentView {
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
     directory: Vec<PortDirEntry>,
-    payload: Vec<u8>,
 }
 
 impl PortSegment {
@@ -266,6 +269,12 @@ impl PortSegment {
     }
 
     pub fn serialize(&mut self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&mut self, out: &mut Vec<u8>) {
         self.ensure_index();
 
         let mut entries: Vec<(IpKey, IpRange)> = self
@@ -311,12 +320,11 @@ impl PortSegment {
             payload_len,
         };
 
-        let mut buf =
-            Vec::with_capacity(PortSegmentHeader::SIZE + directory_len as usize + payload.len());
-        header.write(&mut buf);
-        PortDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf
+        out.clear();
+        out.reserve(PortSegmentHeader::SIZE + directory.len() * PortDirEntry::SIZE + payload.len());
+        header.write(out);
+        PortDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -377,7 +385,16 @@ impl PortSegment {
 }
 
 impl PortSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("port segment out of bounds"));
+        }
+
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < PortSegmentHeader::SIZE {
             return Err(DecodeError("port segment too small"));
         }
@@ -387,26 +404,27 @@ impl PortSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("port directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("port directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("port payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("port payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
-
+        let payload_start = segment_offset + offset;
         let mut directory = PortDirEntry::read_all(directory_bytes, header.ip_count as usize)?;
         directory.sort_by_key(|entry| entry.key);
 
         Ok(Self {
+            data,
+            payload_offset: payload_start,
+            payload_len: header.payload_len as usize,
             directory,
-            payload: payload_bytes.to_vec(),
         })
     }
 
@@ -415,8 +433,10 @@ impl PortSegmentView {
         match self.directory.binary_search_by_key(&key, |entry| entry.key) {
             Ok(idx) => {
                 let entry = &self.directory[idx];
+                let payload =
+                    &self.data[self.payload_offset..self.payload_offset + self.payload_len];
                 decode_block_records(
-                    &self.payload,
+                    payload,
                     entry.payload_offset,
                     entry.payload_len,
                     entry.record_count,
@@ -425,6 +445,44 @@ impl PortSegmentView {
             }
             Err(_) => Ok(Vec::new()),
         }
+    }
+
+    pub fn records_in_range(
+        &self,
+        start: &IpAddr,
+        end: &IpAddr,
+    ) -> Result<Vec<PortScanRecord>, DecodeError> {
+        let start_key = IpKey::from(start);
+        let end_key = IpKey::from(end);
+        if start_key > end_key {
+            return Ok(Vec::new());
+        }
+
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
+        let start_idx = match self
+            .directory
+            .binary_search_by_key(&start_key, |entry| entry.key)
+        {
+            Ok(idx) | Err(idx) => idx,
+        };
+
+        let mut results = Vec::new();
+        for entry in self.directory[start_idx..].iter() {
+            if entry.key > end_key {
+                break;
+            }
+            let ip = entry.key.to_ip();
+            let mut decoded = decode_block_records(
+                payload,
+                entry.payload_offset,
+                entry.payload_len,
+                entry.record_count,
+                ip,
+            )?;
+            results.append(&mut decoded);
+        }
+
+        Ok(results)
     }
 }
 
@@ -586,8 +644,9 @@ mod tests {
         });
 
         let bytes = segment.serialize();
-        let view = PortSegmentView::from_bytes(&bytes).expect("view");
-
+        let data = Arc::new(bytes);
+        let view =
+            PortSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
         let records = view
             .records_for_ip(&"192.0.2.55".parse().unwrap())
             .expect("records");

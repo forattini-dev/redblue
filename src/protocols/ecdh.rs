@@ -14,8 +14,14 @@
 //! - RFC 4492: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS
 //! - RFC 8422: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS 1.2 and Earlier
 
-// use super::crypto::SecureRandom; // FIXME: Old stub, use crate::crypto instead
+use super::crypto::SecureRandom;
 use super::p256::P256Point;
+
+/// Order of the NIST P-256 curve
+const P256_ORDER: [u8; 32] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84, 0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51,
+];
 
 /// ECDH key pair for ephemeral key exchange
 pub struct EcdhKeyPair {
@@ -30,14 +36,14 @@ impl EcdhKeyPair {
     pub fn generate() -> Result<Self, String> {
         let mut rng = SecureRandom::new()?;
         let mut private_key = [0u8; 32];
-        rng.fill_bytes(&mut private_key)
-            .map_err(|e| format!("RNG failure: {}", e))?;
 
-        // Ensure private key is in valid range [1, n-1]
-        // For simplicity, we'll just ensure it's non-zero
-        // TODO: Proper range check against curve order
-        if private_key.iter().all(|&b| b == 0) {
-            return Err("Generated zero private key".to_string());
+        loop {
+            rng.fill_bytes(&mut private_key)
+                .map_err(|e| format!("RNG failure: {}", e))?;
+
+            if is_valid_scalar(&private_key) {
+                break;
+            }
         }
 
         // Compute public key = private_key * G
@@ -64,6 +70,23 @@ impl EcdhKeyPair {
     pub fn public_key_bytes(&self) -> Vec<u8> {
         self.public_key.to_uncompressed_bytes()
     }
+}
+
+fn is_valid_scalar(scalar: &[u8; 32]) -> bool {
+    if scalar.iter().all(|&b| b == 0) {
+        return false;
+    }
+
+    for (a, b) in scalar.iter().zip(P256_ORDER.iter()) {
+        if a < b {
+            return true;
+        } else if a > b {
+            return false;
+        }
+    }
+
+    // Equal to the group order is invalid
+    false
 }
 
 /// Named curve identifiers for TLS (RFC 4492)
@@ -129,5 +152,17 @@ mod tests {
         assert_eq!(NamedCurve::Secp256r1.to_u16(), 23);
         assert_eq!(NamedCurve::from_u16(23), Some(NamedCurve::Secp256r1));
         assert_eq!(NamedCurve::from_u16(999), None);
+    }
+
+    #[test]
+    fn test_scalar_validation() {
+        let zero = [0u8; 32];
+        assert!(!super::is_valid_scalar(&zero));
+
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        assert!(super::is_valid_scalar(&one));
+
+        assert!(!super::is_valid_scalar(&P256_ORDER));
     }
 }

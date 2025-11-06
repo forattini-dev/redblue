@@ -37,12 +37,8 @@ impl ChaCha20 {
 
         // Key (8 words = 32 bytes)
         for i in 0..8 {
-            state[4 + i] = u32::from_le_bytes([
-                key[i * 4],
-                key[i * 4 + 1],
-                key[i * 4 + 2],
-                key[i * 4 + 3],
-            ]);
+            state[4 + i] =
+                u32::from_le_bytes([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]]);
         }
 
         // Counter (initially 0)
@@ -162,12 +158,8 @@ fn chacha20_block(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> [u8; 64] {
 
     // Key (8 words)
     for i in 0..8 {
-        state[4 + i] = u32::from_le_bytes([
-            key[i * 4],
-            key[i * 4 + 1],
-            key[i * 4 + 2],
-            key[i * 4 + 3],
-        ]);
+        state[4 + i] =
+            u32::from_le_bytes([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]]);
     }
 
     // Counter (1 word)
@@ -262,11 +254,7 @@ impl Poly1305 {
         s[2] = u32::from_le_bytes([key[24], key[25], key[26], key[27]]);
         s[3] = u32::from_le_bytes([key[28], key[29], key[30], key[31]]);
 
-        Poly1305 {
-            r,
-            s,
-            acc: [0; 5],
-        }
+        Poly1305 { r, s, acc: [0; 5] }
     }
 
     /// Update with data

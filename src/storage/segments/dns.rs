@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
 use crate::storage::schema::{DnsRecordData, DnsRecordType};
@@ -149,12 +150,18 @@ pub struct DnsSegment {
 pub struct DnsSegmentView {
     strings: StringTable,
     directory: Vec<DnsDirEntry>,
-    payload: Vec<u8>,
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
 }
 
 impl DnsSegment {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.records.len()
     }
 
     pub fn insert(&mut self, record: DnsRecordData) {
@@ -263,6 +270,12 @@ impl DnsSegment {
     }
 
     pub fn serialize(&mut self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&mut self, out: &mut Vec<u8>) {
         self.ensure_index();
 
         let mut domain_entries: Vec<(u32, DomainRange)> = self
@@ -312,14 +325,17 @@ impl DnsSegment {
             strings_len,
         };
 
-        let mut buf = Vec::with_capacity(
-            DnsSegmentHeader::SIZE + directory_len as usize + payload.len() + string_section.len(),
+        out.clear();
+        out.reserve(
+            DnsSegmentHeader::SIZE
+                + directory.len() * DnsDirEntry::SIZE
+                + payload.len()
+                + string_section.len(),
         );
-        header.write(&mut buf);
-        DnsDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf.extend_from_slice(&string_section);
-        buf
+        header.write(out);
+        DnsDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&string_section);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -391,7 +407,15 @@ impl DnsSegment {
 }
 
 impl DnsSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("dns segment out of bounds"));
+        }
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < DnsSegmentHeader::SIZE {
             return Err(DecodeError("dns segment too small"));
         }
@@ -401,28 +425,29 @@ impl DnsSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("dns directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("dns directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("dns payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("dns payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
+        let payload_offset = segment_offset + offset;
         offset = payload_end;
 
-        let strings_end = offset
+        let strings_offset = segment_offset + offset;
+        let strings_end_abs = strings_offset
             .checked_add(header.strings_len as usize)
             .ok_or(DecodeError("dns string table overflow"))?;
-        if strings_end > bytes.len() {
+        if strings_end_abs > data.len() {
             return Err(DecodeError("dns string table out of bounds"));
         }
-        let strings_bytes = &bytes[offset..strings_end];
+        let strings_bytes = &data[strings_offset..strings_end_abs];
 
         let directory = DnsDirEntry::read_all(directory_bytes, header.domain_count as usize)?;
         let strings = decode_string_table(strings_bytes)?;
@@ -430,7 +455,9 @@ impl DnsSegmentView {
         Ok(Self {
             strings,
             directory,
-            payload: payload_bytes.to_vec(),
+            data,
+            payload_offset,
+            payload_len: header.payload_len as usize,
         })
     }
 
@@ -442,14 +469,39 @@ impl DnsSegmentView {
             return Ok(Vec::new());
         };
 
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
         decode_records_block_data(
-            &self.payload,
+            payload,
             entry.payload_offset,
             entry.payload_len,
             entry.record_count,
             domain,
             &self.strings,
         )
+    }
+
+    pub fn records_with_domain_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<DnsRecordData>, DecodeError> {
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
+        let mut matches = Vec::new();
+        for entry in &self.directory {
+            let domain = self.strings.get(entry.domain_id);
+            if !domain.starts_with(prefix) {
+                continue;
+            }
+            let mut decoded = decode_records_block_data(
+                payload,
+                entry.payload_offset,
+                entry.payload_len,
+                entry.record_count,
+                domain,
+                &self.strings,
+            )?;
+            matches.append(&mut decoded);
+        }
+        Ok(matches)
     }
 }
 
@@ -670,8 +722,8 @@ mod tests {
         });
 
         let bytes = segment.serialize();
-        let view = DnsSegmentView::from_bytes(&bytes).expect("view");
-
+        let data = Arc::new(bytes);
+        let view = DnsSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
         let records = view.records_for_domain("example.com").expect("records");
         assert_eq!(records.len(), 2);
         assert!(records.iter().any(|r| r.value == "v=spf1 -all"));

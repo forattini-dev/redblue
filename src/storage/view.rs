@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, Cursor};
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::storage::encoding::DecodeError;
 use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
@@ -24,7 +25,7 @@ pub struct RedDbView {
 
 impl RedDbView {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let data = fs::read(path)?;
+        let data = Arc::new(fs::read(path)?);
         if data.len() < FileHeader::SIZE {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -32,9 +33,10 @@ impl RedDbView {
             ));
         }
 
-        let header = FileHeader::read(Cursor::new(&data)).map_err(decode_err_to_io)?;
+        let header = FileHeader::read(Cursor::new(&data[..])).map_err(decode_err_to_io)?;
         let dir_start = header.directory_offset as usize;
-        let dir_len = header.section_count as usize * SectionEntry::SIZE;
+        let dir_len =
+            header.section_count as usize * SectionEntry::size_for_version(header.version);
         if dir_start + dir_len > data.len() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -45,6 +47,7 @@ impl RedDbView {
         let directory = SectionEntry::read_all(
             &data[dir_start..dir_start + dir_len],
             header.section_count as usize,
+            header.version,
         )
         .map_err(decode_err_to_io)?;
 
@@ -58,48 +61,54 @@ impl RedDbView {
 
         for entry in directory {
             let start = entry.offset as usize;
-            let end = start + entry.length as usize;
+            if entry.length > usize::MAX as u64 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "segment length exceeds platform limits",
+                ));
+            }
+            let seg_len = entry.length as usize;
+            let end = start + seg_len;
             if end > data.len() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "segment out of bounds",
                 ));
             }
-            let segment_bytes = &data[start..end];
             match entry.kind {
                 SegmentKind::Subdomains => {
-                    let view = SubdomainSegmentView::from_bytes(segment_bytes)
+                    let view = SubdomainSegmentView::from_arc(Arc::clone(&data), start, seg_len)
                         .map_err(decode_err_to_io)?;
                     subdomains = Some(view);
                 }
                 SegmentKind::Ports => {
-                    let view =
-                        PortSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = PortSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     ports = Some(view);
                 }
                 SegmentKind::Dns => {
-                    let view =
-                        DnsSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = DnsSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     dns = Some(view);
                 }
                 SegmentKind::Http => {
-                    let view =
-                        HttpSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = HttpSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     http = Some(view);
                 }
                 SegmentKind::Tls => {
-                    let view =
-                        TlsSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = TlsSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     tls = Some(view);
                 }
                 SegmentKind::Host => {
-                    let view =
-                        HostSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = HostSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     hosts_view = Some(view);
                 }
                 SegmentKind::Whois => {
-                    let view =
-                        WhoisSegmentView::from_bytes(segment_bytes).map_err(decode_err_to_io)?;
+                    let view = WhoisSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
                     whois = Some(view);
                 }
                 _ => {}

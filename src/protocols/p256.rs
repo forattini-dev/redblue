@@ -37,6 +37,14 @@ const P256_GY: [u64; 4] = [
     0x4FE342E2FE1A7F9B,
 ];
 
+/// P-256 curve constant `b` in the equation y^2 = x^3 - 3x + b (mod p)
+const P256_B: [u64; 4] = [
+    0x3BCE3C3E27D2604B,
+    0x651D06B0CC53B0F6,
+    0xB3EBBD55769886BC,
+    0x5AC635D8AA3A93E7,
+];
+
 /// A point on the P-256 elliptic curve in affine coordinates (x, y)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct P256Point {
@@ -260,6 +268,21 @@ impl P256Point {
         }
     }
 
+    /// Check whether the point satisfies the P-256 curve equation
+    pub fn is_on_curve(&self) -> bool {
+        if self.is_infinity {
+            return true;
+        }
+
+        let y_squared = self.y.mul(&self.y);
+        let x_squared = self.x.mul(&self.x);
+        let x_cubed = x_squared.mul(&self.x);
+        let three_x = self.x.add(&self.x).add(&self.x);
+        let rhs = x_cubed.sub(&three_x).add(&FieldElement { limbs: P256_B });
+
+        y_squared == rhs
+    }
+
     /// Point doubling: 2P using affine coordinates
     /// Formula: λ = (3x^2 - 3) / (2y)
     ///          x3 = λ^2 - 2x
@@ -387,13 +410,17 @@ impl P256Point {
         let x = FieldElement::from_bytes(&x_bytes);
         let y = FieldElement::from_bytes(&y_bytes);
 
-        // TODO: Validate point is on curve: y^2 = x^3 - 3x + b
-
-        Ok(P256Point {
+        let point = P256Point {
             x,
             y,
             is_infinity: false,
-        })
+        };
+
+        if !point.is_on_curve() {
+            return Err("Point is not on P-256 curve".to_string());
+        }
+
+        Ok(point)
     }
 }
 
@@ -438,5 +465,19 @@ mod tests {
         let g2 = P256Point::from_uncompressed_bytes(&bytes).unwrap();
         assert_eq!(g.x, g2.x);
         assert_eq!(g.y, g2.y);
+    }
+
+    #[test]
+    fn test_generator_on_curve() {
+        let g = P256Point::generator();
+        assert!(g.is_on_curve());
+    }
+
+    #[test]
+    fn test_invalid_point_rejected() {
+        let mut bytes = P256Point::generator().to_uncompressed_bytes();
+        // Flip one bit in Y coordinate to take the point off-curve
+        bytes[64] ^= 0x01;
+        assert!(P256Point::from_uncompressed_bytes(&bytes).is_err());
     }
 }

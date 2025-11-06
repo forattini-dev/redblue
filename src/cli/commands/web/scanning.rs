@@ -1,7 +1,11 @@
 use crate::cli::{format::OutputFormat, output::Output, validator::Validator, CliContext};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
+use crate::modules::web::strategies::django::{DjangoScanResult, DjangoSeverity};
 use crate::modules::web::strategies::drupal::{
     DrupalScanResult, VulnSeverity as DrupalVulnSeverity,
+};
+use crate::modules::web::strategies::laravel::{
+    FindingSeverity as LaravelSeverity, LaravelScanResult,
 };
 use crate::modules::web::strategies::wordpress::{VulnSeverity, WPScanResult};
 use crate::modules::web::vuln_scanner::{self, Severity, WebScanner};
@@ -167,6 +171,16 @@ pub fn run_scan(ctx: &CliContext) -> Result<(), String> {
         UnifiedScanResult::Directus(directus_result) => {
             Output::info(&format!("Directus version: {:?}", directus_result.version));
             Output::success("Directus scan completed");
+            Ok(())
+        }
+        UnifiedScanResult::Laravel(laravel_result) => {
+            display_laravel_scan_results(&laravel_result)?;
+            Output::success("Laravel scan completed");
+            Ok(())
+        }
+        UnifiedScanResult::Django(django_result) => {
+            display_django_scan_results(&django_result)?;
+            Output::success("Django scan completed");
             Ok(())
         }
         UnifiedScanResult::Generic(vuln_result) => {
@@ -395,6 +409,151 @@ fn display_wordpress_results(result: &WPScanResult) -> Result<(), String> {
                 "  {}[{}]\x1b[0m {}",
                 severity_color, vuln.severity, vuln.title
             );
+        }
+    }
+
+    Ok(())
+}
+
+fn display_laravel_scan_results(result: &LaravelScanResult) -> Result<(), String> {
+    Output::subheader("Laravel Application");
+    if let Some(version) = &result.version_hint {
+        Output::item("Version hint", version);
+    }
+
+    println!();
+
+    if !result.vulnerabilities.is_empty() {
+        Output::error(&format!(
+            "Detected {} Laravel-specific misconfigurations",
+            result.vulnerabilities.len()
+        ));
+        for finding in &result.vulnerabilities {
+            let (label, color) = match finding.severity {
+                LaravelSeverity::Critical => ("CRITICAL", "\x1b[31m"),
+                LaravelSeverity::High => ("HIGH", "\x1b[31m"),
+                LaravelSeverity::Medium => ("MEDIUM", "\x1b[33m"),
+                LaravelSeverity::Low => ("LOW", "\x1b[36m"),
+                LaravelSeverity::Info => ("INFO", "\x1b[2m"),
+            };
+            println!("  {}[{}]\x1b[0m {}", color, label, finding.title);
+            println!("      {}", finding.description);
+            if let Some(evidence) = &finding.evidence {
+                println!("      Evidence: {}", evidence);
+            }
+            println!("      Fix: {}", finding.remediation);
+            println!();
+        }
+    } else {
+        Output::success("No high-impact Laravel issues observed");
+    }
+
+    println!();
+    Output::subheader("Signals");
+    let mut signals = Vec::new();
+    if result.debug_signals {
+        signals.push("Debug tooling exposed");
+    }
+    if result.env_exposed {
+        signals.push(".env accessible");
+    }
+    if result.horizon_exposed {
+        signals.push("Horizon metrics open");
+    }
+    if result.telescope_exposed {
+        signals.push("Telescope dashboard open");
+    }
+    if result.storage_logs_exposed {
+        signals.push("storage/logs exposed");
+    }
+    if result.ignition_health_endpoint {
+        signals.push("Ignition health-check live");
+    }
+
+    if signals.is_empty() {
+        Output::info("No dangerous Laravel signals detected");
+    } else {
+        for signal in signals {
+            println!("  • {}", signal);
+        }
+    }
+
+    if !result.interesting_endpoints.is_empty() {
+        println!();
+        Output::subheader("Interesting Endpoints");
+        for endpoint in &result.interesting_endpoints {
+            println!("  • {}", endpoint);
+        }
+    }
+
+    Ok(())
+}
+
+fn display_django_scan_results(result: &DjangoScanResult) -> Result<(), String> {
+    Output::subheader("Django Application");
+    if let Some(version) = &result.version_hint {
+        Output::item("Version hint", version);
+    }
+
+    println!();
+
+    if !result.findings.is_empty() {
+        Output::error(&format!(
+            "Detected {} Django-specific misconfigurations",
+            result.findings.len()
+        ));
+        for finding in &result.findings {
+            let (label, color) = match finding.severity {
+                DjangoSeverity::Critical => ("CRITICAL", "\x1b[31m"),
+                DjangoSeverity::High => ("HIGH", "\x1b[31m"),
+                DjangoSeverity::Medium => ("MEDIUM", "\x1b[33m"),
+                DjangoSeverity::Low => ("LOW", "\x1b[36m"),
+                DjangoSeverity::Info => ("INFO", "\x1b[2m"),
+            };
+            println!("  {}[{}]\x1b[0m {}", color, label, finding.title);
+            println!("      {}", finding.description);
+            if let Some(evidence) = &finding.evidence {
+                println!("      Evidence: {}", evidence);
+            }
+            println!("      Fix: {}", finding.remediation);
+            println!();
+        }
+    } else {
+        Output::success("No high-impact Django issues observed");
+    }
+
+    println!();
+    Output::subheader("Signals");
+    let mut signals = Vec::new();
+    if result.admin_login_exposed {
+        signals.push("Admin login reachable at /admin/");
+    }
+    if result.debug_toolbar_exposed {
+        signals.push("Debug toolbar exposed");
+    }
+    if result.env_exposed {
+        signals.push(".env accessible");
+    }
+    if result.sqlite_database_exposed {
+        signals.push("SQLite database downloadable");
+    }
+    if result.settings_exposed {
+        signals.push("settings.py exposed");
+    }
+
+    if signals.is_empty() {
+        Output::info("No dangerous Django signals detected");
+    } else {
+        for signal in signals {
+            println!("  • {}", signal);
+        }
+    }
+
+    if !result.interesting_endpoints.is_empty() {
+        println!();
+        Output::subheader("Interesting Endpoints");
+        for endpoint in &result.interesting_endpoints {
+            println!("  • {}", endpoint);
         }
     }
 

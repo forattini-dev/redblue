@@ -271,22 +271,22 @@ impl CTLogsClient {
         // Send HTTP request over TLS
         let http_request = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            request.path,
-            host
+            request.path, host
         );
 
         use std::io::Write;
-        tls_stream.write_all(http_request.as_bytes())
+        tls_stream
+            .write_all(http_request.as_bytes())
             .map_err(|e| format!("Failed to send request: {}", e))?;
 
         // Read response
         use std::io::Read;
         let mut response = Vec::new();
-        tls_stream.read_to_end(&mut response)
+        tls_stream
+            .read_to_end(&mut response)
             .map_err(|e| format!("Failed to read response: {}", e))?;
 
-        String::from_utf8(response)
-            .map_err(|_| "Invalid UTF-8 in HTTP response body".to_string())
+        String::from_utf8(response).map_err(|_| "Invalid UTF-8 in HTTP response body".to_string())
     }
 }
 

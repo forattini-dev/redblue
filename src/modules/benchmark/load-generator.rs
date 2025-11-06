@@ -102,6 +102,30 @@ pub struct LoadGenerator {
     config: LoadConfig,
 }
 
+#[derive(Clone)]
+struct LiveObserver {
+    callback: Arc<dyn Fn(LiveSnapshot) + Send + Sync>,
+    interval: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct LiveSnapshot {
+    pub elapsed: Duration,
+    pub total_requests: usize,
+    pub successful_requests: usize,
+    pub failed_requests: usize,
+    pub status_2xx: usize,
+    pub status_3xx: usize,
+    pub status_4xx: usize,
+    pub status_5xx: usize,
+    pub requests_per_second: f64,
+    pub throughput_mbps: f64,
+    pub success_rate: f64,
+    pub p50: Duration,
+    pub p95: Duration,
+    pub p99: Duration,
+}
+
 impl LoadGenerator {
     pub fn new(config: LoadConfig) -> Self {
         Self { config }
@@ -109,15 +133,32 @@ impl LoadGenerator {
 
     /// Run load test with multi-threading
     pub fn run(&self) -> Result<LoadTestResults, String> {
+        self.run_internal(None)
+    }
+
+    /// Run load test with periodic observer callbacks.
+    pub fn run_with_observer(
+        &self,
+        interval: Duration,
+        observer: Arc<dyn Fn(LiveSnapshot) + Send + Sync>,
+    ) -> Result<LoadTestResults, String> {
+        let live = LiveObserver {
+            callback: observer,
+            interval,
+        };
+        self.run_internal(Some(live))
+    }
+
+    fn run_internal(&self, live: Option<LiveObserver>) -> Result<LoadTestResults, String> {
         if self.config.use_thread_pool {
-            self.run_with_thread_pool()
+            self.run_with_thread_pool(live)
         } else {
-            self.run_with_spawn()
+            self.run_with_spawn(live)
         }
     }
 
     /// Run using thread pool (FASTEST - reuses threads)
-    fn run_with_thread_pool(&self) -> Result<LoadTestResults, String> {
+    fn run_with_thread_pool(&self, live: Option<LiveObserver>) -> Result<LoadTestResults, String> {
         let start_time = Instant::now();
         let stats = Arc::new(AtomicStatsCollector::new());
         let should_stop = Arc::new(Mutex::new(false));
@@ -134,6 +175,15 @@ impl LoadGenerator {
         // Create thread pool (reuses threads!)
         let thread_pool = ThreadPool::new(self.config.concurrent_users);
         let active_workers = Arc::new(AtomicUsize::new(self.config.concurrent_users));
+
+        let live_handle = live.as_ref().map(|observer| {
+            spawn_live_reporter(
+                Arc::clone(&stats),
+                Arc::clone(&should_stop),
+                observer.clone(),
+                start_time,
+            )
+        });
 
         for _user_id in 0..self.config.concurrent_users {
             let url = self.config.url.clone();
@@ -208,6 +258,15 @@ impl LoadGenerator {
             thread::sleep(Duration::from_millis(10));
         }
 
+        {
+            let mut stop = should_stop.lock().unwrap();
+            *stop = true;
+        }
+
+        if let Some(handle) = live_handle {
+            let _ = handle.join();
+        }
+
         let test_duration = start_time.elapsed();
 
         // Take snapshot of atomic stats
@@ -220,7 +279,7 @@ impl LoadGenerator {
     }
 
     /// Run using thread::spawn (legacy method)
-    fn run_with_spawn(&self) -> Result<LoadTestResults, String> {
+    fn run_with_spawn(&self, live: Option<LiveObserver>) -> Result<LoadTestResults, String> {
         let start_time = Instant::now();
         let stats = Arc::new(AtomicStatsCollector::new());
         let should_stop = Arc::new(Mutex::new(false));
@@ -236,6 +295,15 @@ impl LoadGenerator {
 
         // Spawn worker threads with smaller stack size
         let mut handles = Vec::new();
+
+        let live_handle = live.as_ref().map(|observer| {
+            spawn_live_reporter(
+                Arc::clone(&stats),
+                Arc::clone(&should_stop),
+                observer.clone(),
+                start_time,
+            )
+        });
 
         for _user_id in 0..self.config.concurrent_users {
             let url = self.config.url.clone();
@@ -328,6 +396,15 @@ impl LoadGenerator {
             let _ = handle.join();
         }
 
+        {
+            let mut stop = should_stop.lock().unwrap();
+            *stop = true;
+        }
+
+        if let Some(handle) = live_handle {
+            let _ = handle.join();
+        }
+
         let test_duration = start_time.elapsed();
 
         // Take snapshot of atomic stats
@@ -374,3 +451,42 @@ fn build_results(
 }
 
 // Clone impl no longer needed - using AtomicStatsCollector.snapshot() instead
+
+fn spawn_live_reporter(
+    stats: Arc<AtomicStatsCollector>,
+    should_stop: Arc<Mutex<bool>>,
+    observer: LiveObserver,
+    start_time: Instant,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || loop {
+        {
+            if *should_stop.lock().unwrap() {
+                break;
+            }
+        }
+
+        let snapshot = stats.snapshot();
+        let elapsed = start_time.elapsed();
+        let percentiles = snapshot.percentiles();
+        let live_snapshot = LiveSnapshot {
+            elapsed,
+            total_requests: snapshot.total_requests,
+            successful_requests: snapshot.successful_requests,
+            failed_requests: snapshot.failed_requests,
+            status_2xx: snapshot.status_2xx,
+            status_3xx: snapshot.status_3xx,
+            status_4xx: snapshot.status_4xx,
+            status_5xx: snapshot.status_5xx,
+            requests_per_second: snapshot.requests_per_second(elapsed),
+            throughput_mbps: snapshot.throughput_mbps(elapsed),
+            success_rate: snapshot.success_rate(),
+            p50: percentiles.p50,
+            p95: percentiles.p95,
+            p99: percentiles.p99,
+        };
+
+        (observer.callback)(live_snapshot);
+
+        thread::sleep(observer.interval);
+    })
+}

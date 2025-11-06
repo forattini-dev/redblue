@@ -11,6 +11,7 @@
 ///
 /// ✅ ZERO DEPENDENCIES - Pure Rust implementation
 /// Replaces: aes-gcm crate, ring, openssl
+pub use crate::protocols::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 
 // S-box for SubBytes transformation (same as AES-128)
 const SBOX: [u8; 256] = [
@@ -250,43 +251,27 @@ fn aes256_ctr(key: &[u8; 32], iv: &[u8; 12], data: &[u8]) -> Vec<u8> {
     result
 }
 
-#[inline]
-fn bytes_to_u128_be(bytes: &[u8; 16]) -> u128 {
-    let mut val = 0u128;
-    for &b in bytes {
-        val = (val << 8) | b as u128;
-    }
-    val
-}
+fn gf128_mul(x: &[u8; 16], y: &[u8; 16]) -> [u8; 16] {
+    let mut z = [0u8; 16];
+    let mut v = *y;
 
-#[inline]
-fn u128_to_bytes_be(val: u128) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    for i in 0..16 {
-        out[15 - i] = (val >> (i * 8)) as u8;
-    }
-    out
-}
-
-/// Multiply two field elements in GF(2^128) using the reduction polynomial
-/// defined in NIST SP 800-38D (x^128 + x^7 + x^2 + x + 1).
-#[inline]
-fn ghash_mul(mut x: u128, mut y: u128) -> u128 {
-    let mut z = 0u128;
-    const R: u128 = 0xe1 << 120;
-
-    for _ in 0..128 {
-        if (x & (1u128 << 127)) != 0 {
-            z ^= y;
+    for i in 0..128 {
+        let byte_idx = i / 8;
+        let bit_idx = 7 - (i % 8);
+        if ((x[byte_idx] >> bit_idx) & 1) == 1 {
+            for j in 0..16 {
+                z[j] ^= v[j];
+            }
         }
 
-        let lsb = y & 1;
-        y >>= 1;
-        if lsb != 0 {
-            y ^= R;
+        let lsb = v[15] & 1;
+        for j in (1..16).rev() {
+            v[j] = (v[j] >> 1) | ((v[j - 1] & 1) << 7);
         }
-
-        x <<= 1;
+        v[0] >>= 1;
+        if lsb == 1 {
+            v[0] ^= 0xe1;
+        }
     }
 
     z
@@ -294,18 +279,18 @@ fn ghash_mul(mut x: u128, mut y: u128) -> u128 {
 
 /// GHASH function for GCM authentication.
 fn ghash(h: &[u8; 16], data: &[u8]) -> [u8; 16] {
-    let mut y = 0u128;
-    let h_val = bytes_to_u128_be(h);
+    let mut y = [0u8; 16];
 
     for chunk in data.chunks(16) {
         let mut block = [0u8; 16];
         block[..chunk.len()].copy_from_slice(chunk);
-        let x = bytes_to_u128_be(&block);
-        y ^= x;
-        y = ghash_mul(y, h_val);
+        for i in 0..16 {
+            y[i] ^= block[i];
+        }
+        y = gf128_mul(&y, h);
     }
 
-    u128_to_bytes_be(y)
+    y
 }
 
 /// AES-256-GCM encryption
@@ -425,21 +410,6 @@ pub fn aes256_gcm_decrypt(
     }
 
     if diff != 0 {
-        // Debug output
-        eprintln!(
-            "[aes_gcm][debug] Received tag: {}",
-            received_tag
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        );
-        eprintln!(
-            "[aes_gcm][debug] Computed tag: {}",
-            computed_tag
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<String>()
-        );
         return Err("Authentication tag verification failed".to_string());
     }
 

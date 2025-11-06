@@ -10,7 +10,7 @@
 /// - Weak JWT signing key
 /// - Email templates accessible
 ///
-/// Reference: docs/CMS_DETECTION_PATTERNS.md (Ghost section)
+/// Reference: docs/cms-detection-patterns.md (Ghost section)
 use crate::protocols::http::HttpClient;
 
 #[derive(Debug, Clone)]

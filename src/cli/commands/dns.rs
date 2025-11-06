@@ -1,12 +1,15 @@
 /// DNS/record command - DNS reconnaissance and enumeration
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{
+    annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
+};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
-use crate::storage::client::{PersistenceManager, QueryManager};
 use crate::storage::schema::{DnsRecordType as StorageDnsRecordType, SubdomainSource};
+use crate::storage::service::StorageService;
 use crate::wordlists::WordlistManager;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -226,7 +229,18 @@ impl DnsCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(&domain_owned, persist_flag)?;
+        let storage = StorageService::global();
+        let attributes = build_partition_attributes(
+            ctx,
+            &domain_owned,
+            [
+                ("operation", "lookup"),
+                ("record_type", record_type_str.as_str()),
+                ("resolver", server.as_str()),
+            ],
+        );
+        let mut pm =
+            storage.persistence_for_target_with(&domain_owned, persist_flag, None, attributes)?;
 
         // Save DNS records to database
         if pm.is_enabled() {
@@ -764,21 +778,29 @@ impl DnsCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(domain, persist_flag)?;
+        let attributes = build_partition_attributes(
+            ctx,
+            domain,
+            [
+                ("operation", "bruteforce"),
+                ("wordlist", wordlist_name.as_str()),
+            ],
+        );
+        let mut pm = StorageService::global().persistence_for_target_with(
+            domain,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         if pm.is_enabled() {
             for (subdomain, ips) in results.iter() {
-                let ip_u32s: Vec<u32> = ips
+                let ip_addrs: Vec<IpAddr> = ips
                     .iter()
-                    .filter_map(|ip_str| {
-                        ip_str
-                            .parse::<std::net::Ipv4Addr>()
-                            .ok()
-                            .map(|ip| u32::from(ip))
-                    })
+                    .filter_map(|ip_str| ip_str.parse::<IpAddr>().ok())
                     .collect();
 
-                if let Err(e) = pm.add_subdomain(domain, subdomain, 0, &ip_u32s) {
+                if let Err(e) = pm.add_subdomain(domain, subdomain, 0, &ip_addrs) {
                     eprintln!("Warning: Failed to save subdomain to database: {}", e);
                 }
             }
@@ -861,8 +883,15 @@ impl DnsCommand {
         Output::header(&format!("Listing DNS Records from Database: {}", domain));
         Output::info(&format!("Database: {}", db_path.display()));
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [("query_dataset", "dns"), ("query_operation", "list")],
+        );
 
         let records = query
             .list_dns_records(domain)
@@ -929,8 +958,19 @@ impl DnsCommand {
             domain, record_type_str
         ));
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [
+                ("query_dataset", "dns"),
+                ("query_operation", "get"),
+                ("query_key", record_type_str.as_str()),
+            ],
+        );
 
         let all_records = query
             .list_dns_records(domain)
@@ -978,8 +1018,15 @@ impl DnsCommand {
         Output::header(&format!("DNS Description: {}", domain));
         Output::info(&format!("Database: {}", db_path.display()));
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [("query_dataset", "dns"), ("query_operation", "describe")],
+        );
 
         let records = query
             .list_dns_records(domain)

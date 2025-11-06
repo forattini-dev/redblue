@@ -12,7 +12,7 @@
 /// - Admin panel accessibility
 /// - Default admin credentials
 ///
-/// Reference: docs/CMS_DETECTION_PATTERNS.md (Directus section)
+/// Reference: docs/cms-detection-patterns.md (Directus section)
 use crate::protocols::http::HttpClient;
 
 #[derive(Debug, Clone)]

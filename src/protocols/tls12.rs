@@ -14,8 +14,12 @@ use super::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 use super::p256::P256Point;
 use super::rsa::{BigInt, RsaPublicKey};
 use super::trust_store::{TrustPublicKey, TrustStore};*/
+use super::crypto::SecureRandom;
 use super::x509::{self, X509Certificate};
+use crate::crypto::{encode_base64, md5, sha256::sha256};
+use crate::intelligence::tls_fingerprint::JA3Fingerprint;
 use std::cmp::Ordering;
+use std::fmt::Write;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
@@ -105,6 +109,10 @@ pub struct Tls12Client {
     server_random: [u8; 32],
     master_secret: Option<Vec<u8>>,
     handshake_messages: Vec<u8>,
+    ja3: Option<String>,
+    ja3_raw: Option<String>,
+    ja3s: Option<String>,
+    ja3s_raw: Option<String>,
     client_write_key: Option<[u8; 16]>,
     server_write_key: Option<[u8; 16]>,
     client_write_iv: Option<[u8; 16]>,
@@ -174,6 +182,10 @@ impl Tls12Client {
             server_random: [0u8; 32],
             master_secret: None,
             handshake_messages: Vec::new(),
+            ja3: None,
+            ja3_raw: None,
+            ja3s: None,
+            ja3s_raw: None,
             client_write_key: None,
             server_write_key: None,
             client_write_iv: None,
@@ -200,6 +212,12 @@ impl Tls12Client {
     fn handshake(&mut self) -> Result<(), String> {
         tls_debug!("[DEBUG] Starting TLS handshake");
         let client_hello = self.build_client_hello();
+        if self.ja3.is_none() {
+            if let Ok((raw, hash)) = compute_ja3_from_client_hello(&client_hello) {
+                self.ja3_raw = Some(raw);
+                self.ja3 = Some(hash);
+            }
+        }
         self.handshake_messages.extend_from_slice(&client_hello);
         self.send_record(TLS_CONTENT_TYPE_HANDSHAKE, &client_hello)?;
         tls_debug!("[DEBUG] Sent ClientHello");
@@ -501,12 +519,35 @@ impl Tls12Client {
         }
         offset += 1; // compression
 
+        let mut extensions = Vec::new();
+        let mut groups = Vec::new();
+        let mut ec_formats = Vec::new();
+
         if offset + 2 <= data.len() {
             let ext_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
             offset += 2;
             if offset + ext_len > data.len() {
                 return Err("ServerHello extensions truncated".to_string());
             }
+            let ext_slice = &data[offset..offset + ext_len];
+            let (ext_ids, group_ids, format_ids) = parse_server_hello_extensions(ext_slice);
+            extensions = ext_ids;
+            groups = group_ids;
+            ec_formats = format_ids;
+            offset += ext_len;
+        }
+
+        if self.ja3s.is_none() {
+            let version_code = u16::from_be_bytes([TLS_VERSION_MAJOR, TLS_VERSION_MINOR]);
+            let (raw, hash) = compute_ja3s_from_server_hello(
+                version_code,
+                cipher_suite,
+                &extensions,
+                &groups,
+                &ec_formats,
+            );
+            self.ja3s_raw = Some(raw);
+            self.ja3s = Some(hash);
         }
 
         Ok(())
@@ -1240,6 +1281,36 @@ impl Tls12Client {
     pub fn selected_cipher_suite(&self) -> Option<u16> {
         self.selected_cipher_suite
     }
+
+    pub fn ja3(&self) -> Option<&String> {
+        self.ja3.as_ref()
+    }
+
+    pub fn ja3_raw(&self) -> Option<&String> {
+        self.ja3_raw.as_ref()
+    }
+
+    pub fn ja3s(&self) -> Option<&String> {
+        self.ja3s.as_ref()
+    }
+
+    pub fn ja3s_raw(&self) -> Option<&String> {
+        self.ja3s_raw.as_ref()
+    }
+
+    pub fn peer_certificate_fingerprints(&self) -> Vec<String> {
+        self.server_cert_chain
+            .iter()
+            .map(|der| sha256_fingerprint_hex(der))
+            .collect()
+    }
+
+    pub fn certificate_chain_pem(&self) -> Vec<String> {
+        self.server_cert_chain
+            .iter()
+            .map(|der| der_to_pem(der))
+            .collect()
+    }
 }
 
 fn certificate_matches_host(host: &str, cert: &X509Certificate) -> bool {
@@ -1269,6 +1340,152 @@ fn certificate_matches_host(host: &str, cert: &X509Certificate) -> bool {
     }
 
     false
+}
+
+fn compute_ja3_from_client_hello(client_hello: &[u8]) -> Result<(String, String), String> {
+    let mut record = Vec::with_capacity(client_hello.len() + 5);
+    record.push(TLS_CONTENT_TYPE_HANDSHAKE);
+    record.push(TLS_VERSION_MAJOR);
+    record.push(TLS_VERSION_MINOR);
+    record.extend_from_slice(&(client_hello.len() as u16).to_be_bytes());
+    record.extend_from_slice(client_hello);
+
+    let fingerprint = JA3Fingerprint::from_client_hello(&record)?;
+    let raw = fingerprint.to_string();
+    let hash = md5_hex_lowercase(raw.as_bytes());
+    Ok((raw, hash))
+}
+
+fn compute_ja3s_from_server_hello(
+    version: u16,
+    cipher_suite: u16,
+    extensions: &[u16],
+    groups: &[u16],
+    ec_formats: &[u8],
+) -> (String, String) {
+    let raw = format!(
+        "{},{},{},{},{}",
+        version,
+        cipher_suite,
+        join_u16(extensions),
+        join_u16(groups),
+        join_u8(ec_formats)
+    );
+    let hash = md5_hex_lowercase(raw.as_bytes());
+    (raw, hash)
+}
+
+fn parse_server_hello_extensions(data: &[u8]) -> (Vec<u16>, Vec<u16>, Vec<u8>) {
+    let mut offset = 0usize;
+    let mut extensions = Vec::new();
+    let mut groups = Vec::new();
+    let mut ec_formats = Vec::new();
+
+    while offset + 4 <= data.len() {
+        let ext_type = u16::from_be_bytes([data[offset], data[offset + 1]]);
+        let ext_len = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+        offset += 4;
+        if offset + ext_len > data.len() {
+            break;
+        }
+        let ext_data = &data[offset..offset + ext_len];
+        offset += ext_len;
+
+        if !is_grease_value(ext_type) {
+            extensions.push(ext_type);
+        }
+
+        match ext_type {
+            TLS_EXT_SUPPORTED_GROUPS => {
+                if ext_data.len() >= 2 {
+                    let mut inner_offset = 2;
+                    while inner_offset + 1 < ext_data.len() {
+                        let group =
+                            u16::from_be_bytes([ext_data[inner_offset], ext_data[inner_offset + 1]]);
+                        if !is_grease_value(group) {
+                            groups.push(group);
+                        }
+                        inner_offset += 2;
+                    }
+                }
+            }
+            TLS_EXT_EC_POINT_FORMATS => {
+                if !ext_data.is_empty() {
+                    let len = ext_data[0] as usize;
+                    for i in 0..len {
+                        if 1 + i < ext_data.len() {
+                            ec_formats.push(ext_data[1 + i]);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    (extensions, groups, ec_formats)
+}
+
+fn join_u16(values: &[u16]) -> String {
+    if values.is_empty() {
+        String::new()
+    } else {
+        values
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+}
+
+fn join_u8(values: &[u8]) -> String {
+    if values.is_empty() {
+        String::new()
+    } else {
+        values
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+}
+
+fn is_grease_value(value: u16) -> bool {
+    let high = (value >> 8) & 0xFF;
+    let low = value & 0xFF;
+    high == low && (high & 0x0F) == 0x0A
+}
+
+fn md5_hex_lowercase(bytes: &[u8]) -> String {
+    let digest = md5(bytes);
+    let mut out = String::with_capacity(32);
+    for byte in digest.iter() {
+        let _ = write!(&mut out, "{:02x}", byte);
+    }
+    out
+}
+
+fn sha256_fingerprint_hex(der: &[u8]) -> String {
+    let digest = sha256(der);
+    digest
+        .iter()
+        .map(|b| format!("{:02X}", b))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+fn der_to_pem(der: &[u8]) -> String {
+    let b64 = encode_base64(der);
+    let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+    let mut index = 0usize;
+    while index < b64.len() {
+        let end = (index + 64).min(b64.len());
+        pem.push_str(&b64[index..end]);
+        pem.push('\n');
+        index = end;
+    }
+    pem.push_str("-----END CERTIFICATE-----");
+    pem
 }
 
 fn matches_pattern(pattern: &str, host: &str, host_is_ip: bool) -> bool {
@@ -1363,7 +1580,7 @@ fn build_digest_info_sha1(hash: &[u8; 20]) -> Vec<u8> {
     digest_info
 }
 
-fn verify_ecdsa_p256_sha256(
+pub fn verify_ecdsa_p256_sha256(
     issuer_key: &P256Point,
     tbs: &[u8],
     signature: &[u8],

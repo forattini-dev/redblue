@@ -8,8 +8,9 @@
 /// - Certificate chain analysis (issuer, validity, SANs, weaknesses)
 ///
 /// The goal: extract 10x more information than traditional tools.
+use crate::protocols::x509::X509Certificate;
 use std::net::{IpAddr, TcpStream};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Connection metadata extracted from handshake
 #[derive(Debug, Clone)]
@@ -328,47 +329,75 @@ impl ConnectionAnalyzer {
 
     /// Parse X.509 certificate for intelligence
     fn parse_certificate(&mut self, cert_der: &[u8]) {
-        // Basic DER parsing - in production, use full X.509 parser
-        // This is simplified for demonstration
+        match X509Certificate::from_der(cert_der) {
+            Ok(cert) => {
+                let subject = cert.subject_string();
+                if !subject.is_empty() {
+                    self.intel.cert_subject = Some(subject.clone());
+                    if subject.contains("*.") {
+                        self.intel.cert_is_wildcard = true;
+                    }
+                }
 
-        // Check for common patterns
-        if cert_der.len() < 100 {
-            return;
-        }
+                let issuer = cert.issuer_string();
+                if !issuer.is_empty() {
+                    self.intel.cert_issuer = Some(issuer);
+                }
 
-        // Look for issuer/subject (simplified)
-        if let Some(pos) = find_subsequence(cert_der, b"CN=") {
-            if let Some(end) = cert_der[pos + 3..]
-                .iter()
-                .position(|&b| b == 0 || b == b',')
-            {
-                if let Ok(cn) = std::str::from_utf8(&cert_der[pos + 3..pos + 3 + end]) {
-                    if self.intel.cert_subject.is_none() {
-                        self.intel.cert_subject = Some(cn.to_string());
+                if cert.is_self_signed() {
+                    self.intel.cert_is_self_signed = true;
+                }
 
-                        // Check for wildcard
-                        if cn.starts_with("*.") {
-                            self.intel.cert_is_wildcard = true;
+                let sans = cert.get_subject_alt_names();
+                if !sans.is_empty() {
+                    if sans.iter().any(|name| name.starts_with("*")) {
+                        self.intel.cert_is_wildcard = true;
+                    }
+                    self.intel.cert_san_count = Some(sans.len());
+                }
+
+                self.intel.cert_algorithm = Some(cert.signature_algorithm.algorithm.clone());
+
+                if let Ok((modulus, _)) = cert.subject_public_key_info.rsa_components() {
+                    let bits = (modulus.len() * 8) as u32;
+                    self.intel.cert_key_size = Some(bits);
+                }
+
+                let not_before = parse_asn1_time(&cert.validity.not_before);
+                let not_after = parse_asn1_time(&cert.validity.not_after);
+                if let (Some(start), Some(end)) = (not_before, not_after) {
+                    if let Ok(duration) = end.duration_since(start) {
+                        self.intel.cert_validity_days = Some((duration.as_secs() / 86_400) as i64);
+                    }
+
+                    if SystemTime::now()
+                        .duration_since(end)
+                        .map(|d| d.as_secs() > 0)
+                        .unwrap_or(false)
+                    {
+                        self.intel.cert_is_expired = true;
+                    }
+                }
+            }
+            Err(_) => {
+                // fall back to minimal parsing for wildcard detection
+                if let Some(pos) = find_subsequence(cert_der, b"CN=") {
+                    if let Some(end) = cert_der[pos + 3..]
+                        .iter()
+                        .position(|&b| b == 0 || b == b',')
+                    {
+                        if let Ok(cn) = std::str::from_utf8(&cert_der[pos + 3..pos + 3 + end]) {
+                            if self.intel.cert_subject.is_none() {
+                                self.intel.cert_subject = Some(cn.to_string());
+                                if cn.starts_with("*.") {
+                                    self.intel.cert_is_wildcard = true;
+                                }
+                            }
                         }
-                    } else if self.intel.cert_issuer.is_none() {
-                        self.intel.cert_issuer = Some(cn.to_string());
                     }
                 }
             }
         }
-
-        // Check for self-signed (issuer == subject)
-        if let (Some(issuer), Some(subject)) = (&self.intel.cert_issuer, &self.intel.cert_subject) {
-            if issuer == subject {
-                self.intel.cert_is_self_signed = true;
-            }
-        }
-
-        // TODO: Full X.509 parsing for:
-        // - Validity dates → cert_validity_days
-        // - Key size → cert_key_size
-        // - SANs → cert_san_count
-        // - Algorithm → cert_algorithm
     }
 
     /// Analyze HTTP response headers
@@ -447,6 +476,87 @@ impl ConnectionAnalyzer {
     pub fn intel(&self) -> &ConnectionIntel {
         &self.intel
     }
+}
+
+fn parse_asn1_time(time_str: &str) -> Option<SystemTime> {
+    let trimmed = time_str.trim_end_matches('Z').trim();
+
+    let (year, month, day, hour, minute, second) = match trimmed.len() {
+        12 => {
+            // UTCTime: YYMMDDHHMMSS
+            let year = trimmed.get(0..2)?.parse::<i32>().ok()?;
+            let year = if year >= 70 { 1900 + year } else { 2000 + year };
+            (
+                year,
+                trimmed.get(2..4)?.parse::<u32>().ok()?,
+                trimmed.get(4..6)?.parse::<u32>().ok()?,
+                trimmed.get(6..8)?.parse::<u32>().ok()?,
+                trimmed.get(8..10)?.parse::<u32>().ok()?,
+                trimmed.get(10..12)?.parse::<u32>().ok()?,
+            )
+        }
+        14 => {
+            // GeneralizedTime: YYYYMMDDHHMMSS
+            (
+                trimmed.get(0..4)?.parse::<i32>().ok()?,
+                trimmed.get(4..6)?.parse::<u32>().ok()?,
+                trimmed.get(6..8)?.parse::<u32>().ok()?,
+                trimmed.get(8..10)?.parse::<u32>().ok()?,
+                trimmed.get(10..12)?.parse::<u32>().ok()?,
+                trimmed.get(12..14)?.parse::<u32>().ok()?,
+            )
+        }
+        _ => return None,
+    };
+
+    system_time_from_ymdhms(year, month, day, hour, minute, second)
+}
+
+fn system_time_from_ymdhms(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+) -> Option<SystemTime> {
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour >= 24
+        || minute >= 60
+        || second >= 60
+    {
+        return None;
+    }
+
+    let days = days_from_civil(year, month, day)?;
+    let seconds = days
+        .checked_mul(86_400)?
+        .checked_add(hour as i64 * 3_600 + minute as i64 * 60 + second as i64)?;
+
+    if seconds >= 0 {
+        SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(seconds as u64))
+    } else {
+        SystemTime::UNIX_EPOCH.checked_sub(Duration::from_secs((-seconds) as u64))
+    }
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
+    let mut y = year;
+    let mut m = month as i32;
+    let d = day as i32;
+
+    if m <= 2 {
+        y -= 1;
+        m += 12;
+    }
+
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = ((153 * (m - 3) + 2) / 5) + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468; // Days since 1970-01-01
+    Some(days as i64)
 }
 
 /// Helper: find subsequence in byte slice

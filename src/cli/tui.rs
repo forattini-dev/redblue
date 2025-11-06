@@ -1,6 +1,7 @@
 // TUI - Full-screen Text User Interface (k9s-style)
 // ZERO external dependencies - pure Rust std only
 
+use crate::storage::session::SessionFile;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
@@ -241,14 +242,22 @@ pub struct TuiApp {
 impl TuiApp {
     /// Create new TUI application
     pub fn new(target: String) -> Result<Self, String> {
-        let session_path = if target.ends_with(".rdb") {
-            target.clone()
+        let (session_path, db_path) = if target.ends_with(SessionFile::EXTENSION) {
+            let trimmed = target.trim_end_matches(SessionFile::EXTENSION).to_string();
+            (target.clone(), format!("{}.rdb", trimmed))
+        } else if target.ends_with(".rdb") {
+            let trimmed = target.trim_end_matches(".rdb").to_string();
+            (
+                format!("{}{}", trimmed, SessionFile::EXTENSION),
+                target.clone(),
+            )
         } else {
-            format!("{}.rdb", target)
+            let identifier = SessionFile::identifier_for(&target);
+            (
+                format!("{}{}", identifier, SessionFile::EXTENSION),
+                format!("{}.rdb", identifier),
+            )
         };
-
-        // Database path (same as session but .db extension)
-        let db_path = session_path.replace(".rdb", ".db");
 
         let size = TermSize::get().unwrap_or(TermSize { rows: 24, cols: 80 });
 
@@ -327,6 +336,18 @@ impl TuiApp {
             self.scan_activity
                 .push("No database found - run scans to populate".to_string());
             return Ok(());
+        }
+
+        // Detect legacy session stub accidentally saved with .rdb extension
+        if let Ok(mut file) = std::fs::File::open(&self.db_path) {
+            use std::io::Read;
+            let mut prefix = [0u8; 24];
+            let len = file.read(&mut prefix).unwrap_or(0);
+            if len > 0 && prefix[..len].starts_with(b"# redblue session") {
+                self.scan_activity
+                    .push("Database stub found - run scans to generate binary data".to_string());
+                return Ok(());
+            }
         }
 
         // Open RedDb and load real data

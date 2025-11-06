@@ -1,6 +1,7 @@
-// Session management - Creates and manages .rdb files
-// Each scan creates a {target}.rdb file in the current directory
+// Session management - Creates and manages .rb-session files
+// Each scan creates a {target}.rb-session file in the current directory
 
+use crate::storage::service::{PartitionMetadata, StorageService};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -14,10 +15,17 @@ pub struct SessionFile {
 }
 
 impl SessionFile {
+    pub const EXTENSION: &'static str = ".rb-session";
+
+    /// Compute stable identifier for a given target (matches filename prefix)
+    pub fn identifier_for(target: &str) -> String {
+        Self::sanitize_identifier(target)
+    }
+
     /// Create or open a session file for the target
     pub fn create(target: &str, command_args: &[String]) -> Result<Self, String> {
         let identifier = Self::sanitize_identifier(target);
-        let filename = format!("{}.rdb", identifier);
+        let filename = format!("{}{}", identifier, Self::EXTENSION);
         let path = PathBuf::from(&filename);
 
         let created_at = SystemTime::now()
@@ -33,6 +41,18 @@ impl SessionFile {
 
         // Write initial session metadata
         session.write_header(target, command_args)?;
+
+        let metadata = PartitionMetadata::new(
+            StorageService::key_for_path(&session.path),
+            format!("session:{}", target),
+            session.path.clone(),
+            vec![],
+        )
+        .with_attribute("category", "session")
+        .with_attribute("target", target)
+        .with_attribute("command", command_args.join(" "))
+        .with_attribute("run_ts", session.created_at.to_string());
+        StorageService::global().register_partition(metadata);
 
         Ok(session)
     }
@@ -211,14 +231,14 @@ impl SessionFile {
     /// Check if session file already exists
     pub fn exists(target: &str) -> bool {
         let identifier = Self::sanitize_identifier(target);
-        let filename = format!("{}.rdb", identifier);
+        let filename = format!("{}{}", identifier, Self::EXTENSION);
         PathBuf::from(&filename).exists()
     }
 
     /// Load existing session metadata
     pub fn load_metadata(target: &str) -> Result<SessionMetadata, String> {
         let identifier = Self::sanitize_identifier(target);
-        let filename = format!("{}.rdb", identifier);
+        let filename = format!("{}{}", identifier, Self::EXTENSION);
         let path = PathBuf::from(&filename);
 
         if !path.exists() {

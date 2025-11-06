@@ -1,12 +1,12 @@
-use std::collections::HashMap;
 /// HTTP/1.1 Protocol Implementation from Scratch
 /// RFC 2616 - Hypertext Transfer Protocol
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
 use crate::config;
-use crate::modules::network::tls::{TlsConfig, TlsStream};
+use openssl::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode, SslVersion};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scheme {
     Http,
@@ -319,27 +319,37 @@ impl HttpClient {
     }
 
     fn send_https(&self, request: &HttpRequest) -> Result<HttpResponse, String> {
-        // Create TLS configuration
-        let tls_config = TlsConfig::default().with_timeout(self.timeout);
-
-        // Apply request delay if configured
         if self.request_delay_ms > 0 {
             std::thread::sleep(Duration::from_millis(self.request_delay_ms));
         }
 
-        // Connect with TLS
-        let mut tls_stream = TlsStream::connect(request.host(), request.port(), tls_config)
-            .map_err(|e| format!("TLS connection failed: {}", e))?;
+        let connector = build_default_ssl_connector()?;
+        let addr = format!("{}:{}", request.host(), request.port());
+        let tcp_stream =
+            TcpStream::connect(&addr).map_err(|e| format!("TLS connection failed: {}", e))?;
+        tcp_stream
+            .set_read_timeout(Some(self.timeout))
+            .map_err(|e| format!("Failed to set read timeout: {}", e))?;
+        tcp_stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|e| format!("Failed to set write timeout: {}", e))?;
+
+        let mut ssl_stream = connector
+            .connect(request.host(), tcp_stream)
+            .map_err(|e| format!("TLS handshake failed: {}", e))?;
 
         // Send HTTP request over TLS
         let request_bytes = request.to_bytes();
-        tls_stream
+        ssl_stream
             .write_all(&request_bytes)
             .map_err(|e| format!("Failed to write HTTPS request: {}", e))?;
+        ssl_stream
+            .flush()
+            .map_err(|e| format!("Failed to flush HTTPS request: {}", e))?;
 
         // Read response (pre-allocate 16KB buffer for typical responses)
         let mut buffer = Vec::with_capacity(16384);
-        tls_stream
+        ssl_stream
             .read_to_end(&mut buffer)
             .map_err(|e| format!("Failed to read HTTPS response: {}", e))?;
 
@@ -351,6 +361,19 @@ impl Default for HttpClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub(crate) fn build_default_ssl_connector() -> Result<SslConnector, String> {
+    let mut builder = SslConnector::builder(SslMethod::tls())
+        .map_err(|e| format!("Failed to create TLS connector: {}", e))?;
+    builder
+        .set_min_proto_version(Some(SslVersion::TLS1_2))
+        .map_err(|e| format!("Failed to set min TLS version: {}", e))?;
+    builder
+        .set_max_proto_version(Some(SslVersion::TLS1_3))
+        .map_err(|e| format!("Failed to set max TLS version: {}", e))?;
+    builder.set_verify(SslVerifyMode::NONE);
+    Ok(builder.build())
 }
 
 #[cfg(test)]

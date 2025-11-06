@@ -4,7 +4,9 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 use crate::storage::encoding::DecodeError;
-use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
+use crate::storage::layout::{
+    FileHeader, SectionEntry, SegmentFlags, SegmentKind, SegmentMetadata,
+};
 use crate::storage::schema::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, SubdomainRecord,
     SubdomainSource, TlsScanRecord, WhoisRecord,
@@ -64,7 +66,8 @@ impl Database {
         let mut header_cursor = std::io::Cursor::new(&bytes);
         let header = FileHeader::read(&mut header_cursor).map_err(decode_err_to_io)?;
         let dir_start = header.directory_offset as usize;
-        let dir_len = header.section_count as usize * SectionEntry::SIZE;
+        let dir_len =
+            header.section_count as usize * SectionEntry::size_for_version(header.version);
         if dir_start + dir_len > bytes.len() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -74,6 +77,7 @@ impl Database {
         let directory = SectionEntry::read_all(
             &bytes[dir_start..dir_start + dir_len],
             header.section_count as usize,
+            header.version,
         )
         .map_err(decode_err_to_io)?;
 
@@ -162,17 +166,26 @@ impl Database {
         for (kind, data) in &segments {
             file.seek(SeekFrom::Start(offset))?;
             file.write_all(data)?;
-            entries.push(SectionEntry {
-                kind: *kind,
-                offset,
-                length: data.len() as u64,
-            });
+            let mut entry = SectionEntry::new(*kind, offset, data.len() as u64);
             offset += data.len() as u64;
+
+            let metadata_pairs = self.segment_metadata(*kind);
+            let metadata_bytes = SegmentMetadata::encode(&metadata_pairs);
+            if !metadata_bytes.is_empty() {
+                file.seek(SeekFrom::Start(offset))?;
+                file.write_all(&metadata_bytes)?;
+                entry.metadata_offset = offset;
+                entry.metadata_length = metadata_bytes.len() as u64;
+                entry.flags.insert(SegmentFlags::HAS_METADATA);
+                offset += metadata_bytes.len() as u64;
+            }
+
+            entries.push(entry);
         }
 
         let directory_offset = offset;
         let mut dir_buf = Vec::new();
-        SectionEntry::write_all(&entries, &mut dir_buf);
+        SectionEntry::write_all(&entries, &mut dir_buf, crate::storage::layout::VERSION);
         file.seek(SeekFrom::Start(directory_offset))?;
         file.write_all(&dir_buf)?;
         file.flush()?;
@@ -307,6 +320,37 @@ impl Database {
 
     pub fn whois_records(&self) -> impl Iterator<Item = WhoisRecord> + '_ {
         self.whois.iter()
+    }
+
+    fn segment_metadata(&self, kind: SegmentKind) -> Vec<(String, String)> {
+        let mut pairs = Vec::with_capacity(4);
+        pairs.push(("segment".to_string(), Self::segment_label(kind).to_string()));
+        if let Some(name) = self.path.file_name().and_then(|s| s.to_str()) {
+            pairs.push(("target_file".to_string(), name.to_string()));
+        }
+        let record_count = match kind {
+            SegmentKind::Ports => self.ports.len(),
+            SegmentKind::Subdomains => self.subdomains.len(),
+            SegmentKind::Whois => self.whois.len(),
+            SegmentKind::Tls => self.tls.len(),
+            SegmentKind::Dns => self.dns.len(),
+            SegmentKind::Http => self.http.len(),
+            SegmentKind::Host => self.hosts.len(),
+        };
+        pairs.push(("record_count".to_string(), record_count.to_string()));
+        pairs
+    }
+
+    fn segment_label(kind: SegmentKind) -> &'static str {
+        match kind {
+            SegmentKind::Ports => "ports",
+            SegmentKind::Subdomains => "subdomains",
+            SegmentKind::Whois => "whois",
+            SegmentKind::Tls => "tls",
+            SegmentKind::Dns => "dns",
+            SegmentKind::Http => "http",
+            SegmentKind::Host => "host",
+        }
     }
 }
 

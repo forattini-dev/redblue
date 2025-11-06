@@ -11,8 +11,9 @@ use crate::storage::schema::{
     DnsRecordData, DnsRecordType, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource,
     TlsScanRecord,
 };
+use crate::storage::service::StorageService;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -20,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct PersistenceManager {
     db: Option<RedDb>,
     db_path: Option<PathBuf>,
+    target: String,
 }
 
 impl PersistenceManager {
@@ -37,12 +39,17 @@ impl PersistenceManager {
                     .map_err(|e| format!("Failed to create database directory: {}", e))?;
             }
             let db = RedDb::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
+            StorageService::global().ensure_target_partition(target, path.clone(), None, None);
             (Some(db), Some(path))
         } else {
             (None, None)
         };
 
-        Ok(Self { db, db_path })
+        Ok(Self {
+            db,
+            db_path,
+            target: target.to_string(),
+        })
     }
 
     /// Get database file path for target
@@ -80,13 +87,12 @@ impl PersistenceManager {
     /// Add port scan result
     pub fn add_port_scan(
         &mut self,
-        ip: u32,
+        ip: IpAddr,
         port: u16,
         state: u8,
         _service_id: u8,
     ) -> Result<(), String> {
         if let Some(db) = &mut self.db {
-            let ip_addr = IpAddr::V4(Ipv4Addr::from(ip));
             let status = match state {
                 0 => PortStatus::Open,
                 1 => PortStatus::Closed,
@@ -94,7 +100,7 @@ impl PersistenceManager {
                 3 => PortStatus::OpenFiltered,
                 _ => PortStatus::Open,
             };
-            db.save_port_scan(ip_addr, port, status)
+            db.save_port_scan(ip, port, status)
                 .map_err(|e| format!("Database error: {}", e))?;
         }
         Ok(())
@@ -130,14 +136,11 @@ impl PersistenceManager {
         parent: &str,
         subdomain: &str,
         status: u8,
-        ips: &[u32],
+        ips: &[IpAddr],
     ) -> Result<(), String> {
         if let Some(db) = &mut self.db {
             let source = map_subdomain_source_id(status);
-            let ip_list: Vec<IpAddr> = ips
-                .iter()
-                .map(|ip| IpAddr::V4(Ipv4Addr::from(*ip)))
-                .collect();
+            let ip_list: Vec<IpAddr> = ips.to_vec();
             db.save_subdomain(parent, subdomain, ip_list, source)
                 .map_err(|e| format!("Database error: {}", e))?;
         }
@@ -197,6 +200,10 @@ impl PersistenceManager {
     pub fn commit(mut self) -> Result<Option<PathBuf>, String> {
         if let Some(mut db) = self.db {
             db.flush().map_err(|e| format!("Database error: {}", e))?;
+            if let Some(path) = &self.db_path {
+                let service = StorageService::global();
+                let _ = service.refresh_target_partition(&self.target, path);
+            }
             Ok(self.db_path)
         } else {
             Ok(None)

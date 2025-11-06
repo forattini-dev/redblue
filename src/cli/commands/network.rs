@@ -1,11 +1,13 @@
 /// Network/host command - Host discovery and connectivity testing
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{
+    annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
+};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::network::fingerprint::HostFingerprint;
 use crate::modules::network::ping::{ping_system, PingConfig, PingSystemResult};
 use crate::storage::client::query::format as query_format;
-use crate::storage::client::{PersistenceManager, QueryManager};
 use crate::storage::schema::{HostIntelRecord, ServiceIntelRecord};
+use crate::storage::service::StorageService;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -304,7 +306,13 @@ impl NetworkCommand {
         self.display_fingerprint(&fingerprint);
 
         if ctx.flags.contains_key("persist") {
-            let mut manager = PersistenceManager::new(host, Some(true))?;
+            let attributes = build_partition_attributes(ctx, host, [("operation", "fingerprint")]);
+            let mut manager = StorageService::global().persistence_for_target_with(
+                host,
+                Some(true),
+                None,
+                attributes,
+            )?;
             let record = self.fingerprint_to_record(&fingerprint);
             manager
                 .add_host_intel(record)
@@ -337,8 +345,15 @@ impl NetworkCommand {
             );
         };
 
-        let mut query = QueryManager::open(&db_path)
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
             .map_err(|e| format!("Failed to open database {}: {}", db_path.display(), e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [("query_dataset", "host_intel"), ("query_operation", "list")],
+        );
 
         if let Some(ip) = target_ip {
             match query

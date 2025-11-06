@@ -1,10 +1,7 @@
 use redblue::{cli, config};
 
-use std::env;
-use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use cli::{commands, output::Output, parser};
+use std::env;
 
 fn main() {
     // Load configuration once at startup so downstream modules can access it.
@@ -66,11 +63,8 @@ fn handle_help_flag(ctx: &cli::CliContext) {
         if let Some(resource) = ctx.resource.as_deref() {
             if resource == "help" {
                 if let Some(target_resource) = ctx.verb.as_deref() {
-                    if let Some(command) = commands::all_commands()
-                        .into_iter()
-                        .find(|cmd| cmd.domain() == domain && cmd.resource() == target_resource)
-                    {
-                        commands::print_help(&*command);
+                    if let Some(command) = commands::command_for(domain, target_resource) {
+                        commands::print_help(command);
                         return;
                     }
 
@@ -89,11 +83,8 @@ fn handle_help_flag(ctx: &cli::CliContext) {
                 return;
             }
 
-            if let Some(command) = commands::all_commands()
-                .into_iter()
-                .find(|cmd| cmd.domain() == domain && cmd.resource() == resource)
-            {
-                commands::print_help(&*command);
+            if let Some(command) = commands::command_for(domain, resource) {
+                commands::print_help(command);
                 return;
             }
 
@@ -135,7 +126,10 @@ fn handle_repl_command(ctx: &cli::CliContext) {
         None => {
             Output::error("Usage: rb repl <target>");
             Output::info("  rb repl example.com");
-            Output::info("  rb repl example.com.rdb");
+            Output::info(&format!(
+                "  rb repl example{}",
+                redblue::storage::session::SessionFile::EXTENSION
+            ));
             Output::info("  rb repl www.tetis.io");
             std::process::exit(1);
         }
@@ -165,6 +159,8 @@ fn print_version() {
 }
 
 fn maybe_create_rbdb(ctx: &cli::CliContext) -> Result<(), std::io::Error> {
+    use redblue::storage::session::SessionFile;
+
     let target = match ctx.target.as_deref() {
         Some(t) => t,
         None => return Ok(()),
@@ -175,33 +171,15 @@ fn maybe_create_rbdb(ctx: &cli::CliContext) -> Result<(), std::io::Error> {
         None => return Ok(()),
     };
 
-    let mut path = env::current_dir()?;
-    path.push(format!("{}.rdb", identifier));
-
-    let created_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let mut content = String::new();
-    content.push_str("# redblue session\n");
-    content.push_str(&format!("created_at = {}\n", created_at));
-    content.push_str(&format!("target = {}\n", target));
-    content.push_str(&format!("identifier = {}\n", identifier));
-    if !ctx.raw.is_empty() {
-        content.push_str(&format!("command = rb {}\n", ctx.raw.join(" ")));
-    }
-    if let Some(domain) = ctx.domain.as_deref() {
-        content.push_str(&format!("domain = {}\n", domain));
-    }
-    if let Some(resource) = ctx.resource.as_deref() {
-        content.push_str(&format!("resource = {}\n", resource));
-    }
-    if let Some(verb) = ctx.verb.as_deref() {
-        content.push_str(&format!("verb = {}\n", verb));
+    let session_path =
+        env::current_dir()?.join(format!("{}{}", identifier, SessionFile::EXTENSION));
+    if session_path.exists() {
+        return Ok(());
     }
 
-    fs::write(path, content)
+    SessionFile::create(target, &ctx.raw)
+        .map(|_| ())
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
 }
 
 fn extract_target_identifier(target: &str) -> Option<String> {

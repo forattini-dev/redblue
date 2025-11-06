@@ -3,8 +3,10 @@
 
 use crate::storage::encoding::{DecodeError, IpKey};
 use crate::storage::schema::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, TlsScanRecord, WhoisRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus, SubdomainRecord,
+    TlsScanRecord, WhoisRecord,
 };
+use crate::storage::service::StorageService;
 use crate::storage::view::RedDbView;
 use std::io;
 use std::net::IpAddr;
@@ -18,11 +20,20 @@ pub struct QueryManager {
 impl QueryManager {
     /// Open database for querying
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let view = RedDbView::open(path)?;
+        let path_ref = path.as_ref();
+        let view = RedDbView::open(path_ref)?;
 
-        Ok(Self {
-            view,
-        })
+        let label = path_ref
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|name| format!("custom:{}", name))
+            .unwrap_or_else(|| format!("custom:{}", path_ref.display()));
+
+        let service = StorageService::global();
+        let key = StorageService::key_for_path(path_ref);
+        let _ = service.refresh_partition(key, label, path_ref);
+
+        Ok(Self { view })
     }
 
     /// List all open ports for a specific IP
@@ -101,9 +112,7 @@ impl QueryManager {
     /// Get stored host fingerprint
     pub fn get_host_fingerprint(&mut self, ip: IpAddr) -> io::Result<Option<HostIntelRecord>> {
         if let Some(hosts) = self.view.hosts() {
-            return hosts
-                .get(ip)
-                .map_err(decode_err_to_io);
+            return hosts.get(ip).map_err(decode_err_to_io);
         }
         Ok(None)
     }
@@ -111,9 +120,7 @@ impl QueryManager {
     /// List all stored host fingerprints
     pub fn list_hosts(&mut self) -> io::Result<Vec<HostIntelRecord>> {
         if let Some(hosts) = self.view.hosts() {
-            let mut records = hosts
-                .all()
-                .map_err(decode_err_to_io)?;
+            let mut records = hosts.all().map_err(decode_err_to_io)?;
             records.sort_by(|a, b| IpKey::from(&a.ip).cmp(&IpKey::from(&b.ip)));
             return Ok(records);
         }

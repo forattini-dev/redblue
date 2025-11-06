@@ -1,3 +1,4 @@
+pub mod json;
 /// Utility functions
 pub mod network;
 pub mod parser;

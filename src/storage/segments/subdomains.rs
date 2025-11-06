@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use crate::storage::encoding::{
     read_ip, read_string, read_varu32, write_ip, write_string, write_varu32, DecodeError,
@@ -152,7 +153,9 @@ pub struct SubdomainSegment {
 pub struct SubdomainSegmentView {
     strings: StringTable,
     directory: Vec<SubdomainDirEntry>,
-    payload: Vec<u8>,
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
 }
 
 impl SubdomainSegment {
@@ -259,6 +262,12 @@ impl SubdomainSegment {
     }
 
     pub fn serialize(&mut self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&mut self, out: &mut Vec<u8>) {
         self.ensure_index();
 
         let mut domain_entries: Vec<(u32, DomainRange)> = self
@@ -311,17 +320,17 @@ impl SubdomainSegment {
             strings_len,
         };
 
-        let mut buf = Vec::with_capacity(
+        out.clear();
+        out.reserve(
             SubdomainSegmentHeader::SIZE
-                + directory_len as usize
+                + directory.len() * SubdomainDirEntry::SIZE
                 + payload.len()
                 + string_section.len(),
         );
-        header.write(&mut buf);
-        SubdomainDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf.extend_from_slice(&string_section);
-        buf
+        header.write(out);
+        SubdomainDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&string_section);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -427,7 +436,15 @@ fn decode_source(byte: u8) -> Result<SubdomainSource, DecodeError> {
 }
 
 impl SubdomainSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("subdomain segment out of bounds"));
+        }
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < SubdomainSegmentHeader::SIZE {
             return Err(DecodeError("subdomain segment too small"));
         }
@@ -437,28 +454,29 @@ impl SubdomainSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("subdomain directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("subdomain directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("subdomain payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("subdomain payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
+        let payload_offset = segment_offset + offset;
         offset = payload_end;
 
-        let strings_end = offset
+        let strings_offset = segment_offset + offset;
+        let strings_end_abs = strings_offset
             .checked_add(header.strings_len as usize)
             .ok_or(DecodeError("subdomain strings overflow"))?;
-        if strings_end > bytes.len() {
+        if strings_end_abs > data.len() {
             return Err(DecodeError("subdomain string table out of bounds"));
         }
-        let strings_bytes = &bytes[offset..strings_end];
+        let strings_bytes = &data[strings_offset..strings_end_abs];
 
         let directory = SubdomainDirEntry::read_all(directory_bytes, header.domain_count as usize)?;
         let strings = decode_string_table(strings_bytes)?;
@@ -466,7 +484,9 @@ impl SubdomainSegmentView {
         Ok(Self {
             strings,
             directory,
-            payload: payload_bytes.to_vec(),
+            data,
+            payload_offset,
+            payload_len: header.payload_len as usize,
         })
     }
 
@@ -482,14 +502,33 @@ impl SubdomainSegmentView {
         else {
             return Ok(Vec::new());
         };
-
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
         decode_records_block(
-            &self.payload,
+            payload,
             entry.payload_offset,
             entry.payload_len,
             entry.record_count,
             &self.strings,
         )
+    }
+
+    pub fn records_with_prefix(&self, prefix: &str) -> Result<Vec<SubdomainRecord>, DecodeError> {
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
+        let mut matches = Vec::new();
+
+        for entry in &self.directory {
+            let mut records = decode_records_block(
+                payload,
+                entry.payload_offset,
+                entry.payload_len,
+                entry.record_count,
+                &self.strings,
+            )?;
+            records.retain(|record| record.subdomain.starts_with(prefix));
+            matches.extend(records);
+        }
+
+        Ok(matches)
     }
 }
 
@@ -613,13 +652,13 @@ mod tests {
         );
 
         let encoded = segment.serialize();
-        let view = SubdomainSegmentView::from_bytes(&encoded).expect("view");
-
+        let data = Arc::new(encoded);
+        let view =
+            SubdomainSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
         let records = view.records_for_domain("example.com").expect("records");
         assert_eq!(records.len(), 2);
         assert!(records.iter().any(|r| r.subdomain == "api.example.com"));
         assert!(records.iter().any(|r| r.subdomain == "static.example.com"));
-
         let org_records = view.records_for_domain("example.org").expect("records");
         assert_eq!(org_records.len(), 1);
         assert_eq!(org_records[0].subdomain, "www.example.org");

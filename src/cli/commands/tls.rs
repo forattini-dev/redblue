@@ -1,14 +1,16 @@
 /// TLS/SSL security testing command
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{
+    annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
+};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditor};
-use crate::storage::client::{PersistenceManager, QueryManager};
 use crate::protocols::tls_cert::CertificateInfo;
 use crate::protocols::x509::parse_x509_time;
 use crate::storage::schema::{
     TlsCertRecord, TlsCipherRecord, TlsCipherStrength, TlsScanRecord, TlsSeverity,
     TlsVersionRecord, TlsVulnerabilityRecord,
 };
+use crate::storage::service::StorageService;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct TlsCommand;
@@ -68,6 +70,9 @@ impl Command for TlsCommand {
             Flag::new("port", "Target port").with_default("443"),
             Flag::new("persist", "Save results to binary database (.rdb file)"),
             Flag::new("no-persist", "Don't save results (overrides config)"),
+            Flag::new("output", "Output format (text|json)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new(
                 "db",
                 "Database file path for RESTful queries (default: auto-detect)",
@@ -141,21 +146,43 @@ impl TlsCommand {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(10);
 
-        Output::header(&format!("TLS Security Audit: {}:{}", host, port));
-
+        let format = ctx.get_output_format();
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::header(&format!("TLS Security Audit: {}:{}", host, port));
+        }
         let auditor = TlsAuditor::new().with_timeout(std::time::Duration::from_secs(timeout));
 
-        Output::spinner_start("Running TLS audit");
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_start("Running TLS audit");
+        }
         let result = auditor
             .audit(&host, port)
             .map_err(|e| format!("TLS audit failed: {}", e))?;
-        Output::spinner_done();
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_done();
+        }
+
+        if format == crate::cli::format::OutputFormat::Json {
+            self.render_audit_json(&host, port, &result)?;
+            self.save_if_enabled(ctx, &host, &result)?;
+            return Ok(());
+        }
 
         // Display TLS versions
         Output::section("Supported TLS Versions");
         for version in &result.supported_versions {
             if version.supported {
-                Output::success(&format!("  ✓ {}", version.version));
+                match version.version.as_str() {
+                    "TLS 1.0" | "SSLv3" | "SSLv2" => Output::error(&format!(
+                        "  {} ENABLED (deprecated and insecure — disable immediately)",
+                        version.version
+                    )),
+                    "TLS 1.1" => Output::warning(&format!(
+                        "  {} ENABLED (legacy protocol — schedule removal)",
+                        version.version
+                    )),
+                    _ => Output::success(&format!("  {}", version.version)),
+                }
             } else if let Some(ref err) = version.error {
                 Output::dim(&format!("  ✗ {} ({})", version.version, err));
             }
@@ -213,6 +240,32 @@ impl TlsCommand {
                 "  Chain length: {} certificate(s)",
                 result.certificate_chain.len()
             ));
+        }
+
+        Output::section("Handshake Fingerprints");
+        if let Some(ref ja3) = result.ja3 {
+            Output::item("JA3", ja3);
+            if let Some(ref raw) = result.ja3_raw {
+                Output::dim(&format!("  Raw: {}", raw));
+            }
+        } else {
+            Output::dim("  JA3: unavailable");
+        }
+
+        if let Some(ref ja3s) = result.ja3s {
+            Output::item("JA3S", ja3s);
+            if let Some(ref raw) = result.ja3s_raw {
+                Output::dim(&format!("  Raw: {}", raw));
+            }
+        } else {
+            Output::dim("  JA3S: unavailable");
+        }
+
+        if !result.peer_fingerprints.is_empty() {
+            Output::subheader("Peer Certificate SHA256");
+            for fp in &result.peer_fingerprints {
+                println!("  - {}", fp);
+            }
         }
 
         // Persistence
@@ -417,7 +470,18 @@ impl TlsCommand {
             None
         };
 
-        let mut pm = PersistenceManager::new(host, persist_flag)?;
+        let verb = ctx.verb.as_deref().unwrap_or("audit");
+        let attributes = build_partition_attributes(
+            ctx,
+            host,
+            [("operation", verb)],
+        );
+        let mut pm = StorageService::global().persistence_for_target_with(
+            host,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         if pm.is_enabled() {
             let record = self.build_tls_scan_record(host, result);
@@ -426,6 +490,183 @@ impl TlsCommand {
                 Output::success(&format!("TLS results saved to {}", path.display()));
             }
         }
+
+        Ok(())
+    }
+
+    fn render_audit_json(
+        &self,
+        host: &str,
+        port: u16,
+        result: &TlsAuditResult,
+    ) -> Result<(), String> {
+        println!("{{");
+        println!("  \"target\": {{");
+        println!("    \"host\": \"{}\",", escape_json(host));
+        println!("    \"port\": {}", port);
+        println!("  }},");
+        println!("  \"handshake\": {{");
+        println!(
+            "    \"negotiated_version\": {},",
+            json_opt_string(result.negotiated_version.as_deref())
+        );
+        println!(
+            "    \"negotiated_cipher\": {},",
+            json_opt_string(result.negotiated_cipher.as_deref())
+        );
+        println!(
+            "    \"negotiated_cipher_code\": {},",
+            match result.negotiated_cipher_code {
+                Some(code) => code.to_string(),
+                None => "null".to_string(),
+            }
+        );
+        println!(
+            "    \"ja3\": {},",
+            json_opt_string(result.ja3.as_deref())
+        );
+        println!(
+            "    \"ja3_raw\": {},",
+            json_opt_string(result.ja3_raw.as_deref())
+        );
+        println!(
+            "    \"ja3s\": {},",
+            json_opt_string(result.ja3s.as_deref())
+        );
+        println!(
+            "    \"ja3s_raw\": {},",
+            json_opt_string(result.ja3s_raw.as_deref())
+        );
+        println!("    \"certificate_valid\": {},", result.certificate_valid);
+        println!("    \"peer_fingerprints\": [");
+        for (idx, fp) in result.peer_fingerprints.iter().enumerate() {
+            let comma = if idx + 1 < result.peer_fingerprints.len() {
+                ","
+            } else {
+                ""
+            };
+            println!("      \"{}\"{}", escape_json(fp), comma);
+        }
+        println!("    ],");
+        println!("    \"certificate_chain_pem\": [");
+        for (idx, pem) in result.certificate_chain_pem.iter().enumerate() {
+            let comma = if idx + 1 < result.certificate_chain_pem.len() {
+                ","
+            } else {
+                ""
+            };
+            println!("      \"{}\"{}", escape_json(pem), comma);
+        }
+        println!("    ]");
+        println!("  }},");
+
+        println!("  \"versions\": [");
+        for (idx, version) in result.supported_versions.iter().enumerate() {
+            let comma = if idx + 1 < result.supported_versions.len() {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!(
+                "      \"version\": \"{}\",",
+                escape_json(&version.version)
+            );
+            println!("      \"supported\": {},", version.supported);
+            println!(
+                "      \"error\": {}",
+                json_opt_string(version.error.as_deref())
+            );
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+
+        println!("  \"ciphers\": [");
+        for (idx, cipher) in result.supported_ciphers.iter().enumerate() {
+            let comma = if idx + 1 < result.supported_ciphers.len() {
+                ","
+            } else {
+                ""
+            };
+            let strength_label = match cipher.strength {
+                CipherStrength::Strong => "strong",
+                CipherStrength::Medium => "medium",
+                CipherStrength::Weak => "weak",
+            };
+            println!("    {{");
+            println!("      \"name\": \"{}\",", escape_json(&cipher.name));
+            println!("      \"code\": {},", cipher.code);
+            println!(
+                "      \"strength\": \"{}\"",
+                escape_json(strength_label)
+            );
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+
+        println!("  \"vulnerabilities\": [");
+        for (idx, vuln) in result.vulnerabilities.iter().enumerate() {
+            let comma = if idx + 1 < result.vulnerabilities.len() {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!("      \"name\": \"{}\",", escape_json(&vuln.name));
+            println!(
+                "      \"severity\": \"{}\",",
+                escape_json(&vuln.severity.to_string())
+            );
+            println!(
+                "      \"description\": \"{}\"",
+                escape_json(&vuln.description)
+            );
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+
+        println!("  \"certificate_chain\": [");
+        for (idx, cert) in result.certificate_chain.iter().enumerate() {
+            let comma = if idx + 1 < result.certificate_chain.len() {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!("      \"subject\": \"{}\",", escape_json(&cert.subject));
+            println!("      \"issuer\": \"{}\",", escape_json(&cert.issuer));
+            println!(
+                "      \"serial_number\": \"{}\",",
+                escape_json(&cert.serial_number)
+            );
+            println!(
+                "      \"signature_algorithm\": \"{}\",",
+                escape_json(&cert.signature_algorithm)
+            );
+            println!(
+                "      \"public_key_algorithm\": \"{}\",",
+                escape_json(&cert.public_key_algorithm)
+            );
+            println!("      \"version\": {},", cert.version);
+            println!(
+                "      \"valid_from\": \"{}\",",
+                escape_json(&cert.valid_from)
+            );
+            println!(
+                "      \"valid_until\": \"{}\",",
+                escape_json(&cert.valid_until)
+            );
+            println!("      \"self_signed\": {},", cert.is_self_signed);
+            println!("      \"sans\": [");
+            for (san_idx, san) in cert.san.iter().enumerate() {
+                let san_comma = if san_idx + 1 < cert.san.len() { "," } else { "" };
+                println!("        \"{}\"{}", escape_json(san), san_comma);
+            }
+            println!("      ]");
+            println!("    }}{}", comma);
+        }
+        println!("  ]");
+        println!("}}");
 
         Ok(())
     }
@@ -490,6 +731,12 @@ impl TlsCommand {
             ciphers,
             vulnerabilities,
             certificate_chain,
+            ja3: result.ja3.clone(),
+            ja3s: result.ja3s.clone(),
+            ja3_raw: result.ja3_raw.clone(),
+            ja3s_raw: result.ja3s_raw.clone(),
+            peer_fingerprints: result.peer_fingerprints.clone(),
+            certificate_chain_pem: result.certificate_chain_pem.clone(),
         }
     }
 
@@ -582,8 +829,18 @@ impl TlsCommand {
 
         let db_path = self.get_db_path(ctx, host)?;
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [
+                ("query_dataset", "tls"),
+                ("query_operation", "list"),
+            ],
+        );
 
         let mut scans = query
             .list_tls_scans(host)
@@ -643,8 +900,18 @@ impl TlsCommand {
         let host = parts[0];
         let db_path = self.get_db_path(ctx, host)?;
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [
+                ("query_dataset", "tls"),
+                ("query_operation", "get"),
+            ],
+        );
 
         let scan = query
             .latest_tls_scan(host)
@@ -666,6 +933,32 @@ impl TlsCommand {
 
         Output::header(&format!("TLS Certificate Chain for {}", host));
         Output::dim(&format!("Database: {}\n", db_path.display()));
+
+        Output::section("Handshake Telemetry");
+        if let Some(ref ja3) = scan.ja3 {
+            Output::item("JA3", ja3);
+            if let Some(ref raw) = scan.ja3_raw {
+                Output::dim(&format!("  Raw: {}", raw));
+            }
+        } else {
+            Output::dim("  JA3: unavailable");
+        }
+
+        if let Some(ref ja3s) = scan.ja3s {
+            Output::item("JA3S", ja3s);
+            if let Some(ref raw) = scan.ja3s_raw {
+                Output::dim(&format!("  Raw: {}", raw));
+            }
+        } else {
+            Output::dim("  JA3S: unavailable");
+        }
+
+        if !scan.peer_fingerprints.is_empty() {
+            Output::subheader("Peer Certificate SHA256");
+            for fp in &scan.peer_fingerprints {
+                println!("  - {}", fp);
+            }
+        }
 
         for (index, cert) in scan.certificate_chain.iter().enumerate() {
             Output::section(&format!("Certificate #{}", index + 1));
@@ -699,8 +992,18 @@ impl TlsCommand {
 
         let db_path = self.get_db_path(ctx, host)?;
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [
+                ("query_dataset", "tls"),
+                ("query_operation", "describe"),
+            ],
+        );
 
         let scan = query
             .latest_tls_scan(host)
@@ -796,5 +1099,28 @@ impl TlsCommand {
             "Database file not found: {}.rdb\nRun `rb tls security audit {}` first to collect data",
             base, host
         ))
+    }
+}
+
+fn escape_json(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => escaped.push_str(&format!("\\u{:04x}", c as u32)),
+            c => escaped.push(c),
+        }
+    }
+    escaped
+}
+
+fn json_opt_string(value: Option<&str>) -> String {
+    match value {
+        Some(v) => format!("\"{}\"", escape_json(v)),
+        None => "null".to_string(),
     }
 }

@@ -26,3 +26,6 @@ opt-level = 1
 # - Required for features impossible with Rust std alone (PTY allocation, ioctl, termios)
 #
 libc = "0.2"  # FFI to kernel syscalls (PTY/terminal/socket options)
+
+# TLS 1.3 + HTTP/2 client leverages vendored OpenSSL bindings committed under docs/
+openssl = { path = "docs/rust-openssl/openssl", features = ["vendored"] }

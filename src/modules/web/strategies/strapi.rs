@@ -9,7 +9,7 @@
 /// - JWT secret weak/default
 /// - Unrestricted CORS
 ///
-/// Reference: docs/CMS_DETECTION_PATTERNS.md (Strapi section)
+/// Reference: docs/cms-detection-patterns.md (Strapi section)
 use crate::protocols::http::HttpClient;
 
 #[derive(Debug, Clone)]

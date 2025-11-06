@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
 use crate::storage::schema::{
@@ -78,6 +79,12 @@ struct ScanEntry {
     ciphers: Vec<CipherEntry>,
     vulnerabilities: Vec<VulnerabilityEntry>,
     certificates: Vec<CertEntry>,
+    ja3_id: Option<u32>,
+    ja3s_id: Option<u32>,
+    ja3_raw_id: Option<u32>,
+    ja3s_raw_id: Option<u32>,
+    peer_fingerprint_ids: Vec<u32>,
+    certificate_pem_ids: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,6 +135,7 @@ impl TlsDirEntry {
 
 #[derive(Debug, Clone, Copy)]
 struct TlsSegmentHeader {
+    version: u16,
     host_count: u32,
     scan_count: u32,
     directory_len: u64,
@@ -137,12 +145,12 @@ struct TlsSegmentHeader {
 
 impl TlsSegmentHeader {
     const MAGIC: [u8; 4] = *b"TL01";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const SIZE: usize = 4 + 2 + 2 + 4 + 4 + 8 + 8 + 8;
 
     fn write(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&Self::MAGIC);
-        buf.extend_from_slice(&Self::VERSION.to_le_bytes());
+        buf.extend_from_slice(&self.version.to_le_bytes());
         buf.extend_from_slice(&0u16.to_le_bytes()); // reserved
         buf.extend_from_slice(&self.host_count.to_le_bytes());
         buf.extend_from_slice(&self.scan_count.to_le_bytes());
@@ -159,7 +167,7 @@ impl TlsSegmentHeader {
             return Err(DecodeError("invalid tls segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());
-        if version != Self::VERSION {
+        if version != 1 && version != Self::VERSION {
             return Err(DecodeError("unsupported tls segment version"));
         }
         let host_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
@@ -169,6 +177,7 @@ impl TlsSegmentHeader {
         let strings_len = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
 
         Ok(Self {
+            version,
             host_count,
             scan_count,
             directory_len,
@@ -188,7 +197,10 @@ pub struct TlsSegment {
 pub struct TlsSegmentView {
     strings: StringTable,
     directory: Vec<TlsDirEntry>,
-    payload: Vec<u8>,
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
+    version: u16,
 }
 
 impl TlsSegment {
@@ -196,21 +208,42 @@ impl TlsSegment {
         Self::default()
     }
 
-    pub fn insert(&mut self, record: TlsScanRecord) {
-        let host_id = self.strings.intern(&record.host);
-        let negotiated_version_id = record
-            .negotiated_version
-            .as_ref()
-            .map(|value| self.strings.intern(value));
-        let negotiated_cipher_id = record
-            .negotiated_cipher
-            .as_ref()
-            .map(|value| self.strings.intern(value));
-        let negotiated_cipher_code = record.negotiated_cipher_code;
-        let negotiated_strength = strength_to_u8(record.negotiated_cipher_strength);
+    pub fn len(&self) -> usize {
+        self.scans.len()
+    }
 
-        let versions = record
-            .versions
+    pub fn insert(&mut self, record: TlsScanRecord) {
+        let TlsScanRecord {
+            host,
+            port,
+            timestamp,
+            negotiated_version,
+            negotiated_cipher,
+            negotiated_cipher_code,
+            negotiated_cipher_strength,
+            certificate_valid,
+            versions,
+            ciphers,
+            vulnerabilities,
+            certificate_chain,
+            ja3,
+            ja3s,
+            ja3_raw,
+            ja3s_raw,
+            peer_fingerprints,
+            certificate_chain_pem,
+        } = record;
+
+        let host_id = self.strings.intern(&host);
+        let negotiated_version_id = negotiated_version
+            .as_ref()
+            .map(|value| self.strings.intern(value));
+        let negotiated_cipher_id = negotiated_cipher
+            .as_ref()
+            .map(|value| self.strings.intern(value));
+        let negotiated_strength = strength_to_u8(negotiated_cipher_strength);
+
+        let versions = versions
             .into_iter()
             .map(|version| VersionEntry {
                 version_id: self.strings.intern(version.version),
@@ -219,8 +252,7 @@ impl TlsSegment {
             })
             .collect();
 
-        let ciphers = record
-            .ciphers
+        let ciphers = ciphers
             .into_iter()
             .map(|cipher| CipherEntry {
                 name_id: self.strings.intern(cipher.name),
@@ -229,8 +261,7 @@ impl TlsSegment {
             })
             .collect();
 
-        let vulnerabilities = record
-            .vulnerabilities
+        let vulnerabilities = vulnerabilities
             .into_iter()
             .map(|vuln| VulnerabilityEntry {
                 name_id: self.strings.intern(vuln.name),
@@ -239,8 +270,7 @@ impl TlsSegment {
             })
             .collect();
 
-        let certificates = record
-            .certificate_chain
+        let certificates = certificate_chain
             .into_iter()
             .map(|cert| CertEntry {
                 domain_id: self.strings.intern(cert.domain),
@@ -262,20 +292,41 @@ impl TlsSegment {
             })
             .collect();
 
+        let ja3_id = ja3.as_ref().map(|value| self.strings.intern(value));
+        let ja3s_id = ja3s.as_ref().map(|value| self.strings.intern(value));
+        let ja3_raw_id = ja3_raw.as_ref().map(|value| self.strings.intern(value));
+        let ja3s_raw_id = ja3s_raw.as_ref().map(|value| self.strings.intern(value));
+
+        let peer_fingerprint_ids = peer_fingerprints
+            .into_iter()
+            .map(|fp| self.strings.intern(fp))
+            .collect();
+
+        let certificate_pem_ids = certificate_chain_pem
+            .into_iter()
+            .map(|pem| self.strings.intern(pem))
+            .collect();
+
         let index = self.scans.len();
         self.scans.push(ScanEntry {
             host_id,
-            port: record.port,
-            timestamp: record.timestamp,
+            port,
+            timestamp,
             negotiated_version_id,
             negotiated_cipher_id,
             negotiated_cipher_code,
             negotiated_strength,
-            certificate_valid: record.certificate_valid,
+            certificate_valid,
             versions,
             ciphers,
             vulnerabilities,
             certificates,
+            ja3_id,
+            ja3s_id,
+            ja3_raw_id,
+            ja3s_raw_id,
+            peer_fingerprint_ids,
+            certificate_pem_ids,
         });
 
         self.host_map.entry(host_id).or_default().push(index);
@@ -298,6 +349,12 @@ impl TlsSegment {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&self, out: &mut Vec<u8>) {
         let mut hosts: Vec<(u32, Vec<usize>)> = self
             .host_map
             .iter()
@@ -331,6 +388,18 @@ impl TlsSegment {
                 encode_ciphers(&mut block, &scan.ciphers);
                 encode_vulnerabilities(&mut block, &scan.vulnerabilities);
                 encode_certificates(&mut block, &scan.certificates);
+                write_optional_id(&mut block, scan.ja3_id);
+                write_optional_id(&mut block, scan.ja3s_id);
+                write_optional_id(&mut block, scan.ja3_raw_id);
+                write_optional_id(&mut block, scan.ja3s_raw_id);
+                write_varu32(&mut block, scan.peer_fingerprint_ids.len() as u32);
+                for id in &scan.peer_fingerprint_ids {
+                    write_varu32(&mut block, *id);
+                }
+                write_varu32(&mut block, scan.certificate_pem_ids.len() as u32);
+                for id in &scan.certificate_pem_ids {
+                    write_varu32(&mut block, *id);
+                }
             }
             let block_len = block.len() as u64;
             payload.extend_from_slice(&block);
@@ -348,6 +417,7 @@ impl TlsSegment {
         let strings_len = string_section.len() as u64;
 
         let header = TlsSegmentHeader {
+            version: TlsSegmentHeader::VERSION,
             host_count: directory.len() as u32,
             scan_count: self.scans.len() as u32,
             directory_len,
@@ -355,14 +425,17 @@ impl TlsSegment {
             strings_len,
         };
 
-        let mut buf = Vec::with_capacity(
-            TlsSegmentHeader::SIZE + directory_len as usize + payload.len() + string_section.len(),
+        out.clear();
+        out.reserve(
+            TlsSegmentHeader::SIZE
+                + directory.len() * TlsDirEntry::SIZE
+                + payload.len()
+                + string_section.len(),
         );
-        header.write(&mut buf);
-        TlsDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf.extend_from_slice(&string_section);
-        buf
+        header.write(out);
+        TlsDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&string_section);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -416,7 +489,7 @@ impl TlsSegment {
             }
 
             for _ in 0..scan_count {
-                let scan = decode_scan_entry(payload_bytes, &mut cursor)?;
+                let scan = decode_scan_entry(payload_bytes, &mut cursor, header.version)?;
                 let idx = scans.len();
                 scans.push(ScanEntry {
                     host_id: entry.host_id,
@@ -508,12 +581,34 @@ impl TlsSegment {
             ciphers,
             vulnerabilities,
             certificate_chain: certificates,
+            ja3: entry.ja3_id.map(|id| self.strings.get(id).to_string()),
+            ja3s: entry.ja3s_id.map(|id| self.strings.get(id).to_string()),
+            ja3_raw: entry.ja3_raw_id.map(|id| self.strings.get(id).to_string()),
+            ja3s_raw: entry.ja3s_raw_id.map(|id| self.strings.get(id).to_string()),
+            peer_fingerprints: entry
+                .peer_fingerprint_ids
+                .iter()
+                .map(|id| self.strings.get(*id).to_string())
+                .collect(),
+            certificate_chain_pem: entry
+                .certificate_pem_ids
+                .iter()
+                .map(|id| self.strings.get(*id).to_string())
+                .collect(),
         }
     }
 }
 
 impl TlsSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("tls segment out of bounds"));
+        }
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < TlsSegmentHeader::SIZE {
             return Err(DecodeError("tls segment too small"));
         }
@@ -523,28 +618,29 @@ impl TlsSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("tls directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("tls directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("tls payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("tls payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
+        let payload_offset = segment_offset + offset;
         offset = payload_end;
 
-        let strings_end = offset
+        let strings_offset = segment_offset + offset;
+        let strings_end_abs = strings_offset
             .checked_add(header.strings_len as usize)
             .ok_or(DecodeError("tls string table overflow"))?;
-        if strings_end > bytes.len() {
+        if strings_end_abs > data.len() {
             return Err(DecodeError("tls string table out of bounds"));
         }
-        let strings_bytes = &bytes[offset..strings_end];
+        let strings_bytes = &data[strings_offset..strings_end_abs];
 
         let mut directory = TlsDirEntry::read_all(directory_bytes, header.host_count as usize)?;
         directory.sort_by_key(|entry| entry.host_id);
@@ -553,7 +649,10 @@ impl TlsSegmentView {
         Ok(Self {
             strings,
             directory,
-            payload: payload_bytes.to_vec(),
+            data,
+            payload_offset,
+            payload_len: header.payload_len as usize,
+            version: header.version,
         })
     }
 
@@ -566,13 +665,15 @@ impl TlsSegmentView {
             return Ok(Vec::new());
         };
 
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
         decode_scan_records(
-            &self.payload,
+            payload,
             dir.payload_offset,
             dir.payload_len,
             dir.scan_count,
             host,
             &self.strings,
+            self.version,
         )
     }
 }
@@ -738,7 +839,11 @@ fn decode_certificates(bytes: &[u8], pos: &mut usize) -> Result<Vec<CertEntry>, 
     Ok(certs)
 }
 
-fn decode_scan_entry(bytes: &[u8], pos: &mut usize) -> Result<ScanEntry, DecodeError> {
+fn decode_scan_entry(
+    bytes: &[u8],
+    pos: &mut usize,
+    version: u16,
+) -> Result<ScanEntry, DecodeError> {
     let port = read_varu32(bytes, pos)? as u16;
     let timestamp = read_varu32(bytes, pos)?;
     let negotiated_version_id = read_optional_id(bytes, pos)?;
@@ -760,6 +865,37 @@ fn decode_scan_entry(bytes: &[u8], pos: &mut usize) -> Result<ScanEntry, DecodeE
     let vulnerabilities = decode_vulnerabilities(bytes, pos)?;
     let certificates = decode_certificates(bytes, pos)?;
 
+    let (ja3_id, ja3s_id, ja3_raw_id, ja3s_raw_id, peer_fingerprint_ids, certificate_pem_ids) =
+        if version >= 2 {
+            let ja3_id = read_optional_id(bytes, pos)?;
+            let ja3s_id = read_optional_id(bytes, pos)?;
+            let ja3_raw_id = read_optional_id(bytes, pos)?;
+            let ja3s_raw_id = read_optional_id(bytes, pos)?;
+
+            let fingerprint_count = read_varu32(bytes, pos)? as usize;
+            let mut peer_fingerprint_ids = Vec::with_capacity(fingerprint_count);
+            for _ in 0..fingerprint_count {
+                peer_fingerprint_ids.push(read_varu32(bytes, pos)?);
+            }
+
+            let pem_count = read_varu32(bytes, pos)? as usize;
+            let mut certificate_pem_ids = Vec::with_capacity(pem_count);
+            for _ in 0..pem_count {
+                certificate_pem_ids.push(read_varu32(bytes, pos)?);
+            }
+
+            (
+                ja3_id,
+                ja3s_id,
+                ja3_raw_id,
+                ja3s_raw_id,
+                peer_fingerprint_ids,
+                certificate_pem_ids,
+            )
+        } else {
+            (None, None, None, None, Vec::new(), Vec::new())
+        };
+
     Ok(ScanEntry {
         host_id: 0, // placeholder, overwritten by caller
         port,
@@ -773,6 +909,12 @@ fn decode_scan_entry(bytes: &[u8], pos: &mut usize) -> Result<ScanEntry, DecodeE
         ciphers,
         vulnerabilities,
         certificates,
+        ja3_id,
+        ja3s_id,
+        ja3_raw_id,
+        ja3s_raw_id,
+        peer_fingerprint_ids,
+        certificate_pem_ids,
     })
 }
 
@@ -783,6 +925,7 @@ fn decode_scan_records(
     expected_count: u32,
     host: &str,
     strings: &StringTable,
+    version: u16,
 ) -> Result<Vec<TlsScanRecord>, DecodeError> {
     let mut cursor = offset as usize;
     let end = cursor + length as usize;
@@ -796,7 +939,7 @@ fn decode_scan_records(
 
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
-        let mut scan = decode_scan_entry(payload, &mut cursor)?;
+        let mut scan = decode_scan_entry(payload, &mut cursor, version)?;
         scan.host_id = strings
             .get_id(host)
             .ok_or(DecodeError("host not found in string table"))?;
@@ -954,6 +1097,14 @@ mod tests {
                 self_signed: false,
                 timestamp: 1_700_000_000,
             }],
+            ja3: Some("d41d8cd98f00b204e9800998ecf8427e".into()),
+            ja3s: Some("0f343b0931126a20f133d67c2b018a3b".into()),
+            ja3_raw: Some("771,49195,0-10-11,23-24,0".into()),
+            ja3s_raw: Some("771,49195,0-11,23-24,0".into()),
+            peer_fingerprints: vec!["AA:BB:CC:DD".into()],
+            certificate_chain_pem: vec![
+                "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----".into(),
+            ],
         });
 
         let bytes = segment.serialize();
@@ -985,6 +1136,12 @@ mod tests {
             ciphers: Vec::new(),
             vulnerabilities: Vec::new(),
             certificate_chain: Vec::new(),
+            ja3: None,
+            ja3s: None,
+            ja3_raw: None,
+            ja3s_raw: None,
+            peer_fingerprints: Vec::new(),
+            certificate_chain_pem: Vec::new(),
         });
         segment.insert(TlsScanRecord {
             host: "api.example.com".into(),
@@ -999,10 +1156,17 @@ mod tests {
             ciphers: Vec::new(),
             vulnerabilities: Vec::new(),
             certificate_chain: Vec::new(),
+            ja3: None,
+            ja3s: None,
+            ja3_raw: None,
+            ja3s_raw: None,
+            peer_fingerprints: Vec::new(),
+            certificate_chain_pem: Vec::new(),
         });
 
         let bytes = segment.serialize();
-        let view = TlsSegmentView::from_bytes(&bytes).expect("view");
+        let data = Arc::new(bytes);
+        let view = TlsSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
 
         let records = view.records_for_host("example.com").expect("records");
         assert_eq!(records.len(), 1);

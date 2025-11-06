@@ -1,17 +1,81 @@
-/// Connection pool for reusing TCP connections
+use crate::protocols::http::build_default_ssl_connector;
+use openssl::ssl::SslStream;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::str;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// Connection pool entry
-struct PooledConnection {
-    stream: TcpStream,
-    last_used: std::time::Instant,
+/// Wrapper around either a raw TCP stream or a negotiated TLS 1.3 client
+pub enum PooledStream {
+    Plain(TcpStream),
+    Tls(SslStream<TcpStream>),
 }
 
-/// Thread-safe connection pool
+impl PooledStream {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.set_read_timeout(timeout),
+            PooledStream::Tls(stream) => stream.get_mut().set_read_timeout(timeout),
+        }
+    }
+
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.set_write_timeout(timeout),
+            PooledStream::Tls(stream) => stream.get_mut().set_write_timeout(timeout),
+        }
+    }
+
+    fn peek(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.peek(buf),
+            PooledStream::Tls(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "peek not supported for TLS streams",
+            )),
+        }
+    }
+}
+
+impl Read for PooledStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.read(buf),
+            PooledStream::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for PooledStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.write(buf),
+            PooledStream::Tls(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.flush(),
+            PooledStream::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+struct PooledConnection {
+    stream: PooledStream,
+    last_used: Instant,
+}
+
+enum BodyStrategy {
+    ContentLength(usize),
+    Chunked,
+    Unknown,
+}
+
+/// Thread-safe connection pool keyed by host/port/protocol
 pub struct ConnectionPool {
     pools: Arc<Mutex<HashMap<String, Vec<PooledConnection>>>>,
     max_idle_per_host: usize,
@@ -22,7 +86,7 @@ impl ConnectionPool {
     pub fn new() -> Self {
         Self {
             pools: Arc::new(Mutex::new(HashMap::new())),
-            max_idle_per_host: 10, // Max 10 idle connections per host
+            max_idle_per_host: 10,
             idle_timeout: Duration::from_secs(30),
         }
     }
@@ -32,81 +96,99 @@ impl ConnectionPool {
         self
     }
 
-    /// Get a connection from the pool or create a new one
-    pub fn get_connection(&self, host: &str, port: u16) -> Result<TcpStream, String> {
-        let key = format!("{}:{}", host, port);
+    pub fn get_connection(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+    ) -> Result<PooledStream, String> {
+        let key = format!(
+            "{}:{}:{}",
+            if use_tls { "https" } else { "http" },
+            host,
+            port
+        );
 
-        // Try to get from pool first
         {
             let mut pools = self.pools.lock().unwrap();
             if let Some(pool) = pools.get_mut(&key) {
-                // Remove expired connections
-                let now = std::time::Instant::now();
+                let now = Instant::now();
                 pool.retain(|conn| now.duration_since(conn.last_used) < self.idle_timeout);
 
-                // Get a connection if available
                 if let Some(pooled) = pool.pop() {
-                    // Test if connection is still alive
                     if Self::is_alive(&pooled.stream) {
                         return Ok(pooled.stream);
                     }
-                    // Connection dead, continue to create new one
                 }
             }
         }
 
-        // Create new connection
-        let addr = format!("{}:{}", host, port);
-        TcpStream::connect(&addr).map_err(|e| format!("Failed to connect to {}: {}", addr, e))
+        if use_tls {
+            let connector =
+                build_default_ssl_connector().map_err(|e| format!("TLS setup failed: {}", e))?;
+            let addr = format!("{}:{}", host, port);
+            let tcp_stream = TcpStream::connect(&addr)
+                .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
+            let default_timeout = Duration::from_secs(30);
+            let _ = tcp_stream.set_read_timeout(Some(default_timeout));
+            let _ = tcp_stream.set_write_timeout(Some(default_timeout));
+            let ssl_stream = connector
+                .connect(host, tcp_stream)
+                .map_err(|e| format!("TLS handshake failed: {}", e))?;
+            Ok(PooledStream::Tls(ssl_stream))
+        } else {
+            let addr = format!("{}:{}", host, port);
+            let tcp_stream = TcpStream::connect(&addr)
+                .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
+            Ok(PooledStream::Plain(tcp_stream))
+        }
     }
 
-    /// Return a connection to the pool
-    pub fn return_connection(&self, stream: TcpStream, host: &str, port: u16) {
-        let key = format!("{}:{}", host, port);
-        let mut pools = self.pools.lock().unwrap();
+    pub fn return_connection(&self, stream: PooledStream, host: &str, port: u16, use_tls: bool) {
+        let key = format!(
+            "{}:{}:{}",
+            if use_tls { "https" } else { "http" },
+            host,
+            port
+        );
 
+        let mut pools = self.pools.lock().unwrap();
         let pool = pools.entry(key).or_insert_with(Vec::new);
 
-        // Only keep if under limit
         if pool.len() < self.max_idle_per_host {
             pool.push(PooledConnection {
                 stream,
-                last_used: std::time::Instant::now(),
+                last_used: Instant::now(),
             });
         }
-        // else: drop the stream (connection will close)
     }
 
-    /// Check if a TCP connection is still alive
-    fn is_alive(stream: &TcpStream) -> bool {
-        // Clone the stream to peek
-        if let Ok(cloned) = stream.try_clone() {
-            // Set very short timeout for peek
-            let _ = cloned.set_read_timeout(Some(Duration::from_millis(1)));
-            let _ = cloned.set_nonblocking(true);
+    fn is_alive(stream: &PooledStream) -> bool {
+        match stream {
+            PooledStream::Plain(tcp_stream) => {
+                if let Ok(cloned) = tcp_stream.try_clone() {
+                    let _ = cloned.set_read_timeout(Some(Duration::from_millis(1)));
+                    let _ = cloned.set_nonblocking(true);
 
-            // Try to peek - if connection is closed, this will fail
-            let mut buf = [0u8; 1];
-            match cloned.peek(&mut buf) {
-                Ok(0) => false, // Connection closed
-                Ok(_) => true,  // Data available (shouldn't happen for idle connections)
-                Err(e) => {
-                    // WouldBlock means connection is alive but no data
-                    e.kind() == std::io::ErrorKind::WouldBlock
+                    let mut buf = [0u8; 1];
+                    match cloned.peek(&mut buf) {
+                        Ok(0) => false,
+                        Ok(_) => true,
+                        Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+                    }
+                } else {
+                    false
                 }
             }
-        } else {
-            false
+            PooledStream::Tls(_) => true,
         }
     }
 
-    /// Clear all connections from pool
     pub fn clear(&self) {
         let mut pools = self.pools.lock().unwrap();
         pools.clear();
     }
 
-    /// Get pool statistics
     pub fn stats(&self) -> PoolStats {
         let pools = self.pools.lock().unwrap();
         let total_connections: usize = pools.values().map(|p| p.len()).sum();
@@ -131,7 +213,6 @@ pub struct PoolStats {
     pub hosts: usize,
 }
 
-/// HTTP client with connection pooling
 pub struct PooledHttpClient {
     pool: Arc<ConnectionPool>,
     timeout: Duration,
@@ -157,14 +238,10 @@ impl PooledHttpClient {
         self
     }
 
-    /// Perform HTTP GET with connection pooling
     pub fn get(&self, url: &str) -> Result<(u16, Vec<u8>), String> {
-        let (host, port, path) = Self::parse_url(url)?;
+        let (host, port, path, use_tls) = Self::parse_url(url)?;
+        let mut stream = self.pool.get_connection(&host, port, use_tls)?;
 
-        // Get connection from pool
-        let mut stream = self.pool.get_connection(&host, port)?;
-
-        // Set timeout
         stream
             .set_read_timeout(Some(self.timeout))
             .map_err(|e| format!("Failed to set read timeout: {}", e))?;
@@ -172,7 +249,6 @@ impl PooledHttpClient {
             .set_write_timeout(Some(self.timeout))
             .map_err(|e| format!("Failed to set write timeout: {}", e))?;
 
-        // Build HTTP/1.1 request with Keep-Alive
         let connection_header = if self.keep_alive {
             "Connection: keep-alive"
         } else {
@@ -189,32 +265,60 @@ impl PooledHttpClient {
             path, host, connection_header
         );
 
-        // Send request
         stream
             .write_all(request.as_bytes())
             .map_err(|e| format!("Failed to send request: {}", e))?;
 
-        // Read response (pre-allocate larger buffer to reduce reallocations)
-        let mut buffer = Vec::with_capacity(16384); // 16KB pre-allocated
-        let mut temp_buf = [0u8; 8192]; // 8KB temp buffer (doubled from 4KB)
+        let mut buffer = Vec::with_capacity(16384);
+        let mut temp_buf = [0u8; 8192];
+        let mut header_end: Option<usize> = None;
+        let mut body_strategy = BodyStrategy::Unknown;
+        let mut allow_reuse = self.keep_alive;
+        let mut header_parsed = false;
 
         loop {
             match stream.read(&mut temp_buf) {
-                Ok(0) => break, // EOF
+                Ok(0) => break,
                 Ok(n) => {
                     buffer.extend_from_slice(&temp_buf[..n]);
 
-                    // Check if we have complete response headers
-                    if buffer.windows(4).any(|w| w == b"\r\n\r\n") {
-                        // For now, read a bit more for body
-                        // In production, would parse Content-Length
-                        if buffer.len() > 200 {
-                            break;
+                    if header_end.is_none() {
+                        if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                            header_end = Some(pos + 4);
+                        }
+                    }
+
+                    if let Some(end) = header_end {
+                        if !header_parsed {
+                            let (strategy, can_reuse) = Self::analyze_headers(&buffer[..end]);
+                            body_strategy = strategy;
+                            header_parsed = true;
+                            if !can_reuse {
+                                allow_reuse = false;
+                            }
+                        }
+
+                        match body_strategy {
+                            BodyStrategy::ContentLength(expected) => {
+                                let body_len = buffer.len().saturating_sub(end);
+                                if body_len >= expected {
+                                    break;
+                                }
+                            }
+                            BodyStrategy::Chunked => {
+                                if chunked_body_complete(&buffer[end..]) {
+                                    break;
+                                }
+                            }
+                            BodyStrategy::Unknown => {
+                                if buffer.len() > 1_000_000 {
+                                    break;
+                                }
+                            }
                         }
                     }
 
                     if buffer.len() > 1_000_000 {
-                        // 1MB limit
                         break;
                     }
                 }
@@ -224,32 +328,66 @@ impl PooledHttpClient {
             }
         }
 
-        // Parse status code
+        if let Some(end) = header_end {
+            match body_strategy {
+                BodyStrategy::ContentLength(expected) => {
+                    let mut remaining = expected.saturating_sub(buffer.len().saturating_sub(end));
+                    while remaining > 0 {
+                        match stream.read(&mut temp_buf) {
+                            Ok(0) => {
+                                allow_reuse = false;
+                                break;
+                            }
+                            Ok(n) => {
+                                buffer.extend_from_slice(&temp_buf[..n]);
+                                remaining = remaining.saturating_sub(n);
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                break;
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                                break;
+                            }
+                            Err(e) => return Err(format!("Read error: {}", e)),
+                        }
+                    }
+
+                    if buffer.len().saturating_sub(end) < expected {
+                        allow_reuse = false;
+                    }
+                }
+                BodyStrategy::Chunked => {
+                    if !chunked_body_complete(&buffer[end..]) {
+                        if !Self::drain_chunked(&mut stream, &mut buffer, end, &mut temp_buf)? {
+                            allow_reuse = false;
+                        }
+                    }
+                }
+                BodyStrategy::Unknown => {}
+            }
+        }
+
         let status_code = Self::parse_status_code(&buffer)?;
 
-        // Return connection to pool if keep-alive
-        if self.keep_alive && status_code < 400 {
-            self.pool.return_connection(stream, &host, port);
+        if self.keep_alive && allow_reuse && status_code < 400 {
+            self.pool.return_connection(stream, &host, port, use_tls);
         }
-        // else: connection will be dropped and closed
 
         Ok((status_code, buffer))
     }
 
-    fn parse_url(url: &str) -> Result<(String, u16, String), String> {
+    fn parse_url(url: &str) -> Result<(String, u16, String, bool), String> {
         let url = url.trim();
 
-        // Remove http:// or https://
-        let url = if url.starts_with("http://") {
-            &url[7..]
-        } else if url.starts_with("https://") {
-            return Err("HTTPS not supported in pooled client yet".to_string());
+        let (rest, use_tls) = if let Some(stripped) = url.strip_prefix("https://") {
+            (stripped, true)
+        } else if let Some(stripped) = url.strip_prefix("http://") {
+            (stripped, false)
         } else {
-            url
+            (url, false)
         };
 
-        // Split host and path
-        let parts: Vec<&str> = url.splitn(2, '/').collect();
+        let parts: Vec<&str> = rest.splitn(2, '/').collect();
         let host_port = parts[0];
         let path = if parts.len() > 1 {
             format!("/{}", parts[1])
@@ -257,25 +395,25 @@ impl PooledHttpClient {
             "/".to_string()
         };
 
-        // Parse host and port
-        let (host, port) = if host_port.contains(':') {
-            let hp: Vec<&str> = host_port.splitn(2, ':').collect();
-            let port = hp[1]
+        let default_port = if use_tls { 443 } else { 80 };
+        let (host, port) = if let Some(colon) = host_port.rfind(':') {
+            let host_part = &host_port[..colon];
+            let port_part = &host_port[colon + 1..];
+            let port = port_part
                 .parse::<u16>()
-                .map_err(|_| format!("Invalid port: {}", hp[1]))?;
-            (hp[0].to_string(), port)
+                .map_err(|_| format!("Invalid port: {}", port_part))?;
+            (host_part.to_string(), port)
         } else {
-            (host_port.to_string(), 80)
+            (host_port.to_string(), default_port)
         };
 
-        Ok((host, port, path))
+        Ok((host, port, path, use_tls))
     }
 
     fn parse_status_code(response: &[u8]) -> Result<u16, String> {
         let response_str = String::from_utf8_lossy(response);
         let first_line = response_str.lines().next().ok_or("Empty response")?;
 
-        // Parse "HTTP/1.1 200 OK"
         let parts: Vec<&str> = first_line.split_whitespace().collect();
         if parts.len() < 2 {
             return Err("Invalid HTTP response".to_string());
@@ -285,4 +423,105 @@ impl PooledHttpClient {
             .parse::<u16>()
             .map_err(|_| format!("Invalid status code: {}", parts[1]))
     }
+
+    fn analyze_headers(buffer: &[u8]) -> (BodyStrategy, bool) {
+        let header_text = String::from_utf8_lossy(buffer);
+        let mut strategy = BodyStrategy::Unknown;
+        let mut can_reuse = true;
+
+        for line in header_text.lines().skip(1) {
+            if let Some(colon) = line.find(':') {
+                let key = line[..colon].trim().to_ascii_lowercase();
+                let value = line[colon + 1..].trim().to_ascii_lowercase();
+
+                if key == "content-length" {
+                    if let Ok(len) = value.parse::<usize>() {
+                        strategy = BodyStrategy::ContentLength(len);
+                    }
+                } else if key == "connection" {
+                    if value.contains("close") {
+                        can_reuse = false;
+                    }
+                } else if key == "transfer-encoding" {
+                    if value.contains("chunked") {
+                        strategy = BodyStrategy::Chunked;
+                    } else {
+                        can_reuse = false;
+                    }
+                }
+            }
+        }
+
+        (strategy, can_reuse)
+    }
+
+    fn drain_chunked(
+        stream: &mut PooledStream,
+        buffer: &mut Vec<u8>,
+        body_start: usize,
+        temp_buf: &mut [u8],
+    ) -> Result<bool, String> {
+        loop {
+            if chunked_body_complete(&buffer[body_start..]) {
+                return Ok(true);
+            }
+
+            match stream.read(temp_buf) {
+                Ok(0) => return Ok(false),
+                Ok(n) => buffer.extend_from_slice(&temp_buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => return Ok(false),
+                Err(e) => return Err(format!("Read error: {}", e)),
+            }
+
+            if buffer.len() > 1_000_000 {
+                return Ok(false);
+            }
+        }
+    }
+}
+
+fn chunked_body_complete(data: &[u8]) -> bool {
+    let mut index = 0usize;
+    loop {
+        let line_end = match find_crlf(data, index) {
+            Some(pos) => pos,
+            None => return false,
+        };
+        let line = &data[index..line_end];
+        let line_str = match str::from_utf8(line) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        let size_part = line_str.split(';').next().map(|s| s.trim()).unwrap_or("");
+        let chunk_size = match usize::from_str_radix(size_part, 16) {
+            Ok(size) => size,
+            Err(_) => return false,
+        };
+
+        index = line_end + 2;
+        if chunk_size == 0 {
+            let trailer = &data.get(index..).unwrap_or(&[]);
+            if let Some(pos) = trailer.windows(4).position(|w| w == b"\r\n\r\n") {
+                return index + pos + 4 <= data.len();
+            }
+            return false;
+        }
+
+        let chunk_end = index + chunk_size;
+        if data.len() < chunk_end + 2 {
+            return false;
+        }
+        if &data[chunk_end..chunk_end + 2] != b"\r\n" {
+            return false;
+        }
+        index = chunk_end + 2;
+    }
+}
+
+fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
+    data.get(start..)?
+        .windows(2)
+        .position(|w| w == b"\r\n")
+        .map(|pos| start + pos)
 }

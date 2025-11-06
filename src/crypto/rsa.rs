@@ -11,6 +11,7 @@
 ///
 /// Replaces: OpenSSL RSA, ring, rustls crypto
 use super::bigint::BigInt;
+use super::{sha256, sha384};
 use std::io::Read;
 
 /// RSA public key
@@ -80,6 +81,148 @@ impl RsaPublicKey {
     pub fn size(&self) -> usize {
         (self.bits + 7) / 8
     }
+
+    /// Get key size in bits
+    pub fn modulus_bits(&self) -> usize {
+        self.bits
+    }
+
+    fn decrypt_signature(&self, signature: &[u8]) -> Result<Vec<u8>, String> {
+        let k = self.size();
+        if signature.len() > k {
+            return Err("Signature length larger than modulus size".to_string());
+        }
+
+        let sig = BigInt::from_bytes_be(signature);
+        let decrypted = sig.mod_exp(&self.e, &self.n);
+        let mut em = decrypted.to_bytes_be();
+        if em.len() < k {
+            let mut padded = vec![0u8; k - em.len()];
+            padded.extend_from_slice(&em);
+            em = padded;
+        }
+        Ok(em)
+    }
+
+    /// Verify a PKCS#1 v1.5 signature against the provided DigestInfo.
+    pub fn verify_pkcs1_v15(
+        &self,
+        expected_digest_info: &[u8],
+        signature: &[u8],
+    ) -> Result<(), String> {
+        let em = self.decrypt_signature(signature)?;
+        if em.len() < expected_digest_info.len() + 11 {
+            return Err("Decrypted signature too short".to_string());
+        }
+
+        if em[0] != 0x00 || em[1] != 0x01 {
+            return Err("Invalid PKCS#1 padding header".to_string());
+        }
+
+        let mut idx = 2;
+        while idx < em.len() && em[idx] == 0xFF {
+            idx += 1;
+        }
+
+        if idx >= em.len() || em[idx] != 0x00 {
+            return Err("Invalid PKCS#1 separator".to_string());
+        }
+        idx += 1;
+
+        let digest_region = &em[idx..];
+        if digest_region != expected_digest_info {
+            return Err("DigestInfo mismatch".to_string());
+        }
+
+        Ok(())
+    }
+
+    fn verify_pss_internal(
+        &self,
+        message_hash: &[u8],
+        signature: &[u8],
+        hash_len: usize,
+        hash_fn: fn(&[u8]) -> Vec<u8>,
+    ) -> Result<(), String> {
+        if message_hash.len() != hash_len {
+            return Err("Message hash length does not match signature scheme".to_string());
+        }
+
+        let em = self.decrypt_signature(signature)?;
+        if em.is_empty() {
+            return Err("Decrypted signature empty".to_string());
+        }
+        if *em.last().unwrap() != 0xBC {
+            return Err("RSA-PSS trailer field mismatch".to_string());
+        }
+
+        let em_len = em.len();
+        if em_len < hash_len + 2 {
+            return Err("RSA-PSS encoded message too short".to_string());
+        }
+
+        let db_len = em_len - hash_len - 1;
+        let (masked_db, h) = em.split_at(db_len);
+        let h = &h[..hash_len];
+
+        let db_mask = mgf1(hash_fn, h, db_len);
+        let mut db = masked_db.to_vec();
+        for (byte, mask) in db.iter_mut().zip(db_mask.iter()) {
+            *byte ^= *mask;
+        }
+
+        let em_bits = self.modulus_bits();
+        let leading_bits = 8 * em_len - em_bits;
+        if leading_bits > 8 {
+            return Err("RSA modulus too small for signature".to_string());
+        }
+        if leading_bits > 0 {
+            db[0] &= 0xFF >> leading_bits;
+        }
+
+        let salt_len = hash_len;
+        if db_len < salt_len + 1 {
+            return Err("RSA-PSS encoded message malformed".to_string());
+        }
+
+        let ps_len = db_len - salt_len - 1;
+        if !db[..ps_len].iter().all(|b| *b == 0) {
+            return Err("RSA-PSS padding not zeroed".to_string());
+        }
+        if db[ps_len] != 0x01 {
+            return Err("RSA-PSS separator missing".to_string());
+        }
+
+        let salt = &db[ps_len + 1..];
+        if salt.len() != salt_len {
+            return Err("RSA-PSS salt length mismatch".to_string());
+        }
+
+        let mut m_prime = Vec::with_capacity(8 + hash_len + salt_len);
+        m_prime.extend_from_slice(&[0u8; 8]);
+        m_prime.extend_from_slice(message_hash);
+        m_prime.extend_from_slice(salt);
+        let h_prime = hash_fn(&m_prime);
+        if h_prime.len() != hash_len {
+            return Err("Hash function output length mismatch".to_string());
+        }
+
+        if h != h_prime.as_slice() {
+            return Err("RSA-PSS signature verification failed".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Verify an RSA-PSS signature using SHA-256.
+    pub fn verify_pss_sha256(&self, message_hash: &[u8], signature: &[u8]) -> Result<(), String> {
+        self.verify_pss_internal(message_hash, signature, 32, sha256_hash)
+    }
+
+    /// Verify an RSA-PSS signature using SHA-384.
+    pub fn verify_pss_sha384(&self, message_hash: &[u8], signature: &[u8]) -> Result<(), String> {
+        self.verify_pss_internal(message_hash, signature, 48, sha384_hash)
+    }
 }
 
 /// Generate n bytes of random non-zero data
@@ -118,6 +261,34 @@ fn generate_random_nonzero(n: usize) -> Vec<u8> {
     }
 
     buf
+}
+
+fn mgf1(hash_fn: fn(&[u8]) -> Vec<u8>, seed: &[u8], mask_len: usize) -> Vec<u8> {
+    let mut mask = Vec::with_capacity(mask_len);
+    let mut counter = 0u32;
+
+    while mask.len() < mask_len {
+        let mut data = Vec::with_capacity(seed.len() + 4);
+        data.extend_from_slice(seed);
+        data.extend_from_slice(&counter.to_be_bytes());
+
+        let digest = hash_fn(&data);
+        let take = std::cmp::min(mask_len - mask.len(), digest.len());
+        mask.extend_from_slice(&digest[..take]);
+        counter = counter
+            .checked_add(1)
+            .expect("MGF1 counter overflow (mask_len too large)");
+    }
+
+    mask
+}
+
+fn sha256_hash(data: &[u8]) -> Vec<u8> {
+    sha256::sha256(data).to_vec()
+}
+
+fn sha384_hash(data: &[u8]) -> Vec<u8> {
+    sha384::sha384(data).to_vec()
 }
 
 /// ASN.1 DER parser (minimal implementation for X.509 certificates)

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use crate::storage::encoding::{read_varu32, write_varu32, DecodeError, IpKey};
 use crate::storage::schema::HostIntelRecord;
@@ -35,11 +36,9 @@ impl HostDirEntry {
             let mut raw = [0u8; 16];
             raw.copy_from_slice(&bytes[offset..offset + 16]);
             offset += 16;
-            let payload_offset =
-                u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            let payload_offset = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
             offset += 8;
-            let payload_len =
-                u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            let payload_len = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
             offset += 8;
             entries.push(Self {
                 key: IpKey { bytes: raw, len },
@@ -103,7 +102,9 @@ pub struct HostSegment {
 
 pub struct HostSegmentView {
     directory: Vec<HostDirEntry>,
-    payload: Vec<u8>,
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
 }
 
 impl HostSegment {
@@ -113,6 +114,10 @@ impl HostSegment {
             index: HashMap::new(),
             sorted: true,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.records.len()
     }
 
     pub fn insert(&mut self, record: HostIntelRecord) {
@@ -145,8 +150,7 @@ impl HostSegment {
         if self.sorted {
             return;
         }
-        self.records
-            .sort_by_key(|record| IpKey::from(&record.ip));
+        self.records.sort_by_key(|record| IpKey::from(&record.ip));
         self.index.clear();
         for (idx, record) in self.records.iter().enumerate() {
             self.index.insert(IpKey::from(&record.ip), idx);
@@ -155,6 +159,12 @@ impl HostSegment {
     }
 
     pub fn serialize(&mut self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&mut self, out: &mut Vec<u8>) {
         self.ensure_index();
         let mut directory = Vec::with_capacity(self.records.len());
         let mut payload = Vec::new();
@@ -180,11 +190,11 @@ impl HostSegment {
             payload_len,
         };
 
-        let mut buf = Vec::with_capacity(HostSegmentHeader::SIZE + directory_len as usize + payload.len());
-        header.write(&mut buf);
-        HostDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf
+        out.clear();
+        out.reserve(HostSegmentHeader::SIZE + directory.len() * HostDirEntry::SIZE + payload.len());
+        header.write(out);
+        HostDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -252,7 +262,15 @@ impl HostSegment {
 }
 
 impl HostSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("host segment out of bounds"));
+        }
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < HostSegmentHeader::SIZE {
             return Err(DecodeError("host segment too small"));
         }
@@ -262,26 +280,28 @@ impl HostSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("host directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("host directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("host payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("host payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
+        let payload_offset = segment_offset + offset;
 
         let mut directory = HostDirEntry::read_all(directory_bytes, header.record_count as usize)?;
         directory.sort_by_key(|entry| entry.key);
 
         Ok(Self {
             directory,
-            payload: payload_bytes.to_vec(),
+            data,
+            payload_offset,
+            payload_len: header.payload_len as usize,
         })
     }
 
@@ -290,16 +310,18 @@ impl HostSegmentView {
         match self.directory.binary_search_by_key(&key, |entry| entry.key) {
             Ok(idx) => {
                 let entry = &self.directory[idx];
+                let payload =
+                    &self.data[self.payload_offset..self.payload_offset + self.payload_len];
                 let mut cursor = entry.payload_offset as usize;
                 let end = cursor + entry.payload_len as usize;
-                if end > self.payload.len() {
+                if end > payload.len() {
                     return Err(DecodeError("host payload slice out of bounds"));
                 }
-                let len = read_varu32(&self.payload, &mut cursor)? as usize;
+                let len = read_varu32(payload, &mut cursor)? as usize;
                 if cursor + len > end {
                     return Err(DecodeError("host record length mismatch"));
                 }
-                let record = HostIntelRecord::from_bytes(&self.payload[cursor..cursor + len])?;
+                let record = HostIntelRecord::from_bytes(&payload[cursor..cursor + len])?;
                 Ok(Some(record))
             }
             Err(_) => Ok(None),
@@ -307,18 +329,19 @@ impl HostSegmentView {
     }
 
     pub fn all(&self) -> Result<Vec<HostIntelRecord>, DecodeError> {
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
         let mut records = Vec::with_capacity(self.directory.len());
         for entry in &self.directory {
             let mut cursor = entry.payload_offset as usize;
             let end = cursor + entry.payload_len as usize;
-            if end > self.payload.len() {
+            if end > payload.len() {
                 return Err(DecodeError("host payload slice out of bounds"));
             }
-            let len = read_varu32(&self.payload, &mut cursor)? as usize;
+            let len = read_varu32(payload, &mut cursor)? as usize;
             if cursor + len > end {
                 return Err(DecodeError("host record length mismatch"));
             }
-            let record = HostIntelRecord::from_bytes(&self.payload[cursor..cursor + len])?;
+            let record = HostIntelRecord::from_bytes(&payload[cursor..cursor + len])?;
             records.push(record);
         }
         Ok(records)
@@ -362,7 +385,9 @@ mod tests {
         let mut encoded = segment.clone();
         let bytes = encoded.serialize();
         let mut decoded = HostSegment::deserialize(&bytes).expect("decode");
-        let record = decoded.get(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))).expect("record");
+        let record = decoded
+            .get(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10)))
+            .expect("record");
         assert_eq!(record.os_family.as_deref(), Some("linux"));
     }
 
@@ -378,10 +403,10 @@ mod tests {
         });
 
         let bytes = segment.serialize();
-        let view = HostSegmentView::from_bytes(&bytes).expect("view");
-        let record = view
-            .get("203.0.113.1".parse().unwrap())
-            .expect("result");
+        let data = Arc::new(bytes);
+        let view =
+            HostSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
+        let record = view.get("203.0.113.1".parse().unwrap()).expect("result");
         assert!(record.is_some());
     }
 }

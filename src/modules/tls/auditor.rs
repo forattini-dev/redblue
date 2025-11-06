@@ -32,6 +32,12 @@ pub struct TlsAuditResult {
     pub negotiated_cipher: Option<String>,
     pub negotiated_cipher_code: Option<u16>,
     pub negotiated_cipher_strength: Option<CipherStrength>,
+    pub ja3: Option<String>,
+    pub ja3s: Option<String>,
+    pub ja3_raw: Option<String>,
+    pub ja3s_raw: Option<String>,
+    pub peer_fingerprints: Vec<String>,
+    pub certificate_chain_pem: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,6 +117,12 @@ impl TlsAuditor {
             negotiated_cipher: None,
             negotiated_cipher_code: None,
             negotiated_cipher_strength: None,
+            ja3: None,
+            ja3s: None,
+            ja3_raw: None,
+            ja3s_raw: None,
+            peer_fingerprints: Vec::new(),
+            certificate_chain_pem: Vec::new(),
         };
 
         let scanner = TlsScanner::with_timeout(self.timeout);
@@ -124,6 +136,39 @@ impl TlsAuditor {
             })
             .collect();
 
+        // Flag legacy protocol support as vulnerabilities
+        for version in &result.supported_versions {
+            if !version.supported {
+                continue;
+            }
+            match version.version.as_str() {
+                "TLS 1.0" => self.ensure_vulnerability(
+                    &mut result.vulnerabilities,
+                    "Legacy protocol enabled (TLS 1.0)",
+                    Severity::Critical,
+                    "Server negotiates TLS 1.0 which is vulnerable to BEAST/POODLE/Lucky13. Disable TLS 1.0 or restrict to modern clients."
+                        .to_string(),
+                ),
+                "TLS 1.1" => self.ensure_vulnerability(
+                    &mut result.vulnerabilities,
+                    "Legacy protocol enabled (TLS 1.1)",
+                    Severity::High,
+                    "Server negotiates TLS 1.1 which lacks modern security guarantees. Disable TLS 1.1 in favor of TLS 1.2+."
+                        .to_string(),
+                ),
+                "SSLv2" | "SSLv3" => self.ensure_vulnerability(
+                    &mut result.vulnerabilities,
+                    &format!("Legacy protocol enabled ({})", version.version),
+                    Severity::Critical,
+                    format!(
+                        "Server negotiates {} which is cryptographically broken. Disable immediately.",
+                        version.version
+                    ),
+                ),
+                _ => {}
+            }
+        }
+
         result.supported_ciphers = self.extract_cipher_info(&scan_results);
 
         let scanner_issues = scanner.check_vulnerabilities(&scan_results);
@@ -132,9 +177,23 @@ impl TlsAuditor {
             .map(|issue| self.convert_issue(issue))
             .collect();
 
+        let mut handshake_ja3 = None;
+        let mut handshake_ja3_raw = None;
+        let mut handshake_ja3s = None;
+        let mut handshake_ja3s_raw = None;
+        let mut handshake_fingerprints: Vec<String> = Vec::new();
+        let mut handshake_pem: Vec<String> = Vec::new();
+
         let (tls12_supported, tls12_error, negotiated_cipher, certs_from_tls) =
             match Tls12Client::connect_with_timeout(host, port, self.timeout) {
                 Ok(client) => {
+                    handshake_ja3 = client.ja3().map(|s| s.to_string());
+                    handshake_ja3_raw = client.ja3_raw().map(|s| s.to_string());
+                    handshake_ja3s = client.ja3s().map(|s| s.to_string());
+                    handshake_ja3s_raw = client.ja3s_raw().map(|s| s.to_string());
+                    handshake_fingerprints = client.peer_certificate_fingerprints();
+                    handshake_pem = client.certificate_chain_pem();
+
                     let cipher = client.selected_cipher_suite();
                     let certificates = client
                         .peer_certificates()
@@ -203,6 +262,13 @@ impl TlsAuditor {
             }
         }
 
+        result.ja3 = handshake_ja3;
+        result.ja3_raw = handshake_ja3_raw;
+        result.ja3s = handshake_ja3s;
+        result.ja3s_raw = handshake_ja3s_raw;
+        result.peer_fingerprints = handshake_fingerprints;
+        result.certificate_chain_pem = handshake_pem;
+
         Ok(result)
     }
 
@@ -240,6 +306,23 @@ impl TlsAuditor {
             }
         }
         ciphers
+    }
+
+    fn ensure_vulnerability(
+        &self,
+        list: &mut Vec<Vulnerability>,
+        name: &str,
+        severity: Severity,
+        description: String,
+    ) {
+        if list.iter().any(|v| v.name == name) {
+            return;
+        }
+        list.push(Vulnerability {
+            name: name.to_string(),
+            severity,
+            description,
+        });
     }
 }
 

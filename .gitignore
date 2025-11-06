@@ -31,7 +31,6 @@ scan_results/
 # Tasks
 DONE.md
 TODO.md
-test-ctf.sh
 
 # Agents
 AGENTS.md
@@ -39,6 +38,9 @@ CLAUDE.md
 
 # Tests
 ctf-data/
+test-certs/
+scan-ctf.sh
+test-ctf.sh
 wordlists/
 
 # Release artifacts

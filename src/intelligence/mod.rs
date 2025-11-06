@@ -25,11 +25,20 @@ pub mod behavior_patterns;
 #[path = "connection-intel.rs"]
 pub mod connection_intel;
 
+#[path = "http-fingerprint.rs"]
+pub mod http_fingerprint;
+
 #[path = "os-fingerprint.rs"]
 pub mod os_fingerprint;
 
 #[path = "service-detection.rs"]
 pub mod service_detection;
 
+#[path = "tcp-fingerprint.rs"]
+pub mod tcp_fingerprint;
+
 #[path = "timing-analysis.rs"]
 pub mod timing_analysis;
+
+#[path = "tls-fingerprint.rs"]
+pub mod tls_fingerprint;

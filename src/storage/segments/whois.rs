@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
 use crate::storage::schema::WhoisRecord;
@@ -133,12 +134,18 @@ pub struct WhoisSegment {
 pub struct WhoisSegmentView {
     strings: StringTable,
     directory: Vec<WhoisDirEntry>,
-    payload: Vec<u8>,
+    data: Arc<Vec<u8>>,
+    payload_offset: usize,
+    payload_len: usize,
 }
 
 impl WhoisSegment {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 
     pub fn insert(
@@ -189,6 +196,12 @@ impl WhoisSegment {
     }
 
     pub fn serialize(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        self.serialize_into(&mut buf);
+        buf
+    }
+
+    pub fn serialize_into(&self, out: &mut Vec<u8>) {
         let mut entries: Vec<&Entry> = self.entries.iter().collect();
         entries.sort_by_key(|entry| entry.domain_id);
 
@@ -225,17 +238,17 @@ impl WhoisSegment {
             strings_len,
         };
 
-        let mut buf = Vec::with_capacity(
+        out.clear();
+        out.reserve(
             WhoisSegmentHeader::SIZE
-                + directory_len as usize
+                + directory.len() * WhoisDirEntry::SIZE
                 + payload.len()
                 + string_section.len(),
         );
-        header.write(&mut buf);
-        WhoisDirEntry::write_all(&directory, &mut buf);
-        buf.extend_from_slice(&payload);
-        buf.extend_from_slice(&string_section);
-        buf
+        header.write(out);
+        WhoisDirEntry::write_all(&directory, out);
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&string_section);
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -334,7 +347,15 @@ impl WhoisSegment {
 }
 
 impl WhoisSegmentView {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+    pub fn from_arc(
+        data: Arc<Vec<u8>>,
+        segment_offset: usize,
+        segment_len: usize,
+    ) -> Result<Self, DecodeError> {
+        if segment_offset + segment_len > data.len() {
+            return Err(DecodeError("whois segment out of bounds"));
+        }
+        let bytes = &data[segment_offset..segment_offset + segment_len];
         if bytes.len() < WhoisSegmentHeader::SIZE {
             return Err(DecodeError("whois segment too small"));
         }
@@ -344,28 +365,29 @@ impl WhoisSegmentView {
         let dir_end = offset
             .checked_add(header.directory_len as usize)
             .ok_or(DecodeError("whois directory overflow"))?;
-        if dir_end > bytes.len() {
+        if segment_offset + dir_end > data.len() {
             return Err(DecodeError("whois directory out of bounds"));
         }
-        let directory_bytes = &bytes[offset..dir_end];
+        let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
         offset = dir_end;
 
         let payload_end = offset
             .checked_add(header.payload_len as usize)
             .ok_or(DecodeError("whois payload overflow"))?;
-        if payload_end > bytes.len() {
+        if segment_offset + payload_end > data.len() {
             return Err(DecodeError("whois payload out of bounds"));
         }
-        let payload_bytes = &bytes[offset..payload_end];
+        let payload_offset = segment_offset + offset;
         offset = payload_end;
 
-        let strings_end = offset
+        let strings_offset = segment_offset + offset;
+        let strings_end_abs = strings_offset
             .checked_add(header.strings_len as usize)
             .ok_or(DecodeError("whois string table overflow"))?;
-        if strings_end > bytes.len() {
+        if strings_end_abs > data.len() {
             return Err(DecodeError("whois string table out of bounds"));
         }
-        let strings_bytes = &bytes[offset..strings_end];
+        let strings_bytes = &data[strings_offset..strings_end_abs];
 
         let strings = decode_string_table(strings_bytes)?;
         let mut directory = WhoisDirEntry::read_all(directory_bytes, header.record_count as usize)?;
@@ -374,7 +396,9 @@ impl WhoisSegmentView {
         Ok(Self {
             strings,
             directory,
-            payload: payload_bytes.to_vec(),
+            data,
+            payload_offset,
+            payload_len: header.payload_len as usize,
         })
     }
 
@@ -386,20 +410,21 @@ impl WhoisSegmentView {
             return Ok(None);
         };
 
+        let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];
         let mut cursor = dir.payload_offset as usize;
         let end = cursor + dir.payload_len as usize;
-        if end > self.payload.len() {
+        if end > payload.len() {
             return Err(DecodeError("whois payload slice out of bounds"));
         }
 
-        let registrar_id = read_varu32(&self.payload, &mut cursor)?;
-        let created = read_varu32(&self.payload, &mut cursor)?;
-        let expires = read_varu32(&self.payload, &mut cursor)?;
-        let timestamp = read_varu32(&self.payload, &mut cursor)?;
-        let ns_count = read_varu32(&self.payload, &mut cursor)? as usize;
+        let registrar_id = read_varu32(payload, &mut cursor)?;
+        let created = read_varu32(payload, &mut cursor)?;
+        let expires = read_varu32(payload, &mut cursor)?;
+        let timestamp = read_varu32(payload, &mut cursor)?;
+        let ns_count = read_varu32(payload, &mut cursor)? as usize;
         let mut nameservers = Vec::with_capacity(ns_count);
         for _ in 0..ns_count {
-            nameservers.push(read_varu32(&self.payload, &mut cursor)?);
+            nameservers.push(read_varu32(payload, &mut cursor)?);
         }
 
         if cursor != end {
@@ -458,8 +483,9 @@ mod tests {
         );
 
         let encoded = segment.serialize();
-        let view = WhoisSegmentView::from_bytes(&encoded).expect("view");
-
+        let data = Arc::new(encoded);
+        let view =
+            WhoisSegmentView::from_arc(Arc::clone(&data), 0, data.len()).expect("view loaded");
         let record = view.get("example.com").expect("result");
         assert!(record.is_some());
         let record = record.unwrap();

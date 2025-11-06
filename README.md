@@ -35,9 +35,6 @@
 # Install (one-liner - auto-detects your platform)
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
 
-# Or install latest alpha (bleeding edge)
-curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
-
 # Scan networks
 rb network scan ports 192.168.1.1 --preset common
 rb network discover host 10.0.0.0/24
@@ -155,17 +152,17 @@ Each domain has detailed documentation with usage examples, advanced techniques,
 <td width="50%" valign="top">
 
 **🌐 Network & Infrastructure**
-- **[Network](./docs/domains/NETWORK.md)** - Port scanning, host discovery, service fingerprinting, traceroute/MTR
-- **[DNS](./docs/domains/DNS.md)** - DNS enumeration, record queries, subdomain brute-forcing, zone transfers
-- **[TLS](./docs/domains/TLS.md)** - TLS/SSL auditing, cipher analysis, vulnerability testing
+- **[Network](./docs/domains/network.md)** - Port scanning, host discovery, service fingerprinting, traceroute/MTR
+- **[DNS](./docs/domains/dns.md)** - DNS enumeration, record queries, subdomain brute-forcing, zone transfers
+- **[TLS](./docs/domains/tls.md)** - TLS/SSL auditing, cipher analysis, vulnerability testing
 
 </td>
 <td width="50%" valign="top">
 
 **🔍 Reconnaissance & OSINT**
-- **[Recon](./docs/domains/RECON.md)** - WHOIS, subdomains, data harvesting, historical URLs
-- **[Web](./docs/domains/WEB.md)** - HTTP testing, CMS scanning, headers analysis, directory fuzzing
-- **[Cloud](./docs/domains/CLOUD.md)** - Subdomain takeover, cloud service detection, S3/Azure scanning
+- **[Recon](./docs/domains/recon.md)** - WHOIS, subdomains, data harvesting, historical URLs
+- **[Web](./docs/domains/web.md)** - HTTP testing, CMS scanning, headers analysis, directory fuzzing
+- **[Cloud](./docs/domains/cloud.md)** - Subdomain takeover, cloud service detection, S3/Azure scanning
 
 </td>
 </tr>
@@ -173,16 +170,16 @@ Each domain has detailed documentation with usage examples, advanced techniques,
 <td width="50%" valign="top">
 
 **🛠️ Offensive Capabilities** *(AUTHORIZED TESTING ONLY)*
-- **[Exploit](./docs/domains/EXPLOIT.md)** - Privilege escalation, reverse shells, lateral movement, persistence
-- **[Code](./docs/domains/CODE.md)** - Secret detection, dependency scanning, SAST analysis
+- **[Exploit](./docs/domains/exploit.md)** - Privilege escalation, reverse shells, lateral movement, persistence
+- **[Code](./docs/domains/code.md)** - Secret detection, dependency scanning, SAST analysis
 
 </td>
 <td width="50%" valign="top">
 
 **📊 Data & Performance**
-- **[Database](./docs/domains/DATABASE.md)** - Query operations, export formats, subnet analysis
-- **[Collection](./docs/domains/COLLECTION.md)** - Screenshot capture, data archiving
-- **[Bench](./docs/domains/BENCH.md)** - Load testing, performance profiling
+- **[Database](./docs/domains/database.md)** - Query operations, export formats, subnet analysis
+- **[Collection](./docs/domains/collection.md)** - Screenshot capture, data archiving
+- **[Bench](./docs/domains/bench.md)** - Load testing, performance profiling
 
 </td>
 </tr>
@@ -190,9 +187,9 @@ Each domain has detailed documentation with usage examples, advanced techniques,
 
 ### 🔧 Technical Documentation
 
-- **[CLI Semantics](./docs/CLI-SEMANTICS.md)** - Complete CLI syntax, command patterns, and kubectl-style design philosophy
-- **[Domain Documentation Index](./docs/domains/README.md)** - Overview of all domain capabilities and command mappings
-- **[NetCat Ultimate](./docs/NETCAT-ULTIMATE.md)** - Advanced networking techniques and NetCat replacement capabilities
+- **[CLI Semantics](./docs/cli-semantics.md)** - Complete CLI syntax, command patterns, and kubectl-style design philosophy
+- **[Domain Documentation Index](./docs/domains/index.md)** - Overview of all domain capabilities and command mappings
+- **[NetCat Ultimate](./docs/netcat-ultimate.md)** - Advanced networking techniques and NetCat replacement capabilities
 
 ### 📝 Configuration & Examples
 
@@ -272,7 +269,7 @@ Security professionals need **fast, reliable tools** that work everywhere. The r
 
 We implement network protocols **from scratch** using only Rust's standard library. No external binaries. No subprocess overhead. No dependency hell. Every protocol (DNS, HTTP, TLS, TCP/UDP, ICMP) is built directly into the binary using RFC specifications.
 
-The result: **one 427KB executable** that works on any Linux system without installation, provides a consistent kubectl-style interface, and replaces 30+ traditional security tools.
+The result: **one executable** that works on any Linux system without installation, provides a consistent kubectl-style interface, and replaces 30+ traditional security tools.
 
 This isn't about reinventing the wheel. It's about **respecting the incredible tools** built by the security community (nmap, masscan, ffuf, wpscan, subfinder, nikto, and many others) and creating a unified experience that makes security testing **accessible, portable, and consistent**.
 
@@ -520,6 +517,15 @@ redblue looks for `.redblue.yaml` (or `.redblue.yml`) in the directory where you
 #### Quick Setup
 
 ```bash
+# Generate configuration from defaults (verb-first order)
+rb config create init --output .redblue.yaml
+
+# Legacy ordering still supported
+rb config init create --output .redblue.yaml
+
+# Shorthand alias (when installed globally)
+rb init
+
 # Create configuration file in your project directory
 vim .redblue.yaml
 
@@ -764,6 +770,7 @@ rb network mtr trace 8.8.8.8              # MTR monitoring
 ```bash
 # Record lookups
 rb dns lookup record google.com                       # A record
+rb dns all record google.com                         # All record types
 rb dns lookup record example.com --type MX            # Mail servers
 rb dns lookup record example.com --type TXT           # TXT records
 rb dns lookup record example.com --type NS            # Nameservers
@@ -1547,6 +1554,34 @@ rb dns lookup record example.com --server 1.1.1.1         # Cloudflare
 rb dns lookup record example.com --server 208.67.222.222  # OpenDNS
 ```
 
+#### 6. Agentic Workflows with MCP
+
+```bash
+# Expose RedBlue context to compatible IDE assistants
+rb mcp server start
+```
+
+**Available MCP tools:**
+- `rb.list-domains` -> returns all CLI domains exposed by the dispatcher
+- `rb.list-resources` -> enumerates resources and verbs for a domain
+- `rb.describe-command` -> structured help (routes, flags, usage)
+- `rb.search-docs` -> lightweight keyword search across README.md and docs/
+- `rb.docs.index` -> hierarchical index (title + sections) for all Markdown references
+- `rb.docs.get` -> fetch a full document or a specific heading’s content
+- `rb.targets.list` -> list tracked targets with timestamps and notes
+- `rb.targets.save` -> create/update a tracked target entry (`mcp-targets.json`)
+- `rb.targets.remove` -> delete a tracked target safely
+- `rb.command.run` -> execute any `rb <domain> ...` invocation and capture stdout/stderr
+
+Run the server, keep the terminal open, and point your MCP-capable client at the stdio bridge. No sockets, no HTTP—just JSON-RPC over stdin/stdout.
+
+Tracked targets live in `mcp-targets.json` (root of the repo) and documentation metadata is generated on demand—no build step required.
+
+**HTTP/SSE transport:** by default we also expose `GET /sse` (Server-Sent Events) and `GET /stream` (chunked JSON) on `127.0.0.1:8787`, with corresponding `POST /messages` and `POST /stream/send` inboxes plus `GET /status` for health checks. Disable or tweak behaviour via these flags:
+- `--http-addr <addr>` → override bind address (default `127.0.0.1:8787`)
+- `--no-http` → stdio only (no network transport)
+- `--no-sse` / `--no-stream` → selectively turn off SSE or chunked HTTP
+
 <div align="right">
 
 [⬆ Back to Top](#-redblue) • [📖 Table of Contents](#-table-of-contents) • [➡️ Next: Tool Equivalents](#-tool-equivalents)
@@ -1780,7 +1815,7 @@ We welcome contributions! Please see:
 2. Run `cargo fmt` (code formatted)
 3. Run `cargo clippy` (no warnings)
 4. Update documentation
-5. Follow zero-dependency principle
+5. Follow the minimal-dependency policy (vendored OpenSSL only)
 
 ### Language Policy
 
@@ -1825,7 +1860,7 @@ No exceptions. This ensures global accessibility and maintainability.
 - [x] **Exploitation framework** - Privesc, shells, lateral movement, persistence ✅
 - [x] **Database operations** - Binary format, CSV export, subnet analysis ✅
 - [ ] Service fingerprinting (banner grabbing)
-- [ ] Replace openssl with TLS 1.2/1.3 from scratch
+- [ ] Revisit a pure-Rust TLS 1.2/1.3 stack (stretch goal)
 - [ ] OSINT username search
 - [ ] Email reconnaissance
 
@@ -1951,7 +1986,7 @@ redblue exists because of the incredible work of the security community. We lear
 redblue doesn't aim to replace these tools out of arrogance. We aim to:
 
 1. **Unify** - One consistent interface instead of 30 different CLIs
-2. **Simplify** - Zero dependencies, works everywhere
+2. **Simplify** - Minimal dependencies (vendored OpenSSL only), works everywhere
 3. **Educate** - Implement protocols from scratch so anyone can learn
 4. **Respect** - Honor the work of those who came before us
 
@@ -1959,7 +1994,7 @@ redblue doesn't aim to replace these tools out of arrogance. We aim to:
 
 ### Technical Credits
 
-- **Built with**: Pure Rust (zero external crates for protocols)
+- **Built with**: Pure Rust core (single vendored OpenSSL binding for TLS)
 - **RFCs Implemented**: DNS (1035), HTTP (2616), WHOIS (3912), TLS (5246, 8446)
 - **Protocols**: DNS, HTTP, WHOIS, TLS, TCP, UDP, ICMP (all from scratch)
 - **Community**: All contributors, security researchers, and the Rust community
@@ -1987,13 +2022,13 @@ To every security engineer who:
 ### General Questions
 
 **Q: What is redblue?**
-A: A single 427KB executable that consolidates 30+ security tools (nmap, ffuf, wpscan, nikto, dig, etc.) with zero external dependencies.
+A: A single 427KB executable that consolidates 30+ security tools (nmap, ffuf, wpscan, nikto, dig, etc.) with a single vendored dependency (OpenSSL).
 
 **Q: Why another security tool?**
-A: To provide a unified, consistent interface for security testing that works everywhere without installation or dependencies.
+A: To provide a unified, consistent interface for security testing that works everywhere without painful installs or sprawling dependency trees.
 
 **Q: Is it really zero dependencies?**
-A: Yes. All network protocols (DNS, HTTP, TLS, TCP/UDP) are implemented from scratch using only Rust's standard library. The only temporary exception is the `openssl` binary for certificate inspection, which will be removed in Phase 2.
+A: Almost. All protocol logic lives in our codebase, and the only external crate we ship is the vendored `openssl` binding committed under `docs/`. That keeps the tool portable while giving us production-grade TLS 1.2/1.3 today.
 
 **Q: How is this different from Kali Linux tools?**
 A: Instead of installing and learning 30+ different tools with 30 different CLIs, you learn one kubectl-style interface that covers all capabilities.
@@ -2063,10 +2098,10 @@ A: redblue is a tool. How you use it determines legality and ethics. Always foll
 A: See [Contributing](#-contributing) and [AGENTS.md](AGENTS.md) for developer guidelines.
 
 **Q: Can I add a new feature?**
-A: Yes! Implement the protocol from scratch (no external crates), add tests, and submit a PR. Follow the zero-dependency principle.
+A: Yes! Implement the protocol from scratch (no additional crates), add tests, and submit a PR. Stay within the minimal-dependency policy.
 
 **Q: Why implement protocols from scratch?**
-A: Educational value, zero dependencies, complete control, and deep understanding of how protocols actually work.
+A: Educational value, near-zero dependencies, complete control, and deep understanding of how protocols actually work.
 
 <div align="right">
 

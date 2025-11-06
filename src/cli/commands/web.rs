@@ -1,6 +1,8 @@
 /// Web/asset command - Web application testing
-use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::cli::commands::{
+    annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
+};
+use crate::cli::{format::OutputFormat, output::Output, validator::Validator, CliContext};
 use crate::intelligence::banner_analysis::analyze_http_server;
 // use crate::modules::tls::auditor::TlsAuditor; // TODO: Enable when auditor module compiles
 use crate::modules::web::crawler::WebCrawler;
@@ -9,11 +11,15 @@ use crate::modules::web::fuzzer::{DirectoryFuzzer, Wordlists};
 use crate::modules::web::linkfinder::{EndpointType, LinkFinder};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
-use crate::storage::client::{PersistenceManager, QueryManager};
+use crate::protocols::http2::{Http2Response, Http2TlsClient};
+use crate::protocols::http3::{Http3Client, Http3Response, Http3Settings};
+use crate::protocols::quic::{QuicConfig, QuicEndpointType};
+use crate::storage::service::StorageService;
 // use crate::protocols::tls_cert::TlsClient; // Use modules::network::tls instead
-use crate::storage::schema::HttpHeadersRecord;
+use crate::storage::schema::{HttpHeadersRecord, HttpTlsSnapshot};
+use std::fs;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod scanning;
 
@@ -38,6 +44,16 @@ impl Command for WebCommand {
                 verb: "get",
                 summary: "Execute a raw HTTP GET request",
                 usage: "rb web asset get <url>",
+            },
+            Route {
+                verb: "http2",
+                summary: "Execute an HTTP/2 request over TLS 1.3",
+                usage: "rb web asset http2 <https-url> [--method VERB] [--body STRING | --body-file PATH] [--headers \"k:v;...\"] [--timeout SECONDS]",
+            },
+            Route {
+                verb: "http3",
+                summary: "Execute an HTTP/3 request over QUIC",
+                usage: "rb web asset http3 <https-url> [--method VERB] [--body STRING | --body-file PATH] [--timeout SECONDS]",
             },
             Route {
                 verb: "headers",
@@ -205,6 +221,8 @@ impl Command for WebCommand {
             "get" => self.get(ctx),
             "headers" => self.headers(ctx),
             "security" => self.security(ctx),
+            "http2" => self.http2(ctx),
+            "http3" => self.http3(ctx),
             "cert" => self.cert(ctx),
             // "tls-audit" => self.tls_audit(ctx), // TODO: Enable when TlsAuditor compiles
             "fuzz" => self.fuzz(ctx),
@@ -230,6 +248,8 @@ impl Command for WebCommand {
                             "get",
                             "headers",
                             "security",
+                            "http2",
+                            "http3",
                             // "cert", // TODO: Disabled until TLS is fixed
                             // "tls-audit", // TODO: Disabled until TLS is fixed
                             "fuzz",
@@ -306,6 +326,60 @@ impl WebCommand {
     fn guard_plain_http(_url: &str, _command: &str) -> Result<(), String> {
         // HTTPS supported via native TLS 1.2 client
         Ok(())
+    }
+
+    fn parse_https_url(url: &str) -> Result<(String, u16, String, String), String> {
+        let lower = url.to_ascii_lowercase();
+        if !lower.starts_with("https://") {
+            return Err("HTTP/2 client requires an https:// URL".to_string());
+        }
+
+        let without_scheme = &url[8..];
+        let (authority_raw, path_part) = match without_scheme.find('/') {
+            Some(idx) => (&without_scheme[..idx], &without_scheme[idx..]),
+            None => (without_scheme, "/"),
+        };
+
+        if authority_raw.is_empty() {
+            return Err("Missing host in URL".to_string());
+        }
+
+        let (host, port, authority) = if authority_raw.starts_with('[') {
+            let end = authority_raw
+                .find(']')
+                .ok_or_else(|| "Invalid IPv6 host notation".to_string())?;
+            let host_part = authority_raw[1..end].to_string();
+            let authority = if end + 1 < authority_raw.len() {
+                authority_raw.to_string()
+            } else {
+                format!("[{}]", host_part)
+            };
+
+            if end + 1 < authority_raw.len() && authority_raw.as_bytes()[end + 1] == b':' {
+                let port_str = &authority_raw[end + 2..];
+                let port = port_str
+                    .parse::<u16>()
+                    .map_err(|_| format!("Invalid port: {}", port_str))?;
+                (host_part, port, authority)
+            } else {
+                (host_part, 443, authority)
+            }
+        } else if let Some(idx) = authority_raw.rfind(':') {
+            if authority_raw[idx + 1..].contains(':') {
+                (authority_raw.to_string(), 443, authority_raw.to_string())
+            } else {
+                let host_part = authority_raw[..idx].to_string();
+                let port_str = &authority_raw[idx + 1..];
+                let port = port_str
+                    .parse::<u16>()
+                    .map_err(|_| format!("Invalid port: {}", port_str))?;
+                (host_part.clone(), port, format!("{}:{}", host_part, port))
+            }
+        } else {
+            (authority_raw.to_string(), 443, authority_raw.to_string())
+        };
+
+        Ok((host, port, authority, path_part.to_string()))
     }
 
     fn get(&self, ctx: &CliContext) -> Result<(), String> {
@@ -452,6 +526,439 @@ impl WebCommand {
         Ok(())
     }
 
+    fn http2(&self, ctx: &CliContext) -> Result<(), String> {
+        let url = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing URL. Usage: rb web asset http2 <https-url>")?;
+
+        Validator::validate_url(url)?;
+        let (host, port, authority, path) = Self::parse_https_url(url)?;
+
+        let method = ctx.get_flag_or("method", "GET").to_uppercase();
+
+        let mut headers: Vec<(String, String)> = Vec::new();
+
+        if let Some(header_value) = ctx.get_flag("header") {
+            if let Some((name, value)) = header_value.split_once(':') {
+                headers.push((name.trim().to_lowercase(), value.trim().to_string()));
+            } else {
+                return Err("Header format must be 'Name: Value'".to_string());
+            }
+        }
+
+        if let Some(headers_list) = ctx.get_flag("headers") {
+            for entry in headers_list
+                .split(';')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                if let Some((name, value)) = entry.split_once(':') {
+                    headers.push((name.trim().to_lowercase(), value.trim().to_string()));
+                } else {
+                    return Err(format!("Invalid header entry: {}", entry));
+                }
+            }
+        }
+
+        if !headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("accept"))
+        {
+            headers.push(("accept".to_string(), "*/*".to_string()));
+        }
+
+        let body_bytes = if let Some(body_inline) = ctx.get_flag("body") {
+            Some(body_inline.clone().into_bytes())
+        } else if let Some(body_path) = ctx.get_flag("body-file") {
+            let data = fs::read(body_path)
+                .map_err(|e| format!("Failed to read body file {}: {}", body_path, e))?;
+            Some(data)
+        } else {
+            None
+        };
+
+        let timeout = ctx
+            .get_flag("timeout")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(15);
+
+        let client = Http2TlsClient::new(&host, port).with_timeout(Duration::from_secs(timeout));
+        let response = client.request(&method, &path, headers, body_bytes.clone(), &authority)?;
+
+        self.maybe_persist_http2(ctx, url, &method, &authority, &response)?;
+
+        let format = ctx.get_output_format();
+        if format == OutputFormat::Json {
+            self.render_http2_json(url, &method, &authority, &response)?;
+        } else {
+            self.render_http2_response(url, &method, &response)?;
+        }
+
+        Ok(())
+    }
+
+    fn render_http2_response(
+        &self,
+        url: &str,
+        method: &str,
+        response: &Http2Response,
+    ) -> Result<(), String> {
+        Output::success(&format!("HTTP/2 {} {}", method, url));
+        Output::item("Status", &response.status.to_string());
+
+        if !response.headers.is_empty() {
+            Output::subheader("Response Headers");
+            for (name, value) in &response.headers {
+                println!("{}: {}", name, value);
+            }
+        }
+
+        if !response.body.is_empty() {
+            println!();
+            println!("{}", String::from_utf8_lossy(&response.body));
+            println!();
+            Output::info(&format!("Body size: {} bytes", response.body.len()));
+        }
+
+        if let Some(handshake) = &response.handshake {
+            println!();
+            Output::subheader("TLS Handshake");
+            Output::item("Authority", &handshake.authority);
+            Output::item("TLS Version", &handshake.tls_version);
+            if let Some(cipher) = &handshake.cipher {
+                Output::item("Cipher", cipher);
+            }
+            if let Some(alpn) = &handshake.alpn_protocol {
+                Output::item("ALPN", alpn);
+            }
+            if let Some(ja3) = &handshake.ja3 {
+                Output::item("JA3", ja3);
+            }
+            if let Some(ja3_raw) = &handshake.ja3_raw {
+                Output::item("JA3 Raw", ja3_raw);
+            }
+            if let Some(ja3s) = &handshake.ja3s {
+                Output::item("JA3S", ja3s);
+            }
+            if let Some(ja3s_raw) = &handshake.ja3s_raw {
+                Output::item("JA3S Raw", ja3s_raw);
+            }
+            if !handshake.peer_cert_subjects.is_empty() {
+                Output::subheader("Peer Certificate Subjects");
+                for subject in &handshake.peer_cert_subjects {
+                    println!("  - {}", subject);
+                }
+            }
+            if !handshake.peer_cert_fingerprints.is_empty() {
+                Output::subheader("Peer Certificate SHA256");
+                for fp in &handshake.peer_cert_fingerprints {
+                    println!("  - {}", fp);
+                }
+            }
+            if !handshake.certificate_chain_pem.is_empty() {
+                Output::item(
+                    "Certificate Chain Entries",
+                    &handshake.certificate_chain_pem.len().to_string(),
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render_http2_json(
+        &self,
+        url: &str,
+        method: &str,
+        authority: &str,
+        response: &Http2Response,
+    ) -> Result<(), String> {
+        println!("{{");
+        println!("  \"request\": {{");
+        println!("    \"url\": \"{}\",", escape_json(url));
+        println!("    \"method\": \"{}\",", escape_json(method));
+        println!("    \"authority\": \"{}\"", escape_json(authority));
+        println!("  }},");
+        println!("  \"response\": {{");
+        println!("    \"status\": {},", response.status);
+        println!("    \"headers\": [");
+        for (idx, (name, value)) in response.headers.iter().enumerate() {
+            let comma = if idx + 1 < response.headers.len() {
+                ","
+            } else {
+                ""
+            };
+            println!(
+                "      {{ \"name\": \"{}\", \"value\": \"{}\" }}{}",
+                escape_json(name),
+                escape_json(value),
+                comma
+            );
+        }
+        println!("    ],");
+        println!(
+            "    \"body_text\": \"{}\",",
+            escape_json(&String::from_utf8_lossy(&response.body))
+        );
+        println!("    \"body_size\": {}", response.body.len());
+
+        if let Some(handshake) = &response.handshake {
+            println!("  }},");
+            println!("  \"tls\": {{");
+            println!(
+                "    \"authority\": \"{}\",",
+                escape_json(&handshake.authority)
+            );
+            println!(
+                "    \"version\": \"{}\",",
+                escape_json(&handshake.tls_version)
+            );
+            if let Some(cipher) = &handshake.cipher {
+                println!("    \"cipher\": \"{}\",", escape_json(cipher));
+            }
+            if let Some(alpn) = &handshake.alpn_protocol {
+                println!("    \"alpn\": \"{}\",", escape_json(alpn));
+            }
+            if let Some(ja3) = &handshake.ja3 {
+                println!("    \"ja3\": \"{}\",", escape_json(ja3));
+            }
+            if let Some(ja3_raw) = &handshake.ja3_raw {
+                println!("    \"ja3_raw\": \"{}\",", escape_json(ja3_raw));
+            }
+            if let Some(ja3s) = &handshake.ja3s {
+                println!("    \"ja3s\": \"{}\",", escape_json(ja3s));
+            }
+            if let Some(ja3s_raw) = &handshake.ja3s_raw {
+                println!("    \"ja3s_raw\": \"{}\",", escape_json(ja3s_raw));
+            }
+            println!("    \"peer_cert_subjects\": [");
+            for (idx, subject) in handshake.peer_cert_subjects.iter().enumerate() {
+                let comma = if idx + 1 < handshake.peer_cert_subjects.len() {
+                    ","
+                } else {
+                    ""
+                };
+                println!("      \"{}\"{}", escape_json(subject), comma);
+            }
+            println!("    ],");
+            println!("    \"peer_cert_fingerprints\": [");
+            for (idx, fp) in handshake.peer_cert_fingerprints.iter().enumerate() {
+                let comma = if idx + 1 < handshake.peer_cert_fingerprints.len() {
+                    ","
+                } else {
+                    ""
+                };
+                println!("      \"{}\"{}", escape_json(fp), comma);
+            }
+            println!("    ],");
+            println!("    \"certificate_chain_pem\": [");
+            for (idx, pem) in handshake.certificate_chain_pem.iter().enumerate() {
+                let comma = if idx + 1 < handshake.certificate_chain_pem.len() {
+                    ","
+                } else {
+                    ""
+                };
+                println!("      \"{}\"{}", escape_json(pem), comma);
+            }
+            println!("    ]");
+            println!("  }}");
+        } else {
+            println!("  }}");
+        }
+
+        println!("}}");
+
+        Ok(())
+    }
+
+    fn http3(&self, ctx: &CliContext) -> Result<(), String> {
+        let url = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing URL. Usage: rb web asset http3 <https-url>")?;
+
+        Validator::validate_url(url)?;
+        let (host, port, _authority, path) = Self::parse_https_url(url)?;
+
+        let method = ctx.get_flag_or("method", "GET").to_uppercase();
+
+        let body_bytes = if let Some(body_inline) = ctx.get_flag("body") {
+            Some(body_inline.clone().into_bytes())
+        } else if let Some(body_path) = ctx.get_flag("body-file") {
+            let data = fs::read(body_path)
+                .map_err(|e| format!("Failed to read body file {}: {}", body_path, e))?;
+            Some(data)
+        } else {
+            None
+        };
+
+        let timeout = ctx
+            .get_flag("timeout")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(30);
+
+        Output::spinner_start(&format!("Connecting to {} via HTTP/3", host));
+
+        // Configure QUIC connection
+        use std::net::{SocketAddr, ToSocketAddrs};
+
+        let remote = format!("{}:{}", host, port)
+            .to_socket_addrs()
+            .map_err(|e| format!("Failed to resolve address: {}", e))?
+            .next()
+            .ok_or_else(|| "No address resolved".to_string())?;
+
+        let quic_config = QuicConfig {
+            server_name: host.clone(),
+            remote,
+            endpoint_type: QuicEndpointType::Client,
+            max_datagram_size: 1200,
+            idle_timeout: Duration::from_secs(timeout),
+            initial_max_data: 1024 * 1024, // 1MB
+            initial_max_stream_data_bidi: 256 * 1024,
+            initial_max_stream_data_uni: 256 * 1024,
+            initial_max_streams_bidi: 100,
+            initial_max_streams_uni: 100,
+            alpn: vec!["h3".to_string()],
+        };
+
+        // Configure HTTP/3 settings
+        let http3_settings = Http3Settings {
+            initial_table_capacity: 0,
+            max_blocked_streams: 0,
+            max_field_section_size: Some(65536),
+        };
+
+        // Create HTTP/3 client
+        let mut client = Http3Client::new(quic_config, http3_settings)
+            .map_err(|e| format!("Failed to create HTTP/3 client: {}", e))?;
+
+        // Connect
+        client
+            .connect()
+            .map_err(|e| format!("Failed to connect: {}", e))?;
+
+        Output::spinner_done();
+        Output::success(&format!("Connected to {} via HTTP/3", host));
+
+        // Send request
+        Output::spinner_start(&format!("Sending {} request", method));
+
+        let stream_id = client
+            .request(
+                &method,
+                "https",
+                &host,
+                &path,
+                body_bytes.as_deref(),
+            )
+            .map_err(|e| format!("Failed to send request: {}", e))?;
+
+        Output::spinner_done();
+        Output::info(&format!("Request sent on stream {}", stream_id));
+
+        // Poll for response
+        Output::spinner_start("Waiting for response");
+
+        let response = loop {
+            client.poll().map_err(|e| format!("Poll error: {}", e))?;
+
+            if let Some(resp) = client.take_response() {
+                break resp;
+            }
+
+            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        Output::spinner_done();
+
+        // Render response
+        let format = ctx.get_output_format();
+        if format == OutputFormat::Json {
+            self.render_http3_json(url, &method, &host, &response)?;
+        } else {
+            self.render_http3_response(url, &method, &response)?;
+        }
+
+        Ok(())
+    }
+
+    fn render_http3_response(
+        &self,
+        url: &str,
+        method: &str,
+        response: &Http3Response,
+    ) -> Result<(), String> {
+        Output::success(&format!("HTTP/3 {} {}", method, url));
+        Output::item("Protocol", "HTTP/3 (h3)");
+        Output::item("Stream ID", &response.stream_id.to_string());
+        Output::item("Status", &response.status.to_string());
+
+        if !response.headers.is_empty() {
+            Output::subheader("Response Headers");
+            for (name, value) in &response.headers {
+                if !name.starts_with(':') {
+                    println!("{}: {}", name, value);
+                }
+            }
+        }
+
+        if !response.body.is_empty() {
+            println!();
+            println!("{}", String::from_utf8_lossy(&response.body));
+            println!();
+            Output::info(&format!("Body size: {} bytes", response.body.len()));
+        }
+
+        Ok(())
+    }
+
+    fn render_http3_json(
+        &self,
+        url: &str,
+        method: &str,
+        authority: &str,
+        response: &Http3Response,
+    ) -> Result<(), String> {
+        println!("{{");
+        println!("  \"request\": {{");
+        println!("    \"method\": \"{}\",", method);
+        println!("    \"url\": \"{}\",", escape_json(url));
+        println!("    \"protocol\": \"HTTP/3\",");
+        println!("    \"authority\": \"{}\"", escape_json(authority));
+        println!("  }},");
+        println!("  \"response\": {{");
+        println!("    \"stream_id\": {},", response.stream_id);
+        println!("    \"status\": {},", response.status);
+        println!("    \"headers\": [");
+
+        for (idx, (name, value)) in response.headers.iter().enumerate() {
+            let comma = if idx + 1 < response.headers.len() {
+                ","
+            } else {
+                ""
+            };
+            println!(
+                "      {{ \"name\": \"{}\", \"value\": \"{}\" }}{}",
+                escape_json(name),
+                escape_json(value),
+                comma
+            );
+        }
+
+        println!("    ],");
+        println!(
+            "    \"body\": \"{}\",",
+            escape_json(&String::from_utf8_lossy(&response.body))
+        );
+        println!("    \"body_size\": {}", response.body.len());
+        println!("  }}");
+        println!("}}");
+
+        Ok(())
+    }
+
     fn headers(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or(
             "Missing URL. Usage: rb web asset headers <URL> Example: rb web asset headers http://example.com",
@@ -569,7 +1076,14 @@ impl WebCommand {
         };
 
         let host = Self::extract_host(url);
-        let mut pm = PersistenceManager::new(&host, persist_flag)?;
+        let attributes =
+            build_partition_attributes(ctx, &host, [("operation", "security"), ("url", url)]);
+        let mut pm = StorageService::global().persistence_for_target_with(
+            &host,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         // Save security audit to database
         if pm.is_enabled() {
@@ -593,6 +1107,7 @@ impl WebCommand {
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
                 timestamp: 0, // Will be set by PersistenceManager
+                tls: None,
             };
 
             if let Err(e) = pm.add_http_capture(record) {
@@ -704,7 +1219,21 @@ impl WebCommand {
         };
 
         let host = request.host().to_string();
-        let mut pm = PersistenceManager::new(&host, persist_flag)?;
+        let attributes = build_partition_attributes(
+            ctx,
+            &host,
+            [
+                ("operation", ctx.verb.as_deref().unwrap_or("get")),
+                ("url", url),
+                ("method", request.method.as_str()),
+            ],
+        );
+        let mut pm = StorageService::global().persistence_for_target_with(
+            &host,
+            persist_flag,
+            None,
+            attributes,
+        )?;
 
         if pm.is_enabled() {
             let scheme = if request.is_https() { "https" } else { "http" };
@@ -731,6 +1260,94 @@ impl WebCommand {
                 body_size: response.body.len().min(u32::MAX as usize) as u32,
                 headers,
                 timestamp: Self::current_timestamp(),
+                tls: None,
+            };
+
+            pm.add_http_capture(record)?;
+            if let Some(path) = pm.commit()? {
+                Output::success(&format!("Results saved to {}", path.display()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn maybe_persist_http2(
+        &self,
+        ctx: &CliContext,
+        url: &str,
+        method: &str,
+        authority: &str,
+        response: &Http2Response,
+    ) -> Result<(), String> {
+        let persist_flag = if ctx.has_flag("persist") {
+            Some(true)
+        } else if ctx.has_flag("no-persist") {
+            Some(false)
+        } else {
+            None
+        };
+
+        let host = Self::extract_host(url);
+        let attributes = build_partition_attributes(
+            ctx,
+            &host,
+            [
+                ("operation", ctx.verb.as_deref().unwrap_or("http2")),
+                ("url", url),
+                ("method", method),
+                ("authority", authority),
+            ],
+        );
+
+        let mut pm = StorageService::global().persistence_for_target_with(
+            &host,
+            persist_flag,
+            None,
+            attributes,
+        )?;
+
+        if pm.is_enabled() {
+            let server_header = response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("server"))
+                .map(|(_, value)| value.clone());
+            let headers: Vec<(String, String)> = response
+                .headers
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect();
+            let tls_snapshot = response
+                .handshake
+                .as_ref()
+                .map(|handshake| HttpTlsSnapshot {
+                    authority: Some(handshake.authority.clone()),
+                    tls_version: Some(handshake.tls_version.clone()),
+                    cipher: handshake.cipher.clone(),
+                    alpn: handshake.alpn_protocol.clone(),
+                    peer_subjects: handshake.peer_cert_subjects.clone(),
+                    peer_fingerprints: handshake.peer_cert_fingerprints.clone(),
+                    ja3: handshake.ja3.clone(),
+                    ja3s: handshake.ja3s.clone(),
+                    ja3_raw: handshake.ja3_raw.clone(),
+                    ja3s_raw: handshake.ja3s_raw.clone(),
+                    certificate_chain_pem: handshake.certificate_chain_pem.clone(),
+                });
+
+            let record = HttpHeadersRecord {
+                host: host.clone(),
+                url: url.to_string(),
+                method: method.to_string(),
+                scheme: "https".to_string(),
+                http_version: "HTTP/2".to_string(),
+                status_code: response.status,
+                status_text: String::new(),
+                server: server_header,
+                body_size: response.body.len().min(u32::MAX as usize) as u32,
+                headers,
+                timestamp: Self::current_timestamp(),
+                tls: tls_snapshot,
             };
 
             pm.add_http_capture(record)?;
@@ -1516,6 +2133,22 @@ impl WebCommand {
                 Output::success("✓ Detected: Directus");
                 Output::info("Directus-specific scanner results (coming soon)");
             }
+            UnifiedScanResult::Laravel(laravel_result) => {
+                let version = laravel_result
+                    .version_hint
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+                Output::success(&format!("✓ Detected: Laravel {}", version));
+                self.display_laravel_results(&laravel_result)?;
+            }
+            UnifiedScanResult::Django(django_result) => {
+                let version = django_result
+                    .version_hint
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+                Output::success(&format!("✓ Detected: Django {}", version));
+                self.display_django_results(&django_result)?;
+            }
             UnifiedScanResult::Generic(vuln_result) => {
                 Output::warning("⚠️  No specific CMS detected, running generic scan");
                 Output::info(&format!(
@@ -1591,6 +2224,126 @@ impl WebCommand {
             Output::warning("🚨 SECURITY ALERT: WordPress vulnerabilities detected!");
         } else {
             Output::success("✓ No known vulnerabilities detected");
+        }
+
+        Ok(())
+    }
+
+    fn display_laravel_results(
+        &self,
+        result: &crate::modules::web::strategies::laravel::LaravelScanResult,
+    ) -> Result<(), String> {
+        use crate::modules::web::strategies::laravel::FindingSeverity;
+
+        if !result.vulnerabilities.is_empty() {
+            Output::subheader(&format!(
+                "Laravel Findings: {}",
+                result.vulnerabilities.len()
+            ));
+            for finding in &result.vulnerabilities {
+                let (label, color) = match finding.severity {
+                    FindingSeverity::Critical => ("CRITICAL", "red"),
+                    FindingSeverity::High => ("HIGH", "red"),
+                    FindingSeverity::Medium => ("MEDIUM", "yellow"),
+                    FindingSeverity::Low => ("LOW", "cyan"),
+                    FindingSeverity::Info => ("INFO", "blue"),
+                };
+
+                println!("  [{}] {}", Output::colorize(label, color), finding.title);
+                println!("      {}", finding.description);
+                if let Some(evidence) = &finding.evidence {
+                    println!("      Evidence: {}", evidence);
+                }
+                println!("      Fix: {}", finding.remediation);
+                println!();
+            }
+        } else {
+            Output::info("No high-impact Laravel misconfigurations uncovered");
+        }
+
+        Output::subheader("Signals");
+        if result.debug_signals {
+            Output::warning("• Debug tooling detected (Debugbar/Ignition)");
+        } else {
+            Output::info("• Debug tooling was not observed");
+        }
+        if result.env_exposed {
+            Output::error("• .env file exposed to unauthenticated users");
+        }
+        if result.horizon_exposed {
+            Output::warning("• Horizon metrics API reachable");
+        }
+        if result.telescope_exposed {
+            Output::warning("• Telescope dashboard reachable");
+        }
+        if result.storage_logs_exposed {
+            Output::warning("• Application logs readable via the web root");
+        }
+        if result.ignition_health_endpoint {
+            Output::warning("• Ignition health-check endpoint enabled");
+        }
+
+        if !result.interesting_endpoints.is_empty() {
+            Output::subheader("Interesting Endpoints");
+            for endpoint in &result.interesting_endpoints {
+                println!("  • {}", endpoint);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn display_django_results(
+        &self,
+        result: &crate::modules::web::strategies::django::DjangoScanResult,
+    ) -> Result<(), String> {
+        use crate::modules::web::strategies::django::DjangoSeverity;
+
+        if !result.findings.is_empty() {
+            Output::subheader(&format!("Django Findings: {}", result.findings.len()));
+            for finding in &result.findings {
+                let (label, color) = match finding.severity {
+                    DjangoSeverity::Critical => ("CRITICAL", "red"),
+                    DjangoSeverity::High => ("HIGH", "red"),
+                    DjangoSeverity::Medium => ("MEDIUM", "yellow"),
+                    DjangoSeverity::Low => ("LOW", "cyan"),
+                    DjangoSeverity::Info => ("INFO", "blue"),
+                };
+
+                println!("  [{}] {}", Output::colorize(label, color), finding.title);
+                println!("      {}", finding.description);
+                if let Some(evidence) = &finding.evidence {
+                    println!("      Evidence: {}", evidence);
+                }
+                println!("      Fix: {}", finding.remediation);
+                println!();
+            }
+        } else {
+            Output::info("No high-impact Django misconfigurations uncovered");
+        }
+
+        Output::subheader("Signals");
+        if result.admin_login_exposed {
+            Output::warning("• Admin login available at /admin/");
+        }
+        if result.debug_toolbar_exposed {
+            Output::warning("• Debug toolbar exposed (__debug__)");
+        }
+        if result.env_exposed {
+            Output::error("• Environment secrets accessible via .env");
+        }
+        if result.sqlite_database_exposed {
+            Output::error("• SQLite database downloadable via HTTP");
+        }
+        if result.settings_exposed {
+            Output::warning("• settings.py reachable through the web server");
+        }
+
+        if !result.interesting_endpoints.is_empty() {
+            Output::subheader("Interesting Endpoints");
+            for endpoint in &result.interesting_endpoints {
+                println!("  • {}", endpoint);
+            }
         }
 
         Ok(())
@@ -2000,8 +2753,15 @@ impl WebCommand {
         Output::header(&format!("Listing HTTP Data: {}", host));
         Output::info(&format!("Database: {}", db_path.display()));
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [("query_dataset", "http"), ("query_operation", "list")],
+        );
 
         let http_records = query
             .list_http_records(host)
@@ -2036,8 +2796,15 @@ impl WebCommand {
         Output::header(&format!("HTTP Summary: {}", host));
         Output::info(&format!("Database: {}", db_path.display()));
 
-        let mut query =
-            QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        annotate_query_partition(
+            ctx,
+            &db_path,
+            [("query_dataset", "http"), ("query_operation", "describe")],
+        );
 
         let http_records = query
             .list_http_records(host)
@@ -2101,4 +2868,20 @@ impl WebCommand {
             host
         ))
     }
+}
+
+fn escape_json(input: &str) -> String {
+    let mut escaped = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c if c.is_control() => escaped.push_str(&format!("\\u{:04x}", c as u32)),
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }

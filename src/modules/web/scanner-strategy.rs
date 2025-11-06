@@ -9,9 +9,9 @@
 use crate::modules::network::scanner::ScanProgress;
 use crate::modules::web::fingerprinter::WebFingerprinter;
 use crate::modules::web::strategies::{
-    DirectusScanResult, DirectusScanner, DrupalScanResult, DrupalScanner, GhostScanResult,
-    GhostScanner, JoomlaScanResult, JoomlaScanner, StrapiScanResult, StrapiScanner, WPScanResult,
-    WPScanner,
+    DirectusScanResult, DirectusScanner, DjangoScanResult, DjangoScanner, DrupalScanResult,
+    DrupalScanner, GhostScanResult, GhostScanner, JoomlaScanResult, JoomlaScanner,
+    LaravelScanResult, LaravelScanner, StrapiScanResult, StrapiScanner, WPScanResult, WPScanner,
 };
 use crate::modules::web::vuln_scanner::{ScanResult as VulnScanResult, WebScanner};
 use std::sync::Arc;
@@ -59,6 +59,8 @@ pub enum UnifiedScanResult {
     Strapi(StrapiScanResult),
     Ghost(GhostScanResult),
     Directus(DirectusScanResult),
+    Laravel(LaravelScanResult),
+    Django(DjangoScanResult),
     Generic(VulnScanResult),
     NotDetected(VulnScanResult),
 }
@@ -72,6 +74,8 @@ pub struct UnifiedWebScanner {
     strapi_scanner: StrapiScanner,
     ghost_scanner: GhostScanner,
     directus_scanner: DirectusScanner,
+    laravel_scanner: LaravelScanner,
+    django_scanner: DjangoScanner,
 }
 
 impl UnifiedWebScanner {
@@ -85,6 +89,8 @@ impl UnifiedWebScanner {
             strapi_scanner: StrapiScanner::new(),
             ghost_scanner: GhostScanner::new(),
             directus_scanner: DirectusScanner::new(),
+            laravel_scanner: LaravelScanner::new(),
+            django_scanner: DjangoScanner::new(),
         }
     }
 
@@ -135,8 +141,8 @@ impl UnifiedWebScanner {
             ScanStrategy::Strapi => self.scan_strapi_with_progress(url, progress),
             ScanStrategy::Ghost => self.scan_ghost_with_progress(url, progress),
             ScanStrategy::Directus => self.scan_directus_with_progress(url, progress),
-            ScanStrategy::Laravel => self.scan_generic_with_progress(url, progress), // TODO: Implement Laravel-specific scanner
-            ScanStrategy::Django => self.scan_generic_with_progress(url, progress), // TODO: Implement Django-specific scanner
+            ScanStrategy::Laravel => self.scan_laravel_with_progress(url, progress),
+            ScanStrategy::Django => self.scan_django_with_progress(url, progress),
             ScanStrategy::Generic => self.scan_generic_with_progress(url, progress),
             ScanStrategy::AutoDetect => self.scan_generic_with_progress(url, progress),
         }
@@ -267,6 +273,34 @@ impl UnifiedWebScanner {
     ) -> Result<UnifiedScanResult, String> {
         let result = self.directus_scanner.scan(url)?;
         Ok(UnifiedScanResult::Directus(result))
+    }
+
+    /// Scan Laravel application
+    fn scan_laravel(&self, url: &str) -> Result<UnifiedScanResult, String> {
+        self.scan_laravel_with_progress(url, None)
+    }
+
+    fn scan_laravel_with_progress(
+        &self,
+        url: &str,
+        progress: Option<Arc<dyn ScanProgress>>,
+    ) -> Result<UnifiedScanResult, String> {
+        let result = self.laravel_scanner.scan_with_progress(url, progress)?;
+        Ok(UnifiedScanResult::Laravel(result))
+    }
+
+    /// Scan Django application
+    fn scan_django(&self, url: &str) -> Result<UnifiedScanResult, String> {
+        self.scan_django_with_progress(url, None)
+    }
+
+    fn scan_django_with_progress(
+        &self,
+        url: &str,
+        progress: Option<Arc<dyn ScanProgress>>,
+    ) -> Result<UnifiedScanResult, String> {
+        let result = self.django_scanner.scan_with_progress(url, progress)?;
+        Ok(UnifiedScanResult::Django(result))
     }
 
     /// Generic vulnerability scan

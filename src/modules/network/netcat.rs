@@ -914,7 +914,7 @@ impl Netcat {
             eprintln!("[*] Cryptcat mode: Twofish-128 encryption enabled");
         }
 
-        let server = UdpServer::bind(&addr)?;
+        let server = Arc::new(UdpServer::bind(&addr)?);
 
         if self.config.verbose {
             eprintln!("[+] Waiting for encrypted UDP packets...");
@@ -927,14 +927,21 @@ impl Netcat {
         let mut stdin_reader = stdin.lock();
 
         // Spawn thread to receive and decrypt UDP packets
-        let server_clone = UdpServer::bind(&addr)?;
+        let server_clone = Arc::clone(&server);
         let cipher_recv_clone = Arc::clone(&cipher_recv);
+        let destination_addr = Arc::new(Mutex::new(None::<String>));
+        let destination_addr_clone = Arc::clone(&destination_addr);
         let hex_mode = self.config.hex_dump;
         let verbose = self.config.verbose;
 
         std::thread::spawn(move || loop {
             match server_clone.recv_from() {
                 Ok((encrypted_data, src)) => {
+                    // Remember latest source so the server can reply to it
+                    if let Ok(mut dest_lock) = destination_addr_clone.lock() {
+                        *dest_lock = Some(src.clone());
+                    }
+
                     // Decrypt packet
                     match cipher_recv_clone.lock().unwrap().decrypt(&encrypted_data) {
                         Ok(plaintext) => {
@@ -960,7 +967,6 @@ impl Netcat {
         });
 
         // Read from stdin, encrypt, and send UDP packets
-        // Note: UDP server needs destination from first received packet
         let mut line = String::new();
         loop {
             line.clear();
@@ -970,10 +976,23 @@ impl Netcat {
                     // Encrypt data
                     let ciphertext = cipher_send.lock().unwrap().encrypt(line.as_bytes());
 
-                    // TODO: UDP server needs destination address (from first received packet)
-                    // For now, skip sending in server mode
-                    if self.config.verbose {
-                        eprintln!("[!] UDP server send not yet implemented - use client mode");
+                    let destination =
+                        { destination_addr.lock().ok().and_then(|guard| guard.clone()) };
+
+                    if let Some(dest) = destination {
+                        if let Err(e) = server.send_to(&ciphertext, &dest) {
+                            if self.config.verbose {
+                                eprintln!(
+                                    "[!] Failed to send encrypted UDP packet to {}: {}",
+                                    dest, e
+                                );
+                            }
+                        } else if self.config.hex_dump {
+                            eprintln!("[-> to {} (encrypted)]", dest);
+                            eprintln!("{}", hex_dump(&ciphertext));
+                        }
+                    } else if self.config.verbose {
+                        eprintln!("[!] No UDP client observed yet; waiting for incoming packet before replying");
                     }
 
                     // Apply delay if configured

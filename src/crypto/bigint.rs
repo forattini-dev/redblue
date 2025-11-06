@@ -362,6 +362,60 @@ impl BigInt {
 
         result
     }
+
+    /// Modular reduction
+    pub fn mod_reduce(&self, modulus: &BigInt) -> BigInt {
+        self.modulo(modulus)
+    }
+
+    /// Modular multiplication
+    pub fn mod_mul(&self, other: &BigInt, modulus: &BigInt) -> BigInt {
+        self.mul(other).modulo(modulus)
+    }
+
+    /// Modular subtraction
+    pub fn mod_sub(&self, other: &BigInt, modulus: &BigInt) -> BigInt {
+        if self < other {
+            let diff = other.sub(self);
+            modulus.sub(&diff)
+        } else {
+            self.sub(other)
+        }
+    }
+
+    /// Modular inverse using extended Euclidean algorithm
+    pub fn mod_inv(&self, modulus: &BigInt) -> Option<BigInt> {
+        if modulus.is_zero() {
+            return None;
+        }
+
+        let mut r = modulus.clone();
+        let mut new_r = self.modulo(modulus);
+        if new_r.is_zero() {
+            return None;
+        }
+
+        let mut t = BigInt::from_u64(0);
+        let mut new_t = BigInt::from_u64(1);
+
+        while !new_r.is_zero() {
+            let (quotient, remainder) = r.div_rem(&new_r);
+
+            let temp_t = new_t.clone();
+            let q_new_t = quotient.mul(&new_t);
+            new_t = t.mod_sub(&q_new_t, modulus);
+            t = temp_t;
+
+            r = new_r;
+            new_r = remainder;
+        }
+
+        if r != BigInt::from_u64(1) {
+            return None;
+        }
+
+        Some(t.modulo(modulus))
+    }
 }
 
 impl PartialOrd for BigInt {

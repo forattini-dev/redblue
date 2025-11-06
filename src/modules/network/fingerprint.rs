@@ -200,6 +200,7 @@ fn os_family_from_hint(hint: &str) -> Option<OsFamily> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::network::banner::{ServiceBanner, ServiceType};
 
     #[test]
     fn test_os_family_from_hint() {
@@ -219,21 +220,24 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Fix ServiceType import
     fn test_banner_fingerprint_combines_hints() {
-        // let banner = ServiceBanner {
-        //     host: "example.com".to_string(),
-        //     port: 22,
-        //     service: ServiceType::SSH,
-        //     banner: "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.3".to_string(),
-        //     version: Some("OpenSSH_8.2p1".to_string()),
-        //     os_hints: vec!["Ubuntu".to_string()],
-        //     security_notes: vec!["note".to_string()],
-        // };
+        let banner = ServiceBanner {
+            host: "example.com".to_string(),
+            port: 22,
+            service: ServiceType::SSH,
+            banner: "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.3".to_string(),
+            version: Some("OpenSSH_8.2p1".to_string()),
+            os_hints: vec!["Ubuntu".to_string(), "Linux".to_string()],
+            security_notes: vec!["Weak cipher".to_string()],
+        };
 
-        // let fp = fingerprint_from_banner(&banner).expect("fingerprint");
-        // assert_eq!(fp.os_family, OsFamily::Linux);
-        // assert!(!fp.evidence.is_empty());
-        // assert!(fp.confidence > 0.0);
+        let fingerprint = fingerprint_from_banner(&banner).expect("fingerprint");
+        assert_eq!(fingerprint.os_family, OsFamily::Linux);
+        assert!(fingerprint.confidence > 0.0);
+        assert!(!fingerprint.evidence.is_empty());
+        assert!(fingerprint
+            .evidence
+            .iter()
+            .any(|ev| ev.observation.contains("example.com")));
     }
 }

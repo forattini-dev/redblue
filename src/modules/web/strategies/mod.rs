@@ -11,16 +11,20 @@
 /// The scanner_strategy.rs orchestrator auto-detects the CMS and applies
 /// the appropriate strategy using the Strategy Pattern.
 pub mod directus;
+pub mod django;
 pub mod drupal;
 pub mod ghost;
 pub mod joomla;
+pub mod laravel;
 pub mod strapi;
 pub mod wordpress;
 
 // Re-export for convenience
 pub use directus::{DirectusScanResult, DirectusScanner};
+pub use django::{DjangoScanResult, DjangoScanner};
 pub use drupal::{DrupalScanResult, DrupalScanner};
 pub use ghost::{GhostScanResult, GhostScanner};
 pub use joomla::{JoomlaScanResult, JoomlaScanner};
+pub use laravel::{LaravelScanResult, LaravelScanner};
 pub use strapi::{StrapiScanResult, StrapiScanner};
 pub use wordpress::{WPScanResult, WPScanner};
