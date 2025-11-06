@@ -966,6 +966,12 @@ impl QuicConnection {
     fn build_transport_parameters(&self) -> Vec<u8> {
         let mut params = Vec::new();
 
+        // RFC 9000 Section 7.3: original_destination_connection_id is REQUIRED for clients
+        push_transport_param(
+            &mut params,
+            TP_ORIGINAL_DESTINATION_CONNECTION_ID,
+            self.peer_connection_id.as_bytes(),
+        );
         push_transport_param(
             &mut params,
             TP_MAX_IDLE_TIMEOUT,
