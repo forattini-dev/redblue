@@ -93,6 +93,9 @@ impl Http3Client {
                         || err.contains("timed out")
                         || err.contains("Resource temporarily unavailable") {
                         // No data available, retry
+                        if attempts <= 5 || attempts % 10 == 0 {
+                            debug!("Attempt {}: no response yet ({})", attempts, err);
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(50));
                         continue;
                     }
@@ -222,11 +225,15 @@ impl Http3Client {
 
     fn poll_transport(&mut self) -> Result<(), String> {
         match self.quic.poll_io() {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                debug!("poll_transport: received packet");
+                Ok(())
+            }
             Err(err) => {
                 if err.contains("WouldBlock")
                     || err.contains("timed out")
                     || err.contains("Resource temporarily unavailable") {
+                    debug!("poll_transport: no data available ({})", err);
                     Ok(())
                 } else {
                     Err(err)

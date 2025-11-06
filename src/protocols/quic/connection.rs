@@ -341,6 +341,13 @@ impl QuicConnection {
 
         let datagram = self.seal_packet(packet, space)?;
         debug!("Sending {:?} packet: {} bytes", space, datagram.len());
+        if matches!(space, PacketNumberSpace::Initial) {
+            let hex_preview: String = datagram.iter().take(64)
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
+            debug!("Initial packet header (first 64 bytes): {}", hex_preview);
+        }
         self.socket
             .send(&datagram)
             .map_err(|e| format!("failed to send QUIC packet: {}", e))?;
