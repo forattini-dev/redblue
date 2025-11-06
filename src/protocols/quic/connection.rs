@@ -972,6 +972,11 @@ impl QuicConnection {
             TP_ORIGINAL_DESTINATION_CONNECTION_ID,
             self.peer_connection_id.as_bytes(),
         );
+
+        debug!("Transport param TP_ORIGINAL_DESTINATION_CONNECTION_ID (0x{:04x}): {} bytes",
+            TP_ORIGINAL_DESTINATION_CONNECTION_ID,
+            self.peer_connection_id.as_bytes().len());
+
         push_transport_param(
             &mut params,
             TP_MAX_IDLE_TIMEOUT,
@@ -1022,6 +1027,15 @@ impl QuicConnection {
             TP_INITIAL_SOURCE_CONNECTION_ID,
             self.connection_id.as_bytes(),
         );
+
+        debug!("Total transport parameters: {} bytes", params.len());
+        if params.len() < 200 {
+            let hex: String = params.iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
+            debug!("Transport parameters hex: {}", hex);
+        }
 
         params
     }
