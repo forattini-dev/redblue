@@ -28,7 +28,7 @@ pub use hmac::Hmac;
 pub use md5::md5;
 pub use prf::prf_tls12;
 pub use rsa::{extract_public_key_from_cert, RsaPublicKey};
-pub use sha256::Sha256;
+pub use sha256::sha256;
 pub use sha384::{sha384, Sha384};
 pub use tls13_hash::Tls13HashAlgorithm;
 pub use tls13_keyschedule::Tls13KeySchedule;

@@ -4,7 +4,7 @@
 /// Generic HMAC implementation that works with any hash function
 use super::md5::md5;
 use super::sha1::{sha1, Sha1};
-use super::sha256::{sha256, Sha256};
+use super::sha256::sha256;
 use super::sha384::{sha384, Sha384};
 
 pub struct Hmac {
@@ -50,16 +50,16 @@ pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     }
 
     // Inner hash: H((K' ⊕ ipad) || message)
-    let mut inner_hasher = Sha256::new();
-    inner_hasher.update(&ipad_key);
-    inner_hasher.update(message);
-    let inner_hash = inner_hasher.finalize();
+    let mut inner_input = Vec::with_capacity(BLOCK_SIZE + message.len());
+    inner_input.extend_from_slice(&ipad_key);
+    inner_input.extend_from_slice(message);
+    let inner_hash = sha256(&inner_input);
 
     // Outer hash: H((K' ⊕ opad) || inner_hash)
-    let mut outer_hasher = Sha256::new();
-    outer_hasher.update(&opad_key);
-    outer_hasher.update(&inner_hash);
-    outer_hasher.finalize()
+    let mut outer_input = Vec::with_capacity(BLOCK_SIZE + 32);
+    outer_input.extend_from_slice(&opad_key);
+    outer_input.extend_from_slice(&inner_hash);
+    sha256(&outer_input)
 }
 
 /// HMAC-SHA1 implementation (RFC 2202)
