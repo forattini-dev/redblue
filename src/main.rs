@@ -1,4 +1,4 @@
-use redblue::{cli, config};
+use redblue::{cli, config, utils::logger};
 
 use cli::{commands, output::Output, parser};
 use std::env;
@@ -21,6 +21,11 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // Enable verbose logging if --verbose flag is present
+    if ctx.has_flag("verbose") || ctx.has_flag("v") {
+        logger::enable_verbose();
+    }
 
     if ctx.has_flag("version") {
         print_version();

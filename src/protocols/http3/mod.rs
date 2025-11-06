@@ -4,6 +4,7 @@ pub mod qpack;
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::debug;
 use frame::{DataFrame, HeadersFrame, Http3Frame, SettingsFrame};
 use qpack::{QpackDecoder, QpackEncoder};
 
@@ -85,7 +86,7 @@ impl Http3Client {
             match self.quic.poll_io() {
                 Ok(()) => {
                     // Successfully received and processed a packet
-                    eprintln!("[DEBUG] Attempt {}: packet received", attempts);
+                    debug!("Attempt {}: packet received", attempts);
                 }
                 Err(err) => {
                     if err.contains("WouldBlock")
@@ -100,7 +101,7 @@ impl Http3Client {
             }
         }
 
-        eprintln!("[DEBUG] QUIC connection established after {} attempts", attempts);
+        debug!("QUIC connection established after {} attempts", attempts);
         self.ensure_control_stream()?;
         self.process_stream_events()?;
         self.connected = true;

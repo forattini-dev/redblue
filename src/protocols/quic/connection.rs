@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
+use crate::debug;
 use crate::crypto::{tls13_keyschedule::Tls13KeySchedule, Tls13HashAlgorithm, x25519, x25519_public_key};
 use crate::protocols::crypto::SecureRandom;
 
@@ -173,9 +174,9 @@ impl QuicConnection {
             return Err("server-side handshake not implemented yet".to_string());
         }
 
-        eprintln!("[DEBUG] Building ClientHello for QUIC+TLS handshake");
+        debug!("Building ClientHello for QUIC+TLS handshake");
         let client_hello = self.build_client_hello_payload()?;
-        eprintln!("[DEBUG] ClientHello size: {} bytes", client_hello.len());
+        debug!("ClientHello size: {} bytes", client_hello.len());
 
         // Record transcript for future handshake completion.
         self.handshake_transcript
@@ -188,7 +189,7 @@ impl QuicConnection {
             data: client_hello,
         })];
 
-        eprintln!("[DEBUG] Sending QUIC Initial packet to {}:{}",
+        debug!("Sending QUIC Initial packet to {}:{}",
             self.config.remote.ip(), self.config.remote.port());
         self.send_frames(PacketNumberSpace::Initial, frames, true)
     }
@@ -238,7 +239,7 @@ impl QuicConnection {
             .recv(&mut buffer)
             .map_err(|e| format!("failed to receive QUIC datagram: {}", e))?;
         buffer.truncate(size);
-        eprintln!("[DEBUG] Received {} byte datagram", size);
+        debug!("Received {} byte datagram", size);
         self.handle_datagram(&mut buffer)?;
         Ok(())
     }
@@ -330,16 +331,16 @@ impl QuicConnection {
 
         let mut packet = QuicPacket::new(header, pn, payload);
         if matches!(space, PacketNumberSpace::Initial) {
-            eprintln!("[DEBUG] Payload before padding: {} bytes", packet.payload.len());
+            debug!("Payload before padding: {} bytes", packet.payload.len());
             packet.ensure_initial_minimum();
-            eprintln!("[DEBUG] Payload after padding: {} bytes", packet.payload.len());
+            debug!("Payload after padding: {} bytes", packet.payload.len());
         }
         if let PacketHeader::Long(ref mut hdr) = packet.header {
             hdr.payload_length = (packet.payload.len() + packet.packet_number_len) as u64;
         }
 
         let datagram = self.seal_packet(packet, space)?;
-        eprintln!("[DEBUG] Sending {:?} packet: {} bytes", space, datagram.len());
+        debug!("Sending {:?} packet: {} bytes", space, datagram.len());
         self.socket
             .send(&datagram)
             .map_err(|e| format!("failed to send QUIC packet: {}", e))?;
