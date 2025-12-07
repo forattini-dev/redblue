@@ -1,4 +1,6 @@
 use crate::cli::commands;
+use crate::mcp::embeddings::{load_embeddings, EmbeddingsData, EmbeddingsLoaderConfig};
+use crate::mcp::search::{hybrid_search, SearchConfig, SearchMode};
 use crate::utils::json::{parse_json, JsonValue};
 use std::collections::HashSet;
 use std::fs;
@@ -38,6 +40,8 @@ struct ToolResult {
 pub struct McpServer {
     tools: Vec<ToolDefinition>,
     initialized: bool,
+    embeddings: Option<EmbeddingsData>,
+    embeddings_loaded: bool,
 }
 
 impl McpServer {
@@ -182,6 +186,32 @@ impl McpServer {
                 },
             ],
             initialized: false,
+            embeddings: None,
+            embeddings_loaded: false,
+        }
+    }
+
+    /// Load embeddings for hybrid search (lazy initialization)
+    fn ensure_embeddings_loaded(&mut self) {
+        if self.embeddings_loaded {
+            return;
+        }
+        self.embeddings_loaded = true;
+
+        let config = EmbeddingsLoaderConfig::default();
+        match load_embeddings(&config) {
+            Ok(data) => {
+                eprintln!(
+                    "[MCP] Loaded {} documents with embeddings (has_vectors: {})",
+                    data.documents.len(),
+                    data.has_vectors
+                );
+                self.embeddings = Some(data);
+            }
+            Err(e) => {
+                eprintln!("[MCP] Warning: Could not load embeddings: {}", e);
+                eprintln!("[MCP] Falling back to basic text search");
+            }
         }
     }
 
@@ -641,6 +671,76 @@ impl McpServer {
             return Err("query must not be empty".to_string());
         }
 
+        // Try hybrid search with embeddings first
+        self.ensure_embeddings_loaded();
+
+        if let Some(ref embeddings) = self.embeddings {
+            // Use hybrid search
+            let config = SearchConfig {
+                max_results: 10,
+                min_score: 0.1,
+                fuzzy_weight: 0.4,
+                semantic_weight: 0.6,
+                mode: SearchMode::Hybrid,
+            };
+
+            let results = hybrid_search(query, &embeddings.documents, &config);
+
+            let json_hits: Vec<JsonValue> = results
+                .iter()
+                .map(|result| {
+                    JsonValue::object(vec![
+                        ("path".to_string(), JsonValue::String(result.document.path.clone())),
+                        ("title".to_string(), JsonValue::String(result.document.title.clone())),
+                        ("section".to_string(), result.document.section.as_ref()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .unwrap_or(JsonValue::Null)),
+                        ("score".to_string(), JsonValue::Number(result.score as f64)),
+                        ("match_type".to_string(), JsonValue::String(format!("{:?}", result.match_type))),
+                        ("highlights".to_string(), JsonValue::array(
+                            result.highlights.iter()
+                                .map(|h| JsonValue::String(h.clone()))
+                                .collect()
+                        )),
+                        ("category".to_string(), JsonValue::String(result.document.category.clone())),
+                    ])
+                })
+                .collect();
+
+            let mut lines = vec![format!("Hybrid search results for '{}' ({} docs indexed):", query, embeddings.documents.len())];
+            if json_hits.is_empty() {
+                lines.push("  - No matches found.".to_string());
+            } else {
+                for result in &results {
+                    let section_str = result.document.section.as_ref()
+                        .map(|s| format!(" > {}", s))
+                        .unwrap_or_default();
+                    lines.push(format!(
+                        "  - [{}] {} ({}{}) - score: {:.2}",
+                        result.document.category,
+                        result.document.title,
+                        result.document.path,
+                        section_str,
+                        result.score
+                    ));
+                    for highlight in result.highlights.iter().take(2) {
+                        lines.push(format!("      {}", highlight));
+                    }
+                }
+            }
+
+            return Ok(ToolResult {
+                text: lines.join("\n"),
+                data: JsonValue::object(vec![
+                    ("query".to_string(), JsonValue::String(query.to_string())),
+                    ("mode".to_string(), JsonValue::String("hybrid".to_string())),
+                    ("indexed_docs".to_string(), JsonValue::Number(embeddings.documents.len() as f64)),
+                    ("hits".to_string(), JsonValue::array(json_hits)),
+                ]),
+            });
+        }
+
+        // Fallback to basic text search
         let hits = search_documentation(query, 10);
         let json_hits = hits
             .into_iter()
@@ -653,7 +753,7 @@ impl McpServer {
             })
             .collect::<Vec<JsonValue>>();
 
-        let mut lines = vec![format!("Search results for '{}':", query)];
+        let mut lines = vec![format!("Search results for '{}' (basic mode):", query)];
         if json_hits.is_empty() {
             lines.push("  - No matches found.".to_string());
         } else {
@@ -676,6 +776,7 @@ impl McpServer {
             text: lines.join("\n"),
             data: JsonValue::object(vec![
                 ("query".to_string(), JsonValue::String(query.to_string())),
+                ("mode".to_string(), JsonValue::String("basic".to_string())),
                 ("hits".to_string(), JsonValue::array(json_hits)),
             ]),
         })
