@@ -1,4 +1,4 @@
-.PHONY: build release test clean run help install
+.PHONY: build release test clean run help install patch minor major
 
 # Default target
 help:
@@ -14,6 +14,11 @@ help:
 	@echo "  make fmt        - Format code"
 	@echo "  make lint       - Run clippy"
 	@echo "  make check      - Quick compile check"
+	@echo ""
+	@echo "Release:"
+	@echo "  make patch      - Bump patch version (0.1.0 → 0.1.1)"
+	@echo "  make minor      - Bump minor version (0.1.0 → 0.2.0)"
+	@echo "  make major      - Bump major version (0.1.0 → 1.0.0)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make run ARGS='dns record lookup google.com'"
@@ -72,6 +77,16 @@ http:
 bench-scan:
 	@echo "Benchmarking port scan..."
 	time ./target/release/redblue network ports range 127.0.0.1 1 1000
+
+# Version management (triggers GitHub release)
+patch:
+	@./scripts/release.sh patch
+
+minor:
+	@./scripts/release.sh minor
+
+major:
+	@./scripts/release.sh major
 
 # Build static binary (if musl is available)
 static:
