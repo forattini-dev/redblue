@@ -14,87 +14,38 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    name: Create Release
+  build-embeddings:
+    name: Build Embeddings
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          fetch-depth: 0
+          python-version: '3.11'
 
-      - name: Get version from tag
-        id: get_version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=${GITHUB_REF#refs/tags/}
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Version: ${VERSION}"
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          if [ -f CHANGELOG.md ]; then
-            CHANGES=$(awk '/^## \['"${VERSION#v}"'\]/,/^## \[/{//!p;}' CHANGELOG.md | sed '/^$/d')
-            if [ -z "$CHANGES" ]; then
-              CHANGES="Release ${VERSION}"
-            fi
-          else
-            CHANGES="Release ${VERSION}"
-          fi
-          echo "changes<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache pip
+        uses: actions/cache@v4
         with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: redblue ${{ steps.get_version.outputs.version }}
-          body: |
-            # redblue ${{ steps.get_version.outputs.version }}
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-fastembed
 
-            ## Changes
-            ${{ steps.changelog.outputs.changes }}
+      - name: Install dependencies
+        run: pip install fastembed
 
-            ## Installation
+      - name: Build embeddings
+        run: python scripts/build-embeddings.py
 
-            Download the binary for your platform below and make it executable:
+      - name: Upload embeddings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: embeddings
+          path: src/mcp/data/embeddings.json
 
-            ```bash
-            # Linux
-            chmod +x rb-linux-x86_64
-            sudo mv rb-linux-x86_64 /usr/local/bin/rb
-
-            # macOS
-            chmod +x rb-macos-x86_64
-            sudo mv rb-macos-x86_64 /usr/local/bin/rb
-
-            # Windows
-            # Just rename rb-windows-x86_64.exe to rb.exe and add to PATH
-            ```
-
-            ## Verify Installation
-
-            ```bash
-            rb --version
-            rb help
-            ```
-          draft: false
-          prerelease: false
-
-  build-and-upload:
+  build:
     name: Build ${{ matrix.target }}
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -111,6 +62,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             binary_name: rb
             asset_name: rb-linux-aarch64
+            cross: true
 
           # macOS x86_64
           - os: macos-latest
@@ -140,66 +92,168 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.cross
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
-      - name: Cache cargo registry
-        uses: actions/cache@v3
+      - name: Cache cargo
+        uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+      - name: Strip binary (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+
+      - name: Strip binary (Linux ARM64)
+        if: matrix.cross
+        run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
+
+      - name: Strip binary (macOS)
+        if: runner.os == 'macOS'
+        run: strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
 
       - name: Prepare binary
+        shell: bash
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
+          shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256 || certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
 
-      - name: Calculate checksums
+  release:
+    name: Create Release
+    needs: [build, build-embeddings]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
         run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
           else
-            shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
+            VERSION=${GITHUB_REF#refs/tags/}
           fi
-        shell: bash
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version_number }}"
+
+          # Try to extract from CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            CHANGES=$(awk '/^## \['"${VERSION}"'\]/,/^## \[/{if(/^## \['"${VERSION}"'\]/){next}if(/^## \[/){exit}print}' CHANGELOG.md)
+          fi
+
+          # Fallback to git log
+          if [ -z "$CHANGES" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+            else
+              CHANGES=$(git log --pretty=format:"- %s" --no-merges -10)
+            fi
+          fi
+
+          echo "changes<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
+          # Include embeddings
+          if [ -f artifacts/embeddings/embeddings.json ]; then
+            cp artifacts/embeddings/embeddings.json release/
+            echo "Embeddings included in release"
+          fi
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: redblue ${{ steps.version.outputs.version }}
+          body: |
+            # redblue ${{ steps.version.outputs.version }}
+
+            ## Changes
+            ${{ steps.changelog.outputs.changes }}
+
+            ## Installation
+
+            Download the binary for your platform and make it executable:
+
+            ```bash
+            # Linux x86_64
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-linux-x86_64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # Linux ARM64
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-linux-aarch64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # macOS (Intel)
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-macos-x86_64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # macOS (Apple Silicon)
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-macos-aarch64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # Windows
+            # Download rb-windows-x86_64.exe, rename to rb.exe, add to PATH
+            ```
+
+            ## Verify Installation
+
+            ```bash
+            rb --version
+            rb help
+            ```
+
+            ## Checksums
+
+            SHA256 checksums are provided for each binary (`.sha256` files).
+
+            ## MCP Embeddings
+
+            The `embeddings.json` file contains pre-computed vectors for semantic documentation search.
+            It will be automatically downloaded when you run `rb mcp` for the first time.
+          draft: false
+          prerelease: false
+          files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}.sha256
-          asset_name: ${{ matrix.asset_name }}.sha256
-          asset_content_type: text/plain
