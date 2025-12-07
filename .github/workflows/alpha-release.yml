@@ -2,14 +2,34 @@ name: Alpha Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check-skip:
+    name: Check if should skip
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.check.outputs.should_skip }}
+    steps:
+      - name: Check commit message
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          # Skip if commit is a release (chore: release) or version bump
+          if [[ "$COMMIT_MSG" =~ ^chore:\ release ]] || [[ "$COMMIT_MSG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "Skipping alpha release for release commit: $COMMIT_MSG"
+          else
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
   check-build:
     name: Check if builds
+    needs: check-skip
+    if: needs.check-skip.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     outputs:
       can_build: ${{ steps.check.outputs.can_build }}
@@ -23,83 +43,31 @@ jobs:
         run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Install Rust
-        uses: actions/checkout@v4
-
-      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-alpha-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check if project builds
         id: check
         run: |
-          if cargo build --release 2>&1 | tee /tmp/build.log; then
+          if cargo build --release 2>&1; then
             echo "can_build=true" >> $GITHUB_OUTPUT
           else
             echo "can_build=false" >> $GITHUB_OUTPUT
-            echo "::warning::Build failed, skipping release"
+            echo "::warning::Build failed, skipping alpha release"
           fi
-        continue-on-error: true
 
-  create-alpha-release:
-    name: Create Alpha Release
+  build:
+    name: Build ${{ matrix.target }}
     needs: check-build
     if: needs.check-build.outputs.can_build == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Generate version
-        id: version
-        run: |
-          VERSION="0.1.0-alpha.${{ github.run_number }}+${{ needs.check-build.outputs.short_sha }}"
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Alpha version: ${VERSION}"
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          release_name: redblue v${{ steps.version.outputs.version }}
-          body: |
-            # redblue Alpha Release
-
-            **Version**: `${{ steps.version.outputs.version }}`
-            **Commit**: `${{ github.sha }}`
-            **Build**: #${{ github.run_number }}
-
-            ## ⚠️ Alpha Release
-
-            This is an automated alpha release from the latest commit on `main`.
-            It may contain unstable features or breaking changes.
-
-            ## Installation
-
-            ```bash
-            # Download binary for your platform
-            chmod +x rb-linux-x86_64
-            sudo mv rb-linux-x86_64 /usr/local/bin/rb
-
-            # Verify
-            rb --version
-            ```
-
-            ## Changes
-
-            See commit history: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
-          draft: false
-          prerelease: true
-
-  build-and-upload:
-    name: Build ${{ matrix.target }}
-    needs: create-alpha-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -135,50 +103,116 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-alpha-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
-        continue-on-error: false
 
       - name: Strip binary (Linux/macOS)
         if: runner.os != 'Windows'
         run: strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
 
       - name: Prepare binary
-        run: cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
-
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-alpha-release.outputs.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
-
-      - name: Calculate checksum
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
-          else
-            shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
-          fi
         shell: bash
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
+          shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256 || certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
+
+  release:
+    name: Create Alpha Release
+    needs: [check-build, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate version
+        id: version
+        run: |
+          # Get base version from Cargo.toml
+          BASE_VERSION=$(grep "^version" Cargo.toml | head -n1 | cut -d '"' -f2)
+          VERSION="${BASE_VERSION}-alpha.${{ github.run_number }}+${{ needs.check-build.outputs.short_sha }}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Alpha version: ${VERSION}"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Delete old alpha releases
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 5
+          delete_tag_pattern: ".*-alpha.*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Alpha Release
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.create-alpha-release.outputs.upload_url }}
-          asset_path: ./${{ matrix.asset_name }}.sha256
-          asset_name: ${{ matrix.asset_name }}.sha256
-          asset_content_type: text/plain
+          tag_name: v${{ steps.version.outputs.version }}
+          name: redblue v${{ steps.version.outputs.version }} (alpha)
+          body: |
+            # redblue Alpha Release
+
+            **Version**: `${{ steps.version.outputs.version }}`
+            **Commit**: `${{ github.sha }}`
+            **Build**: #${{ github.run_number }}
+
+            ## Warning
+
+            This is an automated alpha release from the latest commit on `main`.
+            It may contain unstable features or breaking changes.
+
+            For stable releases, use:
+            ```bash
+            # Check latest stable
+            curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep tag_name
+            ```
+
+            ## Installation
+
+            ```bash
+            # Linux x86_64
+            curl -L https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/rb-linux-x86_64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # macOS (Apple Silicon)
+            curl -L https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.version }}/rb-macos-aarch64 -o rb
+            chmod +x rb
+            sudo mv rb /usr/local/bin/
+
+            # Verify
+            rb --version
+            ```
+
+            ## Changes
+
+            See commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          draft: false
+          prerelease: true
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
