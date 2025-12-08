@@ -118,6 +118,10 @@ rb recon domain whois example.com
 
 ### Testing Strategy
 
+**Testing Framework:**
+- The project has transitioned from Jest to Vitest for all testing.
+- Default test suite uses `MemoryClient` (test:memory) instead of `FileSystemClient` for improved performance and memory management during parallel execution.
+
 **Test Organization:**
 ```
 tests/
