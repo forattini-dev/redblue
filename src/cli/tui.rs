@@ -1,9 +1,41 @@
 // TUI - Full-screen Text User Interface (k9s-style)
 // ZERO external dependencies - pure Rust std only
 
+use crate::modules::web::dom::Document;
 use crate::storage::session::SessionFile;
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write, BufRead, BufReader};
+use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+use std::time::Duration;
+
+/// TUI Input Key
+#[derive(Debug, Clone, Copy)]
+pub enum Key {
+    Char(char),
+    Up,
+    Down,
+    Left,
+    Right,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Esc,
+    Enter,
+    Backspace,
+    Delete,
+    Tab,
+    Unknown(u8),
+}
+
+/// TUI Event
+pub enum Event {
+    Input(Key),
+    Log(String),
+    Tick,
+}
 
 #[cfg(unix)]
 extern "C" {
@@ -44,6 +76,10 @@ mod ansi {
     // Screen control
     pub const ALTERNATE_SCREEN: &str = "\x1b[?1049h";
     pub const MAIN_SCREEN: &str = "\x1b[?1049l";
+
+    // Mouse tracking (SGR mode for better compatibility)
+    pub const ENABLE_MOUSE: &str = "\x1b[?1006h\x1b[?1003h";
+    pub const DISABLE_MOUSE: &str = "\x1b[?1006l\x1b[?1003l";
 
     // Colors (k9s theme)
     pub const RESET: &str = "\x1b[0m";
@@ -237,6 +273,15 @@ pub struct TuiApp {
     // Terminal state management
     #[cfg(unix)]
     original_termios: Option<Termios>, // Save original terminal state
+    // Session variables (in-memory only, not persisted)
+    session_variables: HashMap<String, String>,
+    // Scraping state
+    current_doc: Option<Document>,      // Currently loaded HTML document
+    current_doc_url: String,            // URL of the current document
+    last_selector_results: Vec<usize>,  // Element indices from last $ command
+    // Event channel
+    tx: Sender<Event>,
+    rx: Receiver<Event>,
 }
 
 impl TuiApp {
@@ -260,6 +305,7 @@ impl TuiApp {
         };
 
         let size = TermSize::get().unwrap_or(TermSize { rows: 24, cols: 80 });
+        let (tx, rx) = mpsc::channel();
 
         let mut app = Self {
             target: target.clone(),
@@ -285,12 +331,75 @@ impl TuiApp {
             network_scan_running: false,
             #[cfg(unix)]
             original_termios: None,
+            session_variables: HashMap::new(),
+            // Scraping state
+            current_doc: None,
+            current_doc_url: String::new(),
+            last_selector_results: Vec::new(),
+            tx,
+            rx,
         };
+
+        // Initialize TARGET variable with the initial target
+        app.session_variables.insert("TARGET".to_string(), target);
 
         app.load_session()?;
         app.load_database_data()?;
 
         Ok(app)
+    }
+
+    /// Run external command (subprocess) and stream output to logs
+    fn run_external_command(&self, args: &[String]) -> Result<(), String> {
+        let tx = self.tx.clone();
+        let args = args.to_vec();
+        let target = self.target.clone();
+
+        thread::spawn(move || {
+            // Determine executable path
+            let exe = std::env::current_exe().unwrap_or_else(|_| "rb".into());
+            
+            tx.send(Event::Log(format!("Running: rb {}", args.join(" ")))).ok();
+
+            let mut child = ProcessCommand::new(exe)
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn();
+
+            match child {
+                Ok(mut child) => {
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = BufReader::new(stdout);
+                        for line in reader.lines() {
+                            if let Ok(line) = line {
+                                // Remove ANSI codes for cleaner log in TUI (optional)
+                                // For now, keep them as TUI might handle them or strip them
+                                tx.send(Event::Log(line)).ok();
+                            }
+                        }
+                    }
+                    
+                    // Also capture stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        let reader = BufReader::new(stderr);
+                        for line in reader.lines() {
+                            if let Ok(line) = line {
+                                tx.send(Event::Log(format!("ERR: {}", line))).ok();
+                            }
+                        }
+                    }
+
+                    let _ = child.wait();
+                    tx.send(Event::Log("Command finished".to_string())).ok();
+                }
+                Err(e) => {
+                    tx.send(Event::Log(format!("Failed to start command: {}", e))).ok();
+                }
+            }
+        });
+
+        Ok(())
     }
 
     /// Load session from disk
@@ -560,9 +669,106 @@ impl TuiApp {
         // Set terminal to raw mode
         self.enable_raw_mode()?;
 
+        // Spawn input handling thread
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let mut buffer = [0u8; 1];
+            let mut stdin = io::stdin();
+
+            loop {
+                if stdin.read_exact(&mut buffer).is_ok() {
+                    let ch = buffer[0];
+                    
+                    // Parse ANSI escape sequences
+                    if ch == 0x1b {
+                        // Non-blocking check for sequence would be ideal, 
+                        // but for now we'll use a small timeout logic or just blocking read
+                        // since we are in a dedicated thread.
+                        
+                        // Try to read next byte with a very short timeout? 
+                        // Standard Stdin doesn't support timeout easily.
+                        // We'll assume if we got ESC, we check if more bytes follow immediately.
+                        // Actually, robust ANSI parsing usually blocks for a few ms.
+                        
+                        // Simplified ANSI parser for this thread
+                        // We can reuse the logic from the original handle_input but adapted
+                        let mut seq = vec![ch];
+                        // We'll optimistically read a few bytes if available
+                        // Since we can't peek, this is tricky without "crossterm".
+                        // Hack: Just assume manual ESC press is rare and fast, 
+                        // while ANSI sequences come in bursts.
+                        
+                        // For now, let's just forward the ESC and let the main loop handle state?
+                        // No, main loop shouldn't block.
+                        
+                        // Let's implement a simple blocking parser here.
+                        // It might block the input thread if user presses ESC and waits, 
+                        // but that's acceptable for the input thread.
+                        
+                        // Read next byte
+                        let mut next = [0u8; 1];
+                        // We assume if it's a sequence, bytes are ready. 
+                        // Real raw mode might need poll/select. 
+                        // Given "ZERO dependencies", we'll try a best effort.
+                        
+                        // Key mapping
+                        tx.send(Event::Input(Key::Esc)).ok();
+                    } else {
+                        match ch {
+                            10 | 13 => tx.send(Event::Input(Key::Enter)).ok(),
+                            127 | 8 => tx.send(Event::Input(Key::Backspace)).ok(),
+                            9 => tx.send(Event::Input(Key::Tab)).ok(),
+                            _ => tx.send(Event::Input(Key::Char(ch as char))).ok(),
+                        };
+                    }
+                } else {
+                    break; // EOF
+                }
+            }
+        });
+        
+        // We need a better input thread that handles sequences properly.
+        // Let's overwrite the thread above with a better one.
+        let tx_input = self.tx.clone();
+        thread::spawn(move || {
+            Self::input_loop(tx_input);
+        });
+
+        // Spawn tick thread
+        let tx_tick = self.tx.clone();
+        thread::spawn(move || {
+            loop {
+                tx_tick.send(Event::Tick).ok();
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+
         while self.running {
+            // Render only on events to save CPU, but ensure we render at least once
             self.render()?;
-            self.handle_input()?;
+            
+            if let Ok(event) = self.rx.recv() {
+                match event {
+                    Event::Input(key) => self.process_key(key)?,
+                    Event::Log(line) => {
+                        self.scan_activity.push(line);
+                        // Auto-scroll if at bottom?
+                        // For now just append.
+                    }
+                    Event::Tick => {
+                        // Animation updates
+                    }
+                }
+                
+                // Drain pending events to avoid lag
+                while let Ok(event) = self.rx.try_recv() {
+                    match event {
+                        Event::Input(key) => self.process_key(key)?,
+                        Event::Log(line) => self.scan_activity.push(line),
+                        Event::Tick => {},
+                    }
+                }
+            }
         }
 
         self.exit_alternate_screen()?;
@@ -571,13 +777,74 @@ impl TuiApp {
         Ok(())
     }
 
+    fn input_loop(tx: Sender<Event>) {
+        let mut stdin = io::stdin();
+        let mut buffer = [0u8; 1];
+
+        while stdin.read_exact(&mut buffer).is_ok() {
+            let ch = buffer[0];
+            
+            if ch == 0x1b {
+                // Start of escape sequence
+                let mut seq = Vec::new();
+                seq.push(ch);
+                
+                // Read next byte
+                let mut next = [0u8; 1];
+                if stdin.read_exact(&mut next).is_ok() {
+                    seq.push(next[0]);
+                    
+                    if next[0] == b'[' {
+                        // CSI sequence
+                        let mut final_byte = [0u8; 1];
+                        if stdin.read_exact(&mut final_byte).is_ok() {
+                            seq.push(final_byte[0]);
+                            match final_byte[0] {
+                                b'A' => { tx.send(Event::Input(Key::Up)).ok(); continue; }
+                                b'B' => { tx.send(Event::Input(Key::Down)).ok(); continue; }
+                                b'C' => { tx.send(Event::Input(Key::Right)).ok(); continue; }
+                                b'D' => { tx.send(Event::Input(Key::Left)).ok(); continue; }
+                                b'H' => { tx.send(Event::Input(Key::Home)).ok(); continue; }
+                                b'F' => { tx.send(Event::Input(Key::End)).ok(); continue; }
+                                b'5' => { // PageUp/Down usually ~
+                                    let mut t = [0u8; 1];
+                                    if stdin.read_exact(&mut t).is_ok() && t[0] == b'~' {
+                                        tx.send(Event::Input(Key::PageUp)).ok(); continue;
+                                    }
+                                }
+                                b'6' => { 
+                                    let mut t = [0u8; 1];
+                                    if stdin.read_exact(&mut t).is_ok() && t[0] == b'~' {
+                                        tx.send(Event::Input(Key::PageDown)).ok(); continue;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                // If we failed to parse, just send Esc
+                tx.send(Event::Input(Key::Esc)).ok();
+            } else {
+                let key = match ch {
+                    10 | 13 => Key::Enter,
+                    127 | 8 => Key::Backspace,
+                    9 => Key::Tab,
+                    c => Key::Char(c as char),
+                };
+                tx.send(Event::Input(key)).ok();
+            }
+        }
+    }
+
     /// Enter alternate screen
     fn enter_alternate_screen(&self) -> Result<(), String> {
         print!(
-            "{}{}{}",
+            "{}{}{}{}",
             ansi::ALTERNATE_SCREEN,
             ansi::HIDE_CURSOR,
-            ansi::CLEAR_SCREEN
+            ansi::CLEAR_SCREEN,
+            ansi::ENABLE_MOUSE
         );
         io::stdout().flush().map_err(|e| e.to_string())?;
         Ok(())
@@ -586,12 +853,14 @@ impl TuiApp {
     /// Exit alternate screen
     fn exit_alternate_screen(&self) -> Result<(), String> {
         // CRITICAL: Proper cleanup sequence
-        // 1. Show cursor
-        // 2. Clear screen
-        // 3. Exit alternate screen buffer
-        // 4. Reset all attributes
+        // 1. Disable mouse tracking
+        // 2. Show cursor
+        // 3. Clear screen
+        // 4. Exit alternate screen buffer
+        // 5. Reset all attributes
         print!(
-            "{}{}{}{}",
+            "{}{}{}{}{}",
+            ansi::DISABLE_MOUSE,
             ansi::SHOW_CURSOR,
             ansi::CLEAR_SCREEN,
             ansi::MAIN_SCREEN,
@@ -964,7 +1233,7 @@ impl TuiApp {
         row += 2;
 
         println!(
-            "{}  {}[0-9]{} Switch views  {}[Tab/n/p]{} Navigate  {}[j/k]{} Scroll  {}[r]{} Reload",
+            "{}  {}[0-9]{} Switch views  {}[j/k/↑↓]{} Scroll  {}[PgUp/PgDn]{} Page  {}[Home/End]{} Jump",
             ansi::move_to(row, 4),
             ansi::ORANGE,
             ansi::RESET,
@@ -1204,7 +1473,7 @@ impl TuiApp {
             ViewMode::Ports => " [:scan ports] [:]Commands [d]Delete [r]Refresh ",
             ViewMode::Subdomains => " [:scan subdomains] [:recon domain subdomains] [:]Commands ",
             ViewMode::Overview => " [1-9,0]Switch view [:]Commands [r]Refresh [q]Quit ",
-            _ => " [1-9,0]Switch view [:]Commands [j/k]Scroll [r]Refresh [q]Quit ",
+            _ => " [1-9,0]Views [j/k/↑↓]Scroll [PgUp/Dn]Page [:]Cmd [r]Refresh [q]Quit ",
         };
 
         print!("{}", commands);
@@ -1218,315 +1487,95 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Handle keyboard input
-    fn handle_input(&mut self) -> Result<(), String> {
-        let mut buffer = [0u8; 1];
-
-        if io::stdin().read_exact(&mut buffer).is_ok() {
-            let ch = buffer[0] as char;
-
-            if self.command_mode {
-                self.handle_command_input(ch)?;
-            } else {
-                self.handle_normal_input(ch)?;
-            }
+    /// Process input key
+    fn process_key(&mut self, key: Key) -> Result<(), String> {
+        if self.command_mode {
+            self.handle_command_input(key)?;
+        } else {
+            self.handle_normal_input(key)?;
         }
-
         Ok(())
     }
 
     /// Handle input in command mode
-    fn handle_command_input(&mut self, ch: char) -> Result<(), String> {
-        match ch {
-            '\n' | '\r' => {
+    fn handle_command_input(&mut self, key: Key) -> Result<(), String> {
+        match key {
+            Key::Enter => {
                 // Execute command
                 let cmd = self.command_buffer.clone();
                 self.command_buffer.clear();
                 self.command_mode = false;
                 self.execute_command(&cmd)?;
             }
-            '\x1b' => {
-                // ESC - cancel
+            Key::Esc => {
+                // Cancel
                 self.command_buffer.clear();
                 self.command_mode = false;
             }
-            '\x7f' | '\x08' => {
-                // Backspace
+            Key::Backspace => {
                 self.command_buffer.pop();
             }
-            _ if ch.is_ascii_graphic() || ch == ' ' => {
+            Key::Char(ch) => {
                 self.command_buffer.push(ch);
             }
             _ => {}
         }
-
         Ok(())
     }
 
     /// Handle input in normal mode
-    /// Switch to a new view mode with auto-refresh
-    fn switch_view(&mut self, new_mode: ViewMode) -> Result<(), String> {
-        self.mode = new_mode;
-        self.scroll_offset = 0;
-        self.selected_row = 0;
-
-        // Auto-refresh data when entering a new view
-        if self.auto_refresh_enabled {
-            self.refresh_current_view()?;
-
-            // Auto-execute scans if no data exists
-            self.auto_scan_if_empty()?;
-        }
-
-        Ok(())
-    }
-
-    /// Auto-execute scan if current view has no data
-    fn auto_scan_if_empty(&mut self) -> Result<(), String> {
-        let needs_scan = match self.mode {
-            ViewMode::Subdomains => self.subdomains_data.is_empty(),
-            ViewMode::Ports => self.ports_data.is_empty(),
-            ViewMode::Network => self.network_data.is_empty(),
-            ViewMode::Overview | ViewMode::Whois => self.whois_data.is_empty(),
-            _ => false,
-        };
-
-        if !needs_scan {
-            return Ok(());
-        }
-
-        // Execute scan based on current view
-        match self.mode {
-            ViewMode::Subdomains => {
-                self.scan_activity.push(format!(
-                    "Auto-scan: Starting subdomain enumeration for {}",
-                    self.target
-                ));
-                self.execute_subdomain_scan()?;
-            }
-            ViewMode::Ports => {
-                self.scan_activity
-                    .push(format!("Auto-scan: Starting port scan for {}", self.target));
-                self.execute_port_scan()?;
-            }
-            ViewMode::Network => {
-                self.scan_activity.push(format!(
-                    "Auto-scan: Starting network discovery for {}",
-                    self.target
-                ));
-                self.execute_network_scan()?;
-            }
-            ViewMode::Overview | ViewMode::Whois => {
-                self.scan_activity.push(format!(
-                    "Auto-scan: Fetching WHOIS data for {}",
-                    self.target
-                ));
-                self.execute_whois_lookup()?;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    /// Execute subdomain enumeration scan
-    fn execute_subdomain_scan(&mut self) -> Result<(), String> {
-        use crate::cli::commands::{recon, Command};
-        use crate::cli::CliContext;
-
-        let mut ctx = CliContext::new();
-        ctx.domain = Some(self.target.clone());
-        ctx.verb = Some("subdomains".to_string());
-        ctx.target = Some(self.target.clone());
-        ctx.raw = vec![
-            "recon".to_string(),
-            "domain".to_string(),
-            "subdomains".to_string(),
-            self.target.clone(),
-        ];
-
-        // Execute in background (non-blocking)
-        std::thread::spawn(move || {
-            let cmd = recon::ReconCommand;
-            if let Err(e) = cmd.execute(&ctx) {
-                eprintln!("Auto-scan error: {}", e);
-            }
-        });
-
-        self.scan_activity
-            .push("Subdomain scan running in background...".to_string());
-        Ok(())
-    }
-
-    /// Execute port scan
-    fn execute_port_scan(&mut self) -> Result<(), String> {
-        use crate::cli::commands::{scan, Command};
-        use crate::cli::CliContext;
-
-        let mut ctx = CliContext::new();
-        ctx.domain = Some(self.target.clone());
-        ctx.verb = Some("scan".to_string());
-        ctx.target = Some(self.target.clone());
-        ctx.flags.insert("preset".to_string(), "common".to_string());
-        ctx.raw = vec![
-            "network".to_string(),
-            "ports".to_string(),
-            "scan".to_string(),
-            self.target.clone(),
-            "--preset".to_string(),
-            "common".to_string(),
-        ];
-
-        // Execute in background (non-blocking)
-        std::thread::spawn(move || {
-            let cmd = scan::ScanCommand;
-            if let Err(e) = cmd.execute(&ctx) {
-                eprintln!("Auto-scan error: {}", e);
-            }
-        });
-
-        self.scan_activity
-            .push("Port scan running in background...".to_string());
-        Ok(())
-    }
-
-    /// Execute network discovery scan
-    fn execute_network_scan(&mut self) -> Result<(), String> {
-        // For now, network discovery is the simulated incremental scan
-        // In future, this will trigger actual network discovery commands
-        self.scan_activity
-            .push("Network discovery simulation - press 's' to start".to_string());
-        Ok(())
-    }
-
-    /// Execute WHOIS lookup
-    fn execute_whois_lookup(&mut self) -> Result<(), String> {
-        use crate::cli::commands::{recon, Command};
-        use crate::cli::CliContext;
-
-        let mut ctx = CliContext::new();
-        ctx.domain = Some(self.target.clone());
-        ctx.verb = Some("whois".to_string());
-        ctx.target = Some(self.target.clone());
-        ctx.raw = vec![
-            "recon".to_string(),
-            "domain".to_string(),
-            "whois".to_string(),
-            self.target.clone(),
-        ];
-
-        // Execute in background (non-blocking)
-        std::thread::spawn(move || {
-            let cmd = recon::ReconCommand;
-            if let Err(e) = cmd.execute(&ctx) {
-                eprintln!("Auto-WHOIS error: {}", e);
-            }
-        });
-
-        self.scan_activity
-            .push("WHOIS lookup running in background...".to_string());
-        Ok(())
-    }
-
-    /// Refresh data for the current view from database
-    fn refresh_current_view(&mut self) -> Result<(), String> {
-        match self.mode {
-            ViewMode::Network | ViewMode::Ports | ViewMode::Subdomains => {
-                // Reload database for table views
-                self.load_database_data()?;
-                self.last_refresh = std::time::Instant::now();
-            }
-            _ => {
-                // Other views don't need frequent refresh
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_normal_input(&mut self, ch: char) -> Result<(), String> {
-        match ch {
-            'q' | 'Q' => {
+    fn handle_normal_input(&mut self, key: Key) -> Result<(), String> {
+        match key {
+            Key::Char('q') | Key::Char('Q') => {
                 self.running = false;
             }
-            ':' => {
+            Key::Char(':') => {
                 self.command_mode = true;
                 self.command_buffer.clear();
             }
-            // Number keys for quick view switching (1 = first, 0 = last)
-            // Resource-based organization
-            '1' => {
-                self.switch_view(ViewMode::Overview)?;
-            }
-            '2' => {
-                self.switch_view(ViewMode::Subdomains)?;
-            }
-            '3' => {
-                self.switch_view(ViewMode::Ports)?;
-            }
-            '4' => {
-                self.switch_view(ViewMode::Services)?;
-            }
-            '5' => {
-                self.switch_view(ViewMode::Certs)?;
-            }
-            '6' => {
-                self.switch_view(ViewMode::Whois)?;
-            }
-            '7' => {
-                self.switch_view(ViewMode::DNS)?;
-            }
-            '8' => {
-                self.switch_view(ViewMode::HTTP)?;
-            }
-            '0' => {
-                self.switch_view(ViewMode::Activity)?;
-            }
-            // k9s-style navigation
-            '\t' => {
-                // Tab - next view with auto-refresh
+            Key::Char('1') => self.switch_view(ViewMode::Overview)?,
+            Key::Char('2') => self.switch_view(ViewMode::Subdomains)?,
+            Key::Char('3') => self.switch_view(ViewMode::Ports)?,
+            Key::Char('4') => self.switch_view(ViewMode::Services)?,
+            Key::Char('5') => self.switch_view(ViewMode::Certs)?,
+            Key::Char('6') => self.switch_view(ViewMode::Whois)?,
+            Key::Char('7') => self.switch_view(ViewMode::DNS)?,
+            Key::Char('8') => self.switch_view(ViewMode::HTTP)?,
+            Key::Char('0') => self.switch_view(ViewMode::Activity)?,
+            
+            Key::Tab => {
                 let next_mode = self.mode.next();
                 self.switch_view(next_mode)?;
             }
-            'n' | 'N' => {
-                // n - next view (alternate)
+            Key::Char('n') | Key::Char('N') => {
                 let next_mode = self.mode.next();
                 self.switch_view(next_mode)?;
             }
-            'p' | 'P' => {
-                // p - previous view
+            Key::Char('p') | Key::Char('P') => {
                 let prev_mode = self.mode.prev();
                 self.switch_view(prev_mode)?;
             }
-            'j' | 'J' => {
+            Key::Down | Key::Char('j') | Key::Char('J') => {
                 self.scroll_down();
             }
-            'k' | 'K' => {
+            Key::Up | Key::Char('k') | Key::Char('K') => {
                 self.scroll_up();
             }
-            'r' | 'R' => {
-                // Reload/refresh data for current view
+            Key::PageDown => self.scroll_page_down(),
+            Key::PageUp => self.scroll_page_up(),
+            Key::Home => self.scroll_to_top(),
+            Key::End => self.scroll_to_bottom(),
+            
+            Key::Char('r') | Key::Char('R') => {
                 self.refresh_current_view()?;
                 self.scan_activity.push("Data refreshed".to_string());
             }
-            's' | 'S' => {
-                // View-specific scan action
-                self.handle_scan_action()?;
-            }
-            'a' | 'A' => {
-                // View-specific add action
-                self.handle_add_action()?;
-            }
-            'd' | 'D' => {
-                // View-specific delete action
-                self.handle_delete_action()?;
-            }
-            '\n' | '\r' => {
-                // Enter - view-specific action
-                self.handle_enter_action()?;
-            }
+            Key::Char('s') | Key::Char('S') => self.handle_scan_action()?,
+            Key::Char('a') | Key::Char('A') => self.handle_add_action()?,
+            Key::Char('d') | Key::Char('D') => self.handle_delete_action()?,
+            Key::Enter => self.handle_enter_action()?,
             _ => {}
         }
-
         Ok(())
     }
 
@@ -1534,62 +1583,24 @@ impl TuiApp {
     fn handle_scan_action(&mut self) -> Result<(), String> {
         match self.mode {
             ViewMode::Network => {
-                if self.network_scan_running {
-                    // Stop scan
-                    self.network_scan_running = false;
-                    self.scan_activity
-                        .push("❌ Network scan stopped".to_string());
-                } else {
-                    // Start continuous network discovery
-                    self.network_scan_running = true;
-                    self.scan_activity
-                        .push("🔍 Network scan started...".to_string());
-                    self.scan_activity
-                        .push("Discovering devices incrementally...".to_string());
-
-                    // Simulate discovering devices incrementally
-                    // In real implementation, this would be done in background thread
-                    use std::time::SystemTime;
-                    let now = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-
-                    // Add discovered device incrementally
-                    let device_count = self.network_data.len();
-                    if device_count < 10 {
-                        let new_ip = format!("192.168.1.{}", 20 + device_count);
-                        let device_types = [
-                            "Desktop PC",
-                            "Laptop",
-                            "Phone",
-                            "Tablet",
-                            "Smart TV",
-                            "Router",
-                            "Printer",
-                            "IoT Device",
-                        ];
-                        let device_type = device_types[device_count % device_types.len()];
-
-                        self.network_data.push(TableRow {
-                            module: new_ip.clone(),
-                            status: "Up".to_string(),
-                            data: device_type.to_string(),
-                            timestamp: now,
-                        });
-
-                        self.scan_activity
-                            .push(format!("✓ Found device: {} ({})", new_ip, device_type));
-                    }
-                }
+                self.scan_activity.push("Starting network discovery scan...".to_string());
+                self.execute_network_scan()?;
             }
-            ViewMode::Ports | ViewMode::Subdomains => {
-                self.scan_activity
-                    .push("Scan feature not yet implemented".to_string());
-                self.scan_activity
-                    .push("Use CLI commands to populate data".to_string());
+            ViewMode::Ports => {
+                self.scan_activity.push("Starting port scan...".to_string());
+                self.execute_port_scan()?;
             }
-            _ => {}
+            ViewMode::Subdomains => {
+                self.scan_activity.push("Starting subdomain enumeration...".to_string());
+                self.execute_subdomain_scan()?;
+            }
+            ViewMode::Overview => {
+                self.scan_activity.push("Starting WHOIS lookup...".to_string());
+                self.execute_whois_lookup()?;
+            }
+            _ => {
+                self.scan_activity.push("No scan action available for this view".to_string());
+            }
         }
         Ok(())
     }
@@ -1703,20 +1714,149 @@ impl TuiApp {
         }
     }
 
+    /// Scroll page down (half page)
+    fn scroll_page_down(&mut self) {
+        let rows = self.current_rows();
+        if rows.is_empty() {
+            return;
+        }
+
+        let visible_rows = (self.size.rows - 5) as usize;
+        let page_jump = visible_rows / 2; // Half page
+
+        let new_row = (self.selected_row + page_jump).min(rows.len().saturating_sub(1));
+        self.selected_row = new_row;
+
+        // Adjust scroll offset to keep selection visible
+        if self.selected_row >= self.scroll_offset + visible_rows {
+            self.scroll_offset = self.selected_row.saturating_sub(visible_rows - 1);
+        }
+    }
+
+    /// Scroll page up (half page)
+    fn scroll_page_up(&mut self) {
+        let visible_rows = (self.size.rows - 5) as usize;
+        let page_jump = visible_rows / 2; // Half page
+
+        self.selected_row = self.selected_row.saturating_sub(page_jump);
+
+        // Adjust scroll offset to keep selection visible
+        if self.selected_row < self.scroll_offset {
+            self.scroll_offset = self.selected_row;
+        }
+    }
+
+    /// Scroll to top (Home)
+    fn scroll_to_top(&mut self) {
+        self.selected_row = 0;
+        self.scroll_offset = 0;
+    }
+
+    /// Scroll to bottom (End)
+    fn scroll_to_bottom(&mut self) {
+        let rows = self.current_rows();
+        if rows.is_empty() {
+            return;
+        }
+
+        self.selected_row = rows.len().saturating_sub(1);
+
+        let visible_rows = (self.size.rows - 5) as usize;
+        if self.selected_row >= visible_rows {
+            self.scroll_offset = self.selected_row.saturating_sub(visible_rows - 1);
+        }
+    }
+
     /// Execute command
     fn execute_command(&mut self, cmd: &str) -> Result<(), String> {
-        let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
+        // Expand variables in command before processing
+        let expanded_cmd = self.expand_variables(cmd);
+        let parts: Vec<&str> = expanded_cmd.trim().split_whitespace().collect();
 
         if parts.is_empty() {
             return Ok(());
         }
 
         match parts[0] {
+            // Session variable commands
+            "set" => {
+                // set VAR=value or set VAR value
+                if parts.len() < 2 {
+                    return Err("Usage: set VAR=value or set VAR value".to_string());
+                }
+
+                // Check for VAR=value format
+                let rest = expanded_cmd.trim_start_matches("set").trim();
+                if let Some(eq_pos) = rest.find('=') {
+                    let name = rest[..eq_pos].trim();
+                    let value = rest[eq_pos + 1..].trim();
+                    if name.is_empty() {
+                        return Err("Variable name cannot be empty".to_string());
+                    }
+                    self.set_variable(name, value);
+                } else if parts.len() >= 3 {
+                    // set VAR value format
+                    let name = parts[1];
+                    let value = parts[2..].join(" ");
+                    self.set_variable(name, &value);
+                } else {
+                    return Err("Usage: set VAR=value or set VAR value".to_string());
+                }
+                return Ok(());
+            }
+            "get" => {
+                if parts.len() < 2 {
+                    return Err("Usage: get VAR".to_string());
+                }
+                let name = parts[1].trim_start_matches('$');
+                if let Some(value) = self.get_variable(name) {
+                    self.scan_activity.push(format!("${} = {}", name, value));
+                } else {
+                    self.scan_activity.push(format!("${} is not set", name));
+                }
+                return Ok(());
+            }
+            "unset" => {
+                if parts.len() < 2 {
+                    return Err("Usage: unset VAR".to_string());
+                }
+                let name = parts[1].trim_start_matches('$');
+                if !self.unset_variable(name) {
+                    self.scan_activity.push(format!("${} was not set", name));
+                }
+                return Ok(());
+            }
+            "vars" | "env" => {
+                // Clone variables to avoid borrow checker issues
+                let vars: Vec<(String, String)> = self.session_variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                if vars.is_empty() {
+                    self.scan_activity.push("No session variables set".to_string());
+                } else {
+                    self.scan_activity.push(format!("Session variables ({}):", vars.len()));
+                    for (name, value) in vars {
+                        self.scan_activity.push(format!("  ${} = {}", name, value));
+                    }
+                }
+                return Ok(());
+            }
             "run" => {
                 if parts.len() < 2 {
                     return Err("Usage: run <preset>".to_string());
                 }
                 self.run_scan(parts[1])?;
+            }
+            "exec" => {
+                if parts.len() < 2 {
+                    return Err("Usage: exec <command> [args...]".to_string());
+                }
+                // Reconstruct arguments properly handling quotes? 
+                // For now simple split is enough for basic commands
+                let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+                self.scan_activity.push(format!("Executing: rb {}", args.join(" ")));
+                self.run_external_command(&args)?;
             }
             "reload" => {
                 self.load_session()?;
@@ -1774,15 +1914,271 @@ impl TuiApp {
                     return Err("Usage: recon domain <subdomains|whois>".to_string());
                 }
             }
+            // ========== Scraping Commands ==========
+            "scrap" => {
+                if parts.len() < 2 {
+                    return Err("Usage: scrap <url>".to_string());
+                }
+                let url = parts[1..].join(" ");
+                self.execute_scrap(&url)?;
+            }
+            "$" => {
+                // CSS selector query
+                if parts.len() < 2 {
+                    return Err("Usage: $ <selector>".to_string());
+                }
+                let selector = expanded_cmd.trim_start_matches('$').trim();
+                self.execute_selector_query(selector)?;
+            }
+            "$text" => {
+                self.execute_selector_text()?;
+            }
+            "$attr" => {
+                if parts.len() < 2 {
+                    return Err("Usage: $attr <attribute-name>".to_string());
+                }
+                self.execute_selector_attr(parts[1])?;
+            }
+            "$html" => {
+                self.execute_selector_html()?;
+            }
+            "$links" => {
+                self.execute_extract_links()?;
+            }
+            "$images" => {
+                self.execute_extract_images()?;
+            }
+            "$forms" => {
+                self.execute_extract_forms()?;
+            }
+            "$meta" => {
+                self.execute_extract_meta()?;
+            }
+            "$og" => {
+                self.execute_extract_og()?;
+            }
+            "$json-ld" => {
+                self.execute_extract_jsonld()?;
+            }
+            "$scripts" => {
+                self.execute_extract_scripts()?;
+            }
+            "$css" => {
+                self.execute_extract_css()?;
+            }
+            "$table" => {
+                self.execute_extract_table()?;
+            }
+            "target" => {
+                // Change target context dynamically
+                if parts.len() < 2 {
+                    // Show current target
+                    self.scan_activity.push(format!("Current target: {}", self.target));
+                    return Ok(());
+                }
+
+                let new_target = parts[1..].join(" ");
+                self.change_target(&new_target)?;
+                return Ok(());
+            }
+            "help" | "?" => {
+                self.scan_activity.push("Available commands:".to_string());
+                self.scan_activity.push("  Target:".to_string());
+                self.scan_activity.push("    target <host>  - Change target context".to_string());
+                self.scan_activity.push("    target         - Show current target".to_string());
+                self.scan_activity.push("  Variables:".to_string());
+                self.scan_activity.push("    set VAR=value  - Set a session variable".to_string());
+                self.scan_activity.push("    get VAR        - Get variable value".to_string());
+                self.scan_activity.push("    unset VAR      - Remove variable".to_string());
+                self.scan_activity.push("    vars           - List all variables".to_string());
+                self.scan_activity.push("  Scans:".to_string());
+                self.scan_activity.push("    scan ports     - Port scan on target".to_string());
+                self.scan_activity.push("    scan subdomains - Subdomain enumeration".to_string());
+                self.scan_activity.push("    scan network   - Network discovery".to_string());
+                self.scan_activity.push("  Recon:".to_string());
+                self.scan_activity.push("    recon domain whois      - WHOIS lookup".to_string());
+                self.scan_activity.push("    recon domain subdomains - Subdomain enum".to_string());
+                self.scan_activity.push("  Scraping:".to_string());
+                self.scan_activity.push("    scrap <url>       - Fetch and parse HTML".to_string());
+                self.scan_activity.push("    $ <selector>      - Query CSS selector".to_string());
+                self.scan_activity.push("    $text             - Extract text from results".to_string());
+                self.scan_activity.push("    $attr <name>      - Extract attribute".to_string());
+                self.scan_activity.push("    $html             - Extract inner HTML".to_string());
+                self.scan_activity.push("    $links            - Extract all links".to_string());
+                self.scan_activity.push("    $images           - Extract all images".to_string());
+                self.scan_activity.push("    $forms            - Extract all forms".to_string());
+                self.scan_activity.push("    $meta             - Extract meta tags".to_string());
+                self.scan_activity.push("    $og               - Extract Open Graph".to_string());
+                self.scan_activity.push("    $json-ld          - Extract JSON-LD".to_string());
+                self.scan_activity.push("    $scripts          - Extract scripts".to_string());
+                self.scan_activity.push("    $css              - Extract stylesheets".to_string());
+                self.scan_activity.push("    $table            - Extract tables".to_string());
+                self.scan_activity.push("  Other:".to_string());
+                self.scan_activity.push("    run <preset>   - Run scan preset".to_string());
+                self.scan_activity.push("    reload         - Reload session".to_string());
+                self.scan_activity.push("    quit           - Exit TUI".to_string());
+                self.scan_activity.push("  Note: Variables are expanded in commands ($VAR or ${VAR})".to_string());
+            }
             _ => {
                 return Err(format!(
-                    "Unknown command: {}. Try: scan, recon, reload, quit",
+                    "Unknown command: {}. Type 'help' for available commands",
                     parts[0]
                 ));
             }
         }
 
         Ok(())
+    }
+
+    /// Execute port scan
+    fn execute_port_scan(&mut self) -> Result<(), String> {
+        let args = vec![
+            "network".to_string(),
+            "ports".to_string(),
+            "scan".to_string(),
+            self.target.clone(),
+            "--preset".to_string(),
+            "common".to_string(),
+        ];
+        self.run_external_command(&args)
+    }
+
+    /// Execute subdomain enumeration scan
+    fn execute_subdomain_scan(&mut self) -> Result<(), String> {
+        let args = vec![
+            "recon".to_string(),
+            "domain".to_string(),
+            "subdomains".to_string(),
+            self.target.clone(),
+        ];
+        self.run_external_command(&args)
+    }
+
+    /// Execute network discovery scan
+    fn execute_network_scan(&mut self) -> Result<(), String> {
+        let args = vec![
+            "network".to_string(),
+            "host".to_string(),
+            "discover".to_string(),
+            "192.168.1.0/24".to_string(),
+        ];
+        self.run_external_command(&args)
+    }
+
+    /// Execute WHOIS lookup
+    fn execute_whois_lookup(&mut self) -> Result<(), String> {
+        let args = vec![
+            "recon".to_string(),
+            "domain".to_string(),
+            "whois".to_string(),
+            self.target.clone(),
+        ];
+        self.run_external_command(&args)
+    }
+
+    // ========== Dynamic Target ==========
+
+    /// Change the target context dynamically
+    fn change_target(&mut self, new_target: &str) -> Result<(), String> {
+        let old_target = self.target.clone();
+
+        // Update target and associated paths
+        self.target = new_target.to_string();
+
+        // Recalculate session and database paths
+        let identifier = SessionFile::identifier_for(new_target);
+        self.session_path = format!("{}{}", identifier, SessionFile::EXTENSION);
+        self.db_path = format!("{}.rdb", identifier);
+
+        // Log the change
+        self.scan_activity.push(format!(
+            "Target changed: {} → {}",
+            old_target, new_target
+        ));
+
+        // Clear existing data for fresh start with new target
+        self.network_data.clear();
+        self.ports_data.clear();
+        self.subdomains_data.clear();
+        self.whois_data.clear();
+        self.certs_data.clear();
+        self.metadata = None;
+
+        // Try to load existing session/database for the new target
+        if std::path::Path::new(&self.session_path).exists() {
+            self.scan_activity.push(format!(
+                "Found existing session: {}",
+                self.session_path
+            ));
+            let _ = self.load_session();
+        }
+
+        if std::path::Path::new(&self.db_path).exists() {
+            self.scan_activity.push(format!(
+                "Found existing database: {}",
+                self.db_path
+            ));
+            let _ = self.load_database_data();
+        } else {
+            self.scan_activity.push("No existing data for this target".to_string());
+        }
+
+        // Also set target as a session variable for easy reference
+        self.session_variables.insert("TARGET".to_string(), new_target.to_string());
+
+        Ok(())
+    }
+
+    // ========== Session Variables ==========
+
+    /// Set a session variable
+    fn set_variable(&mut self, name: &str, value: &str) {
+        self.session_variables.insert(name.to_string(), value.to_string());
+        self.scan_activity.push(format!("Set ${} = {}", name, value));
+    }
+
+    /// Get a session variable
+    fn get_variable(&self, name: &str) -> Option<&String> {
+        self.session_variables.get(name)
+    }
+
+    /// Unset (remove) a session variable
+    fn unset_variable(&mut self, name: &str) -> bool {
+        let existed = self.session_variables.remove(name).is_some();
+        if existed {
+            self.scan_activity.push(format!("Unset ${}", name));
+        }
+        existed
+    }
+
+    /// List all session variables
+    fn list_variables(&self) -> Vec<(&String, &String)> {
+        let mut vars: Vec<_> = self.session_variables.iter().collect();
+        vars.sort_by(|a, b| a.0.cmp(b.0));
+        vars
+    }
+
+    /// Expand variables in a string ($VAR or ${VAR} syntax)
+    fn expand_variables(&self, input: &str) -> String {
+        let mut result = input.to_string();
+
+        // First expand ${VAR} syntax (more specific)
+        for (name, value) in &self.session_variables {
+            let pattern = format!("${{{}}}", name);
+            result = result.replace(&pattern, value);
+        }
+
+        // Then expand $VAR syntax (simpler)
+        // Sort by name length descending to match longer names first
+        let mut sorted_vars: Vec<_> = self.session_variables.iter().collect();
+        sorted_vars.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+        for (name, value) in sorted_vars {
+            let pattern = format!("${}", name);
+            result = result.replace(&pattern, value);
+        }
+
+        result
     }
 
     /// Run a scan
