@@ -5,40 +5,36 @@ pub mod yaml;
 pub use presets::{Module, OutputFormat, Parallelism, RateLimit, ScanPreset};
 pub use yaml::YamlConfig;
 
-// Legacy config structures (from old config.rs)
 use std::collections::HashMap;
 use std::sync::Once;
 
 #[derive(Debug, Clone)]
 pub struct RedBlueConfig {
+    // Global settings
+    pub verbose: bool,
+    pub no_color: bool,
+    pub output_format: String,
+    pub output_file: Option<String>,
+    pub preset: Option<String>,
+    pub threads: usize,
+    pub rate_limit: u32,
+    pub auto_persist: bool,
+
+    // Nested configurations
     pub network: NetworkConfig,
     pub web: WebConfig,
     pub recon: ReconConfig,
-    pub output: OutputConfig,
     pub database: DatabaseConfig,
-}
 
-static INIT: Once = Once::new();
-static mut GLOBAL_CONFIG: Option<RedBlueConfig> = None;
-
-/// Initialize and return the global configuration (idempotent).
-pub fn init() -> &'static RedBlueConfig {
-    unsafe {
-        INIT.call_once(|| {
-            GLOBAL_CONFIG = Some(RedBlueConfig::load());
-        });
-        GLOBAL_CONFIG.as_ref().unwrap()
-    }
-}
-
-/// Access the global configuration, loading defaults if necessary.
-pub fn get() -> &'static RedBlueConfig {
-    init()
+    // Dynamic maps
+    pub wordlists: HashMap<String, String>,
+    pub credentials: HashMap<String, HashMap<String, String>>,
+    pub commands: HashMap<String, HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
-    pub threads: usize,
+    pub threads: usize, // Fallback if global threads not used? Usually global threads overrides.
     pub timeout_ms: u64,
     pub max_retries: usize,
     pub request_delay_ms: u64,
@@ -64,228 +60,120 @@ pub struct ReconConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct OutputConfig {
-    pub format: String,
-    pub color: bool,
-    pub verbose: bool,
-    pub save_to_file: bool,
-    pub output_dir: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct DatabaseConfig {
-    pub auto_persist: bool,
     pub db_dir: Option<String>,
     pub auto_name: bool,
     pub format_version: u32,
 }
 
-impl Default for NetworkConfig {
-    fn default() -> Self {
-        Self {
-            threads: 10,
-            timeout_ms: 5000,
-            max_retries: 2,
-            request_delay_ms: 0,
-            dns_resolver: "8.8.8.8".to_string(),
-            dns_timeout_ms: 3000,
-        }
+static INIT: Once = Once::new();
+static mut GLOBAL_CONFIG: Option<RedBlueConfig> = None;
+
+/// Initialize and return the global configuration (idempotent).
+pub fn init() -> &'static RedBlueConfig {
+    unsafe {
+        INIT.call_once(|| {
+            GLOBAL_CONFIG = Some(RedBlueConfig::load());
+        });
+        GLOBAL_CONFIG.as_ref().unwrap()
     }
 }
 
-impl Default for WebConfig {
-    fn default() -> Self {
-        Self {
-            user_agent: "RedBlue/1.0".to_string(),
-            follow_redirects: true,
-            max_redirects: 5,
-            verify_ssl: true,
-            headers: HashMap::new(),
-            timeout_secs: 10,
-        }
-    }
-}
-
-impl Default for ReconConfig {
-    fn default() -> Self {
-        Self {
-            subdomain_wordlist: None,
-            passive_only: false,
-            dns_timeout_ms: 3000,
-        }
-    }
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            format: "human".to_string(),
-            color: true,
-            verbose: false,
-            save_to_file: false,
-            output_dir: None,
-        }
-    }
-}
-
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            auto_persist: false,
-            db_dir: None,
-            auto_name: true,
-            format_version: 1,
-        }
-    }
+/// Access the global configuration, loading defaults if necessary.
+pub fn get() -> &'static RedBlueConfig {
+    init()
 }
 
 impl Default for RedBlueConfig {
     fn default() -> Self {
-        Self {
-            network: NetworkConfig::default(),
-            web: WebConfig::default(),
-            recon: ReconConfig::default(),
-            output: OutputConfig::default(),
-            database: DatabaseConfig::default(),
-        }
+        Self::from_yaml_config(YamlConfig::default())
     }
 }
 
 impl RedBlueConfig {
-    pub fn load() -> Self {
-        // Try to load from .redblue.toml in current directory
-        if let Ok(config) = Self::load_from_file(".redblue.toml") {
-            return config;
-        }
+    fn from_yaml_config(cfg: YamlConfig) -> Self {
+        Self {
+            verbose: cfg.verbose.unwrap_or(false),
+            no_color: cfg.no_color.unwrap_or(false),
+            output_format: cfg.output_format.unwrap_or_else(|| "human".to_string()),
+            output_file: cfg.output_file,
+            preset: cfg.preset,
+            threads: cfg.threads.unwrap_or(10),
+            rate_limit: cfg.rate_limit.unwrap_or(0),
+            auto_persist: cfg.auto_persist.unwrap_or(false),
 
-        // Fallback to defaults
+            network: NetworkConfig {
+                threads: cfg.threads.unwrap_or(10),
+                timeout_ms: cfg.network_timeout_ms.unwrap_or(5000),
+                max_retries: cfg.network_max_retries.unwrap_or(2),
+                request_delay_ms: cfg.network_request_delay_ms.unwrap_or(0),
+                dns_resolver: cfg.network_dns_resolver.unwrap_or_else(|| "8.8.8.8".to_string()),
+                dns_timeout_ms: cfg.network_dns_timeout_ms.unwrap_or(3000),
+            },
+
+            web: WebConfig {
+                user_agent: cfg.web_user_agent.unwrap_or_else(|| "RedBlue/1.0".to_string()),
+                follow_redirects: cfg.web_follow_redirects.unwrap_or(true),
+                max_redirects: cfg.web_max_redirects.unwrap_or(5),
+                verify_ssl: cfg.web_verify_ssl.unwrap_or(true),
+                headers: cfg.web_headers,
+                timeout_secs: cfg.web_timeout_secs.unwrap_or(10),
+            },
+
+            recon: ReconConfig {
+                subdomain_wordlist: cfg.recon_subdomain_wordlist,
+                passive_only: cfg.recon_passive_only.unwrap_or(false),
+                dns_timeout_ms: cfg.recon_dns_timeout_ms.unwrap_or(3000),
+            },
+
+            database: DatabaseConfig {
+                db_dir: cfg.db_dir,
+                auto_name: cfg.db_auto_name.unwrap_or(true),
+                format_version: cfg.db_format_version.unwrap_or(1),
+            },
+
+            wordlists: cfg.wordlists,
+            credentials: cfg.credentials,
+            commands: cfg.commands,
+        }
+    }
+
+    pub fn load() -> Self {
+        if let Some(yaml_config) = YamlConfig::load_from_cwd_cached() {
+            return Self::from_yaml_config(yaml_config.clone());
+        }
         Self::default()
     }
 
-    /// Load configuration from TOML file
-    pub fn load_from_file(path: &str) -> Result<Self, String> {
-        use std::fs;
-
-        let content =
-            fs::read_to_string(path).map_err(|e| format!("Failed to read config file: {}", e))?;
-
-        Self::parse_toml(&content)
-    }
-
-    /// Parse TOML configuration (simple parser, no external dependencies)
-    fn parse_toml(content: &str) -> Result<Self, String> {
-        let mut config = Self::default();
-        let mut current_section = String::new();
-
-        for line in content.lines() {
-            let line = line.trim();
-
-            // Skip comments and empty lines
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            // Section headers: [section]
-            if line.starts_with('[') && line.ends_with(']') {
-                current_section = line[1..line.len() - 1].to_string();
-                continue;
-            }
-
-            // Parse key = value
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim().trim_matches('"');
-
-                match current_section.as_str() {
-                    "database" => {
-                        if key == "auto_persist" {
-                            config.database.auto_persist = value == "true";
-                        } else if key == "db_dir" {
-                            config.database.db_dir = Some(value.to_string());
-                        }
-                    }
-                    "output" => {
-                        if key == "format" {
-                            config.output.format = value.to_string();
-                        } else if key == "color" {
-                            config.output.color = value == "true";
-                        } else if key == "verbose" {
-                            config.output.verbose = value == "true";
-                        }
-                    }
-                    "network" => {
-                        if key == "threads" {
-                            config.network.threads = value.parse().unwrap_or(10);
-                        } else if key == "timeout_ms" {
-                            config.network.timeout_ms = value.parse().unwrap_or(5000);
-                        }
-                    }
-                    _ => {
-                        // Unknown section, ignore
-                    }
-                }
-            }
-        }
-
-        Ok(config)
-    }
-
-    /// Create default .redblue.toml file
     pub fn create_default_file() -> Result<(), String> {
+        // ... (Same as before, implementation of default file creation)
         use std::fs;
         use std::path::Path;
 
-        let path = ".redblue.toml";
+        let path = ".redblue.yaml";
 
         if Path::new(path).exists() {
-            return Err(
-                "Config file already exists. Delete .redblue.toml first or edit it manually."
-                    .to_string(),
-            );
+            return Err("Config file already exists.".to_string());
         }
 
         let content = r#"# RedBlue Configuration File
-# Auto-generated by 'rb init'
-#
-# This file configures redblue behavior for the current directory
+verbose: false
+no_color: false
+output_format: human
+threads: 10
+auto_persist: false
 
-[database]
-# Enable automatic persistence for all commands (saves to .rdb files)
-auto_persist = true
+network:
+  timeout_ms: 5000
+  max_retries: 2
+  dns_resolver: "8.8.8.8"
+  dns_timeout_ms: 3000
 
-# Directory for database files (optional, defaults to current directory)
-# db_dir = "./redblue-data"
-
-[output]
-# Output format: human, json, yaml
-format = "human"
-
-# Enable colored output
-color = true
-
-# Verbose mode
-verbose = false
-
-[network]
-# Number of concurrent threads for scanning
-threads = 10
-
-# Connection timeout in milliseconds
-timeout_ms = 5000
-
-[web]
-# User agent string
-# user_agent = "RedBlue/1.0"
-
-# Follow HTTP redirects
-# follow_redirects = true
-
-# Verify SSL certificates
-# verify_ssl = true
+web:
+  user_agent: "RedBlue/1.0"
+  follow_redirects: true
+  verify_ssl: true
 "#;
-
-        fs::write(path, content).map_err(|e| format!("Failed to write config file: {}", e))?;
-
-        Ok(())
+        fs::write(path, content).map_err(|e| e.to_string())
     }
 }
