@@ -5,7 +5,7 @@ use crate::storage::client::query::format as query_format;
 use crate::storage::encoding::IpKey;
 use crate::storage::layout::{FileHeader, SegmentKind, SectionEntry, SegmentMetadata};
 use crate::storage::reddb::RedDb;
-use crate::storage::schema::{
+use crate::storage::records::{
     DnsRecordData, DnsRecordType, PortScanRecord, PortStatus, SubdomainRecord,
 };
 use crate::storage::service::{PartitionKey, StorageService};

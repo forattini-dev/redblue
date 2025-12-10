@@ -1,7 +1,7 @@
 /// Wordlist management command
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::wordlists::{Downloader, WordlistManager};
+use crate::wordlists::{get_wordlist_sources, Downloader, WordlistCategory, WordlistManager};
 
 pub struct WordlistCommand;
 
@@ -26,6 +26,16 @@ impl Command for WordlistCommand {
                 usage: "rb wordlist collection list [--embedded] [--cached]",
             },
             Route {
+                verb: "sources",
+                summary: "List downloadable wordlist sources",
+                usage: "rb wordlist collection sources [--category passwords|subdomains|dirs|usernames]",
+            },
+            Route {
+                verb: "search",
+                summary: "Search downloadable wordlists",
+                usage: "rb wordlist collection search <query>",
+            },
+            Route {
                 verb: "info",
                 summary: "Show wordlist details",
                 usage: "rb wordlist collection info <name>",
@@ -41,8 +51,13 @@ impl Command for WordlistCommand {
                 usage: "rb wordlist collection init",
             },
             Route {
+                verb: "get",
+                summary: "Download a wordlist (alias: install)",
+                usage: "rb wordlist collection get <name>",
+            },
+            Route {
                 verb: "install",
-                summary: "Install wordlist collection",
+                summary: "Install wordlist collection or single wordlist",
                 usage: "rb wordlist collection install <source>",
             },
             Route {
@@ -62,34 +77,38 @@ impl Command for WordlistCommand {
         vec![
             Flag::new("embedded", "Show only embedded wordlists"),
             Flag::new("cached", "Show only cached wordlists"),
+            Flag::new("category", "Filter by category (passwords, subdomains, dirs, usernames)")
+                .with_short('c'),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("List all wordlists", "rb wordlist collection list"),
+            ("List installed wordlists", "rb wordlist collection list"),
+            ("List downloadable sources", "rb wordlist collection sources"),
             (
-                "List embedded only",
-                "rb wordlist collection list --embedded",
+                "List password wordlists",
+                "rb wordlist collection sources --category passwords",
+            ),
+            ("Search for wordlists", "rb wordlist collection search rock"),
+            (
+                "Download rockyou.txt",
+                "rb wordlist collection get rockyou",
             ),
             (
-                "Show wordlist info",
-                "rb wordlist collection info subdomains-top100",
+                "Download common passwords",
+                "rb wordlist collection get common-passwords",
             ),
             ("Check cache status", "rb wordlist collection status"),
             ("Initialize cache", "rb wordlist collection init"),
             (
-                "Install SecLists",
+                "Install SecLists (full)",
                 "rb wordlist collection install seclists",
-            ),
-            (
-                "Install Assetnote DNS",
-                "rb wordlist collection install assetnote-dns",
             ),
             ("Update SecLists", "rb wordlist collection update seclists"),
             (
-                "Remove collection",
-                "rb wordlist collection remove seclists",
+                "Remove wordlist",
+                "rb wordlist collection remove rockyou",
             ),
         ]
     }
@@ -102,9 +121,12 @@ impl Command for WordlistCommand {
 
         match verb.as_str() {
             "list" => self.list(ctx),
+            "sources" => self.sources(ctx),
+            "search" => self.search(ctx),
             "info" => self.info(ctx),
             "status" => self.status(ctx),
             "init" => self.init(ctx),
+            "get" => self.get(ctx),
             "install" => self.install(ctx),
             "update" => self.update(ctx),
             "remove" => self.remove(ctx),
@@ -347,9 +369,144 @@ impl WordlistCommand {
         Ok(total_size)
     }
 
+    fn sources(&self, ctx: &CliContext) -> Result<(), String> {
+        let sources = get_wordlist_sources();
+
+        // Check for category filter
+        let category_filter = ctx.get_flag("category");
+
+        Output::header("Downloadable Wordlist Sources");
+
+        let filtered: Vec<_> = if let Some(cat) = category_filter {
+            let cat_enum = match cat.to_lowercase().as_str() {
+                "passwords" | "password" | "pass" => Some(WordlistCategory::Passwords),
+                "subdomains" | "subdomain" | "dns" => Some(WordlistCategory::Subdomains),
+                "dirs" | "directories" | "dir" | "web" => Some(WordlistCategory::Directories),
+                "usernames" | "username" | "users" | "user" => Some(WordlistCategory::Usernames),
+                _ => None,
+            };
+
+            if let Some(c) = cat_enum {
+                sources.into_iter().filter(|s| s.category == c).collect()
+            } else {
+                Output::warning(&format!("Unknown category: {}", cat));
+                println!("Available: passwords, subdomains, dirs, usernames");
+                return Ok(());
+            }
+        } else {
+            sources
+        };
+
+        if filtered.is_empty() {
+            Output::warning("No wordlists found for this category");
+            return Ok(());
+        }
+
+        // Group by category
+        let passwords: Vec<_> = filtered
+            .iter()
+            .filter(|s| s.category == WordlistCategory::Passwords)
+            .collect();
+        let subdomains: Vec<_> = filtered
+            .iter()
+            .filter(|s| s.category == WordlistCategory::Subdomains)
+            .collect();
+        let dirs: Vec<_> = filtered
+            .iter()
+            .filter(|s| s.category == WordlistCategory::Directories)
+            .collect();
+        let usernames: Vec<_> = filtered
+            .iter()
+            .filter(|s| s.category == WordlistCategory::Usernames)
+            .collect();
+
+        let print_section = |title: &str, items: &[&crate::wordlists::WordlistSource]| {
+            if !items.is_empty() {
+                Output::section(title);
+                println!(
+                    "  {:<20} {:<10} {}",
+                    "NAME", "SIZE", "DESCRIPTION"
+                );
+                println!("  {}", "─".repeat(70));
+                for s in items {
+                    println!(
+                        "  {:<20} {:<10} {}",
+                        s.name, s.size_hint, s.description
+                    );
+                }
+                println!();
+            }
+        };
+
+        print_section("🔑 Passwords", &passwords);
+        print_section("🌐 Subdomains", &subdomains);
+        print_section("📁 Directories", &dirs);
+        print_section("👤 Usernames", &usernames);
+
+        println!("To download: rb wordlist collection get <name>");
+        println!("Example:     rb wordlist collection get rockyou");
+
+        Ok(())
+    }
+
+    fn search(&self, ctx: &CliContext) -> Result<(), String> {
+        let query = ctx.target.as_ref().ok_or(
+            "Missing search query.\nUsage: rb wordlist collection search <query>\nExample: rb wordlist collection search rock",
+        )?;
+
+        let manager = WordlistManager::new()?;
+        let downloader = Downloader::new(manager.cache_dir().to_path_buf());
+        let results = downloader.search_sources(query);
+
+        Output::header(&format!("Search Results for '{}'", query));
+
+        if results.is_empty() {
+            Output::warning("No wordlists found matching your query");
+            println!("\nTry: rb wordlist collection sources");
+            return Ok(());
+        }
+
+        println!(
+            "  {:<20} {:<12} {:<10} {}",
+            "NAME", "CATEGORY", "SIZE", "DESCRIPTION"
+        );
+        println!("  {}", "─".repeat(75));
+
+        for s in &results {
+            let cat = match s.category {
+                WordlistCategory::Passwords => "passwords",
+                WordlistCategory::Subdomains => "subdomains",
+                WordlistCategory::Directories => "dirs",
+                WordlistCategory::Usernames => "usernames",
+                WordlistCategory::Mixed => "mixed",
+            };
+            println!(
+                "  {:<20} {:<12} {:<10} {}",
+                s.name, cat, s.size_hint, s.description
+            );
+        }
+
+        println!("\nFound {} result(s)", results.len());
+        println!("To download: rb wordlist collection get <name>");
+
+        Ok(())
+    }
+
+    fn get(&self, ctx: &CliContext) -> Result<(), String> {
+        let name = ctx.target.as_ref().ok_or(
+            "Missing wordlist name.\nUsage: rb wordlist collection get <name>\nExample: rb wordlist collection get rockyou",
+        )?;
+
+        let manager = WordlistManager::new()?;
+        manager.init()?; // Ensure cache directory exists
+
+        let downloader = Downloader::new(manager.cache_dir().to_path_buf());
+        downloader.download_wordlist(name)
+    }
+
     fn install(&self, ctx: &CliContext) -> Result<(), String> {
         let source = ctx.target.as_ref().ok_or(
-            "Missing source.\nUsage: rb wordlist collection install <source>\nAvailable: seclists, assetnote-dns",
+            "Missing source.\nUsage: rb wordlist collection install <source>\nRun `rb wordlist collection sources` to see available wordlists",
         )?;
 
         let manager = WordlistManager::new()?;
@@ -357,17 +514,27 @@ impl WordlistCommand {
 
         let downloader = Downloader::new(manager.cache_dir().to_path_buf());
 
+        // First check for known collections
         match source.as_str() {
-            "seclists" => downloader.download_seclists(),
-            "assetnote-dns" | "assetnote" => downloader.download_assetnote_dns(),
-            _ => {
-                Output::error(&format!("Unknown source: {}", source));
-                println!("\nAvailable sources:");
-                println!("  • seclists      - SecLists collection (~1.2GB)");
-                println!("  • assetnote-dns - Assetnote DNS wordlist (~15MB)");
-                Err(format!("Unknown source: {}", source))
-            }
+            "seclists" => return downloader.download_seclists(),
+            "assetnote-dns" | "assetnote" => return downloader.download_assetnote_dns(),
+            _ => {}
         }
+
+        // Try to download from wordlist registry
+        let sources = get_wordlist_sources();
+        if sources.iter().any(|s| s.name == source.as_str()) {
+            return downloader.download_wordlist(source);
+        }
+
+        // Not found
+        Output::error(&format!("Unknown source: {}", source));
+        println!("\nCollections:");
+        println!("  • seclists      - Full SecLists collection (~1.2GB)");
+        println!("  • assetnote-dns - Assetnote DNS wordlist (~15MB)");
+        println!("\nIndividual wordlists:");
+        println!("  Run `rb wordlist collection sources` to see available");
+        Err(format!("Unknown source: {}", source))
     }
 
     fn update(&self, ctx: &CliContext) -> Result<(), String> {
@@ -401,5 +568,166 @@ impl WordlistCommand {
         let downloader = Downloader::new(manager.cache_dir().to_path_buf());
 
         downloader.remove(source)
+    }
+}
+
+pub struct WordlistFileCommand;
+
+impl Command for WordlistFileCommand {
+    fn domain(&self) -> &str {
+        "wordlist"
+    }
+
+    fn resource(&self) -> &str {
+        "file"
+    }
+
+    fn description(&self) -> &str {
+        "Operations on local wordlist files"
+    }
+
+    fn routes(&self) -> Vec<Route> {
+        vec![
+            Route {
+                verb: "info",
+                summary: "Show wordlist file statistics and preview",
+                usage: "rb wordlist file info <path>",
+            },
+            Route {
+                verb: "filter",
+                summary: "Filter wordlist by pattern or length",
+                usage: "rb wordlist file filter <path> --pattern <str> --min <n> --max <n>",
+            },
+        ]
+    }
+
+    fn flags(&self) -> Vec<Flag> {
+        vec![
+            Flag::new("pattern", "Filter by pattern (substring)").with_arg("str"),
+            Flag::new("min", "Minimum length").with_arg("n"),
+            Flag::new("max", "Maximum length").with_arg("n"),
+            Flag::new("inverse", "Invert pattern match (grep -v)"),
+        ]
+    }
+
+    fn examples(&self) -> Vec<(&str, &str)> {
+        vec![
+            (
+                "Show stats for a wordlist",
+                "rb wordlist file info rockyou.txt",
+            ),
+            (
+                "Filter words containing 'admin'",
+                "rb wordlist file filter rockyou.txt --pattern admin",
+            ),
+            (
+                "Filter passwords > 8 chars",
+                "rb wordlist file filter rockyou.txt --min 8",
+            ),
+        ]
+    }
+
+    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+        let verb = ctx.verb.as_ref().ok_or_else(|| {
+            print_help(self);
+            "No verb provided".to_string()
+        })?;
+
+        match verb.as_str() {
+            "info" => self.info(ctx),
+            "filter" => self.filter(ctx),
+            _ => {
+                Output::error(&format!("Unknown verb: {}", verb));
+                Err("Invalid verb".to_string())
+            }
+        }
+    }
+}
+
+impl WordlistFileCommand {
+    fn info(&self, ctx: &CliContext) -> Result<(), String> {
+        let path_str = ctx.target.as_ref().ok_or(
+            "Missing wordlist path.\nUsage: rb wordlist file info <path>",
+        )?;
+        let path = std::path::Path::new(path_str);
+
+        if !path.exists() {
+            return Err(format!("File not found: {}", path_str));
+        }
+
+        use crate::modules::wordlist::loader::Loader;
+        use crate::modules::wordlist::analysis::Analyzer;
+        use std::io::{BufRead, BufReader};
+
+        Output::header(&format!("Wordlist Analysis: {}", path_str));
+
+        let reader = Loader::open(path).map_err(|e| e.to_string())?;
+        let buf_reader = BufReader::new(reader);
+        
+        // Load into memory for analysis? 
+        // Analyzer::analyze takes &[String]. 
+        // For huge files this is bad. 
+        // But our Analyzer implementation handles &[String].
+        // Ideally we should stream. 
+        // For now, let's load line by line and accumulate stats manually or collect if small enough?
+        // Let's implement a streaming analysis in WordlistFileCommand for now, 
+        // or update Analyzer to accept iterator.
+        
+        // Simpler: Read lines and analyze.
+        let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
+        let lines = lines.map_err(|e| e.to_string())?;
+        
+        let stats = Analyzer::analyze(&lines);
+        
+        Output::item("Lines", &stats.line_count.to_string());
+        Output::item("Unique", &stats.unique_count.to_string());
+        Output::item("Avg Length", &format!("{:.1}", stats.avg_length));
+        Output::item("Min Length", &stats.min_length.to_string());
+        Output::item("Max Length", &stats.max_length.to_string());
+        Output::item("Charset", &stats.charset);
+        
+        // Preview
+        Output::section("Preview (first 10)");
+        for line in lines.iter().take(10) {
+            println!("  {}", line);
+        }
+
+        Ok(())
+    }
+    
+    fn filter(&self, ctx: &CliContext) -> Result<(), String> {
+        let path_str = ctx.target.as_ref().ok_or(
+            "Missing wordlist path.\nUsage: rb wordlist file filter <path>",
+        )?;
+        let path = std::path::Path::new(path_str);
+        
+        use crate::modules::wordlist::loader::Loader;
+        use crate::modules::wordlist::filter::Filter;
+        use std::io::{BufRead, BufReader};
+        
+        let reader = Loader::open(path).map_err(|e| e.to_string())?;
+        let buf_reader = BufReader::new(reader);
+        let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
+        let mut words = lines.map_err(|e| e.to_string())?;
+        
+        // Apply length filter
+        let min = ctx.get_flag("min").and_then(|s| s.parse().ok());
+        let max = ctx.get_flag("max").and_then(|s| s.parse().ok());
+        
+        if min.is_some() || max.is_some() {
+            words = Filter::by_length(words, min, max);
+        }
+        
+        // Apply pattern filter
+        if let Some(pattern) = ctx.get_flag("pattern") {
+            let inverse = ctx.has_flag("inverse");
+            words = Filter::by_pattern(words, &pattern, inverse);
+        }
+        
+        for w in words {
+            println!("{}", w);
+        }
+        
+        Ok(())
     }
 }

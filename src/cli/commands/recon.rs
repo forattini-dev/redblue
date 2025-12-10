@@ -1,6 +1,7 @@
 /// Recon/domain command - Information gathering and OSINT
 use crate::cli::commands::{build_partition_attributes, print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::ui::{TreeNode, TreeRenderer, ReconTreeBuilder};
 use crate::modules::recon::harvester::Harvester;
 use crate::modules::recon::subdomain::{
     load_wordlist_from_file, EnumerationSource, SubdomainEnumerator,
@@ -24,8 +25,11 @@ use crate::protocols::rdap::RdapClient;
 use crate::protocols::whois::WhoisClient;
 use crate::storage::service::StorageService;
 use crate::storage::SubdomainSource;
+use crate::storage::QueryManager;
+use std::env;
 use std::net::IpAddr;
-use std::collections::HashSet; // Added import
+use std::path::PathBuf;
+use std::collections::HashSet;
 
 
 pub struct ReconCommand;
@@ -141,6 +145,11 @@ impl Command for ReconCommand {
                 summary: "Get detailed OSINT data from database",
                 usage: "rb recon domain describe <domain> [--db <file>]",
             },
+            Route {
+                verb: "graph",
+                summary: "Visualize domain/subdomain tree from database",
+                usage: "rb recon domain graph <domain> [--db <file>] [--depth N]",
+            },
         ]
     }
 
@@ -181,6 +190,8 @@ impl Command for ReconCommand {
             Flag::new("delay", "Delay between queries in ms for rate limiting")
                 .with_default("10"),
             Flag::new("filter-wildcards", "Enable wildcard detection and filtering (for subdomains command)"),
+            Flag::new("depth", "Maximum tree depth for graph command").with_default("5"),
+            Flag::new("no-color", "Disable colored output in graph"),
         ]
     }
 
@@ -331,6 +342,7 @@ impl Command for ReconCommand {
             "list" => self.list_subdomains(ctx),
             "get" => self.get_subdomain(ctx),
             "describe" => self.describe_domain(ctx),
+            "graph" => self.graph(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
@@ -356,7 +368,8 @@ impl Command for ReconCommand {
                             "massdns",
                             "list",
                             "get",
-                            "describe"
+                            "describe",
+                            "graph"
                         ]
                     )
                 );
@@ -2617,11 +2630,67 @@ impl ReconCommand {
             .as_ref()
             .ok_or("Missing domain. Usage: rb recon domain list <domain> [--db file]")?;
 
-        // TODO: Implement database query for subdomains
-        // For now, return a placeholder message
-        Output::header(&format!("Subdomains for {}", domain));
-        Output::info("[COMING SOON] Query database for saved subdomains");
-        Output::info(&format!("Command: rb recon domain list {}", domain));
+        let format = ctx.get_output_format();
+        let db_path = self.resolve_db_path(ctx, domain)?;
+
+        let mut qm = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database {}: {}", db_path.display(), e))?;
+
+        let subdomains = qm
+            .list_subdomains(domain)
+            .map_err(|e| format!("Failed to query subdomains: {}", e))?;
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain);
+            println!("  \"count\": {},", subdomains.len());
+            println!("  \"subdomains\": [");
+            for (i, sub) in subdomains.iter().enumerate() {
+                let comma = if i < subdomains.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", sub, comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("domain: {}", domain);
+            println!("count: {}", subdomains.len());
+            println!("subdomains:");
+            for sub in &subdomains {
+                println!("  - {}", sub);
+            }
+            return Ok(());
+        }
+
+        // Human output
+        if subdomains.is_empty() {
+            Output::warning(&format!("No subdomains found for {} in database", domain));
+            Output::dim(&format!(
+                "Run: rb recon domain subdomains {} --persist",
+                domain
+            ));
+            return Ok(());
+        }
+
+        Output::header(&format!("Stored Subdomains for {}", domain));
+        Output::item("Database", &db_path.display().to_string());
+        Output::item("Total", &subdomains.len().to_string());
+        println!();
+
+        println!("  {:<50}", "SUBDOMAIN");
+        println!("  {}", "─".repeat(50));
+
+        for sub in &subdomains {
+            println!("  \x1b[32m●\x1b[0m {}", sub);
+        }
+
+        println!();
+        Output::success(&format!("Found {} subdomains in database", subdomains.len()));
 
         Ok(())
     }
@@ -2633,10 +2702,63 @@ impl ReconCommand {
             .as_ref()
             .ok_or("Missing subdomain. Usage: rb recon domain get <subdomain> [--db file]")?;
 
-        // TODO: Implement database query for specific subdomain
+        // Extract parent domain from subdomain
+        let parts: Vec<&str> = subdomain.split('.').collect();
+        let domain = if parts.len() >= 2 {
+            format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
+        } else {
+            subdomain.to_string()
+        };
+
+        let format = ctx.get_output_format();
+        let db_path = self.resolve_db_path(ctx, &domain)?;
+
+        let mut qm = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database {}: {}", db_path.display(), e))?;
+
+        let subdomains = qm
+            .list_subdomains(&domain)
+            .map_err(|e| format!("Failed to query subdomains: {}", e))?;
+
+        // Check if the requested subdomain exists
+        let found = subdomains.iter().any(|s| s == subdomain);
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"subdomain\": \"{}\",", subdomain);
+            println!("  \"parent_domain\": \"{}\",", domain);
+            println!("  \"found\": {},", found);
+            println!("  \"database\": \"{}\"", db_path.display());
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("subdomain: {}", subdomain);
+            println!("parent_domain: {}", domain);
+            println!("found: {}", found);
+            println!("database: {}", db_path.display());
+            return Ok(());
+        }
+
+        // Human output
         Output::header(&format!("Subdomain Info: {}", subdomain));
-        Output::info("[COMING SOON] Query database for subdomain details");
-        Output::info(&format!("Command: rb recon domain get {}", subdomain));
+        Output::item("Parent Domain", &domain);
+        Output::item("Database", &db_path.display().to_string());
+        println!();
+
+        if found {
+            Output::success(&format!("✓ {} exists in database", subdomain));
+        } else {
+            Output::warning(&format!("✗ {} not found in database", subdomain));
+            Output::dim(&format!(
+                "Run: rb recon domain subdomains {} --persist",
+                domain
+            ));
+        }
 
         Ok(())
     }
@@ -2648,12 +2770,236 @@ impl ReconCommand {
             .as_ref()
             .ok_or("Missing domain. Usage: rb recon domain describe <domain> [--db file]")?;
 
-        // TODO: Implement comprehensive database query
+        let format = ctx.get_output_format();
+        let db_path = self.resolve_db_path(ctx, domain)?;
+
+        let mut qm = StorageService::global()
+            .open_query_manager(&db_path)
+            .map_err(|e| format!("Failed to open database {}: {}", db_path.display(), e))?;
+
+        // Gather all data
+        let subdomains = qm.list_subdomains(domain).unwrap_or_default();
+        let whois = qm.get_whois(domain).ok().flatten();
+        let dns = qm.list_dns_records(domain).unwrap_or_default();
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain);
+            println!("  \"database\": \"{}\",", db_path.display());
+            println!("  \"subdomains\": {{");
+            println!("    \"count\": {},", subdomains.len());
+            println!("    \"items\": [");
+            for (i, sub) in subdomains.iter().enumerate() {
+                let comma = if i < subdomains.len() - 1 { "," } else { "" };
+                println!("      \"{}\"{}", sub, comma);
+            }
+            println!("    ]");
+            println!("  }},");
+            println!("  \"whois\": {{");
+            if let Some(ref w) = whois {
+                println!("    \"registrar\": \"{}\",", w.registrar);
+                println!("    \"created\": \"{}\",", w.created_date);
+                println!("    \"expires\": \"{}\"", w.expires_date);
+            } else {
+                println!("    \"available\": false");
+            }
+            println!("  }},");
+            println!("  \"dns_records\": {{");
+            println!("    \"count\": {}", dns.len());
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("domain: {}", domain);
+            println!("database: {}", db_path.display());
+            println!("subdomains:");
+            println!("  count: {}", subdomains.len());
+            println!("  items:");
+            for sub in &subdomains {
+                println!("    - {}", sub);
+            }
+            println!("whois:");
+            if let Some(ref w) = whois {
+                println!("  registrar: {}", w.registrar);
+                println!("  created: {}", w.created_date);
+                println!("  expires: {}", w.expires_date);
+            } else {
+                println!("  available: false");
+            }
+            println!("dns_records:");
+            println!("  count: {}", dns.len());
+            return Ok(());
+        }
+
+        // Human output
         Output::header(&format!("Domain Intelligence: {}", domain));
-        Output::info("[COMING SOON] Query database for all recon data");
-        Output::info(&format!("Command: rb recon domain describe {}", domain));
-        Output::info("Will include: subdomains, WHOIS, harvested data, URLs");
+        Output::item("Database", &db_path.display().to_string());
+        println!();
+
+        // Subdomains section
+        Output::subheader(&format!("Subdomains ({})", subdomains.len()));
+        if subdomains.is_empty() {
+            Output::dim("  No subdomains found");
+        } else {
+            let display_limit = 10;
+            for sub in subdomains.iter().take(display_limit) {
+                println!("  \x1b[32m●\x1b[0m {}", sub);
+            }
+            if subdomains.len() > display_limit {
+                Output::dim(&format!(
+                    "  ... and {} more (use 'rb recon domain list {}' to see all)",
+                    subdomains.len() - display_limit,
+                    domain
+                ));
+            }
+        }
+        println!();
+
+        // WHOIS section
+        let has_whois;
+        Output::subheader("WHOIS Information");
+        if let Some(w) = whois {
+            has_whois = true;
+            println!("  Registrar:    {}", w.registrar);
+            println!("  Created:      {}", w.created_date);
+            println!("  Expires:      {}", w.expires_date);
+            if !w.nameservers.is_empty() {
+                println!("  Nameservers:  {}", w.nameservers.join(", "));
+            }
+        } else {
+            has_whois = false;
+            Output::dim("  No WHOIS data available");
+            Output::dim(&format!(
+                "  Run: rb recon domain whois {} --persist",
+                domain
+            ));
+        }
+        println!();
+
+        // DNS Records section
+        Output::subheader(&format!("DNS Records ({})", dns.len()));
+        if dns.is_empty() {
+            Output::dim("  No DNS records found");
+        } else {
+            for record in dns.iter().take(10) {
+                println!("  {:?}", record);
+            }
+        }
+        println!();
+
+        // Summary - count sources with data
+        let has_subdomains = !subdomains.is_empty();
+        let has_dns = !dns.is_empty();
+        let total = (has_subdomains as u8) + (has_whois as u8) + (has_dns as u8);
+
+        Output::success(&format!(
+            "Found {} data source(s) for {}",
+            total, domain
+        ));
 
         Ok(())
+    }
+
+    /// Visualize domain tree from database or live enumeration
+    fn graph(&self, ctx: &CliContext) -> Result<(), String> {
+        let domain = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing domain. Usage: rb recon domain graph <domain> [--db file]")?;
+
+        let use_color = !ctx.has_flag("no-color");
+        let _max_depth: usize = ctx
+            .get_flag_or("depth", "5")
+            .parse()
+            .unwrap_or(5);
+
+        Output::header(&format!("Domain Graph: {}", domain));
+        println!();
+
+        // Show example tree structure
+        // TODO: Integrate with RedDb storage for persisted subdomains
+        Output::info("Showing example tree structure for domain.");
+        Output::dim(&format!("To enumerate real subdomains: rb recon domain subdomains {}", domain));
+        println!();
+
+        // Create demo tree based on the domain
+        let mut root = TreeNode::domain(domain);
+
+        let mut www = TreeNode::subdomain(format!("www.{}", domain));
+        www.add_child(TreeNode::ip_str("93.184.216.34"));
+        www.add_child(TreeNode::port(443, Some("HTTPS")));
+        www.add_child(TreeNode::port(80, Some("HTTP")));
+        root.add_child(www);
+
+        let mut api = TreeNode::subdomain(format!("api.{}", domain));
+        api.add_child(TreeNode::ip_str("93.184.216.35"));
+        api.add_child(TreeNode::port(443, Some("HTTPS")));
+        api.add_child(TreeNode::technology("nginx", Some("1.21.0")));
+        root.add_child(api);
+
+        let mut mail = TreeNode::mail_server(format!("mail.{}", domain), Some(10));
+        mail.add_child(TreeNode::port(25, Some("SMTP")));
+        mail.add_child(TreeNode::port(587, Some("SMTP/TLS")));
+        root.add_child(mail);
+
+        let ns1 = TreeNode::nameserver(format!("ns1.{}", domain));
+        root.add_child(ns1);
+
+        let ns2 = TreeNode::nameserver(format!("ns2.{}", domain));
+        root.add_child(ns2);
+
+        // Render tree
+        let renderer = TreeRenderer::new().with_color(use_color);
+        renderer.display(&root);
+
+        println!();
+        Output::dim(&format!("Total nodes: {} | Depth: {}", root.count(), root.depth()));
+        Output::dim("(Example data - run subdomain enumeration for real data)");
+
+        Ok(())
+    }
+
+    /// Resolve database path from --db flag or auto-detect from target
+    fn resolve_db_path(&self, ctx: &CliContext, target: &str) -> Result<PathBuf, String> {
+        // First check if --db flag is provided
+        if let Some(db_flag) = ctx.get_flag("db") {
+            let path = PathBuf::from(&db_flag);
+            if path.exists() {
+                return Ok(path);
+            }
+            return Err(format!("Database file not found: {}", db_flag));
+        }
+
+        // Auto-detect: try {target}.rdb in current directory
+        let cwd = env::current_dir().map_err(|e| format!("Failed to get cwd: {}", e))?;
+
+        // Normalize target (remove protocol prefixes)
+        let base = target
+            .trim_start_matches("www.")
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .split(':')
+            .next()
+            .unwrap_or(target)
+            .to_lowercase();
+
+        let candidate = cwd.join(format!("{}.rdb", &base));
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+
+        Err(format!(
+            "Database file not found: {}.rdb\n\
+             Run a scan first with --persist:\n  \
+             rb recon domain subdomains {} --persist\n  \
+             rb recon domain whois {} --persist\n\n\
+             Or specify database file:\n  \
+             rb recon domain list {} --db path/to/file.rdb",
+            base, target, target, target
+        ))
     }
 }

@@ -71,7 +71,6 @@ impl InitCommand {
     fn create_config(&self, ctx: &CliContext) -> Result<(), String> {
         let output_path = ctx
             .get_flag("output")
-            .cloned()
             .unwrap_or_else(|| ".redblue.yaml".to_string());
 
         let path = PathBuf::from(&output_path);
@@ -148,4 +147,296 @@ wordlists:
 # ============================================================================
 "#
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_init_command_domain() {
+        let cmd = InitCommand;
+        assert_eq!(cmd.domain(), "config");
+    }
+
+    #[test]
+    fn test_init_command_resource() {
+        let cmd = InitCommand;
+        assert_eq!(cmd.resource(), "init");
+    }
+
+    #[test]
+    fn test_init_command_description() {
+        let cmd = InitCommand;
+        assert!(!cmd.description().is_empty());
+        assert!(cmd.description().contains("config"));
+    }
+
+    #[test]
+    fn test_init_command_routes() {
+        let cmd = InitCommand;
+        let routes = cmd.routes();
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].verb, "create");
+        assert!(routes[0].summary.contains("config"));
+    }
+
+    #[test]
+    fn test_init_command_flags() {
+        let cmd = InitCommand;
+        let flags = cmd.flags();
+        assert_eq!(flags.len(), 2);
+
+        // Check --force flag
+        let force_flag = flags.iter().find(|f| f.long == "force");
+        assert!(force_flag.is_some());
+        assert_eq!(force_flag.unwrap().short, Some('f'));
+
+        // Check --output flag
+        let output_flag = flags.iter().find(|f| f.long == "output");
+        assert!(output_flag.is_some());
+        assert_eq!(output_flag.unwrap().short, Some('o'));
+        assert_eq!(output_flag.unwrap().default, Some(".redblue.yaml".to_string()));
+    }
+
+    #[test]
+    fn test_init_command_examples() {
+        let cmd = InitCommand;
+        let examples = cmd.examples();
+        assert!(!examples.is_empty());
+        // Verify examples contain rb config commands
+        for (desc, cmd) in &examples {
+            assert!(!desc.is_empty());
+            assert!(cmd.contains("rb config init"));
+        }
+    }
+
+    #[test]
+    fn test_generate_full_config_content() {
+        let config = generate_full_config();
+
+        // Verify key configuration sections exist
+        assert!(config.contains("auto_persist: true"));
+        assert!(config.contains("output: human"));
+        assert!(config.contains("threads: 50"));
+        assert!(config.contains("rate_limit: 0"));
+        assert!(config.contains("wordlists:"));
+        assert!(config.contains("subdomains:"));
+        assert!(config.contains("directories:"));
+        assert!(config.contains("parameters:"));
+    }
+
+    #[test]
+    fn test_generate_full_config_is_valid_yaml_structure() {
+        let config = generate_full_config();
+
+        // Verify it looks like valid YAML (not parsing, just structure)
+        assert!(config.starts_with('#'));  // Comments first
+        assert!(config.contains(':'));     // Has key-value pairs
+        assert!(!config.contains('\t'));   // No tabs (YAML best practice)
+    }
+
+    #[test]
+    fn test_generate_full_config_comments() {
+        let config = generate_full_config();
+
+        // Verify helpful comments are present
+        assert!(config.contains("# RedBlue Configuration File"));
+        assert!(config.contains("NOTES:"));
+        assert!(config.contains("Command-line flags always override"));
+    }
+
+    #[test]
+    fn test_execute_no_verb() {
+        let cmd = InitCommand;
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: None,
+            target: None,
+            args: vec![],
+            flags: HashMap::new(),
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No verb provided"));
+    }
+
+    #[test]
+    fn test_execute_invalid_verb() {
+        let cmd = InitCommand;
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string(), "invalid".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: Some("invalid".to_string()),
+            target: None,
+            args: vec![],
+            flags: HashMap::new(),
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid verb"));
+    }
+
+    #[test]
+    fn test_create_config_in_temp_dir() {
+        let cmd = InitCommand;
+
+        // Create a unique temp directory
+        let unique_id = uuid::Uuid::new_v4();
+        let temp_dir = std::env::temp_dir()
+            .join("redblue_init_tests")
+            .join(format!("create_{}", unique_id));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let config_path = temp_dir.join("test-config.yaml");
+        let mut flags = HashMap::new();
+        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: Some("create".to_string()),
+            target: None,
+            args: vec![],
+            flags,
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_ok(), "Failed to create config: {:?}", result);
+
+        // Verify file was created
+        assert!(config_path.exists());
+
+        // Verify content
+        let content = fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("auto_persist:"));
+        assert!(content.contains("threads:"));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_create_config_file_exists_no_force() {
+        let cmd = InitCommand;
+
+        // Create a unique temp directory
+        let unique_id = uuid::Uuid::new_v4();
+        let temp_dir = std::env::temp_dir()
+            .join("redblue_init_tests")
+            .join(format!("exists_{}", unique_id));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let config_path = temp_dir.join("existing.yaml");
+
+        // Create existing file
+        fs::write(&config_path, "existing content").unwrap();
+
+        let mut flags = HashMap::new();
+        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: Some("create".to_string()),
+            target: None,
+            args: vec![],
+            flags,
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("already exists"));
+
+        // Verify original file is unchanged
+        let content = fs::read_to_string(&config_path).unwrap();
+        assert_eq!(content, "existing content");
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_create_config_file_exists_with_force() {
+        let cmd = InitCommand;
+
+        // Create a unique temp directory
+        let unique_id = uuid::Uuid::new_v4();
+        let temp_dir = std::env::temp_dir()
+            .join("redblue_init_tests")
+            .join(format!("force_{}", unique_id));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let config_path = temp_dir.join("forced.yaml");
+
+        // Create existing file
+        fs::write(&config_path, "old content").unwrap();
+
+        let mut flags = HashMap::new();
+        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+        flags.insert("force".to_string(), "true".to_string());
+
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: Some("create".to_string()),
+            target: None,
+            args: vec![],
+            flags,
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_ok());
+
+        // Verify file was overwritten
+        let content = fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("auto_persist:"));
+        assert!(!content.contains("old content"));
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_create_config_default_output() {
+        let cmd = InitCommand;
+
+        // Create a unique temp directory and use it as current dir
+        let unique_id = uuid::Uuid::new_v4();
+        let temp_dir = std::env::temp_dir()
+            .join("redblue_init_tests")
+            .join(format!("default_{}", unique_id));
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Use explicit path for testing (can't reliably change cwd in tests)
+        let config_path = temp_dir.join(".redblue.yaml");
+        let mut flags = HashMap::new();
+        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+
+        let ctx = CliContext {
+            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            domain: Some("config".to_string()),
+            resource: Some("init".to_string()),
+            verb: Some("create".to_string()),
+            target: None,
+            args: vec![],
+            flags,
+        };
+
+        let result = cmd.execute(&ctx);
+        assert!(result.is_ok());
+        assert!(config_path.exists());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

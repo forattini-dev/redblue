@@ -3,10 +3,14 @@ use crate::cli::commands::{
     annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
 };
 use crate::cli::{output::Output, validator::Validator, CliContext};
-use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditor};
+use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditor, TlsAuditResult};
+use crate::modules::tls::mozilla_profiles::{
+    ComplianceSeverity, MozillaComplianceChecker, MozillaProfile,
+};
+use crate::modules::tls::session_resumption::{ResumptionSeverity, SessionResumptionTester};
 use crate::protocols::tls_cert::CertificateInfo;
 use crate::protocols::x509::parse_x509_time;
-use crate::storage::schema::{
+use crate::storage::records::{
     TlsCertRecord, TlsCipherRecord, TlsCipherStrength, TlsScanRecord, TlsSeverity,
     TlsVersionRecord, TlsVulnerabilityRecord,
 };
@@ -45,6 +49,16 @@ impl Command for TlsCommand {
                 summary: "Check for known TLS vulnerabilities",
                 usage: "rb tls security vuln <host[:port]>",
             },
+            Route {
+                verb: "resume",
+                summary: "Test session resumption (Session ID, Tickets, TLS 1.3 PSK)",
+                usage: "rb tls security resume <host[:port]>",
+            },
+            Route {
+                verb: "mozilla",
+                summary: "Check Mozilla TLS compliance (Modern/Intermediate/Old profiles)",
+                usage: "rb tls security mozilla <host[:port]> [--profile modern|intermediate|old]",
+            },
             // RESTful verbs - query stored data
             Route {
                 verb: "list",
@@ -78,6 +92,12 @@ impl Command for TlsCommand {
                 "Database file path for RESTful queries (default: auto-detect)",
             )
             .with_short('d'),
+            Flag::new(
+                "profile",
+                "Mozilla compliance profile (modern|intermediate|old)",
+            )
+            .with_short('p')
+            .with_default("intermediate"),
         ]
     }
 
@@ -95,6 +115,18 @@ impl Command for TlsCommand {
             (
                 "Vulnerability scan",
                 "rb tls security vuln example.com --timeout 15",
+            ),
+            (
+                "Session resumption test",
+                "rb tls security resume google.com",
+            ),
+            (
+                "Mozilla Modern compliance",
+                "rb tls security mozilla example.com --profile modern",
+            ),
+            (
+                "Mozilla Intermediate check",
+                "rb tls security mozilla example.com",
             ),
             ("List stored TLS scans", "rb tls security list example.com"),
             (
@@ -115,6 +147,8 @@ impl Command for TlsCommand {
             "audit" => self.audit(ctx),
             "ciphers" => self.ciphers(ctx),
             "vuln" => self.vuln(ctx),
+            "resume" => self.resume(ctx),
+            "mozilla" => self.mozilla(ctx),
             "list" => self.list_tls(ctx),
             "get" => self.get_tls(ctx),
             "describe" => self.describe_tls(ctx),
@@ -124,7 +158,7 @@ impl Command for TlsCommand {
                     "{}",
                     Validator::suggest_command(
                         verb,
-                        &["audit", "ciphers", "vuln", "list", "get", "describe"]
+                        &["audit", "ciphers", "vuln", "resume", "mozilla", "list", "get", "describe"]
                     )
                 );
                 Err("Invalid verb".to_string())
@@ -439,6 +473,243 @@ impl TlsCommand {
         }
 
         self.save_if_enabled(ctx, &host, &result)?;
+
+        Ok(())
+    }
+
+    fn resume(&self, ctx: &CliContext) -> Result<(), String> {
+        let target = ctx.target.as_ref().ok_or(
+            "Missing target.\nUsage: rb tls security resume <HOST[:PORT]>\nExample: rb tls security resume google.com",
+        )?;
+
+        let (host, port) = Self::parse_host_port(target, 443)?;
+        let timeout = ctx
+            .flags
+            .get("timeout")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(10);
+
+        Output::header(&format!("TLS Session Resumption Test: {}:{}", host, port));
+
+        let tester = SessionResumptionTester::with_timeout(std::time::Duration::from_secs(timeout));
+
+        Output::spinner_start("Testing session resumption capabilities");
+        let result = tester.test(&host, port);
+        Output::spinner_done();
+
+        // Session ID Resumption
+        Output::section("Session ID Resumption (TLS 1.2 Classic)");
+        if result.session_id_supported {
+            Output::success("  Supported - Server reuses session IDs");
+        } else if let Some(ref err) = result.session_id_error {
+            Output::warning(&format!("  Not supported: {}", err));
+        } else {
+            Output::dim("  Not supported");
+        }
+
+        // Session Ticket Resumption (RFC 5077)
+        Output::section("Session Tickets (RFC 5077)");
+        if result.session_ticket_supported {
+            Output::success("  Supported - Server issues session tickets");
+            if let Some(lifetime) = result.session_ticket_lifetime {
+                let hours = lifetime / 3600;
+                let minutes = (lifetime % 3600) / 60;
+                Output::item("  Ticket Lifetime", &format!("{}h {}m ({} seconds)", hours, minutes, lifetime));
+            }
+        } else if let Some(ref err) = result.session_ticket_error {
+            Output::warning(&format!("  Not supported: {}", err));
+        } else {
+            Output::dim("  Not supported");
+        }
+
+        // TLS 1.3 PSK Resumption
+        Output::section("TLS 1.3 Resumption (PSK)");
+        if result.tls13_psk_supported {
+            Output::success("  Supported - TLS 1.3 PSK-based resumption available");
+            if result.tls13_early_data_supported {
+                Output::warning("  0-RTT Early Data: Enabled (potential replay attack risk)");
+            } else {
+                Output::success("  0-RTT Early Data: Disabled (secure default)");
+            }
+        } else {
+            Output::dim("  Not available (TLS 1.3 may not be supported)");
+        }
+
+        // Security Issues
+        if !result.issues.is_empty() {
+            Output::section(&format!("Security Issues ({})", result.issues.len()));
+            for issue in &result.issues {
+                let color = match issue.severity {
+                    ResumptionSeverity::High => "\x1b[31m",
+                    ResumptionSeverity::Medium => "\x1b[33m",
+                    ResumptionSeverity::Low => "\x1b[36m",
+                    ResumptionSeverity::Info => "\x1b[37m",
+                };
+                println!("  {}[{:?}] {}\x1b[0m", color, issue.severity, issue.title);
+                println!("    {}", issue.description);
+            }
+        } else {
+            Output::success("\nNo session resumption security issues detected");
+        }
+
+        // Summary
+        Output::section("Summary");
+        let resumption_count = [
+            result.session_id_supported,
+            result.session_ticket_supported,
+            result.tls13_psk_supported,
+        ].iter().filter(|&&x| x).count();
+
+        if resumption_count == 0 {
+            Output::warning("  No session resumption methods supported");
+            Output::dim("  This may impact TLS connection performance");
+        } else {
+            Output::success(&format!("  {} resumption method(s) available", resumption_count));
+        }
+
+        Ok(())
+    }
+
+    fn mozilla(&self, ctx: &CliContext) -> Result<(), String> {
+        let target = ctx.target.as_ref().ok_or(
+            "Missing target.\nUsage: rb tls security mozilla <HOST[:PORT]> [--profile modern|intermediate|old]\nExample: rb tls security mozilla google.com --profile modern",
+        )?;
+
+        let (host, port) = Self::parse_host_port(target, 443)?;
+        let timeout = ctx
+            .flags
+            .get("timeout")
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(10);
+
+        let profile_str = ctx.flags.get("profile").map(|s| s.as_str()).unwrap_or("intermediate");
+        let profile = match profile_str.to_lowercase().as_str() {
+            "modern" => MozillaProfile::Modern,
+            "intermediate" => MozillaProfile::Intermediate,
+            "old" | "legacy" => MozillaProfile::Old,
+            _ => {
+                return Err(format!(
+                    "Invalid profile: {}\nValid profiles: modern, intermediate, old",
+                    profile_str
+                ));
+            }
+        };
+
+        Output::header(&format!(
+            "Mozilla {} Profile Compliance: {}:{}",
+            match profile {
+                MozillaProfile::Modern => "Modern",
+                MozillaProfile::Intermediate => "Intermediate",
+                MozillaProfile::Old => "Old",
+            },
+            host,
+            port
+        ));
+
+        // First, run TLS audit to get version and cipher info
+        let auditor = TlsAuditor::new().with_timeout(std::time::Duration::from_secs(timeout));
+
+        Output::spinner_start("Auditing TLS configuration");
+        let audit_result = auditor
+            .audit(&host, port)
+            .map_err(|e| format!("TLS audit failed: {}", e))?;
+        Output::spinner_done();
+
+        // Extract versions and ciphers for compliance check
+        let supported_versions: Vec<String> = audit_result
+            .supported_versions
+            .iter()
+            .filter(|v| v.supported)
+            .map(|v| v.version.clone())
+            .collect();
+
+        let supported_ciphers: Vec<(u16, String)> = audit_result
+            .supported_ciphers
+            .iter()
+            .map(|c| (c.code, c.name.clone()))
+            .collect();
+
+        // Run Mozilla compliance check
+        let checker = MozillaComplianceChecker::new(profile.clone());
+        let result = checker.check(&supported_versions, &supported_ciphers, None);
+
+        // Display compliance result
+        Output::section("Compliance Status");
+        if result.compliant {
+            Output::success(&format!(
+                "  COMPLIANT - Score: {}/100",
+                result.score
+            ));
+        } else {
+            Output::error(&format!(
+                "  NON-COMPLIANT - Score: {}/100",
+                result.score
+            ));
+        }
+
+        // Display profile requirements
+        Output::section("Profile Requirements");
+        match profile {
+            MozillaProfile::Modern => {
+                Output::item("  Min TLS Version", "TLS 1.3");
+                Output::item("  Cipher Suites", "TLS 1.3 AEAD ciphers only");
+                Output::item("  Target Audience", "Modern clients (2019+)");
+            }
+            MozillaProfile::Intermediate => {
+                Output::item("  Min TLS Version", "TLS 1.2");
+                Output::item("  Cipher Suites", "AEAD + secure CBC ciphers");
+                Output::item("  Target Audience", "General purpose servers");
+            }
+            MozillaProfile::Old => {
+                Output::item("  Min TLS Version", "TLS 1.0");
+                Output::item("  Cipher Suites", "Legacy compatibility");
+                Output::item("  Target Audience", "Legacy clients (use with caution)");
+            }
+        }
+
+        // Detected TLS configuration
+        Output::section("Detected Configuration");
+        Output::item("  TLS Versions", &supported_versions.join(", "));
+        Output::item("  Cipher Suites", &format!("{} supported", supported_ciphers.len()));
+
+        // Compliance issues
+        if !result.issues.is_empty() {
+            Output::section(&format!("Compliance Issues ({})", result.issues.len()));
+            for issue in &result.issues {
+                let color = match issue.severity {
+                    ComplianceSeverity::Critical => "\x1b[35m",
+                    ComplianceSeverity::Warning => "\x1b[33m",
+                    ComplianceSeverity::Info => "\x1b[37m",
+                };
+                println!("  {}[{:?}] {}\x1b[0m", color, issue.severity, issue.title);
+                println!("    {}", issue.description);
+            }
+        }
+
+        // Recommendations
+        if !result.recommendations.is_empty() {
+            Output::section("Recommendations");
+            for rec in &result.recommendations {
+                println!("  - {}", rec);
+            }
+        }
+
+        // Other profile suggestions
+        if !result.compliant {
+            Output::section("Alternative Profiles");
+            match profile {
+                MozillaProfile::Modern => {
+                    Output::dim("  Consider testing with --profile intermediate for broader compatibility");
+                }
+                MozillaProfile::Intermediate => {
+                    Output::dim("  Try --profile modern for higher security (if client support allows)");
+                    Output::dim("  Or --profile old if you must support legacy clients");
+                }
+                MozillaProfile::Old => {
+                    Output::dim("  Consider upgrading to --profile intermediate when possible");
+                }
+            }
+        }
 
         Ok(())
     }

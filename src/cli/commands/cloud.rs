@@ -105,7 +105,7 @@ impl CloudCommand {
         } else if let Some(wordlist_path) = ctx.get_flag("wordlist") {
             // Read wordlist from file
             use std::fs;
-            let wordlist_content = fs::read_to_string(wordlist_path)
+            let wordlist_content = fs::read_to_string(&wordlist_path)
                 .map_err(|e| format!("Failed to read wordlist: {}", e))?;
 
             let bucket_names: Vec<String> = wordlist_content
@@ -114,7 +114,7 @@ impl CloudCommand {
                 .map(|line| line.trim().to_string())
                 .collect();
 
-            Output::item("Wordlist", wordlist_path);
+            Output::item("Wordlist", &wordlist_path);
             Output::item("Total buckets", &bucket_names.len().to_string());
             println!();
 

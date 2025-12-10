@@ -5,8 +5,9 @@ use crate::cli::commands::{
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::network::fingerprint::HostFingerprint;
 use crate::modules::network::ping::{ping_system, PingConfig, PingSystemResult};
+use crate::modules::recon::ip_intel::{IpIntel, IpClassification};
 use crate::storage::client::query::format as query_format;
-use crate::storage::schema::{HostIntelRecord, ServiceIntelRecord};
+use crate::storage::records::{HostIntelRecord, ServiceIntelRecord};
 use crate::storage::service::StorageService;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -49,6 +50,11 @@ impl Command for NetworkCommand {
                 summary: "List stored host fingerprints",
                 usage: "rb network host list [host] [--db <file>]",
             },
+            Route {
+                verb: "intel",
+                summary: "IP intelligence: bogon detection, classification, and info",
+                usage: "rb network host intel <ip> [--bogons]",
+            },
         ]
     }
 
@@ -68,6 +74,7 @@ impl Command for NetworkCommand {
                 .with_default("56"),
             Flag::new("persist", "Save host fingerprint to database"),
             Flag::new("db", "Database file to read host fingerprints from"),
+            Flag::new("bogons", "Show all bogon ranges (IPv4 and IPv6)"),
         ]
     }
 
@@ -90,6 +97,9 @@ impl Command for NetworkCommand {
                 "Fast discovery",
                 "rb network host discover 10.0.0.0/24 --timeout 1",
             ),
+            ("IP intelligence", "rb network host intel 8.8.8.8"),
+            ("Check if IP is bogon", "rb network host intel 10.0.0.1"),
+            ("List all bogon ranges", "rb network host intel --bogons"),
         ]
     }
 
@@ -104,11 +114,12 @@ impl Command for NetworkCommand {
             "discover" => self.discover(ctx),
             "fingerprint" => self.fingerprint(ctx),
             "list" => self.list(ctx),
+            "intel" => self.intel(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
                     "{}",
-                    Validator::suggest_command(verb, &["ping", "discover", "fingerprint", "list"])
+                    Validator::suggest_command(verb, &["ping", "discover", "fingerprint", "list", "intel"])
                 );
                 Err("Invalid verb".to_string())
             }
@@ -493,5 +504,215 @@ impl NetworkCommand {
             "Database file not found. Expected: {}",
             candidate.display()
         ))
+    }
+
+    /// IP Intelligence - bogon detection and IP classification
+    fn intel(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+
+        // If --bogons flag is set, show all bogon ranges
+        if ctx.has_flag("bogons") {
+            return self.show_bogon_ranges(format);
+        }
+
+        let ip = ctx.target.as_ref().ok_or(
+            "Missing IP address.\nUsage: rb network host intel <IP>\nExample: rb network host intel 8.8.8.8\n\nTip: Use --bogons to see all bogon ranges",
+        )?;
+
+        let intel = IpIntel::new();
+        let result = intel.analyze(ip)?;
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"ip\": \"{}\",", result.ip);
+            println!("  \"version\": \"{}\",", result.version);
+            println!("  \"is_bogon\": {},", result.is_bogon);
+            if let Some(ref reason) = result.bogon_reason {
+                println!("  \"bogon_reason\": \"{}\",", reason);
+            }
+            println!("  \"classification\": \"{}\"", result.classification);
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("ip: {}", result.ip);
+            println!("version: {}", result.version);
+            println!("is_bogon: {}", result.is_bogon);
+            if let Some(ref reason) = result.bogon_reason {
+                println!("bogon_reason: {}", reason);
+            }
+            println!("classification: {}", result.classification);
+            return Ok(());
+        }
+
+        // Human output
+        Output::header(&format!("IP Intelligence: {}", result.ip));
+
+        // IP Version
+        println!("  Version: {}", result.version);
+        println!();
+
+        // Bogon status - prominent display
+        if result.is_bogon {
+            Output::error("BOGON DETECTED");
+            if let Some(ref reason) = result.bogon_reason {
+                println!("  Range: {}", reason);
+            }
+            println!();
+            Output::warning("This IP should NOT appear on the public internet!");
+        } else {
+            Output::success("NOT A BOGON - Globally routable");
+        }
+
+        println!();
+
+        // Classification
+        Output::subheader("Classification");
+        let class_color = match result.classification {
+            IpClassification::Public => "\x1b[32m",     // Green
+            IpClassification::Private => "\x1b[33m",    // Yellow
+            IpClassification::Loopback => "\x1b[36m",   // Cyan
+            IpClassification::LinkLocal => "\x1b[36m",  // Cyan
+            IpClassification::Multicast => "\x1b[35m",  // Magenta
+            IpClassification::Reserved => "\x1b[31m",   // Red
+            IpClassification::Documentation => "\x1b[34m", // Blue
+            IpClassification::CarrierGradeNat => "\x1b[33m", // Yellow
+            IpClassification::Benchmarking => "\x1b[34m", // Blue
+            IpClassification::Unknown => "\x1b[90m",    // Gray
+        };
+        println!("  {}{}\x1b[0m", class_color, result.classification);
+
+        // Security implications
+        println!();
+        Output::subheader("Security Notes");
+        match result.classification {
+            IpClassification::Public => {
+                println!("  - Globally routable IP address");
+                println!("  - Can be reached from the internet");
+                println!("  - May be subject to internet-based attacks");
+            }
+            IpClassification::Private => {
+                println!("  - RFC 1918 private address space");
+                println!("  - Not routable on the public internet");
+                println!("  - Typically used in internal networks");
+                println!("  - Requires NAT for internet access");
+            }
+            IpClassification::Loopback => {
+                println!("  - Loopback address (localhost)");
+                println!("  - Traffic never leaves the host");
+                println!("  - Used for local testing and services");
+            }
+            IpClassification::LinkLocal => {
+                println!("  - Link-local address (APIPA)");
+                println!("  - Auto-configured when DHCP unavailable");
+                println!("  - Only valid on the local network segment");
+            }
+            IpClassification::Multicast => {
+                println!("  - Multicast address range");
+                println!("  - Used for one-to-many communication");
+                println!("  - Not a unicast host address");
+            }
+            IpClassification::Reserved => {
+                println!("  - Reserved address space");
+                println!("  - Should not be used for normal traffic");
+            }
+            IpClassification::Documentation => {
+                println!("  - Documentation/test address");
+                println!("  - Should only appear in documentation");
+                println!("  - Examples: TEST-NET-1, TEST-NET-2, TEST-NET-3");
+            }
+            IpClassification::CarrierGradeNat => {
+                println!("  - Carrier-Grade NAT (CGNAT) range");
+                println!("  - RFC 6598 - shared address space");
+                println!("  - Used by ISPs for NAT444");
+            }
+            IpClassification::Benchmarking => {
+                println!("  - Benchmarking address range");
+                println!("  - RFC 2544 - for network device testing");
+            }
+            IpClassification::Unknown => {
+                println!("  - Unknown classification");
+            }
+        }
+
+        println!();
+        Output::success("IP intelligence complete");
+        Ok(())
+    }
+
+    /// Show all bogon ranges
+    fn show_bogon_ranges(&self, format: crate::cli::format::OutputFormat) -> Result<(), String> {
+        let ipv4_bogons = IpIntel::get_ipv4_bogon_ranges();
+        let ipv6_bogons = IpIntel::get_ipv6_bogon_ranges();
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"ipv4_bogons\": [");
+            for (i, (cidr, desc)) in ipv4_bogons.iter().enumerate() {
+                let comma = if i < ipv4_bogons.len() - 1 { "," } else { "" };
+                println!("    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}", cidr, desc, comma);
+            }
+            println!("  ],");
+            println!("  \"ipv6_bogons\": [");
+            for (i, (cidr, desc)) in ipv6_bogons.iter().enumerate() {
+                let comma = if i < ipv6_bogons.len() - 1 { "," } else { "" };
+                println!("    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}", cidr, desc, comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("ipv4_bogons:");
+            for (cidr, desc) in &ipv4_bogons {
+                println!("  - cidr: {}", cidr);
+                println!("    description: {}", desc);
+            }
+            println!("ipv6_bogons:");
+            for (cidr, desc) in &ipv6_bogons {
+                println!("  - cidr: {}", cidr);
+                println!("    description: {}", desc);
+            }
+            return Ok(());
+        }
+
+        // Human output
+        Output::header("Bogon Ranges (IANA Reserved)");
+        println!();
+        println!("Bogon IPs are addresses that should NEVER appear on the public internet.");
+        println!("Seeing these in internet traffic indicates misconfiguration or spoofing.");
+        println!();
+
+        Output::subheader(&format!("IPv4 Bogon Ranges ({})", ipv4_bogons.len()));
+        println!();
+        println!("  {:<20} {}", "CIDR", "DESCRIPTION");
+        println!("  {}", "─".repeat(60));
+        for (cidr, desc) in &ipv4_bogons {
+            println!("  {:<20} {}", cidr, desc);
+        }
+
+        println!();
+        Output::subheader(&format!("IPv6 Bogon Ranges ({})", ipv6_bogons.len()));
+        println!();
+        println!("  {:<25} {}", "PREFIX", "DESCRIPTION");
+        println!("  {}", "─".repeat(60));
+        for (cidr, desc) in &ipv6_bogons {
+            println!("  {:<25} {}", cidr, desc);
+        }
+
+        println!();
+        Output::success(&format!(
+            "Total: {} IPv4 + {} IPv6 = {} bogon ranges",
+            ipv4_bogons.len(),
+            ipv6_bogons.len(),
+            ipv4_bogons.len() + ipv6_bogons.len()
+        ));
+        Ok(())
     }
 }

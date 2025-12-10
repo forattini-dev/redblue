@@ -141,7 +141,9 @@ impl CodeCommand {
                     "  \x1b[33m{}\x1b[0m ({})",
                     finding.description, finding.rule_id
                 );
-                println!("    Line {}, Column {}", finding.line, finding.column);
+                println!("    Line {}, Column {}",
+                    finding.line.map(|l| l.to_string()).unwrap_or_else(|| "?".to_string()),
+                    finding.column);
 
                 // Display entropy if available
                 if let Some(entropy) = finding.entropy {
@@ -193,7 +195,7 @@ impl CodeCommand {
 
             println!("    {{");
             println!("      \"file\": \"{}\",", Self::escape_json(&finding.file));
-            println!("      \"line\": {},", finding.line);
+            println!("      \"line\": {},", finding.line.map(|l| l.to_string()).unwrap_or_else(|| "null".to_string()));
             println!("      \"column\": {},", finding.column);
             println!(
                 "      \"rule_id\": \"{}\",",

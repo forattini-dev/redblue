@@ -7,10 +7,11 @@ use crate::cli::{
     CliContext,
 };
 use crate::config;
-use crate::intelligence::{banner_analysis, service_detection, timing_analysis};
-use crate::modules::network::scanner::PortScanner;
+use crate::intelligence::{banner_analysis, os_probes, os_signatures, service_detection, timing_analysis};
+use crate::modules::network::scanner::{PortScanner, AdvancedScanner, ScanType, AdvancedScanResult, TimingTemplate};
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 pub struct ScanCommand;
@@ -41,16 +42,25 @@ impl Command for ScanCommand {
                 usage: "rb network ports range <host> <start> <end>",
             },
             Route {
+                verb: "syn-scan",
+                summary: "TCP SYN scan (half-open, requires root/CAP_NET_RAW)",
+                usage: "rb network ports syn-scan <host> [--preset common]",
+            },
+            Route {
+                verb: "udp-scan",
+                summary: "UDP scan with ICMP unreachable detection",
+                usage: "rb network ports udp-scan <host> [--preset common]",
+            },
+            Route {
+                verb: "stealth",
+                summary: "Stealth scan (FIN/NULL/XMAS, requires root)",
+                usage: "rb network ports stealth <host> --type fin|null|xmas",
+            },
+            Route {
                 verb: "subnet",
                 summary: "Discover and scan all hosts in a subnet (CIDR notation)",
                 usage: "rb network ports subnet <cidr> [--preset common]",
             },
-            // TODO: Implement list_ports method for database queries
-            // Route {
-            //     verb: "list",
-            //     summary: "List stored open ports from scan database",
-            //     usage: "rb network ports list [host] [--db <file>]",
-            // },
         ]
     }
 
@@ -73,13 +83,30 @@ impl Command for ScanCommand {
             Flag::new("output", "Output format (text|json)")
                 .with_short('o')
                 .with_default("text"),
-            Flag::new("persist", "Save results to binary database (.rdb file)"),
-            Flag::new("no-persist", "Don't save results (overrides config)"),
+            Flag::new("save", "Force save to database (overrides config)"),
+            Flag::new("no-save", "Disable auto-save for this command"),
+            Flag::new("db", "Custom database file path")
+                .with_short('d'),
+            Flag::new("db-password", "Database encryption password (overrides keyring)"),
             Flag::new(
                 "intel",
                 "Gather intelligence on discovered services (timing, banners, OS hints)",
             )
             .with_short('i'),
+            Flag::new(
+                "type",
+                "Stealth scan type (fin|null|xmas) for stealth verb",
+            ),
+            Flag::new(
+                "timing",
+                "Timing template: T0=paranoid, T1=sneaky, T2=polite, T3=normal, T4=aggressive, T5=insane",
+            )
+            .with_short('T'),
+            Flag::new(
+                "os-detect",
+                "Enable OS fingerprinting (TCP/IP stack analysis, requires open port)",
+            )
+            .with_short('O'),
         ]
     }
 
@@ -90,8 +117,8 @@ impl Command for ScanCommand {
                 "rb network ports scan 192.168.1.1 --preset common",
             ),
             (
-                "Scan and save to database",
-                "rb network ports scan 192.168.1.1 --preset common --persist",
+                "Scan and save to encrypted database",
+                "rb network ports scan 192.168.1.1 --preset common --save",
             ),
             (
                 "Fast scan (masscan-style)",
@@ -127,7 +154,43 @@ impl Command for ScanCommand {
             ),
             (
                 "Subnet scan with persistence",
-                "rb network ports subnet 10.0.0.0/24 --preset common --persist",
+                "rb network ports subnet 10.0.0.0/24 --preset common --save",
+            ),
+            (
+                "SYN scan (requires root)",
+                "rb network ports syn-scan 192.168.1.1 --preset common",
+            ),
+            (
+                "UDP scan",
+                "rb network ports udp-scan 192.168.1.1",
+            ),
+            (
+                "FIN stealth scan",
+                "rb network ports stealth 192.168.1.1 --type fin",
+            ),
+            (
+                "XMAS stealth scan",
+                "rb network ports stealth 192.168.1.1 --type xmas",
+            ),
+            (
+                "Paranoid timing (IDS evasion)",
+                "rb network ports syn-scan 192.168.1.1 --timing T0",
+            ),
+            (
+                "Aggressive timing (fast scan)",
+                "rb network ports syn-scan 192.168.1.1 --timing T4",
+            ),
+            (
+                "Insane timing (maximum speed)",
+                "rb network ports syn-scan 192.168.1.1 --timing T5 --preset full",
+            ),
+            (
+                "OS fingerprinting",
+                "rb network ports scan 192.168.1.1 --preset common --os-detect",
+            ),
+            (
+                "Full scan with OS detection",
+                "rb network ports scan 192.168.1.1 -O --intel",
             ),
         ]
     }
@@ -141,13 +204,15 @@ impl Command for ScanCommand {
         match verb.as_str() {
             "scan" => self.scan_ports(ctx),
             "range" => self.scan_range(ctx),
+            "syn-scan" => self.advanced_scan(ctx, ScanType::Syn),
+            "udp-scan" => self.advanced_scan(ctx, ScanType::Udp),
+            "stealth" => self.stealth_scan(ctx),
             "subnet" => self.scan_subnet(ctx),
-            // "list" => self.list_ports(ctx), // TODO: Implement
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
                     "{}",
-                    Validator::suggest_command(verb, &["scan", "range", "subnet"])
+                    Validator::suggest_command(verb, &["scan", "range", "syn-scan", "udp-scan", "stealth", "subnet"])
                 );
                 Err("Invalid verb".to_string())
             }
@@ -185,10 +250,8 @@ impl ScanCommand {
             (threads, timeout)
         };
 
-        let preset = ctx
-            .get_flag("preset")
-            .map(|s| s.as_str())
-            .unwrap_or("common");
+        let preset_str = ctx.get_flag("preset");
+        let preset = preset_str.as_deref().unwrap_or("common");
 
         let format = ctx.get_output_format();
 
@@ -250,25 +313,17 @@ impl ScanCommand {
 
         let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
 
-        // Database persistence
-        let persist_flag = if ctx.has_flag("persist") {
-            Some(true)
-        } else if ctx.has_flag("no-persist") {
-            Some(false)
-        } else {
-            None
-        };
-
+        // Database persistence using unified PersistenceConfig
+        let persistence_config = ctx.get_persistence_config();
         let storage = StorageService::global();
         let attributes = build_partition_attributes(
             ctx,
             &target_str_owned,
             [("preset", preset), ("mode", "scan")],
         );
-        let mut pm = storage.persistence_for_target_with(
+        let mut pm = storage.persistence_with_config(
             &target_str_owned,
-            persist_flag,
-            None,
+            persistence_config,
             attributes,
         )?;
 
@@ -363,7 +418,7 @@ impl ScanCommand {
         // Check if intelligence gathering is enabled
         let intel_enabled = ctx.has_flag("intel");
 
-        for result in open_ports {
+        for result in &open_ports {
             let service = result
                 .service
                 .as_ref()
@@ -422,6 +477,97 @@ impl ScanCommand {
                         println!("    \x1b[36m└─\x1b[0m Confidence: {}%", confidence_pct);
                     }
                 }
+            }
+        }
+
+        // OS Detection if --os-detect flag is set
+        let os_detect_enabled = ctx.has_flag("os-detect");
+        if os_detect_enabled && !open_ports.is_empty() {
+            println!();
+            Output::subheader("OS Detection");
+
+            // Get first open port for probing
+            let open_port = open_ports.first().map(|r| r.port);
+
+            // Try to find a closed port (use a high port that's likely closed)
+            let closed_port = Some(61234u16);
+
+            // Convert target to Ipv4Addr for OS prober
+            if let std::net::IpAddr::V4(target_v4) = target {
+                match os_probes::OsProber::new(target_v4) {
+                    Ok(prober) => {
+                        Output::spinner_start("Running TCP/IP stack analysis");
+
+                        let result = prober.probe(open_port, closed_port);
+
+                        Output::spinner_done();
+
+                        if !result.matches.is_empty() {
+                            println!();
+                            Output::success(&format!(
+                                "Top {} OS match{}:",
+                                result.matches.len().min(3),
+                                if result.matches.len() > 1 { "es" } else { "" }
+                            ));
+
+                            for (idx, os_match) in result.matches.iter().take(3).enumerate() {
+                                let confidence_pct = (os_match.confidence * 100.0) as u8;
+                                let marker = if idx == 0 { "●" } else { "○" };
+
+                                println!(
+                                    "  \x1b[32m{}\x1b[0m {} ({}%)",
+                                    marker,
+                                    os_match.signature.name,
+                                    confidence_pct
+                                );
+
+                                // Show matching points for top match
+                                if idx == 0 && !os_match.matching_points.is_empty() {
+                                    for point in os_match.matching_points.iter().take(3) {
+                                        println!("    \x1b[90m└─ {}\x1b[0m", point);
+                                    }
+                                }
+                            }
+
+                            // Show estimated initial TTL
+                            if let Some(ttl) = result.initial_ttl {
+                                println!();
+                                Output::item("Initial TTL", &ttl.to_string());
+                            }
+
+                            // Show IP ID behavior
+                            println!("  IP ID Sequence: {:?}", result.ip_id_behavior);
+                        } else {
+                            Output::warning("No confident OS match found");
+
+                            // Try quick OS detection from database
+                            if let Some(first_port) = open_ports.first() {
+                                let db = os_signatures::OsSignatureDb::new();
+                                let quick_matches = db.find_matches(
+                                    first_port.banner.as_ref().and_then(|_| Some(64)).unwrap_or(64),
+                                    65535,
+                                    Some(1460),
+                                    Some(7),
+                                    "MSNWT",
+                                );
+
+                                if !quick_matches.is_empty() {
+                                    println!();
+                                    Output::info("Passive fingerprint hints:");
+                                    for (sig, score) in quick_matches.iter().take(3) {
+                                        let score_pct = (score * 100.0) as u8;
+                                        println!("    {} ({}%)", sig.name, score_pct);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        Output::warning(&format!("OS detection requires elevated privileges: {}", e));
+                    }
+                }
+            } else {
+                Output::warning("OS detection currently only supports IPv4 targets");
             }
         }
 
@@ -599,10 +745,8 @@ impl ScanCommand {
             ));
         }
 
-        let preset = ctx
-            .get_flag("preset")
-            .map(|s| s.as_str())
-            .unwrap_or("common");
+        let preset_str = ctx.get_flag("preset");
+        let preset = preset_str.as_deref().unwrap_or("common");
 
         Output::header(&format!("Subnet Discovery: {}", cidr));
         Output::summary_line(&[
@@ -667,14 +811,8 @@ impl ScanCommand {
             println!("  • {}", host);
         }
 
-        // Database persistence setup
-        let persist_flag = if ctx.has_flag("persist") {
-            Some(true)
-        } else if ctx.has_flag("no-persist") {
-            Some(false)
-        } else {
-            None
-        };
+        // Database persistence setup using unified PersistenceConfig
+        let persistence_config = ctx.get_persistence_config();
 
         println!();
         Output::subheader("Phase 2: Port Scanning");
@@ -779,17 +917,16 @@ impl ScanCommand {
             }
 
             // Save to database if persistence is enabled
-            if persist_flag.is_some() {
+            if persistence_config.force_save {
                 let host_str = host_ip.to_string();
                 let attributes = build_partition_attributes(
                     ctx,
                     &host_str,
                     [("mode", "subnet"), ("cidr", cidr)],
                 );
-                let mut pm = StorageService::global().persistence_for_target_with(
+                let mut pm = StorageService::global().persistence_with_config(
                     &host_str,
-                    persist_flag,
-                    None,
+                    persistence_config.clone(),
                     attributes,
                 )?;
 
@@ -823,6 +960,349 @@ impl ScanCommand {
             "✓ Subnet scan completed - {} host(s) scanned",
             alive_hosts.len()
         ));
+
+        Ok(())
+    }
+
+    /// Advanced scan (SYN or UDP) using raw sockets
+    fn advanced_scan(&self, ctx: &CliContext, scan_type: ScanType) -> Result<(), String> {
+        let target_str = ctx.target.as_ref().ok_or_else(|| {
+            format!(
+                "Missing target.\nUsage: rb network ports {} <HOST>\nExample: rb network ports {} 192.168.1.1",
+                if scan_type == ScanType::Syn { "syn-scan" } else { "udp-scan" },
+                if scan_type == ScanType::Syn { "syn-scan" } else { "udp-scan" }
+            )
+        })?;
+
+        let target = Validator::resolve_host(target_str)?;
+
+        // Parse timing template first - it overrides other settings
+        let timing = ctx.get_flag("timing").and_then(|t| TimingTemplate::from_str(&t));
+
+        // Get configuration - timing template overrides defaults
+        let cfg = config::get();
+        let (threads, timeout) = if let Some(ref tmpl) = timing {
+            (tmpl.parallelism(), tmpl.timeout_ms())
+        } else {
+            let threads = ctx
+                .get_flag_or("threads", &cfg.network.threads.to_string())
+                .parse::<usize>()
+                .map_err(|_| "Invalid threads value")?;
+
+            let timeout = ctx
+                .get_flag_or("timeout", &cfg.network.timeout_ms.to_string())
+                .parse::<u64>()
+                .map_err(|_| "Invalid timeout value")?;
+
+            (threads, timeout)
+        };
+
+        let preset_str = ctx.get_flag("preset");
+        let preset = preset_str.as_deref().unwrap_or("common");
+
+        let scan_name = match scan_type {
+            ScanType::Syn => "SYN Scan",
+            ScanType::Udp => "UDP Scan",
+            _ => "Advanced Scan",
+        };
+
+        Output::header(scan_name);
+        Output::item("Target", &target.to_string());
+        if let Some(ref tmpl) = timing {
+            Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
+        }
+        Output::item("Preset", preset);
+        Output::item("Threads", &threads.to_string());
+        Output::item("Timeout", &format!("{}ms", timeout));
+
+        if scan_type == ScanType::Syn {
+            Output::warning("⚠ SYN scan requires root/CAP_NET_RAW privileges");
+        }
+
+        println!();
+
+        // Get ports based on preset
+        let ports: Vec<u16> = match preset {
+            "common" => {
+                if scan_type == ScanType::Udp {
+                    AdvancedScanner::get_common_udp_ports()
+                } else {
+                    PortScanner::get_common_ports()
+                }
+            }
+            "full" => (1..=65535).collect(),
+            "web" => vec![80, 443, 8080, 8443, 3000, 5000],
+            _ => {
+                return Err(format!(
+                    "Unknown preset: {}\nAvailable presets: common, full, web",
+                    preset
+                ))
+            }
+        };
+
+        let mut scanner = AdvancedScanner::new(target)
+            .with_scan_type(scan_type)
+            .with_threads(threads)
+            .with_timeout(timeout);
+
+        // Apply timing template if specified
+        if let Some(tmpl) = timing {
+            scanner = scanner.with_timing(tmpl);
+        }
+
+        Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+
+        let results = scanner.scan_ports(&ports);
+
+        Output::spinner_done();
+
+        // Filter interesting results (open, open|filtered for stealth, or closed for UDP)
+        use crate::protocols::raw::PortState;
+        let interesting: Vec<_> = results
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.state,
+                    PortState::Open | PortState::OpenFiltered | PortState::Unfiltered
+                ) || (scan_type == ScanType::Udp && r.state == PortState::Closed)
+            })
+            .collect();
+
+        if interesting.is_empty() {
+            Output::warning("No interesting ports found");
+            return Ok(());
+        }
+
+        println!();
+        Output::subheader(&format!(
+            "Results ({} interesting / {} scanned)",
+            interesting.len(),
+            ports.len()
+        ));
+        println!();
+
+        Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
+
+        for result in interesting {
+            let service = result
+                .service
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("-");
+
+            let rtt = result
+                .rtt_ms
+                .map(|r| format!("{:.1}ms", r))
+                .unwrap_or_else(|| "-".to_string());
+
+            let ttl = result
+                .ttl
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "-".to_string());
+
+            // Color the state
+            let state_str = format!("{}", result.state);
+            let state_colored = match result.state {
+                PortState::Open => format!("\x1b[32m{}\x1b[0m", state_str),
+                PortState::OpenFiltered => format!("\x1b[33m{}\x1b[0m", state_str),
+                PortState::Closed => format!("\x1b[31m{}\x1b[0m", state_str),
+                PortState::Filtered => format!("\x1b[90m{}\x1b[0m", state_str),
+                _ => state_str,
+            };
+
+            println!(
+                "  {:>5}  {:15}  {:12}  {:>8}  {:>4}",
+                result.port, state_colored, service, rtt, ttl
+            );
+        }
+
+        println!();
+        Output::success(&format!(
+            "✓ {} scan completed",
+            if scan_type == ScanType::Syn {
+                "SYN"
+            } else {
+                "UDP"
+            }
+        ));
+
+        Ok(())
+    }
+
+    /// Stealth scan (FIN/NULL/XMAS) using raw sockets
+    fn stealth_scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let target_str = ctx.target.as_ref().ok_or(
+            "Missing target.\nUsage: rb network ports stealth <HOST> --type fin|null|xmas\nExample: rb network ports stealth 192.168.1.1 --type xmas",
+        )?;
+
+        let target = Validator::resolve_host(target_str)?;
+
+        // Get scan type from --type flag
+        let scan_type_str = ctx.get_flag("type").ok_or(
+            "Missing scan type.\nUsage: rb network ports stealth <HOST> --type fin|null|xmas\nExample: rb network ports stealth 192.168.1.1 --type fin",
+        )?;
+
+        let scan_type = match scan_type_str.to_lowercase().as_str() {
+            "fin" => ScanType::Fin,
+            "null" => ScanType::Null,
+            "xmas" => ScanType::Xmas,
+            _ => {
+                return Err(format!(
+                    "Unknown stealth scan type: {}\nAvailable types: fin, null, xmas",
+                    scan_type_str
+                ))
+            }
+        };
+
+        // Parse timing template first - it overrides other settings
+        let timing = ctx.get_flag("timing").and_then(|t| TimingTemplate::from_str(&t));
+
+        // Get configuration - timing template overrides defaults
+        let cfg = config::get();
+        let (threads, timeout) = if let Some(ref tmpl) = timing {
+            (tmpl.parallelism(), tmpl.timeout_ms())
+        } else {
+            let threads = ctx
+                .get_flag_or("threads", &cfg.network.threads.to_string())
+                .parse::<usize>()
+                .map_err(|_| "Invalid threads value")?;
+
+            let timeout = ctx
+                .get_flag_or("timeout", &cfg.network.timeout_ms.to_string())
+                .parse::<u64>()
+                .map_err(|_| "Invalid timeout value")?;
+
+            (threads, timeout)
+        };
+
+        let preset_str = ctx.get_flag("preset");
+        let preset = preset_str.as_deref().unwrap_or("common");
+
+        let scan_name = match scan_type {
+            ScanType::Fin => "FIN Stealth Scan",
+            ScanType::Null => "NULL Stealth Scan",
+            ScanType::Xmas => "XMAS Stealth Scan",
+            _ => "Stealth Scan",
+        };
+
+        Output::header(scan_name);
+        Output::item("Target", &target.to_string());
+        if let Some(ref tmpl) = timing {
+            Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
+        }
+        Output::item("Type", &format!("{}", scan_type));
+        Output::item("Preset", preset);
+        Output::item("Timeout", &format!("{}ms", timeout));
+        Output::warning("⚠ Stealth scans require root/CAP_NET_RAW privileges");
+
+        println!();
+
+        // Explanation of stealth scan behavior
+        match scan_type {
+            ScanType::Fin => {
+                Output::info("FIN scan: No response = open|filtered, RST = closed");
+            }
+            ScanType::Null => {
+                Output::info("NULL scan: No response = open|filtered, RST = closed");
+            }
+            ScanType::Xmas => {
+                Output::info("XMAS scan (FIN+PSH+URG): No response = open|filtered, RST = closed");
+            }
+            _ => {}
+        }
+
+        println!();
+
+        // Get ports based on preset
+        let ports: Vec<u16> = match preset {
+            "common" => PortScanner::get_common_ports(),
+            "full" => (1..=65535).collect(),
+            "web" => vec![80, 443, 8080, 8443, 3000, 5000],
+            _ => {
+                return Err(format!(
+                    "Unknown preset: {}\nAvailable presets: common, full, web",
+                    preset
+                ))
+            }
+        };
+
+        let mut scanner = AdvancedScanner::new(target)
+            .with_scan_type(scan_type)
+            .with_threads(threads)
+            .with_timeout(timeout);
+
+        // Apply timing template if specified
+        if let Some(tmpl) = timing {
+            scanner = scanner.with_timing(tmpl);
+        }
+
+        Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+
+        let results = scanner.scan_ports(&ports);
+
+        Output::spinner_done();
+
+        // For stealth scans, we're interested in:
+        // - OpenFiltered (no response = potentially open)
+        // - Closed (got RST)
+        use crate::protocols::raw::PortState;
+        let open_filtered: Vec<_> = results
+            .iter()
+            .filter(|r| r.state == PortState::OpenFiltered)
+            .collect();
+
+        let closed: Vec<_> = results
+            .iter()
+            .filter(|r| r.state == PortState::Closed)
+            .collect();
+
+        println!();
+        Output::subheader(&format!(
+            "Results: {} open|filtered, {} closed / {} scanned",
+            open_filtered.len(),
+            closed.len(),
+            ports.len()
+        ));
+
+        if !open_filtered.is_empty() {
+            println!();
+            Output::success(&format!("Potentially open ports ({}):", open_filtered.len()));
+            println!();
+
+            Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
+
+            for result in &open_filtered {
+                let service = result
+                    .service
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("-");
+
+                let rtt = result
+                    .rtt_ms
+                    .map(|r| format!("{:.1}ms", r))
+                    .unwrap_or_else(|| "-".to_string());
+
+                let ttl = result
+                    .ttl
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+
+                println!(
+                    "  {:>5}  \x1b[33mopen|filtered\x1b[0m  {:12}  {:>8}  {:>4}",
+                    result.port, service, rtt, ttl
+                );
+            }
+        }
+
+        if open_filtered.is_empty() && closed.is_empty() {
+            Output::warning("No responses received (all ports filtered)");
+        } else if open_filtered.is_empty() {
+            Output::info("No open|filtered ports found - all scanned ports returned RST (closed)");
+        }
+
+        println!();
+        Output::success(&format!("✓ {} completed", scan_name));
 
         Ok(())
     }

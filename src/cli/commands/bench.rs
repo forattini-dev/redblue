@@ -2,7 +2,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::modules::benchmark::load_generator::{
-    LiveSnapshot, LoadConfig, LoadGenerator, LoadTestResults,
+    LiveSnapshot, LoadConfig, LoadGenerator, LoadMode, LoadTestResults, ProtocolPreference,
 };
 use std::collections::VecDeque;
 use std::f64;
@@ -55,10 +55,30 @@ impl Command for BenchCommand {
                 .with_short('t')
                 .with_default("100"),
             Flag::new("timeout", "Request timeout in seconds").with_default("30"),
+            Flag::new("protocol", "HTTP protocol to use (auto, http1, http2)"),
+            Flag::new("method", "HTTP method to use (default GET)"),
+            Flag::new("body", "Inline request body payload (string)"),
+            Flag::new("body-file", "File containing request body payload"),
             Flag::new("keep-alive", "Use HTTP keep-alive (connection pooling)")
                 .with_short('k')
                 .with_default("true"),
             Flag::new("max-idle", "Max idle connections per host").with_default("50"),
+            // Mode flags
+            Flag::new("mode", "Testing mode: throughput, connections, realistic, stress")
+                .with_short('m')
+                .with_default("realistic"),
+            Flag::new("new-user-ratio", "Ratio of new users in realistic mode (0.0-1.0)")
+                .with_default("0.3"),
+            Flag::new("session-length", "Requests per session before reconnect (realistic mode)"),
+            Flag::new("think-variance", "Think time variance multiplier (realistic mode)")
+                .with_default("0.0"),
+            Flag::new("ramp-up", "Gradual ramp-up duration in seconds"),
+            Flag::new("warmup", "Warmup requests to skip from statistics").with_default("0"),
+            Flag::new("rate-limit", "Target RPS limit (0 = unlimited)").with_default("0"),
+            // HTTP/2 pool flags
+            Flag::new("shared-http2-pool", "Share HTTP/2 connections across workers")
+                .with_default("true"),
+            Flag::new("http2-connections", "Max HTTP/2 connections per origin").with_default("6"),
             Flag::new("live", "Show real-time dashboard with graphs").with_short('l'),
             Flag::new("live-interval", "Seconds between live dashboard updates")
                 .with_default("1.0"),
@@ -97,7 +117,19 @@ impl Command for BenchCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Basic load test", "rb bench load run https://example.com"),
+            ("Basic load test (realistic mode)", "rb bench load run https://example.com"),
+            (
+                "Maximum throughput test",
+                "rb bench load run https://example.com --mode throughput --users 500",
+            ),
+            (
+                "Connection stress test",
+                "rb bench load run https://example.com --mode connections --users 500",
+            ),
+            (
+                "Max stress test",
+                "rb bench load run https://example.com --mode stress --users 5000",
+            ),
             (
                 "Real-time dashboard with graphs",
                 "rb bench load run https://example.com --live",
@@ -107,16 +139,12 @@ impl Command for BenchCommand {
                 "rb bench load run https://api.example.com --users 1000 --duration 120",
             ),
             (
-                "Fixed request count",
-                "rb bench load run https://example.com --users 50 --requests 1000",
+                "With warmup and rate limiting",
+                "rb bench load run https://example.com --warmup 100 --rate-limit 1000",
             ),
             (
-                "Stress test with high load",
-                "rb bench load stress https://example.com --users 5000",
-            ),
-            (
-                "Realistic user simulation",
-                "rb bench load run https://shop.example.com --users 500 --think-time 2000",
+                "Disable shared HTTP/2 pool",
+                "rb bench load run https://example.com --shared-http2-pool false",
             ),
         ]
     }
@@ -178,6 +206,14 @@ impl BenchCommand {
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(30);
 
+        let (method, body_payload) = parse_method_and_body(ctx)?;
+        let body_size = body_payload.as_ref().map(|b| b.len()).unwrap_or(0);
+
+        let protocol = match ctx.get_flag("protocol") {
+            Some(flag) => ProtocolPreference::from_str(&flag)?,
+            None => ProtocolPreference::Auto,
+        };
+
         let keep_alive = ctx
             .get_flag("keep-alive")
             .map(|s| s != "false")
@@ -188,13 +224,71 @@ impl BenchCommand {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(50);
 
-        // Build config
+        // Parse mode flags
+        let mode = match ctx.get_flag("mode") {
+            Some(flag) => LoadMode::from_str(&flag)?,
+            None => LoadMode::Realistic,
+        };
+
+        let new_user_ratio = ctx
+            .get_flag("new-user-ratio")
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(|r| r.clamp(0.0, 1.0))
+            .unwrap_or(0.3);
+
+        let session_length = ctx
+            .get_flag("session-length")
+            .and_then(|s| s.parse::<usize>().ok());
+
+        let think_variance = ctx
+            .get_flag("think-variance")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        let ramp_up = ctx
+            .get_flag("ramp-up")
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(Duration::from_secs);
+
+        let warmup = ctx
+            .get_flag("warmup")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+
+        let rate_limit = ctx
+            .get_flag("rate-limit")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+
+        let shared_http2_pool = ctx
+            .get_flag("shared-http2-pool")
+            .map(|s| s != "false")
+            .unwrap_or(true);
+
+        let http2_connections = ctx
+            .get_flag("http2-connections")
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(6);
+
+        // Build config - apply mode FIRST, then explicit overrides
         let mut config = LoadConfig::new(url.clone())
+            .with_mode(mode) // Apply mode defaults first
             .with_users(users)
             .with_think_time(Duration::from_millis(think_time_ms))
             .with_timeout(Duration::from_secs(timeout_secs))
             .with_connection_pool(keep_alive)
-            .with_max_idle_per_host(max_idle);
+            .with_max_idle_per_host(max_idle)
+            .with_protocol(protocol)
+            .with_method(method.clone())
+            .with_body(body_payload)
+            .with_new_user_ratio(new_user_ratio)
+            .with_session_length(session_length)
+            .with_think_time_variance(think_variance)
+            .with_ramp_up(ramp_up)
+            .with_warmup(warmup)
+            .with_rate_limit(rate_limit)
+            .with_shared_http2_pool(shared_http2_pool)
+            .with_http2_max_connections(http2_connections);
 
         if let Some(req_count) = requests {
             config = config.with_requests(req_count);
@@ -205,6 +299,7 @@ impl BenchCommand {
         // Display config
         Output::header("HTTP Load Test");
         Output::item("Target", url);
+        Output::item("Mode", &format!("{} ({})", mode.label(), mode.description()));
         Output::item("Concurrent Users", &users.to_string());
         if let Some(req) = requests {
             Output::item("Requests/User", &req.to_string());
@@ -212,6 +307,22 @@ impl BenchCommand {
             Output::item("Duration", &format!("{}s", duration_secs));
         }
         Output::item("Think Time", &format!("{}ms", think_time_ms));
+        Output::item("Protocol", protocol.label());
+        Output::item("Method", &method);
+        let body_display = if body_size > 0 {
+            format!("{} bytes", body_size)
+        } else {
+            "none".to_string()
+        };
+        Output::item("Body", &body_display);
+        Output::item(
+            "Connection Pool",
+            &format!(
+                "HTTP/1={}, HTTP/2 shared={}",
+                if keep_alive { "on" } else { "off" },
+                if shared_http2_pool { "on" } else { "off" }
+            ),
+        );
         println!();
 
         let live_flag_value = ctx
@@ -251,10 +362,10 @@ impl BenchCommand {
         let observer_interval = Duration::from_secs_f64(live_interval_secs);
         let color_mode = ColorMode::from_context(ctx)?;
         let color_theme = ColorTheme::from_flags(
-            ctx.get_flag("live-rps-color"),
-            ctx.get_flag("live-latency-color"),
-            ctx.get_flag("live-cpu-color"),
-            ctx.get_flag("live-ram-color"),
+            ctx.get_flag("live-rps-color").as_ref(),
+            ctx.get_flag("live-latency-color").as_ref(),
+            ctx.get_flag("live-cpu-color").as_ref(),
+            ctx.get_flag("live-ram-color").as_ref(),
             color_mode,
         )?;
 
@@ -266,6 +377,8 @@ impl BenchCommand {
                 observer_interval,
                 live_height,
                 color_theme,
+                protocol.label().to_string(),
+                method.clone(),
             )));
             let observer_dashboard = Arc::clone(&dashboard);
             let observer = Arc::new(move |snapshot: LiveSnapshot| {
@@ -311,18 +424,37 @@ impl BenchCommand {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(1000);
 
+        let (method, body_payload) = parse_method_and_body(ctx)?;
+        let body_size = body_payload.as_ref().map(|b| b.len()).unwrap_or(0);
+
+        let protocol = match ctx.get_flag("protocol") {
+            Some(flag) => ProtocolPreference::from_str(&flag)?,
+            None => ProtocolPreference::Auto,
+        };
+
         // Stress test = no think time, aggressive requests
         let config = LoadConfig::new(url.clone())
             .with_users(users)
             .with_duration(Duration::from_secs(60))
             .with_think_time(Duration::ZERO) // No delay
-            .with_timeout(Duration::from_secs(10));
+            .with_timeout(Duration::from_secs(10))
+            .with_protocol(protocol)
+            .with_method(method.clone())
+            .with_body(body_payload);
 
         Output::header("HTTP Stress Test");
         Output::warning("⚠️  AGGRESSIVE LOAD - USE ONLY ON AUTHORIZED TARGETS");
         Output::item("Target", url);
         Output::item("Concurrent Users", &users.to_string());
         Output::item("Think Time", "0ms (aggressive)");
+        Output::item("Protocol", protocol.label());
+        Output::item("Method", &method);
+        let body_display = if body_size > 0 {
+            format!("{} bytes", body_size)
+        } else {
+            "none".to_string()
+        };
+        Output::item("Body", &body_display);
         println!();
 
         Output::spinner_start(&format!("Stress testing with {} users", users));
@@ -358,6 +490,15 @@ impl BenchCommand {
             "Requests/sec",
             &format!("{:.2}", results.requests_per_second),
         );
+        Output::item("Protocol", &results.protocol.display_label());
+        Output::item("Method", &results.config.method);
+        let body_summary = results
+            .config
+            .body
+            .as_ref()
+            .map(|b| format!("{} bytes", b.len()))
+            .unwrap_or_else(|| "none".to_string());
+        Output::item("Body", &body_summary);
         println!();
 
         // Latency
@@ -385,6 +526,33 @@ impl BenchCommand {
         Output::item(
             "avg",
             &format!("{:.2}ms", results.latency.avg.as_secs_f64() * 1000.0),
+        );
+        println!();
+
+        Output::subheader("TTFB Distribution");
+        Output::item(
+            "p50 (median)",
+            &format!("{:.2}ms", results.ttfb.p50.as_secs_f64() * 1000.0),
+        );
+        Output::item(
+            "p95",
+            &format!("{:.2}ms", results.ttfb.p95.as_secs_f64() * 1000.0),
+        );
+        Output::item(
+            "p99",
+            &format!("{:.2}ms", results.ttfb.p99.as_secs_f64() * 1000.0),
+        );
+        Output::item(
+            "min",
+            &format!("{:.2}ms", results.ttfb.min.as_secs_f64() * 1000.0),
+        );
+        Output::item(
+            "max",
+            &format!("{:.2}ms", results.ttfb.max.as_secs_f64() * 1000.0),
+        );
+        Output::item(
+            "avg",
+            &format!("{:.2}ms", results.ttfb.avg.as_secs_f64() * 1000.0),
         );
         println!();
 
@@ -443,6 +611,38 @@ impl BenchCommand {
     }
 }
 
+fn parse_method_and_body(ctx: &CliContext) -> Result<(String, Option<Vec<u8>>), String> {
+    let method_raw = ctx
+        .get_flag("method")
+        .unwrap_or_else(|| "GET".to_string());
+    let method_trimmed = method_raw.trim();
+    if method_trimmed.is_empty() {
+        return Err("HTTP method cannot be empty".to_string());
+    }
+    if method_trimmed.chars().any(|c| c.is_whitespace()) {
+        return Err("HTTP method must not contain whitespace characters".to_string());
+    }
+    let method = method_trimmed.to_ascii_uppercase();
+
+    let body_inline = ctx.get_flag("body");
+    let body_file = ctx.get_flag("body-file");
+    if body_inline.is_some() && body_file.is_some() {
+        return Err("Specify either --body or --body-file, not both.".to_string());
+    }
+
+    let body = if let Some(path) = body_file {
+        let data =
+            fs::read(&path).map_err(|e| format!("Failed to read body file '{}': {}", path, e))?;
+        Some(data)
+    } else if let Some(inline) = body_inline {
+        Some(inline.into_bytes())
+    } else {
+        None
+    };
+
+    Ok((method, body))
+}
+
 const LIVE_GRAPH_WIDTH: usize = 60;
 const SPARK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -457,26 +657,34 @@ struct LiveDashboard {
     sample_interval: f64,
     graph_height: usize,
     stats: SystemStats,
-    sparkline_width: usize,
     colors: ColorTheme,
+    protocol_label: String,
+    method_label: String,
 }
 
 impl LiveDashboard {
-    fn new(capacity: usize, interval: Duration, graph_height: usize, colors: ColorTheme) -> Self {
-        let sparkline_width = capacity.min(40).max(8);
+    fn new(
+        capacity: usize,
+        interval: Duration,
+        graph_height: usize,
+        colors: ColorTheme,
+        protocol_label: String,
+        method_label: String,
+    ) -> Self {
         Self {
             capacity,
             rps_history: VecDeque::with_capacity(capacity),
             latency_history: VecDeque::with_capacity(capacity),
-            cpu_history: VecDeque::with_capacity(sparkline_width),
-            mem_history: VecDeque::with_capacity(sparkline_width),
+            cpu_history: VecDeque::with_capacity(capacity),
+            mem_history: VecDeque::with_capacity(capacity),
             last_render_lines: 0,
             cursor_hidden: false,
             sample_interval: interval.as_secs_f64().max(f64::EPSILON),
             graph_height: graph_height.max(4),
             stats: SystemStats::new(),
-            sparkline_width,
             colors,
+            protocol_label,
+            method_label,
         }
     }
 
@@ -493,10 +701,10 @@ impl LiveDashboard {
             snapshot.p95.as_secs_f64() * 1000.0,
         );
         if let Some(cpu) = self.stats.cpu_percent_value() {
-            Self::push_sample(&mut self.cpu_history, self.sparkline_width, cpu);
+            Self::push_sample(&mut self.cpu_history, self.capacity, cpu);
         }
         if let Some(mem) = self.stats.mem_percent_value() {
-            Self::push_sample(&mut self.mem_history, self.sparkline_width, mem);
+            Self::push_sample(&mut self.mem_history, self.capacity, mem);
         }
     }
 
@@ -547,33 +755,36 @@ impl LiveDashboard {
     fn build_lines(&self, snapshot: &LiveSnapshot) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push(self.colors.wrap_summary(&format!(
-            "t={:>5.1}s  total={}  ok={}  err={}  rps={:>6.1}  p95={:>6.0}ms  succ={:>5.1}%",
+            "t={:>5.1}s  total={}  ok={}  err={}  rps={:>6.1}  p95={:>6.0}ms  ttfb={:>6.0}ms  succ={:>5.1}%  proto={}  method={}",
             snapshot.elapsed.as_secs_f64(),
             snapshot.total_requests,
             snapshot.successful_requests,
             snapshot.failed_requests,
             snapshot.requests_per_second,
             snapshot.p95.as_secs_f64() * 1000.0,
+            snapshot.ttfb_p95.as_secs_f64() * 1000.0,
             snapshot.success_rate,
+            self.protocol_label,
+            self.method_label
         )));
-        let cpu_spark = render_sparkline(&self.cpu_history, self.sparkline_width);
+        let cpu_spark = render_sparkline(&self.cpu_history, LIVE_GRAPH_WIDTH);
         lines.push(self.colors.wrap_cpu_line(&format!(
-            "cpu {:>6} {}",
-            self.stats.cpu_compact_display(),
-            cpu_spark
+            " CPU    {}  {:>6}",
+            cpu_spark,
+            self.stats.cpu_compact_display()
         )));
-        let ram_spark = render_sparkline(&self.mem_history, self.sparkline_width);
+        let ram_spark = render_sparkline(&self.mem_history, LIVE_GRAPH_WIDTH);
         lines.push(self.colors.wrap_ram_line(&format!(
-            "ram {:>6} {} {}",
-            self.stats.mem_compact_display(),
+            " RAM    {}  {:>6} {}",
             ram_spark,
+            self.stats.mem_compact_display(),
             self.stats.mem_detail_display()
         )));
         lines.push(String::new());
 
         let rps_values: Vec<f64> = self.rps_history.iter().copied().collect();
         for line in render_graph(
-            "RPS",
+            " RPS",
             &rps_values,
             "req/s",
             self.sample_interval,
@@ -585,7 +796,7 @@ impl LiveDashboard {
 
         let latency_values: Vec<f64> = self.latency_history.iter().copied().collect();
         for line in render_graph(
-            "Latency",
+            " Latency",
             &latency_values,
             "ms",
             self.sample_interval,
@@ -679,7 +890,12 @@ fn render_graph(
         lines.push(line);
     }
 
-    lines.push(format!("      └{}┘", "─".repeat(width)));
+    let mut baseline = String::with_capacity(width + 12);
+    baseline.push_str("      ");
+    baseline.push_str(" └");
+    baseline.push_str(&"─".repeat(width));
+    baseline.push('┘');
+    lines.push(baseline);
     let axis_span_label = if span_seconds >= 100.0 {
         format!("{:.0}s", span_seconds)
     } else if span_seconds >= 10.0 {
@@ -722,20 +938,39 @@ fn draw_column(grid: &mut Vec<Vec<char>>, col: usize, value: f64) {
         return;
     }
 
-    let scaled = value * (height as f64 - 1.0);
-    let base_row = (height as isize - 1 - scaled.floor() as isize).clamp(0, height as isize - 1);
-    let mut remainder = scaled - scaled.floor();
-    if value >= 0.999 {
-        remainder = 1.0;
-    }
-
     for row in 0..height {
         grid[row][col] = ' ';
     }
 
-    let index = (remainder * (SPARK_CHARS.len() as f64 - 1.0)).round() as usize;
-    let char = SPARK_CHARS[index.min(SPARK_CHARS.len() - 1)];
-    grid[base_row as usize][col] = char;
+    let clamped = value.clamp(0.0, 1.0);
+    let total_units = clamped * height as f64;
+    let mut full_rows = total_units.floor() as isize;
+    if full_rows as usize > height {
+        full_rows = height as isize;
+    }
+    let mut remainder = total_units - full_rows as f64;
+    if clamped >= 0.999_999 {
+        remainder = 1.0;
+    }
+
+    for i in 0..full_rows.max(0) {
+        let row = height as isize - 1 - i;
+        if row < 0 {
+            break;
+        }
+        grid[row as usize][col] = '█';
+    }
+
+    if (remainder > f64::EPSILON) && (full_rows as usize) < height {
+        let row = height as isize - 1 - full_rows;
+        if row >= 0 {
+            let idx = (remainder * (SPARK_CHARS.len() as f64 - 1.0)).round() as usize;
+            let ch = SPARK_CHARS[idx.min(SPARK_CHARS.len() - 1)];
+            if grid[row as usize][col] == ' ' {
+                grid[row as usize][col] = ch;
+            }
+        }
+    }
 }
 
 fn render_sparkline(history: &VecDeque<f64>, width: usize) -> String {
@@ -794,20 +1029,6 @@ impl AnsiColor {
         }
     }
 
-    #[allow(dead_code)]
-    fn from_8bit(code: u8) -> Self {
-        Self {
-            prefix: format!("\x1b[38;5;{}m", code),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn from_simple(code: &str) -> Self {
-        Self {
-            prefix: format!("\x1b[{}m", code),
-        }
-    }
-
     fn wrap(&self, text: &str) -> String {
         if self.prefix.is_empty() {
             text.to_string()
@@ -849,7 +1070,7 @@ impl ColorMode {
         }
 
         if let Some(flag) = ctx.get_flag("color") {
-            return ColorMode::from_str(flag);
+            return ColorMode::from_str(&flag);
         }
 
         if env::var("CLICOLOR_FORCE")

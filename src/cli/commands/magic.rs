@@ -1041,7 +1041,8 @@ pub fn execute(ctx: &CliContext) -> Result<(), String> {
         .ok_or("No target specified")?;
 
     // Get preset from --preset flag
-    let preset_flag = ctx.get_flag("preset").map(|s| s.as_str());
+    let preset_str = ctx.get_flag("preset");
+    let preset_flag = preset_str.as_deref();
 
     let scan = MagicScan::new(target.to_string(), &ctx.raw, preset_flag)?;
     scan.run()

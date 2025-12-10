@@ -110,11 +110,11 @@ impl TakeoverCommand {
             .ok_or("Missing wordlist. Usage: rb cloud asset takeover-scan --wordlist subs.txt")?;
 
         Output::header("Bulk Subdomain Takeover Scan");
-        Output::item("Wordlist", wordlist_path);
+        Output::item("Wordlist", &wordlist_path);
 
         // Read wordlist
         use std::fs;
-        let wordlist_content = fs::read_to_string(wordlist_path)
+        let wordlist_content = fs::read_to_string(&wordlist_path)
             .map_err(|e| format!("Failed to read wordlist: {}", e))?;
 
         let domains: Vec<String> = wordlist_content
@@ -233,8 +233,7 @@ impl TakeoverCommand {
         );
 
         // Filter by confidence level if specified
-        let default_conf = "low".to_string();
-        let min_confidence = ctx.get_flag("confidence").unwrap_or(&default_conf);
+        let min_confidence = ctx.get_flag("confidence").unwrap_or_else(|| "low".to_string());
 
         let filtered: Vec<_> = results
             .iter()

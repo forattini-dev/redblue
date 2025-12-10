@@ -46,6 +46,11 @@ impl Output {
         println!("{}✗{} {}", Self::RED, Self::RESET, msg);
     }
 
+    /// Raw output without any formatting or prefixes
+    pub fn raw(msg: &str) {
+        println!("{}", msg);
+    }
+
     #[allow(dead_code)]
     pub fn info(msg: &str) {
         println!("{}ℹ{} {}", Self::BLUE, Self::RESET, msg);
@@ -346,6 +351,17 @@ impl Drop for ProgressBar {
 impl ScanProgress for ProgressBar {
     fn inc(&self, delta: usize) {
         self.tick(delta as u64);
+    }
+}
+
+// Implement fuzzer's ProgressBar trait for CLI ProgressBar
+impl crate::modules::web::fuzzer::ProgressBar for ProgressBar {
+    fn inc(&self, delta: u64) {
+        self.tick(delta);
+    }
+
+    fn finish(&self) {
+        ProgressBar::finish(self);
     }
 }
 

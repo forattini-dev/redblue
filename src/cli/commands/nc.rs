@@ -544,7 +544,7 @@ impl NetcatCommand {
 
         // Parse flags
         let verbose = ctx.has_flag("verbose");
-        let chat_log = ctx.get_flag("chat-log").filter(|s| !s.is_empty()).cloned();
+        let chat_log = ctx.get_flag("chat-log").filter(|s| !s.is_empty());
 
         // Build configuration
         let config = BrokerConfig::new(port)

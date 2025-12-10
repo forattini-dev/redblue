@@ -6,7 +6,8 @@ use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
-use crate::storage::schema::{DnsRecordType as StorageDnsRecordType, SubdomainSource};
+use crate::protocols::doh::{DohClient, PropagationStatus, DOH_PROVIDERS};
+use crate::storage::records::{DnsRecordType as StorageDnsRecordType, SubdomainSource};
 use crate::storage::service::StorageService;
 use crate::wordlists::WordlistManager;
 use std::net::IpAddr;
@@ -57,6 +58,16 @@ impl Command for DnsCommand {
                 summary: "Enumerate subdomains using wordlists",
                 usage: "rb dns record bruteforce <domain> --wordlist WORDS",
             },
+            Route {
+                verb: "propagation",
+                summary: "Check DNS propagation across multiple providers",
+                usage: "rb dns record propagation <domain> [--type A]",
+            },
+            Route {
+                verb: "email",
+                summary: "Check email security records (SPF, DKIM, DMARC)",
+                usage: "rb dns record email <domain>",
+            },
             // RESTful verbs - query stored data
             Route {
                 verb: "list",
@@ -78,7 +89,7 @@ impl Command for DnsCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("type", "Record type (A|AAAA|MX|NS|TXT|CNAME|ANY)")
+            Flag::new("type", "Record type (A|AAAA|MX|NS|TXT|CNAME|SOA|PTR|ANY)")
                 .with_short('t')
                 .with_default("A"),
             Flag::new("server", "DNS server to use")
@@ -86,8 +97,9 @@ impl Command for DnsCommand {
                 .with_default("8.8.8.8"),
             Flag::new("wordlist", "Wordlist for brute force").with_short('w'),
             Flag::new("threads", "Number of threads").with_default("50"),
-            Flag::new("persist", "Save results to binary database (.rdb file)"),
-            Flag::new("no-persist", "Don't save results (overrides config)"),
+            Flag::new("save", "Force save to database (overrides config)"),
+            Flag::new("no-save", "Disable auto-save for this command"),
+            Flag::new("db-password", "Database encryption password (overrides keyring)"),
             Flag::new(
                 "intel",
                 "Perform DNS server fingerprinting using VERSION.BIND query",
@@ -107,8 +119,8 @@ impl Command for DnsCommand {
                 "rb dns record lookup google.com --type A",
             ),
             (
-                "Lookup and save to database",
-                "rb dns record lookup example.com --persist",
+                "Lookup and save to encrypted database",
+                "rb dns record lookup example.com --save",
             ),
             (
                 "Get all record types at once",
@@ -130,6 +142,14 @@ impl Command for DnsCommand {
             (
                 "DNS server fingerprinting",
                 "rb dns record lookup example.com --intel",
+            ),
+            (
+                "Check DNS propagation",
+                "rb dns record propagation example.com --type A",
+            ),
+            (
+                "Check email security",
+                "rb dns record email example.com",
             ),
             // RESTful examples
             (
@@ -157,6 +177,8 @@ impl Command for DnsCommand {
             "resolve" => self.resolve(ctx),
             "reverse" => self.reverse(ctx),
             "bruteforce" => self.bruteforce(ctx),
+            "propagation" => self.propagation(ctx),
+            "email" => self.email_security(ctx),
             // RESTful verbs
             "list" => self.list_records(ctx),
             "get" => self.get_record(ctx),
@@ -173,6 +195,8 @@ impl Command for DnsCommand {
                             "resolve",
                             "reverse",
                             "bruteforce",
+                            "propagation",
+                            "email",
                             "list",
                             "get",
                             "describe"
@@ -202,7 +226,6 @@ impl DnsCommand {
         let cfg = config::get();
         let server = ctx
             .get_flag("server")
-            .cloned()
             .unwrap_or_else(|| cfg.network.dns_resolver.clone());
         let format = ctx.get_output_format();
 
@@ -220,15 +243,8 @@ impl DnsCommand {
             Output::spinner_done();
         }
 
-        // Database persistence
-        let persist_flag = if ctx.has_flag("persist") {
-            Some(true)
-        } else if ctx.has_flag("no-persist") {
-            Some(false)
-        } else {
-            None
-        };
-
+        // Database persistence using unified PersistenceConfig
+        let persistence_config = ctx.get_persistence_config();
         let storage = StorageService::global();
         let attributes = build_partition_attributes(
             ctx,
@@ -240,7 +256,7 @@ impl DnsCommand {
             ],
         );
         let mut pm =
-            storage.persistence_for_target_with(&domain_owned, persist_flag, None, attributes)?;
+            storage.persistence_with_config(&domain_owned, persistence_config, attributes)?;
 
         // Save DNS records to database
         if pm.is_enabled() {
@@ -425,7 +441,6 @@ impl DnsCommand {
         let cfg = config::get();
         let server = ctx
             .get_flag("server")
-            .cloned()
             .unwrap_or_else(|| cfg.network.dns_resolver.clone());
         let format = ctx.get_output_format();
 
@@ -588,7 +603,6 @@ impl DnsCommand {
         let cfg = config::get();
         let server = ctx
             .get_flag("server")
-            .cloned()
             .unwrap_or_else(|| cfg.network.dns_resolver.clone());
         let client = DnsClient::new(&server).with_timeout(cfg.network.dns_timeout_ms);
 
@@ -624,7 +638,6 @@ impl DnsCommand {
         let cfg = config::get();
         let server = ctx
             .get_flag("server")
-            .cloned()
             .unwrap_or_else(|| cfg.network.dns_resolver.clone());
         let client = DnsClient::new(&server).with_timeout(cfg.network.dns_timeout_ms);
 
@@ -664,7 +677,7 @@ impl DnsCommand {
 
         // Get wordlist
         let default_wordlist = "subdomains-top100".to_string();
-        let wordlist_name = ctx.get_flag("wordlist").unwrap_or(&default_wordlist);
+        let wordlist_name = ctx.get_flag("wordlist").unwrap_or(default_wordlist);
 
         let wordlist_manager = WordlistManager::new()?;
         let wordlist = wordlist_manager.get(&wordlist_name)?;
@@ -676,7 +689,7 @@ impl DnsCommand {
 
         // DNS server
         let default_server = "8.8.8.8".to_string();
-        let dns_server = ctx.get_flag("server").unwrap_or(&default_server);
+        let dns_server = ctx.get_flag("server").unwrap_or(default_server);
 
         // Thread count
         let thread_count = ctx
@@ -769,15 +782,8 @@ impl DnsCommand {
             }
         }
 
-        // Database persistence
-        let persist_flag = if ctx.has_flag("persist") {
-            Some(true)
-        } else if ctx.has_flag("no-persist") {
-            Some(false)
-        } else {
-            None
-        };
-
+        // Database persistence using unified PersistenceConfig
+        let persistence_config = ctx.get_persistence_config();
         let attributes = build_partition_attributes(
             ctx,
             domain,
@@ -786,10 +792,9 @@ impl DnsCommand {
                 ("wordlist", wordlist_name.as_str()),
             ],
         );
-        let mut pm = StorageService::global().persistence_for_target_with(
+        let mut pm = StorageService::global().persistence_with_config(
             domain,
-            persist_flag,
-            None,
+            persistence_config,
             attributes,
         )?;
 
@@ -822,6 +827,573 @@ impl DnsCommand {
         Ok(())
     }
 
+    fn propagation(&self, ctx: &CliContext) -> Result<(), String> {
+        let domain = ctx.target.as_ref().ok_or(
+            "Missing domain.\nUsage: rb dns record propagation <DOMAIN>\nExample: rb dns record propagation example.com",
+        )?;
+
+        Validator::validate_domain(domain)?;
+
+        let record_type_str = ctx.get_flag_or("type", "A");
+        let record_type = Self::parse_record_type(&record_type_str)?;
+        let format = ctx.get_output_format();
+
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_start(&format!(
+                "Checking DNS propagation across {} providers",
+                DOH_PROVIDERS.len()
+            ));
+        }
+
+        let client = DohClient::new();
+        let result = client.check_propagation(domain, record_type);
+
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain);
+            println!("  \"record_type\": \"{}\",", record_type_str);
+            println!("  \"is_propagated\": {},", result.is_propagated);
+            println!("  \"consensus_values\": [");
+            for (i, value) in result.consensus_values.iter().enumerate() {
+                let comma = if i < result.consensus_values.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    \"{}\"{}", value, comma);
+            }
+            println!("  ],");
+            println!("  \"providers\": [");
+            for (i, pr) in result.results.iter().enumerate() {
+                let comma = if i < result.results.len() - 1 { "," } else { "" };
+                let status_str = match pr.status {
+                    PropagationStatus::Success => "success",
+                    PropagationStatus::NoRecords => "no_records",
+                    PropagationStatus::Error => "error",
+                };
+                println!("    {{");
+                println!("      \"provider\": \"{}\",", pr.provider);
+                println!("      \"status\": \"{}\",", status_str);
+                println!("      \"values\": [");
+                for (j, v) in pr.values.iter().enumerate() {
+                    let comma2 = if j < pr.values.len() - 1 { "," } else { "" };
+                    println!("        \"{}\"{}", v, comma2);
+                }
+                println!("      ],");
+                if let Some(ttl) = pr.ttl {
+                    println!("      \"ttl\": {}", ttl);
+                } else {
+                    println!("      \"ttl\": null");
+                }
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("domain: {}", domain);
+            println!("record_type: {}", record_type_str);
+            println!("is_propagated: {}", result.is_propagated);
+            println!("consensus_values:");
+            for value in &result.consensus_values {
+                println!("  - \"{}\"", value);
+            }
+            println!("providers:");
+            for pr in &result.results {
+                let status_str = match pr.status {
+                    PropagationStatus::Success => "success",
+                    PropagationStatus::NoRecords => "no_records",
+                    PropagationStatus::Error => "error",
+                };
+                println!("  - provider: {}", pr.provider);
+                println!("    status: {}", status_str);
+                println!("    values:");
+                for v in &pr.values {
+                    println!("      - \"{}\"", v);
+                }
+                if let Some(ttl) = pr.ttl {
+                    println!("    ttl: {}", ttl);
+                } else {
+                    println!("    ttl: null");
+                }
+            }
+            return Ok(());
+        }
+
+        // Human output
+        Output::header(&format!(
+            "DNS Propagation: {} ({})",
+            domain, record_type_str
+        ));
+
+        // Status summary
+        let success_count = result
+            .results
+            .iter()
+            .filter(|r| r.status == PropagationStatus::Success)
+            .count();
+        let total_count = result.results.len();
+
+        Output::summary_line(&[
+            ("Providers", &total_count.to_string()),
+            ("Responding", &success_count.to_string()),
+            (
+                "Status",
+                if result.is_propagated {
+                    "Propagated"
+                } else {
+                    "Propagating"
+                },
+            ),
+        ]);
+        println!();
+
+        // Provider results table
+        println!(
+            "  {:<12} {:<12} {:<40} {}",
+            "PROVIDER", "STATUS", "VALUE(S)", "TTL"
+        );
+        println!("  {}", "─".repeat(76));
+
+        for pr in &result.results {
+            let status_display = match pr.status {
+                PropagationStatus::Success => "\x1b[32m✓ OK\x1b[0m",
+                PropagationStatus::NoRecords => "\x1b[33m- EMPTY\x1b[0m",
+                PropagationStatus::Error => "\x1b[31m✗ ERROR\x1b[0m",
+            };
+
+            let values_str = if pr.values.is_empty() {
+                "-".to_string()
+            } else {
+                pr.values.join(", ")
+            };
+
+            let ttl_str = pr
+                .ttl
+                .map(|t| format!("{}s", t))
+                .unwrap_or_else(|| "-".to_string());
+
+            // Truncate values if too long
+            let values_display = if values_str.len() > 38 {
+                format!("{}...", &values_str[..35])
+            } else {
+                values_str
+            };
+
+            println!(
+                "  {:<12} {:<20} {:<40} {}",
+                pr.provider, status_display, values_display, ttl_str
+            );
+        }
+
+        println!();
+
+        // Consensus values
+        if !result.consensus_values.is_empty() {
+            Output::section("Consensus Values");
+            for value in &result.consensus_values {
+                println!("  \x1b[1m{}\x1b[0m", value);
+            }
+            println!();
+        }
+
+        // Final status
+        if result.is_propagated {
+            Output::success("DNS propagation complete - all providers agree");
+        } else {
+            Output::warning("DNS propagation in progress - values may differ across providers");
+        }
+
+        Ok(())
+    }
+
+    fn email_security(&self, ctx: &CliContext) -> Result<(), String> {
+        let domain = ctx.target.as_ref().ok_or(
+            "Missing domain.\nUsage: rb dns record email <DOMAIN>\nExample: rb dns record email example.com",
+        )?;
+
+        Validator::validate_domain(domain)?;
+
+        let cfg = config::get();
+        let server = ctx
+            .get_flag("server")
+            .unwrap_or_else(|| cfg.network.dns_resolver.clone());
+        let format = ctx.get_output_format();
+
+        let client = DnsClient::new(&server).with_timeout(cfg.network.dns_timeout_ms);
+
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_start("Checking email security records");
+        }
+
+        // Check SPF record (TXT record at domain)
+        let spf_result = client.query(domain, DnsRecordType::TXT);
+        let spf_record = spf_result
+            .as_ref()
+            .ok()
+            .and_then(|answers| {
+                answers.iter().find_map(|a| {
+                    let val = a.display_value();
+                    if val.to_lowercase().starts_with("v=spf1") {
+                        Some(val)
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        // Check DMARC record (TXT record at _dmarc.domain)
+        let dmarc_domain = format!("_dmarc.{}", domain);
+        let dmarc_result = client.query(&dmarc_domain, DnsRecordType::TXT);
+        let dmarc_record = dmarc_result
+            .as_ref()
+            .ok()
+            .and_then(|answers| {
+                answers.iter().find_map(|a| {
+                    let val = a.display_value();
+                    if val.to_lowercase().starts_with("v=dmarc1") {
+                        Some(val)
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        // Check MX records to get mail servers
+        let mx_result = client.query(domain, DnsRecordType::MX);
+        let mx_records: Vec<String> = mx_result
+            .as_ref()
+            .ok()
+            .map(|answers| answers.iter().map(|a| a.display_value()).collect())
+            .unwrap_or_default();
+
+        // Try common DKIM selectors
+        let common_selectors = ["default", "selector1", "selector2", "google", "k1", "mail", "dkim"];
+        let mut dkim_results: Vec<(String, Option<String>)> = Vec::new();
+
+        for selector in &common_selectors {
+            let dkim_domain = format!("{}._domainkey.{}", selector, domain);
+            let dkim_result = client.query(&dkim_domain, DnsRecordType::TXT);
+            let dkim_record = dkim_result
+                .ok()
+                .and_then(|answers| {
+                    answers.iter().find_map(|a| {
+                        let val = a.display_value();
+                        if val.to_lowercase().contains("v=dkim1") || val.contains("k=rsa") {
+                            Some(val)
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+            if dkim_record.is_some() {
+                dkim_results.push((selector.to_string(), dkim_record));
+            }
+        }
+
+        if format == crate::cli::format::OutputFormat::Human {
+            Output::spinner_done();
+        }
+
+        // Calculate security score
+        let mut score = 0;
+        let mut max_score = 0;
+
+        // SPF scoring
+        max_score += 30;
+        let spf_score = if let Some(ref spf) = spf_record {
+            if spf.contains("-all") {
+                30 // Strict SPF
+            } else if spf.contains("~all") {
+                20 // Soft fail
+            } else if spf.contains("?all") {
+                10 // Neutral
+            } else {
+                15 // Has SPF but permissive
+            }
+        } else {
+            0
+        };
+        score += spf_score;
+
+        // DKIM scoring
+        max_score += 30;
+        let dkim_score = if !dkim_results.is_empty() { 30 } else { 0 };
+        score += dkim_score;
+
+        // DMARC scoring
+        max_score += 40;
+        let dmarc_score = if let Some(ref dmarc) = dmarc_record {
+            if dmarc.contains("p=reject") {
+                40 // Strictest policy
+            } else if dmarc.contains("p=quarantine") {
+                30 // Quarantine policy
+            } else if dmarc.contains("p=none") {
+                15 // Monitoring only
+            } else {
+                20 // Has DMARC but unknown policy
+            }
+        } else {
+            0
+        };
+        score += dmarc_score;
+
+        let grade = match (score * 100) / max_score {
+            90..=100 => "A",
+            80..=89 => "B",
+            70..=79 => "C",
+            60..=69 => "D",
+            _ => "F",
+        };
+
+        // JSON output
+        if format == crate::cli::format::OutputFormat::Json {
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain);
+            println!("  \"score\": {},", score);
+            println!("  \"max_score\": {},", max_score);
+            println!("  \"grade\": \"{}\",", grade);
+            println!("  \"spf\": {{");
+            println!("    \"present\": {},", spf_record.is_some());
+            if let Some(ref spf) = spf_record {
+                println!("    \"record\": \"{}\",", spf.replace('"', "\\\""));
+            } else {
+                println!("    \"record\": null,");
+            }
+            println!("    \"score\": {}", spf_score);
+            println!("  }},");
+            println!("  \"dkim\": {{");
+            println!("    \"present\": {},", !dkim_results.is_empty());
+            println!("    \"selectors\": [");
+            for (i, (selector, record)) in dkim_results.iter().enumerate() {
+                let comma = if i < dkim_results.len() - 1 { "," } else { "" };
+                println!("      {{");
+                println!("        \"selector\": \"{}\",", selector);
+                if let Some(r) = record {
+                    let truncated = if r.len() > 80 {
+                        format!("{}...", &r[..80])
+                    } else {
+                        r.clone()
+                    };
+                    println!("        \"record\": \"{}\"", truncated.replace('"', "\\\""));
+                } else {
+                    println!("        \"record\": null");
+                }
+                println!("      }}{}", comma);
+            }
+            println!("    ],");
+            println!("    \"score\": {}", dkim_score);
+            println!("  }},");
+            println!("  \"dmarc\": {{");
+            println!("    \"present\": {},", dmarc_record.is_some());
+            if let Some(ref dmarc) = dmarc_record {
+                println!("    \"record\": \"{}\",", dmarc.replace('"', "\\\""));
+            } else {
+                println!("    \"record\": null,");
+            }
+            println!("    \"score\": {}", dmarc_score);
+            println!("  }},");
+            println!("  \"mx\": [");
+            for (i, mx) in mx_records.iter().enumerate() {
+                let comma = if i < mx_records.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", mx, comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // YAML output
+        if format == crate::cli::format::OutputFormat::Yaml {
+            println!("domain: {}", domain);
+            println!("score: {}", score);
+            println!("max_score: {}", max_score);
+            println!("grade: {}", grade);
+            println!("spf:");
+            println!("  present: {}", spf_record.is_some());
+            if let Some(ref spf) = spf_record {
+                println!("  record: \"{}\"", spf);
+            } else {
+                println!("  record: null");
+            }
+            println!("  score: {}", spf_score);
+            println!("dkim:");
+            println!("  present: {}", !dkim_results.is_empty());
+            println!("  selectors:");
+            for (selector, record) in &dkim_results {
+                println!("    - selector: {}", selector);
+                if let Some(r) = record {
+                    let truncated = if r.len() > 80 {
+                        format!("{}...", &r[..80])
+                    } else {
+                        r.clone()
+                    };
+                    println!("      record: \"{}\"", truncated);
+                } else {
+                    println!("      record: null");
+                }
+            }
+            println!("  score: {}", dkim_score);
+            println!("dmarc:");
+            println!("  present: {}", dmarc_record.is_some());
+            if let Some(ref dmarc) = dmarc_record {
+                println!("  record: \"{}\"", dmarc);
+            } else {
+                println!("  record: null");
+            }
+            println!("  score: {}", dmarc_score);
+            println!("mx:");
+            for mx in &mx_records {
+                println!("  - \"{}\"", mx);
+            }
+            return Ok(());
+        }
+
+        // Human output
+        Output::header(&format!("Email Security: {}", domain));
+        println!();
+
+        // Grade display
+        let grade_color = match grade {
+            "A" => "\x1b[32m", // Green
+            "B" => "\x1b[92m", // Light green
+            "C" => "\x1b[33m", // Yellow
+            "D" => "\x1b[33m", // Yellow
+            "F" => "\x1b[31m", // Red
+            _ => "\x1b[0m",
+        };
+        println!(
+            "  Grade: {}{}  {}/{}\x1b[0m",
+            grade_color, grade, score, max_score
+        );
+        println!();
+
+        // SPF Section
+        println!("  \x1b[1mSPF (Sender Policy Framework)\x1b[0m");
+        println!("  {}", "─".repeat(50));
+        if let Some(ref spf) = spf_record {
+            println!("  Status: \x1b[32m✓ FOUND\x1b[0m");
+            // Truncate if too long
+            let display_spf = if spf.len() > 70 {
+                format!("{}...", &spf[..67])
+            } else {
+                spf.clone()
+            };
+            println!("  Record: {}", display_spf);
+
+            // SPF analysis
+            if spf.contains("-all") {
+                println!("  Policy: \x1b[32mStrict (-all)\x1b[0m - Reject unauthorized senders");
+            } else if spf.contains("~all") {
+                println!(
+                    "  Policy: \x1b[33mSoft fail (~all)\x1b[0m - Mark but don't reject"
+                );
+            } else if spf.contains("?all") {
+                println!("  Policy: \x1b[33mNeutral (?all)\x1b[0m - No policy");
+            } else if spf.contains("+all") {
+                println!(
+                    "  Policy: \x1b[31mPermissive (+all)\x1b[0m - DANGEROUS: allows any sender"
+                );
+            }
+        } else {
+            println!("  Status: \x1b[31m✗ NOT FOUND\x1b[0m");
+            println!("  \x1b[33mRecommend: Add SPF record to prevent email spoofing\x1b[0m");
+        }
+        println!();
+
+        // DKIM Section
+        println!("  \x1b[1mDKIM (DomainKeys Identified Mail)\x1b[0m");
+        println!("  {}", "─".repeat(50));
+        if !dkim_results.is_empty() {
+            println!("  Status: \x1b[32m✓ FOUND\x1b[0m ({} selector(s))", dkim_results.len());
+            for (selector, record) in &dkim_results {
+                println!("  Selector: {}", selector);
+                if let Some(r) = record {
+                    let truncated = if r.len() > 50 {
+                        format!("{}...", &r[..47])
+                    } else {
+                        r.clone()
+                    };
+                    println!("    Record: {}", truncated);
+                }
+            }
+        } else {
+            println!("  Status: \x1b[33m? NO COMMON SELECTORS FOUND\x1b[0m");
+            println!("  Checked: {}", common_selectors.join(", "));
+            println!("  \x1b[2mNote: DKIM may use a custom selector\x1b[0m");
+        }
+        println!();
+
+        // DMARC Section
+        println!("  \x1b[1mDMARC (Domain-based Message Authentication)\x1b[0m");
+        println!("  {}", "─".repeat(50));
+        if let Some(ref dmarc) = dmarc_record {
+            println!("  Status: \x1b[32m✓ FOUND\x1b[0m");
+            let display_dmarc = if dmarc.len() > 70 {
+                format!("{}...", &dmarc[..67])
+            } else {
+                dmarc.clone()
+            };
+            println!("  Record: {}", display_dmarc);
+
+            // DMARC policy analysis
+            if dmarc.contains("p=reject") {
+                println!("  Policy: \x1b[32mReject\x1b[0m - Unauthorized mail is rejected");
+            } else if dmarc.contains("p=quarantine") {
+                println!(
+                    "  Policy: \x1b[33mQuarantine\x1b[0m - Unauthorized mail goes to spam"
+                );
+            } else if dmarc.contains("p=none") {
+                println!(
+                    "  Policy: \x1b[33mNone\x1b[0m - Monitoring only, no enforcement"
+                );
+            }
+
+            // Check for reporting
+            if dmarc.contains("rua=") {
+                println!("  Reports: \x1b[32m✓ Aggregate reports enabled\x1b[0m");
+            }
+            if dmarc.contains("ruf=") {
+                println!("  Reports: \x1b[32m✓ Forensic reports enabled\x1b[0m");
+            }
+        } else {
+            println!("  Status: \x1b[31m✗ NOT FOUND\x1b[0m");
+            println!("  \x1b[33mRecommend: Add DMARC record for email authentication\x1b[0m");
+        }
+        println!();
+
+        // MX Section (brief)
+        if !mx_records.is_empty() {
+            println!("  \x1b[1mMX Records\x1b[0m");
+            println!("  {}", "─".repeat(50));
+            for mx in &mx_records {
+                println!("  {}", mx);
+            }
+            println!();
+        }
+
+        // Summary
+        match grade {
+            "A" => Output::success("Excellent email security configuration"),
+            "B" => Output::success("Good email security configuration"),
+            "C" => Output::warning("Fair email security - consider improvements"),
+            "D" => Output::warning("Poor email security - action recommended"),
+            "F" => Output::error("Critical: Missing essential email security records"),
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     fn parse_record_type(s: &str) -> Result<DnsRecordType, String> {
         match s.to_uppercase().as_str() {
             "A" => Ok(DnsRecordType::A),
@@ -830,9 +1402,11 @@ impl DnsCommand {
             "NS" => Ok(DnsRecordType::NS),
             "TXT" => Ok(DnsRecordType::TXT),
             "CNAME" => Ok(DnsRecordType::CNAME),
+            "SOA" => Ok(DnsRecordType::SOA),
+            "PTR" => Ok(DnsRecordType::PTR),
             "ANY" => Ok(DnsRecordType::ANY),
             _ => Err(format!(
-                "Invalid record type: {}\nSupported types: A, AAAA, MX, NS, TXT, CNAME, ANY",
+                "Invalid record type: {}\nSupported types: A, AAAA, MX, NS, TXT, CNAME, SOA, PTR, ANY",
                 s
             )),
         }

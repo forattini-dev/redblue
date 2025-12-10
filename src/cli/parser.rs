@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(ctx.verb, Some("scan".to_string()));
         assert_eq!(ctx.resource, Some("ports".to_string()));
         assert_eq!(ctx.target, Some("192.168.1.1".to_string()));
-        assert_eq!(ctx.get_flag("threads"), Some(&"200".to_string()));
+        assert_eq!(ctx.get_flag("threads"), Some("200".to_string()));
     }
 
     // Global/utility commands

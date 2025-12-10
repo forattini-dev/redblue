@@ -1,26 +1,44 @@
-pub mod access; // ✅ Remote access - reverse shells & listeners (NEW!)
+pub mod access; // ✅ Remote access - reverse shells & listeners
+pub mod auth_test; // ✅ Credential testing
 pub mod bench;
+pub mod config; // ✅ Configuration management - database passwords, settings
+pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
+pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
 pub mod cloud;
+pub mod crypto; // ✅ File encryption vault - AES-256-GCM
 pub mod code;
-// pub mod database; // Temporarily disabled - missing file
+pub mod search; // ✅ Global search across all stored data
+// pub mod database; // Database operations - TODO: APIs changed, needs update
 pub mod deps;
+pub mod docs; // ✅ Documentation search and indexing
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
-pub mod exploit; // ⚠️ Exploitation framework - AUTHORIZED USE ONLY (DEPRECATED - use 'access')
-                 // pub mod init; // ✅ Config init command - TEMPORARILY DISABLED (missing function)
+#[path = "dns-server.rs"]
+pub mod dns_server; // ✅ DNS server with hijacking for MITM
+pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
+pub mod fuzz;
+#[path = "http-server.rs"]
+pub mod http_server; // ✅ HTTP server for file serving and payload hosting
+pub mod init; // ✅ Config init command
 pub mod magic;
 pub mod mcp;
-// pub mod monitor;  // Temporarily disabled - compilation errors
+pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception
+// pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
 pub mod nc; // ⚠️ Netcat - AUTHORIZED USE ONLY
 pub mod network;
-// pub mod ping;     // Temporarily disabled - compilation errors
+pub mod ping; // ICMP ping
+pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
+pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod recon;
+#[path = "recon-username.rs"]
+pub mod recon_username; // ✅ Username OSINT - rb recon username <username>
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
-// pub mod tls; // TODO: Fix missing dependencies (modules::tls, protocols::tls_cert, protocols::x509)
+pub mod tls; // TLS security testing - audit, ciphers, vuln
 #[path = "tls-intel.rs"]
-pub mod tls_intel; // ✅ NEW! TLS intelligence gathering
+pub mod tls_intel; // ✅ TLS intelligence gathering
 pub mod trace;
+pub mod vuln; // ✅ Vulnerability intelligence - CVE, KEV, Exploit-DB
 pub mod web; // ✅ Re-enabled with TLS routes!
 pub mod wordlist; // ✅ Wordlist management
 
@@ -43,28 +61,59 @@ static mut COMMAND_REGISTRY: Option<CommandRegistry> = None;
 impl CommandRegistry {
     fn new() -> Self {
         let mut commands: Vec<Box<dyn Command>> = vec![
-            Box::new(access::AccessCommand), // ✅ NEW! Remote access - rb access shell create
+            Box::new(access::AccessCommand), // ✅ Remote access - rb access shell create
+            Box::new(auth_test::AuthTestCommand), // ✅ Credential testing
             Box::new(scan::ScanCommand),
             Box::new(network::NetworkCommand), // ✅ Host ping & discovery
             // Box::new(ping::PingCommand),  // Temporarily disabled
             Box::new(trace::TraceCommand),
             Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
             Box::new(web::WebCommand), // ✅ Re-enabled with TLS cert & audit!
-            // Box::new(tls::TlsCommand), // TODO: Fix dependencies first
-            Box::new(tls_intel::TlsIntelCommand), // ✅ NEW! TLS intelligence gathering
+            Box::new(tls::TlsCommand), // TLS security testing
+            Box::new(tls_intel::TlsIntelCommand), // ✅ TLS intelligence gathering
             Box::new(recon::ReconCommand),
-            Box::new(exploit::ExploitCommand), // ⚠️ Exploitation framework (DEPRECATED - use 'access')
+            Box::new(recon_username::ReconUsernameCommand), // ✅ rb recon username <username>
+            Box::new(exploit::ExploitCommand), // ⚠️ Exploitation - privesc, lateral, persist, replicate
             Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
             Box::new(code::CodeCommand),
+            Box::new(fuzz::FuzzCommand), // ✅ Web fuzzing engine
+            Box::new(crypto::CryptoCommand),       // ✅ File encryption vault
             Box::new(deps::DepsCommand),
             Box::new(cloud::CloudCommand),
             Box::new(takeover::TakeoverCommand),
             Box::new(bench::BenchCommand),
             Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
             Box::new(wordlist::WordlistCommand),     // ✅ Wordlist management
+            Box::new(wordlist::WordlistFileCommand), // ✅ Wordlist file operations
             Box::new(mcp::McpCommand),               // ✅ Local MCP server bridge
-                                                     // Box::new(init::InitCommand), // ✅ Config init - TEMPORARILY DISABLED
-                                                     // Box::new(monitor::MonitorCommand),  // Temporarily disabled
+            Box::new(docs::DocsCommand),             // ✅ Documentation search
+            Box::new(vuln::VulnCommand),             // ✅ Vulnerability intelligence
+            Box::new(proxy::HttpProxyCommand),       // ✅ HTTP CONNECT proxy
+            Box::new(proxy::Socks5ProxyCommand),     // ✅ SOCKS5 proxy (RFC 1928)
+            Box::new(proxy::TransparentProxyCommand), // ✅ Transparent proxy (iptables/nftables)
+            Box::new(proxy::ProxyDataCommand),        // ✅ Query stored proxy history and traffic data
+            Box::new(dns_server::DnsServerCommand),  // ✅ DNS server with hijacking for MITM
+            Box::new(mitm::MitmCommand),             // ✅ MITM attack orchestrator
+            Box::new(exploit_browser::BrowserExploitCommand), // ✅ RBB Browser Exploitation
+            Box::new(http_server::HttpServerCommand), // ✅ HTTP server for file serving
+            Box::new(service::ServiceCommand),     // ✅ Service manager - persistence
+            Box::new(evasion::EvasionSandboxCommand),   // ✅ Sandbox/VM detection
+            Box::new(evasion::EvasionObfuscateCommand), // ✅ String obfuscation
+            Box::new(evasion::EvasionNetworkCommand),   // ✅ Network evasion (jitter)
+            Box::new(evasion::EvasionConfigCommand),    // ✅ Evasion config presets
+            Box::new(evasion::EvasionBuildCommand),     // ✅ Build-time binary mutation
+            Box::new(evasion::EvasionAntidebugCommand), // ✅ Anti-debugging detection
+            Box::new(evasion::EvasionMemoryCommand),    // ✅ Memory encryption
+            Box::new(evasion::EvasionApihashCommand),   // ✅ API hashing
+            Box::new(evasion::EvasionControlflowCommand), // ✅ Control flow obfuscation
+            Box::new(evasion::EvasionInjectCommand),    // ✅ Process injection & shellcode
+            Box::new(evasion::EvasionAmsiCommand),      // ✅ AMSI bypass (Windows)
+            Box::new(evasion::EvasionStringsCommand),   // ✅ String encryption
+            Box::new(evasion::EvasionTracksCommand),    // ✅ Track covering (history clearing)
+            Box::new(init::InitCommand), // ✅ Config init
+            Box::new(config::ConfigDatabaseCommand), // ✅ Database password management
+            Box::new(search::SearchCommand), // ✅ Global search across all stored data
+            // Box::new(monitor::MonitorCommand),  // Temporarily disabled
         ];
 
         // commands.extend(database::commands()); // Temporarily disabled
@@ -498,9 +547,13 @@ fn is_magic_scan_target(input: &str) -> bool {
             "cloud",
             "collection",
             "bench",
+            "service", // service manager
+            "evasion", // AV/EDR evasion
+            "config",  // configuration management
+            "search",  // global search across databases
             "help",
             "version",
-            "repl",
+            "shell",
         ];
         if known_domains.contains(&input) {
             return false;
@@ -532,18 +585,20 @@ pub fn print_global_help() {
 
 {bold}DOMAINS:{reset}
   access     ⚠️  Remote access - reverse shells & listeners (AUTHORIZED USE ONLY)
+  exploit    ⚠️  Exploitation - privesc, lateral movement, persistence, replication (AUTHORIZED USE ONLY)
+  mitm       ⚠️  Man-in-the-Middle attacks - DNS hijacking + TLS interception (AUTHORIZED USE ONLY)
+  evasion    ⚠️  AV/EDR evasion - sandbox detection, obfuscation, anti-debug (AUTHORIZED USE ONLY)
   network    Hosts, ports, and low-level telemetry
   dns        Records, zones, and resolvers
   web        Web assets and HTTP audits
   tls        TLS/SSL security testing and cipher enumeration
   recon      Asset intelligence and WHOIS insights
-  exploit    ⚠️  [DEPRECATED] Use 'access' instead
+  proxy      HTTP CONNECT and SOCKS5 proxy servers
+  service    Service manager - install persistent services (systemd, launchd, Windows)
   code       Code security (secrets, dependencies)
   cloud      Cloud storage security (S3, Azure, GCS)
   bench      Load testing and performance benchmarking
-  config     Configuration management
-  database   Database operations and queries
-  monitor    Protocol monitoring (TCP, UDP, ICMP)
+  search     Search across all stored reconnaissance data
   mcp        Local Model Context Protocol bridge for tooling agents
 
 {bold}EXAMPLES:{reset}
@@ -569,9 +624,9 @@ pub fn print_global_help() {
   rb <domain>              Auto-detect and scan target
   rb <ip>                  Scan IP address with smart presets
 
-{bold}REPL (Interactive Mode):{reset}
-  rb repl <target>         Enter interactive REPL for exploring scans
-  rb repl <file>{session_ext}      Open existing session file
+{bold}SHELL (Interactive Mode):{reset}
+  rb shell <target>        Enter fullscreen TUI for exploring scans
+  rb shell <file>{session_ext}     Open existing session file
 
 {bold}GLOBAL COMMANDS:{reset}
   rb help                  Show global overview

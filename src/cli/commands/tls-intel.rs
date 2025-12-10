@@ -370,9 +370,9 @@ impl TlsIntelCommand {
             match crate::storage::store::Database::open(&db_path) {
                 Ok(mut db) => {
                     // DNS TTL default: 300 seconds (5 minutes)
-                    let dns_record = crate::storage::schema::DnsRecordData {
+                    let dns_record = crate::storage::records::DnsRecordData {
                         domain: host.to_string(),
-                        record_type: crate::storage::schema::DnsRecordType::A,
+                        record_type: crate::storage::records::DnsRecordType::A,
                         value: first_ip.to_string(),
                         ttl: 300,
                         timestamp: std::time::SystemTime::now()
