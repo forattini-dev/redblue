@@ -93,3 +93,5 @@ docs/tls-parser/
 docs/ombrac/
 docs/rfcs/
 docs/recker/
+# External references
+.reference/
