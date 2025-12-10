@@ -14,7 +14,7 @@ fn test_aes128_roundtrip() {
     println!("AAD:       {:?}", std::str::from_utf8(aad).unwrap());
     println!("Plaintext: {:?}", std::str::from_utf8(plaintext).unwrap());
 
-    let ciphertext = aes128_gcm_encrypt(&key, &iv, aad, plaintext);
+    let ciphertext = aes128_gcm_encrypt(&key, &iv, plaintext, aad);
     println!(
         "\nCiphertext len: {} (expected {})",
         ciphertext.len(),
@@ -25,7 +25,7 @@ fn test_aes128_roundtrip() {
         &ciphertext[..ciphertext.len().min(32)]
     );
 
-    let decrypted = aes128_gcm_decrypt(&key, &iv, aad, &ciphertext).expect("Decrypt failed");
+    let decrypted = aes128_gcm_decrypt(&key, &iv, &ciphertext, aad).expect("Decrypt failed");
     println!(
         "\nDecrypted: {:?}",
         std::str::from_utf8(&decrypted).unwrap()
@@ -42,13 +42,13 @@ fn test_aes128_empty() {
     let aad: &[u8] = b"";
     let plaintext: &[u8] = b"";
 
-    let ciphertext = aes128_gcm_encrypt(&key, &iv, aad, plaintext);
+    let ciphertext = aes128_gcm_encrypt(&key, &iv, plaintext, aad);
     assert_eq!(
         ciphertext.len(),
         16,
         "Empty plaintext should produce only tag"
     );
 
-    let decrypted = aes128_gcm_decrypt(&key, &iv, aad, &ciphertext).expect("Decrypt failed");
+    let decrypted = aes128_gcm_decrypt(&key, &iv, &ciphertext, aad).expect("Decrypt failed");
     assert_eq!(&decrypted[..], plaintext);
 }

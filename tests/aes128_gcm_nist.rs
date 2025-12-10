@@ -34,7 +34,7 @@ fn test_aes128_gcm_nist_case1() {
     println!("Plaintext: (empty)");
     println!("AAD:       (empty)");
 
-    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, aad, plaintext);
+    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, plaintext, aad);
 
     let expected_tag_hex = "58 e2 fc ce fa 7e 30 61 36 7f 1d 57 a4 e7 45 5a";
     let expected_tag = hex_decode(expected_tag_hex);
@@ -47,7 +47,7 @@ fn test_aes128_gcm_nist_case1() {
 
     // Test decryption
     let decrypted =
-        aes128_gcm_decrypt(&key, &iv, aad, &ciphertext_and_tag).expect("Decrypt failed");
+        aes128_gcm_decrypt(&key, &iv, &ciphertext_and_tag, aad).expect("Decrypt failed");
     assert_eq!(&decrypted[..], plaintext);
 
     println!("✅ NIST Test Case 1 PASSED!");
@@ -74,7 +74,7 @@ fn test_aes128_gcm_nist_case2() {
     println!("IV:        {:02x?}", iv);
     println!("Plaintext: {:02x?}", plaintext);
 
-    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, aad, &plaintext);
+    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, &plaintext, aad);
 
     let expected_ciphertext_hex = "03 88 da ce 60 b6 a3 92 f3 28 c2 b9 71 b2 fe 78";
     let expected_tag_hex = "ab 6e 47 d4 2c ec 13 bd f5 3a 67 b2 12 57 bd df";
@@ -100,7 +100,7 @@ fn test_aes128_gcm_nist_case2() {
 
     // Test decryption
     let decrypted =
-        aes128_gcm_decrypt(&key, &iv, aad, &ciphertext_and_tag).expect("Decrypt failed");
+        aes128_gcm_decrypt(&key, &iv, &ciphertext_and_tag, aad).expect("Decrypt failed");
     assert_eq!(&decrypted[..], &plaintext[..]);
 
     println!("✅ NIST Test Case 2 PASSED!");
@@ -143,7 +143,7 @@ fn test_aes128_gcm_nist_case4_with_aad() {
     println!("Plaintext: {} bytes", plaintext.len());
     println!("AAD:       {} bytes", aad.len());
 
-    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, &aad, &plaintext);
+    let ciphertext_and_tag = aes128_gcm_encrypt(&key, &iv, &plaintext, &aad);
 
     println!(
         "\nExpected ciphertext: {:02x?}...",
@@ -170,7 +170,7 @@ fn test_aes128_gcm_nist_case4_with_aad() {
 
     // Test decryption
     let decrypted =
-        aes128_gcm_decrypt(&key, &iv, &aad, &ciphertext_and_tag).expect("Decrypt failed");
+        aes128_gcm_decrypt(&key, &iv, &ciphertext_and_tag, &aad).expect("Decrypt failed");
     assert_eq!(&decrypted[..], &plaintext[..]);
 
     println!("✅ NIST Test Case 4 PASSED!");

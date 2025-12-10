@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use redblue::storage::schema::{
+use redblue::storage::records::{
     DnsRecordData, DnsRecordType, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus,
     ServiceIntelRecord, SubdomainSource, TlsCertRecord, TlsCipherRecord, TlsCipherStrength,
     TlsScanRecord, TlsSeverity, TlsVersionRecord, TlsVulnerabilityRecord,
