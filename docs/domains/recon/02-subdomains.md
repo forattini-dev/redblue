@@ -360,6 +360,6 @@ rb recon domain subdomains example.com --passive
 
 ## Next Steps
 
-- [URL Discovery](03-urls.md) - Historical URLs
-- [Data Harvesting](04-harvest.md) - OSINT collection
-- [Configuration](05-configuration.md) - Recon settings
+- [URL Discovery](/domains/recon/03-urls.md) - Historical URLs
+- [Data Harvesting](/domains/recon/04-harvest.md) - OSINT collection
+- [Configuration](/domains/recon/05-configuration.md) - Recon settings

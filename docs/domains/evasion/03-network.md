@@ -121,5 +121,5 @@ let config = EvasionConfig {
 
 ## Related
 
-- [sandbox](01-sandbox.md) - Sandbox detection
-- [antidebug](05-antidebug.md) - Anti-debugging
+- [sandbox](/domains/evasion/01-sandbox.md) - Sandbox detection
+- [antidebug](/domains/evasion/05-antidebug.md) - Anti-debugging

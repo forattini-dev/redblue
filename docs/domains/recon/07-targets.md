@@ -321,7 +321,7 @@ rb recon domain urls target.com --include "/v1/|/old/|/legacy/"
 
 ## Next Steps
 
-- [Recon Workflow](06-workflow.md) - Complete methodology
-- [WHOIS Lookup](01-whois.md) - Domain registration info
-- [Subdomain Enumeration](02-subdomains.md) - Find subdomains
-- [URL Discovery](03-urls.md) - Historical URLs
+- [Recon Workflow](/domains/recon/06-workflow.md) - Complete methodology
+- [WHOIS Lookup](/domains/recon/01-whois.md) - Domain registration info
+- [Subdomain Enumeration](/domains/recon/02-subdomains.md) - Find subdomains
+- [URL Discovery](/domains/recon/03-urls.md) - Historical URLs

@@ -395,6 +395,6 @@ gzip off;  # For HTTPS
 
 ## Next Steps
 
-- [TLS Audit](01-audit.md) - Full security audit
-- [Cipher Enumeration](02-ciphers.md) - List cipher suites
-- [Configuration](04-configuration.md) - TLS settings
+- [TLS Audit](/domains/tls/01-audit.md) - Full security audit
+- [Cipher Enumeration](/domains/tls/02-ciphers.md) - List cipher suites
+- [Configuration](/domains/tls/04-configuration.md) - TLS settings

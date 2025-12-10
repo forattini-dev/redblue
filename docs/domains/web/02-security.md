@@ -257,6 +257,6 @@ fi
 
 ## Next Steps
 
-- [HTTP Requests](01-requests.md) - Make HTTP requests
-- [CMS Scanning](03-cms.md) - Detect and scan CMS
-- [Configuration](04-configuration.md) - HTTP settings
+- [HTTP Requests](/domains/web/01-requests.md) - Make HTTP requests
+- [CMS Scanning](/domains/web/03-cms.md) - Detect and scan CMS
+- [Configuration](/domains/web/04-configuration.md) - HTTP settings

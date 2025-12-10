@@ -286,6 +286,6 @@ ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
 
 ## Next Steps
 
-- [TLS Audit](01-audit.md) - Full security audit
-- [Cipher Enumeration](02-ciphers.md) - List cipher suites
-- [Vulnerability Scanning](03-vulnerabilities.md) - Find CVEs
+- [TLS Audit](/domains/tls/01-audit.md) - Full security audit
+- [Cipher Enumeration](/domains/tls/02-ciphers.md) - List cipher suites
+- [Vulnerability Scanning](/domains/tls/03-vulnerabilities.md) - Find CVEs

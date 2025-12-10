@@ -160,6 +160,6 @@ if let Some(name) = hasher.lookup(0xEC0E4E8E) {
 
 ## Related
 
-- [inject](09-inject.md) - Shellcode generation (uses API hashing)
-- [strings](08-strings.md) - String encryption
-- [controlflow](07-controlflow.md) - Control flow obfuscation
+- [inject](/domains/evasion/09-inject.md) - Shellcode generation (uses API hashing)
+- [strings](/domains/evasion/08-strings.md) - String encryption
+- [controlflow](/domains/evasion/07-controlflow.md) - Control flow obfuscation

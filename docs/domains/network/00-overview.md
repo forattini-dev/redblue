@@ -22,9 +22,9 @@ rb network run trace 8.8.8.8
 
 | Resource | Description |
 |----------|-------------|
-| [ports](01-ports.md) | Port scanning and service detection |
-| [host](02-host.md) | Host discovery and connectivity testing |
-| [trace](03-trace.md) | Network path tracing (traceroute/MTR) |
+| [ports](/domains/network/01-ports.md) | Port scanning and service detection |
+| [host](/domains/network/02-host.md) | Host discovery and connectivity testing |
+| [trace](/domains/network/03-trace.md) | Network path tracing (traceroute/MTR) |
 
 ## Tool Equivalents
 
@@ -49,7 +49,7 @@ rb network <resource> <verb> [target] [flags]
 
 ## Next Steps
 
-- [Port Scanning](01-ports.md) - Scan ports on targets
-- [Host Discovery](02-host.md) - Find alive hosts in networks
-- [Path Tracing](03-trace.md) - Trace network routes
-- [Configuration](04-configuration.md) - Customize network settings
+- [Port Scanning](/domains/network/01-ports.md) - Scan ports on targets
+- [Host Discovery](/domains/network/02-host.md) - Find alive hosts in networks
+- [Path Tracing](/domains/network/03-trace.md) - Trace network routes
+- [Configuration](/domains/network/04-configuration.md) - Customize network settings

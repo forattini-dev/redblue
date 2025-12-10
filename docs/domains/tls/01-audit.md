@@ -324,6 +324,6 @@ rb tls security ciphers example.com
 
 ## Next Steps
 
-- [Cipher Enumeration](02-ciphers.md) - List cipher suites
-- [Vulnerability Scanning](03-vulnerabilities.md) - Find CVEs
-- [Configuration](04-configuration.md) - TLS settings
+- [Cipher Enumeration](/domains/tls/02-ciphers.md) - List cipher suites
+- [Vulnerability Scanning](/domains/tls/03-vulnerabilities.md) - Find CVEs
+- [Configuration](/domains/tls/04-configuration.md) - TLS settings

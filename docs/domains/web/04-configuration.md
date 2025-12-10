@@ -326,6 +326,6 @@ rb web get asset http://example.com --timeout 30
 
 ## Next Steps
 
-- [HTTP Requests](01-requests.md) - Make HTTP requests
-- [Security Audit](02-security.md) - Security headers analysis
-- [CMS Scanning](03-cms.md) - CMS detection and scanning
+- [HTTP Requests](/domains/web/01-requests.md) - Make HTTP requests
+- [Security Audit](/domains/web/02-security.md) - Security headers analysis
+- [CMS Scanning](/domains/web/03-cms.md) - CMS detection and scanning

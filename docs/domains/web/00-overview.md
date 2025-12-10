@@ -22,9 +22,9 @@ rb web cms-scan asset http://wordpress-site.com
 
 | Resource | Description |
 |----------|-------------|
-| [asset](01-requests.md) | HTTP requests and responses |
-| [security](02-security.md) | Security headers analysis |
-| [cms](03-cms.md) | CMS detection and scanning |
+| [asset](/domains/web/01-requests.md) | HTTP requests and responses |
+| [security](/domains/web/02-security.md) | Security headers analysis |
+| [cms](/domains/web/03-cms.md) | CMS detection and scanning |
 
 ## Tool Equivalents
 
@@ -56,7 +56,7 @@ rb web <verb> <resource> [target] [flags]
 
 ## Next Steps
 
-- [HTTP Requests](01-requests.md) - GET, POST, headers
-- [Security Audit](02-security.md) - Security headers analysis
-- [CMS Scanning](03-cms.md) - WordPress, Drupal, Joomla
-- [Configuration](04-configuration.md) - HTTP settings
+- [HTTP Requests](/domains/web/01-requests.md) - GET, POST, headers
+- [Security Audit](/domains/web/02-security.md) - Security headers analysis
+- [CMS Scanning](/domains/web/03-cms.md) - WordPress, Drupal, Joomla
+- [Configuration](/domains/web/04-configuration.md) - HTTP settings

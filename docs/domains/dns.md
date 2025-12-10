@@ -840,7 +840,7 @@ rb shell example.com.rb-session
 
 ## See Also
 
-- [NETWORK Domain Documentation](./NETWORK.md) - Port scanning and discovery
-- [RECON Domain Documentation](./RECON.md) - WHOIS and subdomain enumeration
-- [WEB Domain Documentation](./WEB.md) - Web application testing
-- [TLS Domain Documentation](./TLS.md) - Certificate inspection
+- [NETWORK Domain Documentation](/domains/network.md) - Port scanning and discovery
+- [RECON Domain Documentation](/domains/recon.md) - WHOIS and subdomain enumeration
+- [WEB Domain Documentation](/domains/web.md) - Web application testing
+- [TLS Domain Documentation](/domains/tls.md) - Certificate inspection

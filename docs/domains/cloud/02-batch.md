@@ -353,5 +353,5 @@ done
 
 ## Next Steps
 
-- [Subdomain Takeover](01-takeover.md) - Single subdomain check
-- [Configuration](03-configuration.md) - Cloud settings
+- [Subdomain Takeover](/domains/cloud/01-takeover.md) - Single subdomain check
+- [Configuration](/domains/cloud/03-configuration.md) - Cloud settings

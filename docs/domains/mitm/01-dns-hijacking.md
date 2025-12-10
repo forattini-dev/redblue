@@ -297,5 +297,5 @@ dig @127.0.0.1 -p 5353 google.com
 
 ## Next Steps
 
-- [TLS Interception](02-tls-interception.md) - Intercept HTTPS traffic
-- [Full MITM Stack](05-scenarios.md#full-mitm-attack) - Complete attack setup
+- [TLS Interception](/domains/mitm/02-tls-interception.md) - Intercept HTTPS traffic
+- [Full MITM Stack](/domains/mitm/05-scenarios.md#full-mitm-attack) - Complete attack setup

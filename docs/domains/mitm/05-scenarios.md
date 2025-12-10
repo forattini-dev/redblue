@@ -64,7 +64,7 @@ echo "nameserver 10.0.0.5" | sudo tee /etc/resolv.conf
 ### Install CA on Target
 
 1. Transfer `mitm-ca.der` to target machine
-2. Install in target's trust store (see [Certificates](04-certificates.md))
+2. Install in target's trust store (see [Certificates](/domains/mitm/04-certificates.md))
 3. Restart browser if needed
 
 ### Verification
@@ -132,7 +132,7 @@ google-chrome --proxy-server="http://127.0.0.1:8080"
 
 ### Install CA in Browser
 
-See [Certificate Installation](04-certificates.md#installing-ca-certificate)
+See [Certificate Installation](/domains/mitm/04-certificates.md#installing-ca-certificate)
 
 ### Testing
 
@@ -469,7 +469,7 @@ rb mitm intercept proxy \
 
 ### Install CA on Device
 
-See [Certificate Installation](04-certificates.md#android) for Android/iOS instructions.
+See [Certificate Installation](/domains/mitm/04-certificates.md#android) for Android/iOS instructions.
 
 ### Certificate Pinning Bypass
 
@@ -619,5 +619,5 @@ sudo update-ca-certificates
 
 ## Next Steps
 
-- [Configuration](06-configuration.md) - Complete reference
-- [Troubleshooting](06-configuration.md#troubleshooting) - Common issues
+- [Configuration](/domains/mitm/06-configuration.md) - Complete reference
+- [Troubleshooting](/domains/mitm/06-configuration.md#troubleshooting) - Common issues

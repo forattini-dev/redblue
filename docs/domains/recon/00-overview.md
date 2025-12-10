@@ -30,7 +30,7 @@ rb recon domain urls target.com --persist
 
 | Resource | Description |
 |----------|-------------|
-| [domain](01-whois.md) | WHOIS, subdomains, URLs, OSINT |
+| [domain](/domains/recon/01-whois.md) | WHOIS, subdomains, URLs, OSINT |
 
 ## Tool Equivalents
 
@@ -75,11 +75,11 @@ rb recon <verb> <resource> [target] [flags]
 
 ## Next Steps
 
-- [Recon Workflow](06-workflow.md) - Complete pentest methodology
-- [High-Value Targets](07-targets.md) - What to look for
-- [Tech Fingerprinting](08-fingerprinting.md) - Technologies & versions → CVEs
-- [WHOIS Lookup](01-whois.md) - Domain registration info
-- [Subdomain Enumeration](02-subdomains.md) - Find subdomains
-- [URL Discovery](03-urls.md) - Historical URLs
-- [Data Harvesting](04-harvest.md) - OSINT collection
-- [Configuration](05-configuration.md) - Recon settings
+- [Recon Workflow](/domains/recon/06-workflow.md) - Complete pentest methodology
+- [High-Value Targets](/domains/recon/07-targets.md) - What to look for
+- [Tech Fingerprinting](/domains/recon/08-fingerprinting.md) - Technologies & versions → CVEs
+- [WHOIS Lookup](/domains/recon/01-whois.md) - Domain registration info
+- [Subdomain Enumeration](/domains/recon/02-subdomains.md) - Find subdomains
+- [URL Discovery](/domains/recon/03-urls.md) - Historical URLs
+- [Data Harvesting](/domains/recon/04-harvest.md) - OSINT collection
+- [Configuration](/domains/recon/05-configuration.md) - Recon settings

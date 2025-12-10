@@ -19,7 +19,7 @@ rb cloud asset services
 
 | Resource | Description |
 |----------|-------------|
-| [asset](01-takeover.md) | Subdomain takeover detection |
+| [asset](/domains/cloud/01-takeover.md) | Subdomain takeover detection |
 
 ## Tool Equivalents
 
@@ -59,6 +59,6 @@ rb cloud <verb> <resource> [target] [flags]
 
 ## Next Steps
 
-- [Subdomain Takeover](01-takeover.md) - Detect takeover vulnerabilities
-- [Batch Scanning](02-batch.md) - Scan multiple subdomains
-- [Configuration](03-configuration.md) - Cloud settings
+- [Subdomain Takeover](/domains/cloud/01-takeover.md) - Detect takeover vulnerabilities
+- [Batch Scanning](/domains/cloud/02-batch.md) - Scan multiple subdomains
+- [Configuration](/domains/cloud/03-configuration.md) - Cloud settings

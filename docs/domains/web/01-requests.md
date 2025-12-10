@@ -298,6 +298,6 @@ rb web get asset http://short.url/abc \
 
 ## Next Steps
 
-- [Security Audit](02-security.md) - Analyze security headers
-- [CMS Scanning](03-cms.md) - Detect and scan CMS
-- [Configuration](04-configuration.md) - HTTP settings
+- [Security Audit](/domains/web/02-security.md) - Analyze security headers
+- [CMS Scanning](/domains/web/03-cms.md) - Detect and scan CMS
+- [Configuration](/domains/web/04-configuration.md) - HTTP settings

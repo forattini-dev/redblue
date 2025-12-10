@@ -184,5 +184,5 @@ Track covering is for **authorized penetration testing only**:
 
 ## Related
 
-- [memory](04-memory.md) - SecureVault for protected variables
-- [strings](08-strings.md) - String encryption
+- [memory](/domains/evasion/04-memory.md) - SecureVault for protected variables
+- [strings](/domains/evasion/08-strings.md) - String encryption

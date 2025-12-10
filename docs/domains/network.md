@@ -7,7 +7,7 @@ Everything about `rb network`: scanner presets, intelligence collection, netcat 
 
 **Port scanning • Host discovery • Network path tracing**
 
-[Commands](#commands) • [Examples](#examples) • [Config](#configuration) • [Docs Index](./index.md) • [Root Docs](../../README.md)
+[Commands](#commands) • [Examples](#examples) • [Config](#configuration) • [Docs Index](/domains/index.md) • [Root Docs](/../README.md)
 
 </div>
 
@@ -990,7 +990,7 @@ rb nc unix /tmp/app.sock --send-file payload.bin
 
 ## See Also
 
-- [DNS Domain Documentation](./DNS.md) - Domain reconnaissance
-- [WEB Domain Documentation](./WEB.md) - Web application testing
-- [TLS Domain Documentation](./TLS.md) - TLS/SSL security
-- [RECON Domain Documentation](./RECON.md) - WHOIS and OSINT
+- [DNS Domain Documentation](/domains/dns.md) - Domain reconnaissance
+- [WEB Domain Documentation](/domains/web.md) - Web application testing
+- [TLS Domain Documentation](/domains/tls.md) - TLS/SSL security
+- [RECON Domain Documentation](/domains/recon.md) - WHOIS and OSINT

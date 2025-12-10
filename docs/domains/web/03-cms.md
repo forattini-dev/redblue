@@ -324,6 +324,6 @@ rb web cms-scan asset http://example.com -o json | \
 
 ## Next Steps
 
-- [HTTP Requests](01-requests.md) - Make HTTP requests
-- [Security Audit](02-security.md) - Security headers analysis
-- [Configuration](04-configuration.md) - HTTP settings
+- [HTTP Requests](/domains/web/01-requests.md) - Make HTTP requests
+- [Security Audit](/domains/web/02-security.md) - Security headers analysis
+- [Configuration](/domains/web/04-configuration.md) - HTTP settings

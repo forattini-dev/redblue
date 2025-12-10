@@ -359,9 +359,9 @@ ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256';
 
 ## See Also
 
-- [WEB Domain](./WEB.md) - HTTP security headers
-- [NETWORK Domain](./NETWORK.md) - Port scanning
-- [RECON Domain](./RECON.md) - Certificate Transparency
+- [WEB Domain](/domains/web.md) - HTTP security headers
+- [NETWORK Domain](/domains/network.md) - Port scanning
+- [RECON Domain](/domains/recon.md) - Certificate Transparency
 
 **External Resources:**
 - SSL Labs: https://www.ssllabs.com/ssltest/

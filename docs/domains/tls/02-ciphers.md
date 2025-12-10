@@ -307,6 +307,6 @@ TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 
 ## Next Steps
 
-- [TLS Audit](01-audit.md) - Full security audit
-- [Vulnerability Scanning](03-vulnerabilities.md) - Find CVEs
-- [Configuration](04-configuration.md) - TLS settings
+- [TLS Audit](/domains/tls/01-audit.md) - Full security audit
+- [Vulnerability Scanning](/domains/tls/03-vulnerabilities.md) - Find CVEs
+- [Configuration](/domains/tls/04-configuration.md) - TLS settings

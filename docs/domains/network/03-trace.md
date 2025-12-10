@@ -301,6 +301,6 @@ diff route1.txt route2.txt
 
 ## Next Steps
 
-- [Port Scanning](01-ports.md) - Scan ports on targets
-- [Host Discovery](02-host.md) - Find alive hosts
-- [Configuration](04-configuration.md) - Customize settings
+- [Port Scanning](/domains/network/01-ports.md) - Scan ports on targets
+- [Host Discovery](/domains/network/02-host.md) - Find alive hosts
+- [Configuration](/domains/network/04-configuration.md) - Customize settings

@@ -252,6 +252,6 @@ done
 
 ## Next Steps
 
-- [Port Scanning](01-ports.md) - Scan ports on discovered hosts
-- [Path Tracing](03-trace.md) - Trace network routes
-- [Configuration](04-configuration.md) - Customize settings
+- [Port Scanning](/domains/network/01-ports.md) - Scan ports on discovered hosts
+- [Path Tracing](/domains/network/03-trace.md) - Trace network routes
+- [Configuration](/domains/network/04-configuration.md) - Customize settings

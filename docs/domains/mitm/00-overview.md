@@ -70,8 +70,8 @@ rb mitm intercept export-ca --ca-cert ca.pem --format der
 
 | Resource | Description | Key Verbs |
 |----------|-------------|-----------|
-| [`intercept`](01-dns-hijacking.md) | DNS hijacking + TLS interception | `start`, `dns`, `proxy`, `shell` |
-| [`certificates`](04-certificates.md) | CA certificate management | `generate-ca`, `export-ca` |
+| [`intercept`](/domains/mitm/01-dns-hijacking.md) | DNS hijacking + TLS interception | `start`, `dns`, `proxy`, `shell` |
+| [`certificates`](/domains/mitm/04-certificates.md) | CA certificate management | `generate-ca`, `export-ca` |
 
 ## Key Features
 
@@ -197,9 +197,9 @@ Client                    MITM Proxy                         Target
 
 ## Next Steps
 
-- [DNS Hijacking](01-dns-hijacking.md) - Configure DNS hijacking server
-- [TLS Interception](02-tls-interception.md) - Set up TLS proxy
-- [Interactive Shell](03-shell.md) - Use the TUI interface
-- [Certificates](04-certificates.md) - Manage CA certificates
-- [Attack Scenarios](05-scenarios.md) - Real-world examples
-- [Configuration](06-configuration.md) - All options reference
+- [DNS Hijacking](/domains/mitm/01-dns-hijacking.md) - Configure DNS hijacking server
+- [TLS Interception](/domains/mitm/02-tls-interception.md) - Set up TLS proxy
+- [Interactive Shell](/domains/mitm/03-shell.md) - Use the TUI interface
+- [Certificates](/domains/mitm/04-certificates.md) - Manage CA certificates
+- [Attack Scenarios](/domains/mitm/05-scenarios.md) - Real-world examples
+- [Configuration](/domains/mitm/06-configuration.md) - All options reference

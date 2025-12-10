@@ -486,6 +486,6 @@ rb mitm intercept shell --proxy-port 8080
 
 ## Next Steps
 
-- [Certificates](04-certificates.md) - CA management
-- [Attack Scenarios](05-scenarios.md) - Real-world examples
-- [Configuration](06-configuration.md) - All options
+- [Certificates](/domains/mitm/04-certificates.md) - CA management
+- [Attack Scenarios](/domains/mitm/05-scenarios.md) - Real-world examples
+- [Configuration](/domains/mitm/06-configuration.md) - All options

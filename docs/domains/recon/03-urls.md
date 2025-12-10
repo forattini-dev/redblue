@@ -394,6 +394,6 @@ rb recon domain urls example.com --years 1
 
 ## Next Steps
 
-- [Data Harvesting](04-harvest.md) - OSINT collection
-- [WHOIS Lookup](01-whois.md) - Domain info
-- [Configuration](05-configuration.md) - Recon settings
+- [Data Harvesting](/domains/recon/04-harvest.md) - OSINT collection
+- [WHOIS Lookup](/domains/recon/01-whois.md) - Domain info
+- [Configuration](/domains/recon/05-configuration.md) - Recon settings

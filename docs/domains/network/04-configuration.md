@@ -202,5 +202,5 @@ export REDBLUE_NETWORK_THREADS=500
 
 ## Next Steps
 
-- [Port Scanning](01-ports.md) - Scan ports on targets
-- [Troubleshooting](05-troubleshooting.md) - Common issues
+- [Port Scanning](/domains/network/01-ports.md) - Scan ports on targets
+- [Troubleshooting](/domains/network/05-troubleshooting.md) - Common issues

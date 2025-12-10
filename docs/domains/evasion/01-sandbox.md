@@ -116,5 +116,5 @@ for (name, detected) in indicators {
 
 ## Related
 
-- [antidebug](05-antidebug.md) - Anti-debugging techniques
-- [memory](04-memory.md) - Memory protection
+- [antidebug](/domains/evasion/05-antidebug.md) - Anti-debugging techniques
+- [memory](/domains/evasion/04-memory.md) - Memory protection

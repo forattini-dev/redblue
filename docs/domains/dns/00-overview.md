@@ -19,7 +19,7 @@ rb dns resolve record github.com
 
 | Resource | Description |
 |----------|-------------|
-| [record](01-lookup.md) | DNS record lookups and resolution |
+| [record](/domains/dns/01-lookup.md) | DNS record lookups and resolution |
 
 ## Supported Record Types
 
@@ -53,5 +53,5 @@ rb dns <resource> <verb> [target] [flags]
 
 ## Next Steps
 
-- [DNS Lookups](01-lookup.md) - Query DNS records
-- [Configuration](02-configuration.md) - DNS settings
+- [DNS Lookups](/domains/dns/01-lookup.md) - Query DNS records
+- [Configuration](/domains/dns/02-configuration.md) - DNS settings

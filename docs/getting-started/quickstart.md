@@ -4,7 +4,7 @@ Get up and running with redblue in 5 minutes.
 
 ## First Steps
 
-After [installation](getting-started/installation.md), verify redblue is working:
+After [installation](/getting-started/installation.md), verify redblue is working:
 
 ```bash
 rb --version
@@ -135,6 +135,6 @@ rb network scan ports --help
 
 ## Next Steps
 
-- [CLI Semantics](cli-semantics.md) - Learn the command structure
-- [Domains](domains/index.md) - Explore all capabilities
-- [Guides](guides/) - Advanced tutorials
+- [CLI Semantics](/cli-semantics.md) - Learn the command structure
+- [Domains](/domains/index.md) - Explore all capabilities
+- [Guides](/guides/) - Advanced tutorials

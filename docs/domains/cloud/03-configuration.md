@@ -261,5 +261,5 @@ rb cloud asset takeover-scan -w subs.txt --concurrency 10
 
 ## Next Steps
 
-- [Subdomain Takeover](01-takeover.md) - Detect takeover vulnerabilities
-- [Batch Scanning](02-batch.md) - Scan multiple subdomains
+- [Subdomain Takeover](/domains/cloud/01-takeover.md) - Detect takeover vulnerabilities
+- [Batch Scanning](/domains/cloud/02-batch.md) - Scan multiple subdomains

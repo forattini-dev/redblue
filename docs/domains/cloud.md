@@ -700,10 +700,10 @@ rb cloud asset takeover-scan -w subs.txt --confidence medium
 
 ## See Also
 
-- [RECON Domain](./RECON.md) - Subdomain enumeration
-- [DNS Domain](./DNS.md) - CNAME resolution
-- [WEB Domain](./WEB.md) - HTTP response analysis
-- [DATABASE Domain](./DATABASE.md) - Store scan results
+- [RECON Domain](/domains/recon.md) - Subdomain enumeration
+- [DNS Domain](/domains/dns.md) - CNAME resolution
+- [WEB Domain](/domains/web.md) - HTTP response analysis
+- [DATABASE Domain](/domains/database.md) - Store scan results
 
 **External Resources:**
 - Can I take over XYZ?: https://github.com/EdOverflow/can-i-take-over-xyz

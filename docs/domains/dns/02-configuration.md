@@ -75,4 +75,4 @@ dns:
 
 ## Next Steps
 
-- [DNS Lookups](01-lookup.md) - Query DNS records
+- [DNS Lookups](/domains/dns/01-lookup.md) - Query DNS records

@@ -404,9 +404,9 @@ You MUST NOT:
 
 ## Related Documentation
 
-- [EXPLOIT.md](./EXPLOIT.md) - Full exploitation framework documentation
-- [netcat-ultimate.md](./netcat-ultimate.md) - Netcat-style reverse shells
-- [cli-semantics.md](./cli-semantics.md) - Command structure reference
+- [EXPLOIT.md](/domains/exploit.md) - Full exploitation framework documentation
+- [netcat-ultimate.md](/guides/netcat-ultimate.md) - Netcat-style reverse shells
+- [cli-semantics.md](/cli-semantics.md) - Command structure reference
 
 ## Module Implementation
 

@@ -331,7 +331,7 @@ Example Flow:
 
 ## Next Steps
 
-- [Recon Workflow](06-workflow.md) - Complete methodology
-- [High-Value Targets](07-targets.md) - What to look for
-- [Web Security Audit](../web/02-security.md) - Security headers
-- [CMS Scanning](../web/03-cms.md) - CMS detection
+- [Recon Workflow](/domains/recon/06-workflow.md) - Complete methodology
+- [High-Value Targets](/domains/recon/07-targets.md) - What to look for
+- [Web Security Audit](/domains/web/02-security.md) - Security headers
+- [CMS Scanning](/domains/web/03-cms.md) - CMS detection

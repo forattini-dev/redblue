@@ -14,17 +14,17 @@ These techniques are for **authorized security testing only**. Unauthorized use 
 
 | Resource | Description | Key Commands |
 |----------|-------------|--------------|
-| [`sandbox`](01-sandbox.md) | Sandbox/VM detection | `check`, `score`, `delay` |
-| [`obfuscate`](02-obfuscate.md) | String obfuscation | `xor`, `base64` |
-| [`network`](03-network.md) | Network evasion | `jitter`, `beacon` |
-| [`memory`](04-memory.md) | Memory encryption | `encrypt`, `demo`, `vault` |
-| [`antidebug`](05-antidebug.md) | Anti-debugging | `quick`, `full`, `timing` |
-| [`apihash`](06-apihash.md) | API hashing | `hash`, `lookup`, `list` |
-| [`controlflow`](07-controlflow.md) | Control flow obfuscation | `demo`, `predicates`, `substitute` |
-| [`strings`](08-strings.md) | String encryption | `encrypt`, `sensitive`, `demo` |
-| [`inject`](09-inject.md) | Process injection | `shellcode`, `encode`, `list` |
-| [`amsi`](10-amsi.md) | AMSI bypass (Windows) | `powershell`, `csharp`, `providers` |
-| [`tracks`](11-tracks.md) | Track covering | `scan`, `clear`, `sessions`, `command` |
+| [`sandbox`](/domains/evasion/01-sandbox.md) | Sandbox/VM detection | `check`, `score`, `delay` |
+| [`obfuscate`](/domains/evasion/02-obfuscate.md) | String obfuscation | `xor`, `base64` |
+| [`network`](/domains/evasion/03-network.md) | Network evasion | `jitter`, `beacon` |
+| [`memory`](/domains/evasion/04-memory.md) | Memory encryption | `encrypt`, `demo`, `vault` |
+| [`antidebug`](/domains/evasion/05-antidebug.md) | Anti-debugging | `quick`, `full`, `timing` |
+| [`apihash`](/domains/evasion/06-apihash.md) | API hashing | `hash`, `lookup`, `list` |
+| [`controlflow`](/domains/evasion/07-controlflow.md) | Control flow obfuscation | `demo`, `predicates`, `substitute` |
+| [`strings`](/domains/evasion/08-strings.md) | String encryption | `encrypt`, `sensitive`, `demo` |
+| [`inject`](/domains/evasion/09-inject.md) | Process injection | `shellcode`, `encode`, `list` |
+| [`amsi`](/domains/evasion/10-amsi.md) | AMSI bypass (Windows) | `powershell`, `csharp`, `providers` |
+| [`tracks`](/domains/evasion/11-tracks.md) | Track covering | `scan`, `clear`, `sessions`, `command` |
 
 ## Quick Start
 
@@ -70,6 +70,6 @@ rb evasion tracks clear --secure
 
 ## Related Domains
 
-- [exploit](../exploit/00-overview.md) - Exploitation techniques
-- [access](../access.md) - Credential access
-- [collection](../collection.md) - Data collection
+- [exploit](/domains/exploit/00-overview.md) - Exploitation techniques
+- [access](/domains/access.md) - Credential access
+- [collection](/domains/collection.md) - Data collection

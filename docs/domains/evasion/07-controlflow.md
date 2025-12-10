@@ -143,6 +143,6 @@ flattener.execute(blocks);
 
 ## Related
 
-- [strings](08-strings.md) - String encryption
-- [apihash](06-apihash.md) - API hashing
-- [memory](04-memory.md) - Memory protection
+- [strings](/domains/evasion/08-strings.md) - String encryption
+- [apihash](/domains/evasion/06-apihash.md) - API hashing
+- [memory](/domains/evasion/04-memory.md) - Memory protection

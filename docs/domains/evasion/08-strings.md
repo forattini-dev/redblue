@@ -148,6 +148,6 @@ $ strings binary.exe | grep -i password
 
 ## Related
 
-- [memory](04-memory.md) - SecureVault for runtime storage
-- [obfuscate](02-obfuscate.md) - General obfuscation
-- [controlflow](07-controlflow.md) - Control flow obfuscation
+- [memory](/domains/evasion/04-memory.md) - SecureVault for runtime storage
+- [obfuscate](/domains/evasion/02-obfuscate.md) - General obfuscation
+- [controlflow](/domains/evasion/07-controlflow.md) - Control flow obfuscation

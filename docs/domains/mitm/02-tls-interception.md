@@ -509,6 +509,6 @@ rb mitm intercept start --target "*.corp.com" --proxy-ip 10.0.0.5 \
 
 ## Next Steps
 
-- [Interactive Shell](03-shell.md) - TUI for traffic inspection
-- [Certificates](04-certificates.md) - CA management
-- [Attack Scenarios](05-scenarios.md) - Real-world examples
+- [Interactive Shell](/domains/mitm/03-shell.md) - TUI for traffic inspection
+- [Certificates](/domains/mitm/04-certificates.md) - CA management
+- [Attack Scenarios](/domains/mitm/05-scenarios.md) - Real-world examples

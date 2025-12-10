@@ -300,5 +300,5 @@ done
 
 ## Next Steps
 
-- [Configuration](02-configuration.md) - DNS settings
-- [Recon Domain](../recon/) - WHOIS and subdomain discovery
+- [Configuration](/domains/dns/02-configuration.md) - DNS settings
+- [Recon Domain](/domains/recon) - WHOIS and subdomain discovery

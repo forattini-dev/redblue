@@ -7,7 +7,7 @@ Everything about `rb access`: generating, managing, and interacting with remote 
 
 **Shell Lifecycle • Session Management • Interactions**
 
-[Commands](#commands) • [Examples](#examples) • [Docs Index](./index.md) • [Root Docs](../../README.md)
+[Commands](#commands) • [Examples](#examples) • [Docs Index](/domains/index.md) • [Root Docs](/../README.md)
 
 </div>
 
@@ -178,5 +178,5 @@ The `access` domain's HTTP listener works in tandem with the `http-shell` payloa
 
 ## See Also
 
-- [EXPLOIT Domain Documentation](./exploit.md) - Payload generation (`shell`, `http-shell`, `privesc`)
-- [NETWORK Domain Documentation](./network.md) - Netcat replacement and connectivity
+- [EXPLOIT Domain Documentation](/domains/exploit.md) - Payload generation (`shell`, `http-shell`, `privesc`)
+- [NETWORK Domain Documentation](/domains/network.md) - Netcat replacement and connectivity

@@ -669,7 +669,7 @@ rb web asset fuzz http://example.com/api --common
 
 ## See Also
 
-- [TLS Domain Documentation](./TLS.md) - TLS certificate inspection
-- [NETWORK Domain Documentation](./NETWORK.md) - Port scanning
-- [DNS Domain Documentation](./DNS.md) - DNS reconnaissance
-- [RECON Domain Documentation](./RECON.md) - WHOIS and subdomain discovery
+- [TLS Domain Documentation](/domains/tls.md) - TLS certificate inspection
+- [NETWORK Domain Documentation](/domains/network.md) - Port scanning
+- [DNS Domain Documentation](/domains/dns.md) - DNS reconnaissance
+- [RECON Domain Documentation](/domains/recon.md) - WHOIS and subdomain discovery

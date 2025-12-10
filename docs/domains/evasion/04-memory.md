@@ -206,6 +206,6 @@ rotate_key();  // New buffers use new key
 
 ## Related
 
-- [strings](08-strings.md) - Compile-time string encryption
-- [antidebug](05-antidebug.md) - Anti-debugging techniques
-- [sandbox](01-sandbox.md) - Sandbox detection
+- [strings](/domains/evasion/08-strings.md) - Compile-time string encryption
+- [antidebug](/domains/evasion/05-antidebug.md) - Anti-debugging techniques
+- [sandbox](/domains/evasion/01-sandbox.md) - Sandbox detection

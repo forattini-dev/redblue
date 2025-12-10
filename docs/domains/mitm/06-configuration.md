@@ -562,9 +562,9 @@ shred -vfz -n 5 mitm-ca-key.pem
 
 ## Related Documentation
 
-- [Overview](00-overview.md) - Introduction to MITM domain
-- [DNS Hijacking](01-dns-hijacking.md) - DNS server details
-- [TLS Interception](02-tls-interception.md) - Proxy details
-- [Interactive Shell](03-shell.md) - TUI interface
-- [Certificates](04-certificates.md) - CA management
-- [Attack Scenarios](05-scenarios.md) - Real-world examples
+- [Overview](/domains/mitm/00-overview.md) - Introduction to MITM domain
+- [DNS Hijacking](/domains/mitm/01-dns-hijacking.md) - DNS server details
+- [TLS Interception](/domains/mitm/02-tls-interception.md) - Proxy details
+- [Interactive Shell](/domains/mitm/03-shell.md) - TUI interface
+- [Certificates](/domains/mitm/04-certificates.md) - CA management
+- [Attack Scenarios](/domains/mitm/05-scenarios.md) - Real-world examples

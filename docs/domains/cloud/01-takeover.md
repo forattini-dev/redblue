@@ -327,5 +327,5 @@ rb dns record lookup subdomain.example.com
 
 ## Next Steps
 
-- [Batch Scanning](02-batch.md) - Scan multiple subdomains
-- [Configuration](03-configuration.md) - Cloud settings
+- [Batch Scanning](/domains/cloud/02-batch.md) - Scan multiple subdomains
+- [Configuration](/domains/cloud/03-configuration.md) - Cloud settings

@@ -19,7 +19,7 @@ rb tls security vuln example.com
 
 | Resource | Description |
 |----------|-------------|
-| [security](01-audit.md) | TLS auditing and testing |
+| [security](/domains/tls/01-audit.md) | TLS auditing and testing |
 
 ## Tool Equivalents
 
@@ -62,7 +62,7 @@ rb tls <verb> <resource> [target] [flags]
 
 ## Next Steps
 
-- [TLS Audit](01-audit.md) - Full security audit
-- [Cipher Enumeration](02-ciphers.md) - List cipher suites
-- [Vulnerability Scanning](03-vulnerabilities.md) - Find CVEs
-- [Configuration](04-configuration.md) - TLS settings
+- [TLS Audit](/domains/tls/01-audit.md) - Full security audit
+- [Cipher Enumeration](/domains/tls/02-ciphers.md) - List cipher suites
+- [Vulnerability Scanning](/domains/tls/03-vulnerabilities.md) - Find CVEs
+- [Configuration](/domains/tls/04-configuration.md) - TLS settings

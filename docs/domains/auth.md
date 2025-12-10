@@ -154,7 +154,7 @@ auth:
 
 ## See Also
 
-- [WORDLIST Domain](./WORDLIST.md) - Wordlist generation and management
-- [NETWORK Domain](./NETWORK.md) - Network discovery and port scanning
+- [WORDLIST Domain](/domains/index.md) - Wordlist generation and management
+- [NETWORK Domain](/domains/network.md) - Network discovery and port scanning
 
 ---

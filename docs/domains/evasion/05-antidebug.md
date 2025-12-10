@@ -125,5 +125,5 @@ When debugger detected:
 
 ## Related
 
-- [sandbox](01-sandbox.md) - Sandbox detection
-- [memory](04-memory.md) - Memory protection
+- [sandbox](/domains/evasion/01-sandbox.md) - Sandbox detection
+- [memory](/domains/evasion/04-memory.md) - Memory protection

@@ -231,5 +231,5 @@ rb network scan ports 192.168.1.1 --verbose
 
 ## Next Steps
 
-- [Configuration](04-configuration.md) - Tune settings
-- [Port Scanning](01-ports.md) - Scan reference
+- [Configuration](/domains/network/04-configuration.md) - Tune settings
+- [Port Scanning](/domains/network/01-ports.md) - Scan reference

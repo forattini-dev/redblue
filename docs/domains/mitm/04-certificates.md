@@ -458,5 +458,5 @@ openssl verify -CAfile ./certs/mitm-ca.pem test.pem
 
 ## Next Steps
 
-- [Attack Scenarios](05-scenarios.md) - Real-world examples
-- [Configuration](06-configuration.md) - All options reference
+- [Attack Scenarios](/domains/mitm/05-scenarios.md) - Real-world examples
+- [Configuration](/domains/mitm/06-configuration.md) - All options reference

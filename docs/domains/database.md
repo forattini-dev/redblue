@@ -760,10 +760,10 @@ done
 
 ## See Also
 
-- [NETWORK Domain](./NETWORK.md) - Port scanning with `--persist`
-- [DNS Domain](./DNS.md) - DNS queries with `--persist`
-- [WEB Domain](./WEB.md) - Web scanning with persistence
-- [RECON Domain](./RECON.md) - OSINT with persistence
+- [NETWORK Domain](/domains/network.md) - Port scanning with `--persist`
+- [DNS Domain](/domains/dns.md) - DNS queries with `--persist`
+- [WEB Domain](/domains/web.md) - Web scanning with persistence
+- [RECON Domain](/domains/recon.md) - OSINT with persistence
 
 **Configuration:**
 - `.redblue.yaml` - Project-level database settings

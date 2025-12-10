@@ -159,6 +159,6 @@ Process injection techniques are for **authorized testing only**. Unauthorized u
 
 ## Related
 
-- [apihash](06-apihash.md) - API hashing for dynamic resolution
-- [memory](04-memory.md) - Memory protection
-- [amsi](10-amsi.md) - AMSI bypass (Windows)
+- [apihash](/domains/evasion/06-apihash.md) - API hashing for dynamic resolution
+- [memory](/domains/evasion/04-memory.md) - Memory protection
+- [amsi](/domains/evasion/10-amsi.md) - AMSI bypass (Windows)

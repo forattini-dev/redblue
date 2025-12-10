@@ -7,7 +7,7 @@ Landing page that maps each CLI domain to its detailed guide, quick navigation, 
 
 Complete reference documentation for all redblue CLI domains.
 
-[Quick Start](#-quick-navigation) • [Domains](#-available-domains) • [Search](#-search-tips) • [Root Docs](../../README.md)
+[Quick Start](#-quick-navigation) • [Domains](#-available-domains) • [Search](#-search-tips) • [Root Docs](/../README.md)
 
 </div>
 
@@ -36,7 +36,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb network ports <verb>`, `rb network host <verb>`, `rb network trace run <verb>`
 
-- **[NETWORK.md](./NETWORK.md)** - Port scanning, host discovery, network mapping, path tracing
+- **[NETWORK.md](/domains/network.md)** - Port scanning, host discovery, network mapping, path tracing
   - Port scanning - `rb network ports scan` (TCP connect, SYN scan) ✅
   - Custom port ranges - `rb network ports range` ✅
   - Host discovery - `rb network host discover` (ICMP ping, CIDR sweeps) ✅
@@ -56,7 +56,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb dns record <verb>`, `rb recon domain <verb>`
 
-- **[DNS.md](./DNS.md)** - DNS reconnaissance and enumeration
+- **[DNS.md](/domains/dns.md)** - DNS reconnaissance and enumeration
   - DNS lookups - `rb dns record lookup` (A, AAAA, MX, NS, TXT, CNAME, SOA, PTR) ✅
   - Quick resolve - `rb dns record resolve` ✅
   - Parallel queries for speed
@@ -64,7 +64,7 @@ Complete reference documentation for all redblue CLI domains.
   - Reverse DNS lookups
   - Subdomain brute force (planned)
 
-- **[RECON.md](./RECON.md)** - WHOIS, subdomain discovery, OSINT, data harvesting
+- **[RECON.md](/domains/recon.md)** - WHOIS, subdomain discovery, OSINT, data harvesting
   - WHOIS lookups - `rb recon domain whois` (multi-TLD support) ✅
   - Subdomain enumeration - `rb recon domain subdomains` (passive + active) ✅
   - Data harvesting - `rb recon domain harvest` (theHarvester style) ✅
@@ -82,7 +82,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb web asset <verb>`, `rb tls security <verb>`
 
-- **[WEB.md](./WEB.md)** - HTTP testing, security audits, CMS scanning
+- **[WEB.md](/domains/web.md)** - HTTP testing, security audits, CMS scanning
   - HTTP requests - `rb web asset get` (GET/POST from scratch) ✅
   - Header analysis - `rb web asset headers` ✅
   - Security audit - `rb web asset security` ✅
@@ -91,7 +91,7 @@ Complete reference documentation for all redblue CLI domains.
   - Web crawling - `rb web asset crawl` (planned)
   - JavaScript endpoint extraction
 
-- **[TLS.md](./TLS.md)** - TLS/SSL security testing and vulnerability scanning
+- **[TLS.md](/domains/tls.md)** - TLS/SSL security testing and vulnerability scanning
   - Full TLS audit - `rb tls security audit` (sslyze replacement) ✅
   - Cipher enumeration - `rb tls security ciphers` (sslscan replacement) ✅
   - Vulnerability scan - `rb tls security vuln` (testssl.sh replacement) ✅
@@ -109,7 +109,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb cloud asset <verb>`, `rb cloud storage <verb>`, `rb code secrets <verb>`, `rb code dependencies <verb>`
 
-- **[CLOUD.md](./CLOUD.md)** - Cloud storage, subdomain takeover detection
+- **[CLOUD.md](/domains/cloud.md)** - Cloud storage, subdomain takeover detection
   - Subdomain takeover - `rb cloud asset takeover` (tko-subs/subjack) ✅
   - Batch scanning - `rb cloud asset takeover-scan` ✅
   - Service fingerprints - `rb cloud asset services` (25+ services) ✅
@@ -117,7 +117,7 @@ Complete reference documentation for all redblue CLI domains.
   - S3 bucket enumeration - `rb cloud storage scan` (planned)
   - Azure/GCS testing (planned)
 
-- **[CODE.md](./CODE.md)** - Secrets scanning, dependency analysis
+- **[CODE.md](/domains/code.md)** - Secrets scanning, dependency analysis
   - Secret detection - `rb code secrets scan` (gitleaks style, planned)
   - Dependency vulns - `rb code dependencies scan` (planned)
   - SAST (Static Application Security Testing) (planned)
@@ -133,7 +133,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb exploit payload <verb>` ⚠️ **AUTHORIZED USE ONLY**
 
-- **[EXPLOIT.md](./EXPLOIT.md)** - Exploitation framework and post-exploitation
+- **[EXPLOIT.md](/domains/exploit.md)** - Exploitation framework and post-exploitation
   - Privilege escalation - `rb exploit payload privesc` (LinPEAS/WinPEAS) ✅
   - Reverse shells - `rb exploit payload shell` (11 shell types) ✅
   - Listener setup - `rb exploit payload listener` (nc, socat, metasploit) ✅
@@ -144,7 +144,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb access shell <verb>`
 
-- **[ACCESS.md](./ACCESS.md)** - Shell lifecycle management
+- **[ACCESS.md](/domains/access.md)** - Shell lifecycle management
   - Session management - `rb access shell sessions` ✅
   - Listeners - `rb access shell listen` (TCP/HTTP) ✅
   - Interaction - `rb access shell connect` ✅
@@ -160,7 +160,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb database data <verb>`
 
-- **[DATABASE.md](./DATABASE.md)** - RedDB operations and management
+- **[DATABASE.md](/domains/database.md)** - RedDB operations and management
   - Query operations - `rb database data query` ✅
   - CSV export - `rb database data export` ✅
   - List targets - `rb database data list` ✅
@@ -171,12 +171,12 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb collection screenshot <verb>`, `rb bench load <verb>`
 
-- **[COLLECTION.md](./COLLECTION.md)** - Screenshots, data gathering
+- **[COLLECTION.md](/domains/collection.md)** - Screenshots, data gathering
   - Screenshot capture - `rb collection screenshot capture` (planned)
   - Batch processing - `rb collection screenshot batch` (planned)
   - Chrome DevTools Protocol (CDP) integration
 
-- **[BENCH.md](./BENCH.md)** - Load testing, benchmarking
+- **[BENCH.md](/domains/bench.md)** - Load testing, benchmarking
   - HTTP load testing - `rb bench load test` (wrk/k6 style, planned)
   - Performance profiling
   - Stress testing
@@ -185,7 +185,7 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb mcp server <verb>`
 
-- **[MCP.md](./MCP.md)** - Model Context Protocol server
+- **[MCP.md](/domains/mcp.md)** - Model Context Protocol server
   - AI Integration - `rb mcp server start` ✅
   - Semantic Search - Docs and resource search ✅
   - Tool Exposure - `rb.scan_ports`, `rb.lookup_dns`, etc. ✅
@@ -195,49 +195,49 @@ Complete reference documentation for all redblue CLI domains.
 ## 🎯 Quick Navigation by Task
 
 ### Reconnaissance
-1. DNS lookup → [DNS.md](./DNS.md)
-2. WHOIS → [RECON.md](./RECON.md)
-3. Subdomain discovery → [RECON.md](./RECON.md)
-4. Data harvesting (emails, IPs, URLs) → [RECON.md](./RECON.md) ✅
-5. Historical URLs (Wayback) → [RECON.md](./RECON.md) ✅
-6. Network discovery → [NETWORK.md](./NETWORK.md)
-7. Network path tracing → [NETWORK.md](./NETWORK.md) ✅
+1. DNS lookup → [DNS.md](/domains/dns.md)
+2. WHOIS → [RECON.md](/domains/recon.md)
+3. Subdomain discovery → [RECON.md](/domains/recon.md)
+4. Data harvesting (emails, IPs, URLs) → [RECON.md](/domains/recon.md) ✅
+5. Historical URLs (Wayback) → [RECON.md](/domains/recon.md) ✅
+6. Network discovery → [NETWORK.md](/domains/network.md)
+7. Network path tracing → [NETWORK.md](/domains/network.md) ✅
 
 ### Scanning
-1. Port scanning → [NETWORK.md](./NETWORK.md)
-2. Web application → [WEB.md](./WEB.md)
-3. TLS/SSL audit → [TLS.md](./TLS.md) ✅
-4. TLS vulnerability scan → [TLS.md](./TLS.md) ✅
-5. Cipher enumeration → [TLS.md](./TLS.md) ✅
-6. CMS vulnerability → [WEB.md](./WEB.md)
+1. Port scanning → [NETWORK.md](/domains/network.md)
+2. Web application → [WEB.md](/domains/web.md)
+3. TLS/SSL audit → [TLS.md](/domains/tls.md) ✅
+4. TLS vulnerability scan → [TLS.md](/domains/tls.md) ✅
+5. Cipher enumeration → [TLS.md](/domains/tls.md) ✅
+6. CMS vulnerability → [WEB.md](/domains/web.md)
 
 ### Security Testing
-1. Security headers → [WEB.md](./WEB.md)
-2. Directory fuzzing → [WEB.md](./WEB.md)
-3. Secret scanning → [CODE.md](./CODE.md)
-4. Subdomain takeover → [CLOUD.md](./CLOUD.md) ✅
-5. TLS vulnerabilities → [TLS.md](./TLS.md) ✅
+1. Security headers → [WEB.md](/domains/web.md)
+2. Directory fuzzing → [WEB.md](/domains/web.md)
+3. Secret scanning → [CODE.md](/domains/code.md)
+4. Subdomain takeover → [CLOUD.md](/domains/cloud.md) ✅
+5. TLS vulnerabilities → [TLS.md](/domains/tls.md) ✅
 
 ### Intelligence Gathering
-1. Service fingerprinting → [NETWORK.md](./NETWORK.md)
-2. Web technologies → [WEB.md](./WEB.md)
-3. DNS server info → [DNS.md](./DNS.md)
-4. HTTP server → [WEB.md](./WEB.md)
-5. OSINT data harvesting → [RECON.md](./RECON.md) ✅
+1. Service fingerprinting → [NETWORK.md](/domains/network.md)
+2. Web technologies → [WEB.md](/domains/web.md)
+3. DNS server info → [DNS.md](/domains/dns.md)
+4. HTTP server → [WEB.md](/domains/web.md)
+5. OSINT data harvesting → [RECON.md](/domains/recon.md) ✅
 
 ### Exploitation & Access
-1. Privilege escalation → [EXPLOIT.md](./EXPLOIT.md) ✅
-2. Reverse shell generation → [EXPLOIT.md](./EXPLOIT.md) ✅
-3. Listener setup → [ACCESS.md](./ACCESS.md) ✅
-4. Session management → [ACCESS.md](./ACCESS.md) ✅
-5. Lateral movement → [EXPLOIT.md](./EXPLOIT.md) ✅
-6. Persistence mechanisms → [EXPLOIT.md](./EXPLOIT.md) ✅
+1. Privilege escalation → [EXPLOIT.md](/domains/exploit.md) ✅
+2. Reverse shell generation → [EXPLOIT.md](/domains/exploit.md) ✅
+3. Listener setup → [ACCESS.md](/domains/access.md) ✅
+4. Session management → [ACCESS.md](/domains/access.md) ✅
+5. Lateral movement → [EXPLOIT.md](/domains/exploit.md) ✅
+6. Persistence mechanisms → [EXPLOIT.md](/domains/exploit.md) ✅
 
 ### Data Management
-1. Query scan results → [DATABASE.md](./DATABASE.md) ✅
-2. Export to CSV → [DATABASE.md](./DATABASE.md) ✅
-3. List targets → [DATABASE.md](./DATABASE.md) ✅
-4. Subnet analysis → [DATABASE.md](./DATABASE.md) ✅
+1. Query scan results → [DATABASE.md](/domains/database.md) ✅
+2. Export to CSV → [DATABASE.md](/domains/database.md) ✅
+3. List targets → [DATABASE.md](/domains/database.md) ✅
+4. Subnet analysis → [DATABASE.md](/domains/database.md) ✅
 
 ---
 
@@ -264,10 +264,10 @@ Each domain documentation includes:
 
 **New to redblue?**
 
-1. Start with [NETWORK.md](./NETWORK.md) for basic port scanning
-2. Move to [DNS.md](./DNS.md) for domain reconnaissance
-3. Explore [WEB.md](./WEB.md) for web application testing
-4. Check [TLS.md](./TLS.md) for certificate inspection
+1. Start with [NETWORK.md](/domains/network.md) for basic port scanning
+2. Move to [DNS.md](/domains/dns.md) for domain reconnaissance
+3. Explore [WEB.md](/domains/web.md) for web application testing
+4. Check [TLS.md](/domains/tls.md) for certificate inspection
 
 **Need specific functionality?**
 
@@ -295,7 +295,7 @@ Each domain documentation includes:
 
 Found an error or want to improve documentation?
 
-1. Check [AGENTS.md](../../AGENTS.md) for contribution guidelines
+1. Check [AGENTS.md](/../AGENTS.md) for contribution guidelines
 2. Follow English-only documentation policy
 3. Include examples for new commands
 4. Update this index when adding new domains
@@ -304,11 +304,11 @@ Found an error or want to improve documentation?
 
 ## 🔗 Related Documentation
 
-- [README.md](../../README.md) - Project overview and quick start
-- [AGENTS.md](../../AGENTS.md) - Developer and contribution guide
-- [DEVX.md](../../DEVX.md) - Developer experience philosophy
-- [EXAMPLES.md](../../EXAMPLES.md) - Implementation examples
-- [CLI-DESIGN.md](../CLI-DESIGN.md) - CLI architecture and patterns
+- [README.md](/../README.md) - Project overview and quick start
+- [AGENTS.md](/../AGENTS.md) - Developer and contribution guide
+-  - Developer experience philosophy
+-  - Implementation examples
+-  - CLI architecture and patterns
 
 ---
 

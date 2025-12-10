@@ -7,7 +7,7 @@ Everything about the Model Context Protocol (MCP) server integration, enabling A
 
 **AI Integration • Semantic Search • Context Exposure**
 
-[Commands](#commands) • [Docs Index](./index.md) • [Root Docs](../../README.md)
+[Commands](#commands) • [Docs Index](/domains/index.md) • [Root Docs](/../README.md)
 
 </div>
 
@@ -116,4 +116,4 @@ Running an MCP server exposes the full power of `redblue` to the connected clien
 ## See Also
 
 - [Model Context Protocol Website](https://modelcontextprotocol.io)
-- [Project README](../../README.md)
+- [Project README](/../README.md)

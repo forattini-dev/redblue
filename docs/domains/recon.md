@@ -1013,10 +1013,10 @@ rb recon domain urls example.com --include /api/
 
 ## See Also
 
-- [DNS Domain](./DNS.md) - DNS reconnaissance (A, MX, NS, TXT records)
-- [WEB Domain](./WEB.md) - Web application testing
-- [NETWORK Domain](./NETWORK.md) - Network discovery and port scanning
-- [DATABASE Domain](./DATABASE.md) - Store and query recon results
+- [DNS Domain](/domains/dns.md) - DNS reconnaissance (A, MX, NS, TXT records)
+- [WEB Domain](/domains/web.md) - Web application testing
+- [NETWORK Domain](/domains/network.md) - Network discovery and port scanning
+- [DATABASE Domain](/domains/database.md) - Store and query recon results
 
 **External Resources:**
 - Certificate Transparency: https://crt.sh

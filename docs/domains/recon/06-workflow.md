@@ -346,7 +346,7 @@ rb exploit payload privesc  # After gaining access
 
 ## Next Steps
 
-- [WHOIS Lookup](01-whois.md) - Domain registration info
-- [Subdomain Enumeration](02-subdomains.md) - Find subdomains
-- [URL Discovery](03-urls.md) - Historical URLs
-- [Data Harvesting](04-harvest.md) - OSINT collection
+- [WHOIS Lookup](/domains/recon/01-whois.md) - Domain registration info
+- [Subdomain Enumeration](/domains/recon/02-subdomains.md) - Find subdomains
+- [URL Discovery](/domains/recon/03-urls.md) - Historical URLs
+- [Data Harvesting](/domains/recon/04-harvest.md) - OSINT collection

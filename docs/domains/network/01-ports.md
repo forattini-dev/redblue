@@ -295,7 +295,7 @@ done
 
 ## Next Steps
 
-- [Host Discovery](02-host.md) - Find alive hosts
-- [Path Tracing](03-trace.md) - Trace network routes
-- [Configuration](04-configuration.md) - Customize settings
-- [Troubleshooting](05-troubleshooting.md) - Common issues
+- [Host Discovery](/domains/network/02-host.md) - Find alive hosts
+- [Path Tracing](/domains/network/03-trace.md) - Trace network routes
+- [Configuration](/domains/network/04-configuration.md) - Customize settings
+- [Troubleshooting](/domains/network/05-troubleshooting.md) - Common issues

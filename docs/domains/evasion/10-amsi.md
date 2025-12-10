@@ -143,6 +143,6 @@ AMSI bypass is for **authorized Windows penetration testing only**. On non-Windo
 
 ## Related
 
-- [inject](09-inject.md) - Process injection
-- [strings](08-strings.md) - String encryption
-- [apihash](06-apihash.md) - API hashing
+- [inject](/domains/evasion/09-inject.md) - Process injection
+- [strings](/domains/evasion/08-strings.md) - String encryption
+- [apihash](/domains/evasion/06-apihash.md) - API hashing

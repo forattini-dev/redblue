@@ -71,10 +71,10 @@ let rolling = obfuscate::rolling_xor("secret", &[0x5A, 0x3B, 0x1C]);
 XOR and Base64 are **not encryption**. They provide obfuscation only and can be reversed by anyone who knows the technique.
 
 For real security, use:
-- [memory](04-memory.md) - SecureVault for runtime protection
-- [strings](08-strings.md) - Compile-time encryption
+- [memory](/domains/evasion/04-memory.md) - SecureVault for runtime protection
+- [strings](/domains/evasion/08-strings.md) - Compile-time encryption
 
 ## Related
 
-- [strings](08-strings.md) - Advanced string encryption
-- [memory](04-memory.md) - Memory protection
+- [strings](/domains/evasion/08-strings.md) - Advanced string encryption
+- [memory](/domains/evasion/04-memory.md) - Memory protection
