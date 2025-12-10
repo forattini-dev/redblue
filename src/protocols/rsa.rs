@@ -8,7 +8,7 @@
 /// - RFC 3447 (PKCS#1 v2.1): https://www.rfc-editor.org/rfc/rfc3447
 ///
 /// Status: Basic implementation for TLS 1.2 ClientKeyExchange
-// use super::crypto::SecureRandom; // FIXME: Old stub, use crate::crypto instead
+use super::crypto::SecureRandom;
 use std::cmp::Ordering;
 
 /// Big integer implementation for RSA operations

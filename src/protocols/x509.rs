@@ -272,6 +272,8 @@ fn parse_algorithm_identifier(obj: &Asn1Object) -> Result<AlgorithmIdentifier, S
 }
 
 /// Parse Distinguished Name (DN)
+/// Name ::= SEQUENCE OF RelativeDistinguishedName
+/// RelativeDistinguishedName ::= SET OF AttributeTypeAndValue
 fn parse_distinguished_name(obj: &Asn1Object) -> Result<DistinguishedName, String> {
     let seq = obj.as_sequence()?;
 
@@ -286,7 +288,8 @@ fn parse_distinguished_name(obj: &Asn1Object) -> Result<DistinguishedName, Strin
     };
 
     for rdn_obj in seq {
-        let rdn_set = rdn_obj.as_sequence()?;
+        // RDN is a SET OF AttributeTypeAndValue
+        let rdn_set = rdn_obj.as_sequence_or_set()?;
 
         for attr_obj in rdn_set {
             let attr_seq = attr_obj.as_sequence()?;

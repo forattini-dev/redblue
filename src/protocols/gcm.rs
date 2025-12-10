@@ -2,7 +2,6 @@
 ///
 /// This replaces our custom AES-GCM implementation with OpenSSL's battle-tested implementation.
 /// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
-
 use openssl::symm::{Cipher, Crypter, Mode};
 
 /// AES-128-GCM encryption using OpenSSL
@@ -28,9 +27,11 @@ pub fn aes128_gcm_encrypt(key: &[u8; 16], iv: &[u8; 12], plaintext: &[u8], aad: 
 
     // Encrypt plaintext
     let mut ciphertext = vec![0u8; plaintext.len() + cipher.block_size()];
-    let mut count = crypter.update(plaintext, &mut ciphertext)
+    let mut count = crypter
+        .update(plaintext, &mut ciphertext)
         .expect("Failed to encrypt");
-    count += crypter.finalize(&mut ciphertext[count..])
+    count += crypter
+        .finalize(&mut ciphertext[count..])
         .expect("Failed to finalize encryption");
     ciphertext.truncate(count);
 
@@ -74,20 +75,24 @@ pub fn aes128_gcm_decrypt(
         .map_err(|e| format!("Failed to create AES-128-GCM decrypter: {}", e))?;
 
     // Set tag for verification
-    crypter.set_tag(tag)
+    crypter
+        .set_tag(tag)
         .map_err(|e| format!("Failed to set GCM tag: {}", e))?;
 
     // Set AAD (Additional Authenticated Data)
     if !aad.is_empty() {
-        crypter.aad_update(aad)
+        crypter
+            .aad_update(aad)
             .map_err(|e| format!("Failed to set AAD: {}", e))?;
     }
 
     // Decrypt ciphertext
     let mut plaintext = vec![0u8; ciphertext.len() + cipher.block_size()];
-    let mut count = crypter.update(ciphertext, &mut plaintext)
+    let mut count = crypter
+        .update(ciphertext, &mut plaintext)
         .map_err(|e| format!("Failed to decrypt: {}", e))?;
-    count += crypter.finalize(&mut plaintext[count..])
+    count += crypter
+        .finalize(&mut plaintext[count..])
         .map_err(|_| "GCM tag verification failed (authentication error)".to_string())?;
     plaintext.truncate(count);
 
@@ -108,8 +113,7 @@ mod tests {
         let ciphertext = aes128_gcm_encrypt(&key, &iv, plaintext, aad);
         assert_eq!(ciphertext.len(), plaintext.len() + 16); // plaintext + 16-byte tag
 
-        let decrypted = aes128_gcm_decrypt(&key, &iv, &ciphertext, aad)
-            .expect("Decryption failed");
+        let decrypted = aes128_gcm_decrypt(&key, &iv, &ciphertext, aad).expect("Decryption failed");
         assert_eq!(&decrypted, plaintext);
     }
 

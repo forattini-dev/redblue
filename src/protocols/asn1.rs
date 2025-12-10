@@ -74,7 +74,8 @@ impl Asn1Object {
         offset += 1;
 
         let constructed = (tag_byte & 0x20) != 0;
-        let tag = tag_byte & 0x1F;
+        let tag_class = (tag_byte >> 6) & 0x03; // 0=Universal, 2=Context-specific
+        let tag_number = tag_byte & 0x1F;
 
         // Parse length
         if offset >= data.len() {
@@ -95,10 +96,11 @@ impl Asn1Object {
         }
 
         let value_bytes = &data[offset..offset + length];
-        let value = parse_value(tag, constructed, value_bytes)?;
+        // Pass full tag_byte so parse_value can detect context-specific tags
+        let value = parse_value(tag_byte, constructed, value_bytes)?;
 
         let obj = Asn1Object {
-            tag,
+            tag: tag_byte, // Store full tag byte to preserve class info
             constructed,
             value,
         };
@@ -111,6 +113,23 @@ impl Asn1Object {
         match &self.value {
             Asn1Value::Sequence(seq) => Ok(seq),
             _ => Err(format!("Expected SEQUENCE, got {:?}", self.value)),
+        }
+    }
+
+    /// Get set contents (if this is a SET)
+    pub fn as_set(&self) -> Result<&Vec<Asn1Object>, String> {
+        match &self.value {
+            Asn1Value::Set(set) => Ok(set),
+            _ => Err(format!("Expected SET, got {:?}", self.value)),
+        }
+    }
+
+    /// Get sequence OR set contents (for structures like X.509 Name where SET is used)
+    pub fn as_sequence_or_set(&self) -> Result<&Vec<Asn1Object>, String> {
+        match &self.value {
+            Asn1Value::Sequence(items) => Ok(items),
+            Asn1Value::Set(items) => Ok(items),
+            _ => Err(format!("Expected SEQUENCE or SET, got {:?}", self.value)),
         }
     }
 
@@ -162,9 +181,19 @@ impl Asn1Object {
         }
     }
 
-    /// Check if this is a context-specific tag
+    /// Check if this is a context-specific tag with the given tag number
+    /// Context-specific tags have class bits = 10 (0x80)
+    /// tag_num is the tag number (0-30)
     pub fn is_context_specific(&self, tag_num: u8) -> bool {
-        self.tag == (0x80 | tag_num)
+        // Check via value type (most reliable)
+        match &self.value {
+            Asn1Value::ContextSpecific(n, _) => *n == tag_num,
+            _ => {
+                // Fallback: check tag byte class bits (10 = context-specific)
+                let tag_class = (self.tag >> 6) & 0x03;
+                tag_class == 0x02 && (self.tag & 0x1F) == tag_num
+            }
+        }
     }
 
     /// Get context-specific data
@@ -217,14 +246,18 @@ fn parse_length(data: &[u8]) -> Result<(usize, usize), String> {
 }
 
 /// Parse ASN.1 value based on tag
-fn parse_value(tag: u8, constructed: bool, data: &[u8]) -> Result<Asn1Value, String> {
-    // Handle context-specific tags (0x80-0xBF)
-    if tag & 0x80 != 0 {
-        let tag_num = tag & 0x1F;
-        return Ok(Asn1Value::ContextSpecific(tag_num, data.to_vec()));
+fn parse_value(tag_byte: u8, constructed: bool, data: &[u8]) -> Result<Asn1Value, String> {
+    // Extract tag class and number from the full tag byte
+    let tag_class = (tag_byte >> 6) & 0x03; // 0=Universal, 1=Application, 2=Context-specific, 3=Private
+    let tag_number = tag_byte & 0x1F;
+
+    // Handle context-specific tags (class 2 = 0x80-0xBF range)
+    if tag_class == 2 {
+        return Ok(Asn1Value::ContextSpecific(tag_number, data.to_vec()));
     }
 
-    match tag {
+    // For universal tags, match on the tag number (not the full byte)
+    match tag_number {
         0x00 => {
             // Tag [0] - context-specific tag (used in EXPLICIT/IMPLICIT tagging)
             // Store as ContextSpecific so X.509 parser can handle it
@@ -312,7 +345,7 @@ fn parse_value(tag: u8, constructed: bool, data: &[u8]) -> Result<Asn1Value, Str
                 .map_err(|e| format!("Invalid GeneralizedTime: {}", e))?;
             Ok(Asn1Value::GeneralizedTime(s))
         }
-        _ => Err(format!("Unsupported tag: 0x{:02X}", tag)),
+        _ => Err(format!("Unsupported tag: 0x{:02X} (class={}, number={})", tag_byte, tag_class, tag_number)),
     }
 }
 

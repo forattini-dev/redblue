@@ -115,6 +115,15 @@ pub enum DnsRdata {
     PTR(String),
     MX { preference: u16, exchange: String },
     TXT(Vec<String>),
+    SOA {
+        mname: String,   // Primary nameserver
+        rname: String,   // Responsible email (@ replaced with .)
+        serial: u32,     // Version number
+        refresh: u32,    // Refresh interval (seconds)
+        retry: u32,      // Retry interval (seconds)
+        expire: u32,     // Expiration limit (seconds)
+        minimum: u32,    // Minimum TTL
+    },
     Raw(Vec<u8>),
 }
 
@@ -131,6 +140,20 @@ impl DnsAnswer {
     pub fn as_ip(&self) -> Option<String> {
         match &self.data {
             DnsRdata::A(ip) | DnsRdata::AAAA(ip) => Some(ip.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_mx(&self) -> Option<(u16, String)> {
+        match &self.data {
+            DnsRdata::MX { preference, exchange } => Some((*preference, exchange.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn as_cname(&self) -> Option<String> {
+        match &self.data {
+            DnsRdata::CNAME(cname) => Some(cname.clone()),
             _ => None,
         }
     }
@@ -161,6 +184,18 @@ impl DnsAnswer {
                 exchange,
             } => format!("{} {}", preference, exchange),
             DnsRdata::TXT(chunks) => chunks.join(" "),
+            DnsRdata::SOA {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => format!(
+                "{} {} {} {} {} {} {}",
+                mname, rname, serial, refresh, retry, expire, minimum
+            ),
             DnsRdata::Raw(bytes) => bytes.iter().fold(String::from("0x"), |mut acc, b| {
                 acc.push_str(&format!("{:02X}", b));
                 acc
@@ -390,6 +425,57 @@ impl DnsClient {
                     idx += len;
                 }
                 DnsRdata::TXT(pieces)
+            }
+            6 => {
+                // SOA record: MNAME RNAME SERIAL REFRESH RETRY EXPIRE MINIMUM
+                let (mname, mname_end) = self.read_name(data, rdata_start)?;
+                let (rname, rname_end) = self.read_name(data, mname_end)?;
+
+                // After the two names, we have 5 x 4-byte integers
+                let nums_start = rname_end;
+                if nums_start + 20 > data.len() {
+                    DnsRdata::Raw(rdata_slice.to_vec())
+                } else {
+                    let serial = u32::from_be_bytes([
+                        data[nums_start],
+                        data[nums_start + 1],
+                        data[nums_start + 2],
+                        data[nums_start + 3],
+                    ]);
+                    let refresh = u32::from_be_bytes([
+                        data[nums_start + 4],
+                        data[nums_start + 5],
+                        data[nums_start + 6],
+                        data[nums_start + 7],
+                    ]);
+                    let retry = u32::from_be_bytes([
+                        data[nums_start + 8],
+                        data[nums_start + 9],
+                        data[nums_start + 10],
+                        data[nums_start + 11],
+                    ]);
+                    let expire = u32::from_be_bytes([
+                        data[nums_start + 12],
+                        data[nums_start + 13],
+                        data[nums_start + 14],
+                        data[nums_start + 15],
+                    ]);
+                    let minimum = u32::from_be_bytes([
+                        data[nums_start + 16],
+                        data[nums_start + 17],
+                        data[nums_start + 18],
+                        data[nums_start + 19],
+                    ]);
+                    DnsRdata::SOA {
+                        mname,
+                        rname,
+                        serial,
+                        refresh,
+                        retry,
+                        expire,
+                        minimum,
+                    }
+                }
             }
             _ => DnsRdata::Raw(rdata_slice.to_vec()),
         };
