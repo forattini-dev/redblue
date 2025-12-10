@@ -89,6 +89,10 @@ impl Aes128 {
                 }
             }
         }
+        eprintln!("AES Key Expansion (key={:02x?})", key);
+        for (i, rk) in self.round_keys.iter().enumerate() {
+            eprintln!("  Round {}: {:02x?}", i, rk);
+        }
     }
 
     pub fn encrypt_block(&self, block: &[u8; 16]) -> [u8; 16] {

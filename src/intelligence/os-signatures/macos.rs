@@ -1,0 +1,677 @@
+/// macOS and Apple OS Signatures
+///
+/// TCP/IP fingerprints for macOS, iOS, iPadOS, tvOS, and watchOS.
+
+use super::types::*;
+
+/// Add all Apple signatures to the database
+pub fn signatures() -> Vec<OsSignature> {
+    let mut sigs = Vec::with_capacity(80);
+
+    // === macOS DESKTOP ===
+    sigs.extend(macos_signatures());
+
+    // === iOS / iPadOS ===
+    sigs.extend(ios_signatures());
+
+    // === OTHER APPLE ===
+    sigs.extend(other_apple_signatures());
+
+    sigs
+}
+
+fn macos_signatures() -> Vec<OsSignature> {
+    vec![
+        // macOS 15 (Sequoia)
+        SignatureBuilder::new(3000, "macOS 15 Sequoia")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("15")
+            .cpe("cpe:/o:apple:macos:15")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.95)
+            .build(),
+
+        // macOS 14 (Sonoma)
+        SignatureBuilder::new(3001, "macOS 14 Sonoma")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("14")
+            .cpe("cpe:/o:apple:macos:14")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.95)
+            .build(),
+
+        // macOS 13 (Ventura)
+        SignatureBuilder::new(3002, "macOS 13 Ventura")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("13")
+            .cpe("cpe:/o:apple:macos:13")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.93)
+            .build(),
+
+        // macOS 12 (Monterey)
+        SignatureBuilder::new(3003, "macOS 12 Monterey")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("12")
+            .cpe("cpe:/o:apple:macos:12")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.92)
+            .build(),
+
+        // macOS 11 (Big Sur)
+        SignatureBuilder::new(3004, "macOS 11 Big Sur")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("11")
+            .cpe("cpe:/o:apple:macos:11")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.90)
+            .build(),
+
+        // macOS 10.15 (Catalina)
+        SignatureBuilder::new(3010, "macOS 10.15 Catalina")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.15")
+            .cpe("cpe:/o:apple:macos:10.15")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.88)
+            .build(),
+
+        // macOS 10.14 (Mojave)
+        SignatureBuilder::new(3011, "macOS 10.14 Mojave")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.14")
+            .cpe("cpe:/o:apple:macos:10.14")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.85)
+            .build(),
+
+        // macOS 10.13 (High Sierra)
+        SignatureBuilder::new(3012, "macOS 10.13 High Sierra")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.13")
+            .cpe("cpe:/o:apple:macos:10.13")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.82)
+            .build(),
+
+        // macOS 10.12 (Sierra)
+        SignatureBuilder::new(3013, "macOS 10.12 Sierra")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.12")
+            .cpe("cpe:/o:apple:macos:10.12")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.80)
+            .build(),
+
+        // OS X 10.11 (El Capitan)
+        SignatureBuilder::new(3020, "OS X 10.11 El Capitan")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.11")
+            .cpe("cpe:/o:apple:mac_os_x:10.11")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(4)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.78)
+            .build(),
+
+        // OS X 10.10 (Yosemite)
+        SignatureBuilder::new(3021, "OS X 10.10 Yosemite")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.10")
+            .cpe("cpe:/o:apple:mac_os_x:10.10")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(4)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.75)
+            .build(),
+
+        // OS X 10.9 (Mavericks)
+        SignatureBuilder::new(3022, "OS X 10.9 Mavericks")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.9")
+            .cpe("cpe:/o:apple:mac_os_x:10.9")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(3)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Sequential)
+            .ecn(false)
+            .confidence(0.72)
+            .build(),
+
+        // OS X 10.8 (Mountain Lion)
+        SignatureBuilder::new(3023, "OS X 10.8 Mountain Lion")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.8")
+            .cpe("cpe:/o:apple:mac_os_x:10.8")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(3)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Sequential)
+            .ecn(false)
+            .confidence(0.70)
+            .build(),
+
+        // OS X 10.7 (Lion)
+        SignatureBuilder::new(3024, "OS X 10.7 Lion")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.7")
+            .cpe("cpe:/o:apple:mac_os_x:10.7")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(3)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Sequential)
+            .ecn(false)
+            .confidence(0.68)
+            .build(),
+
+        // Mac OS X 10.6 (Snow Leopard)
+        SignatureBuilder::new(3030, "Mac OS X 10.6 Snow Leopard")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.6")
+            .cpe("cpe:/o:apple:mac_os_x:10.6")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(3)
+            .options("MSWT")
+            .df(true)
+            .ip_id(IpIdPattern::Sequential)
+            .ecn(false)
+            .confidence(0.65)
+            .build(),
+
+        // Mac OS X 10.5 (Leopard)
+        SignatureBuilder::new(3031, "Mac OS X 10.5 Leopard")
+            .vendor("Apple")
+            .family("macOS")
+            .generation("10.5")
+            .cpe("cpe:/o:apple:mac_os_x:10.5")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(3)
+            .options("MSWT")
+            .df(true)
+            .ip_id(IpIdPattern::Sequential)
+            .ecn(false)
+            .confidence(0.62)
+            .build(),
+
+        // macOS Server
+        SignatureBuilder::new(3040, "macOS Server")
+            .vendor("Apple")
+            .family("macOS")
+            .cpe("cpe:/o:apple:macos_server")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.85)
+            .build(),
+    ]
+}
+
+fn ios_signatures() -> Vec<OsSignature> {
+    vec![
+        // iOS 18
+        SignatureBuilder::new(3100, "iOS 18")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("18")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:18")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.95)
+            .build(),
+
+        // iOS 17
+        SignatureBuilder::new(3101, "iOS 17")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("17")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:17")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.93)
+            .build(),
+
+        // iOS 16
+        SignatureBuilder::new(3102, "iOS 16")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("16")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:16")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.92)
+            .build(),
+
+        // iOS 15
+        SignatureBuilder::new(3103, "iOS 15")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("15")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:15")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.90)
+            .build(),
+
+        // iOS 14
+        SignatureBuilder::new(3104, "iOS 14")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("14")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:14")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.88)
+            .build(),
+
+        // iOS 13
+        SignatureBuilder::new(3105, "iOS 13")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("13")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:13")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.85)
+            .build(),
+
+        // iOS 12
+        SignatureBuilder::new(3106, "iOS 12")
+            .vendor("Apple")
+            .family("iOS")
+            .generation("12")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:iphone_os:12")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.82)
+            .build(),
+
+        // iPadOS 18
+        SignatureBuilder::new(3120, "iPadOS 18")
+            .vendor("Apple")
+            .family("iPadOS")
+            .generation("18")
+            .device(DeviceType::Phone) // tablet, but similar fingerprint
+            .cpe("cpe:/o:apple:ipados:18")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.95)
+            .build(),
+
+        // iPadOS 17
+        SignatureBuilder::new(3121, "iPadOS 17")
+            .vendor("Apple")
+            .family("iPadOS")
+            .generation("17")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:ipados:17")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.93)
+            .build(),
+
+        // iPadOS 16
+        SignatureBuilder::new(3122, "iPadOS 16")
+            .vendor("Apple")
+            .family("iPadOS")
+            .generation("16")
+            .device(DeviceType::Phone)
+            .cpe("cpe:/o:apple:ipados:16")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.92)
+            .build(),
+    ]
+}
+
+fn other_apple_signatures() -> Vec<OsSignature> {
+    vec![
+        // tvOS 18
+        SignatureBuilder::new(3200, "tvOS 18")
+            .vendor("Apple")
+            .family("tvOS")
+            .generation("18")
+            .device(DeviceType::MediaDevice)
+            .cpe("cpe:/o:apple:tvos:18")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.92)
+            .build(),
+
+        // tvOS 17
+        SignatureBuilder::new(3201, "tvOS 17")
+            .vendor("Apple")
+            .family("tvOS")
+            .generation("17")
+            .device(DeviceType::MediaDevice)
+            .cpe("cpe:/o:apple:tvos:17")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.90)
+            .build(),
+
+        // watchOS 11
+        SignatureBuilder::new(3210, "watchOS 11")
+            .vendor("Apple")
+            .family("watchOS")
+            .generation("11")
+            .device(DeviceType::IoT)
+            .cpe("cpe:/o:apple:watchos:11")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.88)
+            .build(),
+
+        // watchOS 10
+        SignatureBuilder::new(3211, "watchOS 10")
+            .vendor("Apple")
+            .family("watchOS")
+            .generation("10")
+            .device(DeviceType::IoT)
+            .cpe("cpe:/o:apple:watchos:10")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.85)
+            .build(),
+
+        // visionOS 2
+        SignatureBuilder::new(3220, "visionOS 2")
+            .vendor("Apple")
+            .family("visionOS")
+            .generation("2")
+            .device(DeviceType::IoT) // AR/VR device
+            .cpe("cpe:/o:apple:visionos:2")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.90)
+            .build(),
+
+        // HomePod (audioOS)
+        SignatureBuilder::new(3230, "audioOS (HomePod)")
+            .vendor("Apple")
+            .family("audioOS")
+            .device(DeviceType::MediaDevice)
+            .cpe("cpe:/o:apple:audioos")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(6)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(true)
+            .confidence(0.85)
+            .build(),
+
+        // AirPort Extreme
+        SignatureBuilder::new(3240, "AirPort Extreme")
+            .vendor("Apple")
+            .family("AirPort")
+            .device(DeviceType::WAP)
+            .cpe("cpe:/h:apple:airport_extreme")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.82)
+            .build(),
+
+        // Time Capsule
+        SignatureBuilder::new(3241, "Time Capsule")
+            .vendor("Apple")
+            .family("AirPort")
+            .device(DeviceType::Storage)
+            .cpe("cpe:/h:apple:time_capsule")
+            .ttl_initial(64)
+            .window_exact(65535)
+            .mss_exact(1460)
+            .ws(5)
+            .options("MSNWT")
+            .df(true)
+            .ip_id(IpIdPattern::Random)
+            .ecn(false)
+            .confidence(0.80)
+            .build(),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_apple_signatures_count() {
+        let sigs = signatures();
+        assert!(sigs.len() >= 25, "Expected at least 25 Apple signatures, got {}", sigs.len());
+    }
+
+    #[test]
+    fn test_signature_ids_unique() {
+        let sigs = signatures();
+        let mut ids: Vec<u32> = sigs.iter().map(|s| s.id).collect();
+        ids.sort();
+        let unique_count = ids.len();
+        ids.dedup();
+        assert_eq!(unique_count, ids.len(), "Duplicate signature IDs found");
+    }
+
+    #[test]
+    fn test_ttl_64_apple() {
+        let sigs = signatures();
+        // All Apple should have TTL of 64 (Unix heritage)
+        for sig in &sigs {
+            match sig.ttl {
+                TtlMatch::Initial(ttl) | TtlMatch::Exact(ttl) => {
+                    assert_eq!(ttl, 64, "{} should have TTL 64", sig.name);
+                }
+                _ => {}
+            }
+        }
+    }
+}

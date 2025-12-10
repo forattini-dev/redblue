@@ -47,8 +47,8 @@ fn main() {
                 print_version();
                 return;
             }
-            "repl" => {
-                handle_repl_command(&ctx);
+            "shell" => {
+                handle_shell_command(&ctx);
                 return;
             }
             _ => {}
@@ -123,38 +123,27 @@ fn handle_help_command(ctx: &cli::CliContext) {
     commands::print_global_help();
 }
 
-fn handle_repl_command(ctx: &cli::CliContext) {
+fn handle_shell_command(ctx: &cli::CliContext) {
     let target = ctx.resource.as_ref().or(ctx.target.as_ref());
 
     let target = match target {
         Some(t) => t.to_string(),
         None => {
-            Output::error("Usage: rb repl <target>");
-            Output::info("  rb repl example.com");
+            Output::error("Usage: rb shell <target>");
+            Output::info("  rb shell example.com");
             Output::info(&format!(
-                "  rb repl example{}",
+                "  rb shell example{}",
                 redblue::storage::session::SessionFile::EXTENSION
             ));
-            Output::info("  rb repl www.tetis.io");
+            Output::info("  rb shell www.tetis.io");
             std::process::exit(1);
         }
     };
 
-    // Check if --classic flag is set for old REPL
-    let use_tui = !ctx.has_flag("classic");
-
-    if use_tui {
-        // Use fullscreen TUI (default)
-        if let Err(e) = cli::tui::start_tui(target) {
-            Output::error(&e);
-            std::process::exit(1);
-        }
-    } else {
-        // Use classic line-based REPL
-        if let Err(e) = cli::repl::start_repl(target) {
-            Output::error(&e);
-            std::process::exit(1);
-        }
+    // Launch fullscreen TUI shell
+    if let Err(e) = cli::tui::start_tui(target) {
+        Output::error(&e);
+        std::process::exit(1);
     }
 }
 

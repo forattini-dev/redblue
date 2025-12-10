@@ -1,3 +1,9 @@
+//! Cryptography Module
+//!
+//! All primitives implemented from scratch using only Rust std library.
+//! The only exception is OpenSSL for TLS handshake operations.
+
+// Core primitives
 pub mod aes;
 pub mod aes_gcm;
 pub mod bigint;
@@ -7,14 +13,18 @@ pub mod hmac;
 pub mod md5;
 pub mod prf;
 pub mod rsa;
-/// Cryptography primitives for TLS implementation
-/// All implemented from scratch using only Rust std library
 pub mod sha1;
 pub mod sha256;
 pub mod sha384;
 pub mod tls13_hash;
 pub mod tls13_keyschedule;
 pub mod x25519;
+
+// Encoding formats
+pub mod encoding;
+
+// Certificate management
+pub mod certs;
 
 // Re-exports
 pub use aes_gcm::{aes256_gcm_decrypt, aes256_gcm_encrypt};
@@ -26,6 +36,7 @@ pub use chacha20::{
 pub use hkdf::{derive_secret, hkdf, hkdf_expand, hkdf_expand_label, hkdf_extract};
 pub use hmac::Hmac;
 pub use md5::md5;
+pub use sha1::sha1;
 pub use prf::prf_tls12;
 pub use rsa::{extract_public_key_from_cert, RsaPublicKey};
 pub use sha256::sha256;

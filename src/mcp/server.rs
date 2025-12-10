@@ -1,6 +1,19 @@
 use crate::cli::commands;
 use crate::mcp::embeddings::{load_embeddings, EmbeddingsData, EmbeddingsLoaderConfig};
 use crate::mcp::search::{hybrid_search, SearchConfig, SearchMode};
+use crate::modules::recon::vuln::{
+    generate_cpe, NvdClient, KevClient, ExploitDbClient,
+    VulnCollection, calculate_risk_score, Severity,
+};
+use crate::modules::recon::vuln::osv::{OsvClient, Ecosystem};
+use crate::modules::recon::dnsdumpster::DnsDumpsterClient;
+use crate::modules::recon::massdns::{MassDnsScanner, MassDnsConfig, common_subdomains, load_wordlist};
+use crate::modules::web::crawler::{CrawlerConfig, WebCrawler};
+use crate::modules::web::dom::Document;
+use crate::modules::web::extractors;
+use crate::modules::web::fingerprinter::WebFingerprinter;
+use crate::protocols::har::Har;
+use crate::protocols::http::HttpClient;
 use crate::utils::json::{parse_json, JsonValue};
 use std::collections::HashSet;
 use std::fs;
@@ -183,6 +196,305 @@ impl McpServer {
                         },
                     ],
                     handler: Self::tool_command_run,
+                },
+                // Web scraping tools
+                ToolDefinition {
+                    name: "rb.web.crawl",
+                    description: "Crawl a website discovering pages, links, forms and assets.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to start crawling from.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "max_depth",
+                            field_type: "number",
+                            description: "Maximum depth to crawl (default: 2).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "max_pages",
+                            field_type: "number",
+                            description: "Maximum pages to crawl (default: 50).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_web_crawl,
+                },
+                ToolDefinition {
+                    name: "rb.web.scrape",
+                    description: "Scrape data from a URL using CSS selectors.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to scrape.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "selector",
+                            field_type: "string",
+                            description: "CSS selector to extract elements.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "attr",
+                            field_type: "string",
+                            description: "Optional attribute to extract from selected elements.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_web_scrape,
+                },
+                ToolDefinition {
+                    name: "rb.html.select",
+                    description: "Parse HTML content and extract elements using CSS selectors (no HTTP).",
+                    fields: &[
+                        ToolField {
+                            name: "html",
+                            field_type: "string",
+                            description: "HTML content to parse.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "selector",
+                            field_type: "string",
+                            description: "CSS selector to extract elements.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "attr",
+                            field_type: "string",
+                            description: "Optional attribute to extract from selected elements.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_html_select,
+                },
+                ToolDefinition {
+                    name: "rb.web.links",
+                    description: "Extract all links from a webpage.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to extract links from.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "link_type",
+                            field_type: "string",
+                            description: "Filter by type: internal, external, or all (default: all).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_web_links,
+                },
+                ToolDefinition {
+                    name: "rb.web.tables",
+                    description: "Extract tables from a webpage as structured data.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to extract tables from.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "selector",
+                            field_type: "string",
+                            description: "Optional CSS selector to target specific table.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_web_tables,
+                },
+                ToolDefinition {
+                    name: "rb.har.record",
+                    description: "Crawl a website and record HTTP traffic to HAR format.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to start crawling from.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "max_depth",
+                            field_type: "number",
+                            description: "Maximum depth to crawl (default: 2).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "max_pages",
+                            field_type: "number",
+                            description: "Maximum pages to crawl (default: 20).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_har_record,
+                },
+                ToolDefinition {
+                    name: "rb.har.analyze",
+                    description: "Analyze a HAR file and return statistics.",
+                    fields: &[
+                        ToolField {
+                            name: "content",
+                            field_type: "string",
+                            description: "HAR file content as JSON string.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_har_analyze,
+                },
+                // Vulnerability Intelligence Tools
+                ToolDefinition {
+                    name: "rb.vuln.search",
+                    description: "Search vulnerabilities for a technology by name and optional version. Queries NVD, OSV, and enriches with CISA KEV data.",
+                    fields: &[
+                        ToolField {
+                            name: "tech",
+                            field_type: "string",
+                            description: "Technology name (e.g., nginx, wordpress, lodash).",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "version",
+                            field_type: "string",
+                            description: "Version number to search (e.g., 1.18.0).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "source",
+                            field_type: "string",
+                            description: "Data source: nvd, osv, or all (default: nvd).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "limit",
+                            field_type: "number",
+                            description: "Maximum results to return (default: 10).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_vuln_search,
+                },
+                ToolDefinition {
+                    name: "rb.vuln.cve",
+                    description: "Get detailed information about a specific CVE, including CVSS scores, KEV status, and known exploits.",
+                    fields: &[
+                        ToolField {
+                            name: "cve_id",
+                            field_type: "string",
+                            description: "CVE identifier (e.g., CVE-2021-44228).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_vuln_cve,
+                },
+                ToolDefinition {
+                    name: "rb.vuln.kev",
+                    description: "Query CISA Known Exploited Vulnerabilities catalog. Returns actively exploited CVEs with remediation deadlines.",
+                    fields: &[
+                        ToolField {
+                            name: "vendor",
+                            field_type: "string",
+                            description: "Filter by vendor name (e.g., Microsoft, Apache).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "product",
+                            field_type: "string",
+                            description: "Filter by product name (e.g., Windows Server, Log4j).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "stats",
+                            field_type: "boolean",
+                            description: "Return catalog statistics instead of entries.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_vuln_kev,
+                },
+                ToolDefinition {
+                    name: "rb.vuln.exploit",
+                    description: "Search Exploit-DB for public exploits and proof-of-concepts.",
+                    fields: &[
+                        ToolField {
+                            name: "query",
+                            field_type: "string",
+                            description: "Search query (e.g., 'Apache Struts', 'privilege escalation linux').",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "limit",
+                            field_type: "number",
+                            description: "Maximum results to return (default: 10).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_vuln_exploit,
+                },
+                ToolDefinition {
+                    name: "rb.vuln.fingerprint",
+                    description: "Fingerprint a URL to detect technologies, then search for vulnerabilities affecting them.",
+                    fields: &[
+                        ToolField {
+                            name: "url",
+                            field_type: "string",
+                            description: "URL to fingerprint (e.g., http://example.com).",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "source",
+                            field_type: "string",
+                            description: "Vulnerability source: nvd, osv, or all (default: nvd).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_vuln_fingerprint,
+                },
+                // Recon tools
+                ToolDefinition {
+                    name: "rb.recon.dnsdumpster",
+                    description: "Query DNSDumpster for DNS intelligence including MX, TXT, DNS hosts, and subdomains.",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain to query (e.g., example.com).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_recon_dnsdumpster,
+                },
+                ToolDefinition {
+                    name: "rb.recon.massdns",
+                    description: "High-performance DNS bruteforce subdomain enumeration.",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain to enumerate subdomains for (e.g., example.com).",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "threads",
+                            field_type: "integer",
+                            description: "Number of concurrent threads (default: 10).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "wordlist",
+                            field_type: "string",
+                            description: "Path to custom wordlist file. Uses built-in if not specified.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_recon_massdns,
                 },
             ],
             initialized: false,
@@ -991,6 +1303,953 @@ impl McpServer {
                 ("stderr".to_string(), JsonValue::String(stderr)),
             ]),
         })
+    }
+
+    // ========== Web Scraping Tool Handlers ==========
+
+    fn tool_web_crawl(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        let max_depth = args
+            .get("max_depth")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(2);
+
+        let max_pages = args
+            .get("max_pages")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(50);
+
+        let mut crawler = WebCrawler::new()
+            .with_max_depth(max_depth)
+            .with_max_pages(max_pages)
+            .with_same_origin(true);
+
+        let result = crawler.crawl(url).map_err(|e| format!("crawl failed: {}", e))?;
+
+        let pages_json: Vec<JsonValue> = result
+            .pages
+            .iter()
+            .map(|page| {
+                JsonValue::object(vec![
+                    ("url".to_string(), JsonValue::String(page.url.clone())),
+                    ("title".to_string(), page.meta.title.as_ref()
+                        .map(|t| JsonValue::String(t.clone()))
+                        .unwrap_or(JsonValue::Null)),
+                    ("status".to_string(), JsonValue::Number(page.status_code as f64)),
+                    ("links_count".to_string(), JsonValue::Number(page.links.len() as f64)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Crawled {} pages from '{}' (max depth: {}, links found: {})",
+            result.total_urls, url, result.max_depth_reached, result.total_links
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("total_pages".to_string(), JsonValue::Number(result.total_urls as f64)),
+                ("total_links".to_string(), JsonValue::Number(result.total_links as f64)),
+                ("max_depth_reached".to_string(), JsonValue::Number(result.max_depth_reached as f64)),
+                ("pages".to_string(), JsonValue::array(pages_json)),
+            ]),
+        })
+    }
+
+    fn tool_web_scrape(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        let selector = args
+            .get("selector")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'selector' is required".to_string())?;
+
+        let attr = args.get("attr").and_then(|v| v.as_str());
+
+        // Fetch the page
+        let client = HttpClient::new();
+        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Parse HTML
+        let body_str = String::from_utf8_lossy(&response.body);
+        let doc = Document::parse(&body_str);
+
+        // Select elements
+        let elements = doc.select(selector);
+
+        let results: Vec<JsonValue> = elements
+            .iter()
+            .map(|el| {
+                if let Some(attr_name) = attr {
+                    el.attr(attr_name)
+                        .map(|v| JsonValue::String(v.to_string()))
+                        .unwrap_or(JsonValue::Null)
+                } else {
+                    JsonValue::String(el.text())
+                }
+            })
+            .collect();
+
+        let text = format!(
+            "Extracted {} elements from '{}' using selector '{}'",
+            results.len(), url, selector
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("selector".to_string(), JsonValue::String(selector.to_string())),
+                ("count".to_string(), JsonValue::Number(results.len() as f64)),
+                ("results".to_string(), JsonValue::array(results)),
+            ]),
+        })
+    }
+
+    fn tool_html_select(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let html = args
+            .get("html")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'html' is required".to_string())?;
+
+        let selector = args
+            .get("selector")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'selector' is required".to_string())?;
+
+        let attr = args.get("attr").and_then(|v| v.as_str());
+
+        // Parse HTML
+        let doc = Document::parse(html);
+
+        // Select elements
+        let elements = doc.select(selector);
+
+        let results: Vec<JsonValue> = elements
+            .iter()
+            .map(|el| {
+                if let Some(attr_name) = attr {
+                    el.attr(attr_name)
+                        .map(|v| JsonValue::String(v.to_string()))
+                        .unwrap_or(JsonValue::Null)
+                } else {
+                    JsonValue::String(el.text())
+                }
+            })
+            .collect();
+
+        let text = format!(
+            "Selected {} elements using '{}'",
+            results.len(), selector
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("selector".to_string(), JsonValue::String(selector.to_string())),
+                ("count".to_string(), JsonValue::Number(results.len() as f64)),
+                ("results".to_string(), JsonValue::array(results)),
+            ]),
+        })
+    }
+
+    fn tool_web_links(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        use crate::modules::web::extractors::LinkType;
+
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        let link_type_filter = args
+            .get("link_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("all");
+
+        // Fetch the page
+        let client = HttpClient::new();
+        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Parse HTML
+        let body_str = String::from_utf8_lossy(&response.body);
+        let doc = Document::parse(&body_str);
+
+        // Extract links
+        let all_links = extractors::links(&doc);
+
+        // Filter by type
+        let filtered_links: Vec<_> = all_links
+            .iter()
+            .filter(|link| {
+                let is_internal = matches!(link.link_type, LinkType::Internal);
+                match link_type_filter {
+                    "internal" => is_internal,
+                    "external" => !is_internal,
+                    _ => true,
+                }
+            })
+            .collect();
+
+        let links_json: Vec<JsonValue> = filtered_links
+            .iter()
+            .map(|link| {
+                let is_internal = matches!(link.link_type, LinkType::Internal);
+                JsonValue::object(vec![
+                    ("url".to_string(), JsonValue::String(link.url.clone())),
+                    ("text".to_string(), JsonValue::String(link.text.clone())),
+                    ("is_internal".to_string(), JsonValue::Bool(is_internal)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Extracted {} {} links from '{}'",
+            links_json.len(), link_type_filter, url
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("link_type".to_string(), JsonValue::String(link_type_filter.to_string())),
+                ("count".to_string(), JsonValue::Number(links_json.len() as f64)),
+                ("links".to_string(), JsonValue::array(links_json)),
+            ]),
+        })
+    }
+
+    fn tool_web_tables(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        // Selector is noted but tables() extracts all tables
+        let _selector = args.get("selector").and_then(|v| v.as_str());
+
+        // Fetch the page
+        let client = HttpClient::new();
+        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Parse HTML
+        let body_str = String::from_utf8_lossy(&response.body);
+        let doc = Document::parse(&body_str);
+
+        // Extract tables
+        let tables = extractors::tables(&doc);
+
+        let tables_json: Vec<JsonValue> = tables
+            .iter()
+            .map(|table| {
+                let headers_json: Vec<JsonValue> = table.headers
+                    .iter()
+                    .map(|h| JsonValue::String(h.clone()))
+                    .collect();
+
+                let rows_json: Vec<JsonValue> = table.rows
+                    .iter()
+                    .map(|row| {
+                        JsonValue::array(
+                            row.iter()
+                                .map(|cell| JsonValue::String(cell.clone()))
+                                .collect()
+                        )
+                    })
+                    .collect();
+
+                JsonValue::object(vec![
+                    ("headers".to_string(), JsonValue::array(headers_json)),
+                    ("rows".to_string(), JsonValue::array(rows_json)),
+                    ("row_count".to_string(), JsonValue::Number(table.rows.len() as f64)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Extracted {} tables from '{}'",
+            tables_json.len(), url
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("count".to_string(), JsonValue::Number(tables_json.len() as f64)),
+                ("tables".to_string(), JsonValue::array(tables_json)),
+            ]),
+        })
+    }
+
+    fn tool_har_record(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        let max_depth = args
+            .get("max_depth")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(2);
+
+        let max_pages = args
+            .get("max_pages")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(20);
+
+        let mut crawler = WebCrawler::new()
+            .with_max_depth(max_depth)
+            .with_max_pages(max_pages)
+            .with_same_origin(true)
+            .with_har_recording(true);
+
+        let result = crawler.crawl(url).map_err(|e| format!("crawl failed: {}", e))?;
+
+        // Get HAR data
+        let har_json = if let Some(recorder) = crawler.har_recorder() {
+            let guard = recorder.lock().unwrap();
+            let har = &guard.har;
+
+            let total_time: f64 = har.log.entries.iter().map(|e| e.time).sum();
+            let total_response_size: i64 = har.log.entries.iter().map(|e| e.response.body_size).sum();
+
+            JsonValue::object(vec![
+                ("version".to_string(), JsonValue::String(har.log.version.clone())),
+                ("entries_count".to_string(), JsonValue::Number(har.log.entries.len() as f64)),
+                ("total_time_ms".to_string(), JsonValue::Number(total_time)),
+                ("total_response_bytes".to_string(), JsonValue::Number(total_response_size.max(0) as f64)),
+                ("har_content".to_string(), JsonValue::String(har.to_json())),
+            ])
+        } else {
+            JsonValue::Null
+        };
+
+        let text = format!(
+            "Recorded HTTP traffic for {} pages from '{}' (HAR entries: {})",
+            result.total_urls, url,
+            if let Some(entries) = har_json.get("entries_count").and_then(|v| v.as_f64()) {
+                entries as usize
+            } else { 0 }
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("pages_crawled".to_string(), JsonValue::Number(result.total_urls as f64)),
+                ("har".to_string(), har_json),
+            ]),
+        })
+    }
+
+    fn tool_har_analyze(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let content = args
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'content' is required".to_string())?;
+
+        let har = Har::from_json(content).map_err(|e| format!("failed to parse HAR: {}", e))?;
+
+        let total_entries = har.log.entries.len();
+        let total_time: f64 = har.log.entries.iter().map(|e| e.time).sum();
+        let total_request_size: i64 = har.log.entries.iter().map(|e| e.request.body_size).sum();
+        let total_response_size: i64 = har.log.entries.iter().map(|e| e.response.body_size).sum();
+
+        // Count status codes
+        let mut status_counts: Vec<(u16, usize)> = Vec::new();
+        for entry in &har.log.entries {
+            let status = entry.response.status;
+            if let Some(pos) = status_counts.iter().position(|(s, _)| *s == status) {
+                status_counts[pos].1 += 1;
+            } else {
+                status_counts.push((status, 1));
+            }
+        }
+
+        let status_json: Vec<JsonValue> = status_counts
+            .iter()
+            .map(|(status, count)| {
+                JsonValue::object(vec![
+                    ("status".to_string(), JsonValue::Number(*status as f64)),
+                    ("count".to_string(), JsonValue::Number(*count as f64)),
+                ])
+            })
+            .collect();
+
+        // Get slowest requests
+        let mut sorted_entries: Vec<_> = har.log.entries.iter().collect();
+        sorted_entries.sort_by(|a, b| b.time.partial_cmp(&a.time).unwrap_or(std::cmp::Ordering::Equal));
+
+        let slowest_json: Vec<JsonValue> = sorted_entries
+            .iter()
+            .take(5)
+            .map(|entry| {
+                JsonValue::object(vec![
+                    ("url".to_string(), JsonValue::String(entry.request.url.clone())),
+                    ("time_ms".to_string(), JsonValue::Number(entry.time)),
+                    ("status".to_string(), JsonValue::Number(entry.response.status as f64)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "HAR Analysis: {} entries, {:.2}ms total time, {} bytes transferred",
+            total_entries, total_time, total_response_size.max(0)
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("version".to_string(), JsonValue::String(har.log.version.clone())),
+                ("creator".to_string(), JsonValue::String(format!("{} {}", har.log.creator.name, har.log.creator.version))),
+                ("total_entries".to_string(), JsonValue::Number(total_entries as f64)),
+                ("total_time_ms".to_string(), JsonValue::Number(total_time)),
+                ("total_request_bytes".to_string(), JsonValue::Number(total_request_size.max(0) as f64)),
+                ("total_response_bytes".to_string(), JsonValue::Number(total_response_size.max(0) as f64)),
+                ("status_codes".to_string(), JsonValue::array(status_json)),
+                ("slowest_requests".to_string(), JsonValue::array(slowest_json)),
+            ]),
+        })
+    }
+
+    // ==================== Vulnerability Intelligence Handlers ====================
+
+    fn tool_vuln_search(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let tech = args
+            .get("tech")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'tech' is required".to_string())?;
+
+        let version = args.get("version").and_then(|v| v.as_str());
+        let source = args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("nvd");
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(10);
+
+        let mut collection = VulnCollection::new();
+
+        // Generate CPE for NVD query
+        let cpe = generate_cpe(tech, version);
+
+        // Query NVD
+        if source == "nvd" || source == "all" {
+            if let Some(ref cpe_str) = cpe {
+                let mut nvd_client = NvdClient::new();
+                if let Ok(vulns) = nvd_client.query_by_cpe(cpe_str) {
+                    for vuln in vulns {
+                        collection.add(vuln);
+                    }
+                }
+            }
+        }
+
+        // Query OSV for package ecosystems
+        if source == "osv" || source == "all" {
+            let osv_client = OsvClient::new();
+            let ecosystem = map_tech_to_ecosystem(tech);
+            if let Ok(vulns) = osv_client.query_package(tech, version, ecosystem) {
+                for vuln in vulns {
+                    collection.add(vuln);
+                }
+            }
+        }
+
+        // Enrich with KEV data
+        let mut kev_client = KevClient::new();
+        for vuln in collection.iter_mut() {
+            let _ = kev_client.enrich_vulnerability(vuln);
+            vuln.risk_score = Some(calculate_risk_score(vuln));
+        }
+
+        // Sort and limit results
+        let vulns: Vec<_> = collection.into_sorted().into_iter().take(limit).collect();
+
+        let vulns_json: Vec<JsonValue> = vulns
+            .iter()
+            .map(|v| vuln_to_json(v))
+            .collect();
+
+        let text = format!(
+            "Found {} vulnerabilities for '{}'{} from {}",
+            vulns.len(),
+            tech,
+            version.map(|v| format!(" {}", v)).unwrap_or_default(),
+            source
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("tech".to_string(), JsonValue::String(tech.to_string())),
+                ("version".to_string(), version.map(|v| JsonValue::String(v.to_string())).unwrap_or(JsonValue::Null)),
+                ("source".to_string(), JsonValue::String(source.to_string())),
+                ("count".to_string(), JsonValue::Number(vulns.len() as f64)),
+                ("vulnerabilities".to_string(), JsonValue::array(vulns_json)),
+            ]),
+        })
+    }
+
+    fn tool_vuln_cve(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let cve_id = args
+            .get("cve_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'cve_id' is required".to_string())?;
+
+        // Validate CVE format
+        if !cve_id.starts_with("CVE-") {
+            return Err(format!("Invalid CVE ID format: {}. Expected format: CVE-YYYY-NNNNN", cve_id));
+        }
+
+        let mut nvd_client = NvdClient::new();
+        let mut vuln = nvd_client.query_by_cve(cve_id)?
+            .ok_or_else(|| format!("CVE not found: {}", cve_id))?;
+
+        // Enrich with KEV
+        let mut kev_client = KevClient::new();
+        let _ = kev_client.enrich_vulnerability(&mut vuln);
+
+        // Enrich with exploit info
+        let mut exploit_client = ExploitDbClient::new();
+        let _ = exploit_client.enrich_vulnerability(&mut vuln);
+
+        // Calculate risk score
+        vuln.risk_score = Some(calculate_risk_score(&vuln));
+
+        let text = format!(
+            "{} - {} (CVSS: {}, Risk: {}/100{}{})",
+            vuln.id,
+            if vuln.title.is_empty() { "No title" } else { &vuln.title },
+            vuln.best_cvss().map(|s| format!("{:.1}", s)).unwrap_or_else(|| "N/A".to_string()),
+            vuln.risk_score.unwrap_or(0),
+            if vuln.cisa_kev { " [KEV]" } else { "" },
+            if vuln.has_exploit() { " [EXPLOIT]" } else { "" }
+        );
+
+        Ok(ToolResult {
+            text,
+            data: vuln_to_json(&vuln),
+        })
+    }
+
+    fn tool_vuln_kev(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let vendor = args.get("vendor").and_then(|v| v.as_str());
+        let product = args.get("product").and_then(|v| v.as_str());
+        let stats = args.get("stats").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let mut kev_client = KevClient::new();
+
+        if stats {
+            let kev_stats = kev_client.stats()?;
+
+            let top_vendors_json: Vec<JsonValue> = kev_stats
+                .top_vendors
+                .iter()
+                .map(|(vendor, count)| {
+                    JsonValue::object(vec![
+                        ("vendor".to_string(), JsonValue::String(vendor.clone())),
+                        ("count".to_string(), JsonValue::Number(*count as f64)),
+                    ])
+                })
+                .collect();
+
+            let text = format!(
+                "CISA KEV Statistics: {} total CVEs, {} used in ransomware campaigns",
+                kev_stats.total, kev_stats.ransomware_count
+            );
+
+            return Ok(ToolResult {
+                text,
+                data: JsonValue::object(vec![
+                    ("total".to_string(), JsonValue::Number(kev_stats.total as f64)),
+                    ("ransomware_count".to_string(), JsonValue::Number(kev_stats.ransomware_count as f64)),
+                    ("top_vendors".to_string(), JsonValue::array(top_vendors_json)),
+                ]),
+            });
+        }
+
+        let entries = if let Some(v) = vendor {
+            kev_client.get_by_vendor(v)?
+        } else if let Some(p) = product {
+            kev_client.get_by_product(p)?
+        } else {
+            kev_client.get_all()?
+        };
+
+        let entries_json: Vec<JsonValue> = entries
+            .iter()
+            .take(50)  // Limit to 50 entries
+            .map(|e| {
+                JsonValue::object(vec![
+                    ("cve_id".to_string(), JsonValue::String(e.cve_id.clone())),
+                    ("vendor".to_string(), JsonValue::String(e.vendor_project.clone())),
+                    ("product".to_string(), JsonValue::String(e.product.clone())),
+                    ("name".to_string(), JsonValue::String(e.vulnerability_name.clone())),
+                    ("date_added".to_string(), JsonValue::String(e.date_added.clone())),
+                    ("due_date".to_string(), JsonValue::String(e.due_date.clone())),
+                    ("ransomware".to_string(), JsonValue::Bool(e.known_ransomware_use)),
+                    ("description".to_string(), JsonValue::String(e.short_description.clone())),
+                ])
+            })
+            .collect();
+
+        let filter_desc = vendor.map(|v| format!(" for vendor '{}'", v))
+            .or_else(|| product.map(|p| format!(" for product '{}'", p)))
+            .unwrap_or_default();
+
+        let text = format!(
+            "CISA KEV Catalog: {} entries{}",
+            entries.len(),
+            filter_desc
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("count".to_string(), JsonValue::Number(entries.len() as f64)),
+                ("entries".to_string(), JsonValue::array(entries_json)),
+            ]),
+        })
+    }
+
+    fn tool_vuln_exploit(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let query = args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'query' is required".to_string())?;
+
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_f64())
+            .map(|n| n as usize)
+            .unwrap_or(10);
+
+        let mut exploit_client = ExploitDbClient::new();
+        let exploits = exploit_client.search(query)?;
+
+        let exploits_json: Vec<JsonValue> = exploits
+            .iter()
+            .take(limit)
+            .map(|e| {
+                let exploit_ref = e.to_exploit_ref();
+                JsonValue::object(vec![
+                    ("id".to_string(), JsonValue::String(e.id.clone())),
+                    ("title".to_string(), JsonValue::String(e.title.clone())),
+                    ("platform".to_string(), e.platform.as_ref().map(|p| JsonValue::String(p.clone())).unwrap_or(JsonValue::Null)),
+                    ("exploit_type".to_string(), e.exploit_type.as_ref().map(|t| JsonValue::String(t.clone())).unwrap_or(JsonValue::Null)),
+                    ("date".to_string(), e.date.as_ref().map(|d| JsonValue::String(d.clone())).unwrap_or(JsonValue::Null)),
+                    ("url".to_string(), JsonValue::String(exploit_ref.url)),
+                    ("verified".to_string(), JsonValue::Bool(e.verified)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Exploit-DB: Found {} exploits for '{}'",
+            exploits.len().min(limit),
+            query
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("query".to_string(), JsonValue::String(query.to_string())),
+                ("count".to_string(), JsonValue::Number(exploits.len().min(limit) as f64)),
+                ("exploits".to_string(), JsonValue::array(exploits_json)),
+            ]),
+        })
+    }
+
+    fn tool_vuln_fingerprint(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let url = args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "argument 'url' is required".to_string())?;
+
+        let source = args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("nvd");
+
+        // Fingerprint the URL
+        let mut fingerprinter = WebFingerprinter::new();
+        let result = fingerprinter.fingerprint(url)?;
+        let techs = &result.technologies;
+
+        if techs.is_empty() {
+            return Ok(ToolResult {
+                text: format!("No technologies detected for '{}'", url),
+                data: JsonValue::object(vec![
+                    ("url".to_string(), JsonValue::String(url.to_string())),
+                    ("technologies".to_string(), JsonValue::array(vec![])),
+                    ("vulnerabilities".to_string(), JsonValue::array(vec![])),
+                ]),
+            });
+        }
+
+        let mut collection = VulnCollection::new();
+        let mut kev_client = KevClient::new();
+
+        // For each detected technology, search for vulnerabilities
+        for tech in techs {
+            let cpe = generate_cpe(&tech.name, tech.version.as_deref());
+
+            // Query NVD
+            if source == "nvd" || source == "all" {
+                if let Some(ref cpe_str) = cpe {
+                    let mut nvd_client = NvdClient::new();
+                    if let Ok(vulns) = nvd_client.query_by_cpe(cpe_str) {
+                        for vuln in vulns {
+                            collection.add(vuln);
+                        }
+                    }
+                }
+            }
+
+            // Query OSV for packages
+            if source == "osv" || source == "all" {
+                let osv_client = OsvClient::new();
+                let ecosystem = map_tech_to_ecosystem(&tech.name);
+                if let Ok(vulns) = osv_client.query_package(&tech.name, tech.version.as_deref(), ecosystem) {
+                    for vuln in vulns {
+                        collection.add(vuln);
+                    }
+                }
+            }
+        }
+
+        // Enrich with KEV and calculate risk scores
+        for vuln in collection.iter_mut() {
+            let _ = kev_client.enrich_vulnerability(vuln);
+            vuln.risk_score = Some(calculate_risk_score(vuln));
+        }
+
+        let vulns: Vec<_> = collection.into_sorted().into_iter().take(20).collect();
+
+        let techs_json: Vec<JsonValue> = techs
+            .iter()
+            .map(|t| {
+                JsonValue::object(vec![
+                    ("name".to_string(), JsonValue::String(t.name.clone())),
+                    ("version".to_string(), t.version.as_ref().map(|v| JsonValue::String(v.clone())).unwrap_or(JsonValue::Null)),
+                    ("confidence".to_string(), JsonValue::String(format!("{}", t.confidence))),
+                    ("category".to_string(), JsonValue::String(format!("{:?}", t.category))),
+                ])
+            })
+            .collect();
+
+        let vulns_json: Vec<JsonValue> = vulns
+            .iter()
+            .map(|v| vuln_to_json(v))
+            .collect();
+
+        let text = format!(
+            "Fingerprint of '{}': {} technologies detected, {} vulnerabilities found",
+            url,
+            techs.len(),
+            vulns.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("url".to_string(), JsonValue::String(url.to_string())),
+                ("technologies".to_string(), JsonValue::array(techs_json)),
+                ("vulnerability_count".to_string(), JsonValue::Number(vulns.len() as f64)),
+                ("vulnerabilities".to_string(), JsonValue::array(vulns_json)),
+            ]),
+        })
+    }
+
+    /// Query DNSDumpster for DNS intelligence
+    fn tool_recon_dnsdumpster(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args.get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let client = DnsDumpsterClient::new();
+        let result = client.query(domain)?;
+
+        let unique_subdomains = result.unique_subdomains();
+
+        // Build JSON for DNS records
+        let dns_records_json: Vec<JsonValue> = result.dns_records.iter().map(|r| {
+            JsonValue::object(vec![
+                ("host".to_string(), JsonValue::String(r.host.clone())),
+                ("type".to_string(), JsonValue::String(r.record_type.clone())),
+                ("value".to_string(), JsonValue::String(r.value.clone())),
+                ("ip".to_string(), r.ip.as_ref().map(|i| JsonValue::String(i.clone())).unwrap_or(JsonValue::Null)),
+                ("country".to_string(), r.country.as_ref().map(|c| JsonValue::String(c.clone())).unwrap_or(JsonValue::Null)),
+            ])
+        }).collect();
+
+        // Build JSON for MX records
+        let mx_records_json: Vec<JsonValue> = result.mx_records.iter().map(|r| {
+            JsonValue::object(vec![
+                ("host".to_string(), JsonValue::String(r.host.clone())),
+                ("value".to_string(), JsonValue::String(r.value.clone())),
+                ("ip".to_string(), r.ip.as_ref().map(|i| JsonValue::String(i.clone())).unwrap_or(JsonValue::Null)),
+            ])
+        }).collect();
+
+        // Build text summary
+        let text = format!(
+            "DNSDumpster results for {}:\n- DNS Records: {}\n- MX Records: {}\n- TXT Records: {}\n- Subdomains: {}",
+            domain,
+            result.dns_records.len(),
+            result.mx_records.len(),
+            result.txt_records.len(),
+            unique_subdomains.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                ("dns_records".to_string(), JsonValue::array(dns_records_json)),
+                ("mx_records".to_string(), JsonValue::array(mx_records_json)),
+                ("txt_records".to_string(), JsonValue::array(
+                    result.txt_records.iter().map(|t| JsonValue::String(t.clone())).collect()
+                )),
+                ("subdomains".to_string(), JsonValue::array(
+                    unique_subdomains.iter().map(|s| JsonValue::String(s.clone())).collect()
+                )),
+            ]),
+        })
+    }
+
+    /// High-performance Mass DNS bruteforce
+    fn tool_recon_massdns(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args.get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        // Build scanner config
+        let mut config = MassDnsConfig::default();
+
+        if let Some(threads) = args.get("threads").and_then(|v| v.as_f64()) {
+            config.threads = (threads as usize).max(1).min(100);
+        }
+
+        // Load wordlist
+        let wordlist = if let Some(path) = args.get("wordlist").and_then(|v| v.as_str()) {
+            load_wordlist(path)?
+        } else {
+            common_subdomains()
+        };
+
+        let scanner = MassDnsScanner::with_config(config);
+        let result = scanner.bruteforce(domain, &wordlist)?;
+
+        // Build JSON for resolved subdomains
+        let resolved_json: Vec<JsonValue> = result.resolved.iter().map(|r| {
+            JsonValue::object(vec![
+                ("subdomain".to_string(), JsonValue::String(r.subdomain.clone())),
+                ("ips".to_string(), JsonValue::array(
+                    r.ips.iter().map(|ip| JsonValue::String(ip.clone())).collect()
+                )),
+                ("cname".to_string(), r.cname.as_ref().map(|c| JsonValue::String(c.clone())).unwrap_or(JsonValue::Null)),
+                ("resolve_time_ms".to_string(), JsonValue::Number(r.resolve_time_ms as f64)),
+            ])
+        }).collect();
+
+        // Build text summary
+        let text = format!(
+            "MassDNS bruteforce for {}:\n- Total attempts: {}\n- Resolved: {}\n- Wildcard detected: {}\n- Duration: {}ms",
+            domain,
+            result.total_attempts,
+            result.resolved.len(),
+            result.wildcard_detected,
+            result.duration_ms
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(result.domain)),
+                ("total_attempts".to_string(), JsonValue::Number(result.total_attempts as f64)),
+                ("resolved_count".to_string(), JsonValue::Number(result.resolved.len() as f64)),
+                ("wildcard_detected".to_string(), JsonValue::Bool(result.wildcard_detected)),
+                ("wildcard_ips".to_string(), JsonValue::array(
+                    result.wildcard_ips.iter().map(|ip| JsonValue::String(ip.clone())).collect()
+                )),
+                ("duration_ms".to_string(), JsonValue::Number(result.duration_ms as f64)),
+                ("resolved".to_string(), JsonValue::array(resolved_json)),
+            ]),
+        })
+    }
+}
+
+/// Convert a Vulnerability to JSON
+fn vuln_to_json(vuln: &crate::modules::recon::vuln::Vulnerability) -> JsonValue {
+    let exploits_json: Vec<JsonValue> = vuln.exploits
+        .iter()
+        .map(|e| {
+            JsonValue::object(vec![
+                ("source".to_string(), JsonValue::String(e.source.clone())),
+                ("url".to_string(), JsonValue::String(e.url.clone())),
+                ("title".to_string(), e.title.as_ref().map(|t| JsonValue::String(t.clone())).unwrap_or(JsonValue::Null)),
+            ])
+        })
+        .collect();
+
+    JsonValue::object(vec![
+        ("id".to_string(), JsonValue::String(vuln.id.clone())),
+        ("title".to_string(), JsonValue::String(vuln.title.clone())),
+        ("description".to_string(), JsonValue::String(vuln.description.clone())),
+        ("cvss_v3".to_string(), vuln.cvss_v3.map(|s| JsonValue::Number(s as f64)).unwrap_or(JsonValue::Null)),
+        ("severity".to_string(), JsonValue::String(vuln.severity.as_str().to_string())),
+        ("risk_score".to_string(), vuln.risk_score.map(|s| JsonValue::Number(s as f64)).unwrap_or(JsonValue::Null)),
+        ("cisa_kev".to_string(), JsonValue::Bool(vuln.cisa_kev)),
+        ("kev_due_date".to_string(), vuln.kev_due_date.as_ref().map(|d| JsonValue::String(d.clone())).unwrap_or(JsonValue::Null)),
+        ("has_exploit".to_string(), JsonValue::Bool(vuln.has_exploit())),
+        ("exploits".to_string(), JsonValue::array(exploits_json)),
+        ("published".to_string(), vuln.published.as_ref().map(|p| JsonValue::String(p.clone())).unwrap_or(JsonValue::Null)),
+        ("cwes".to_string(), JsonValue::array(vuln.cwes.iter().map(|c| JsonValue::String(c.clone())).collect())),
+    ])
+}
+
+/// Map technology name to OSV ecosystem
+fn map_tech_to_ecosystem(tech_name: &str) -> Ecosystem {
+    let name_lower = tech_name.to_lowercase();
+    if name_lower.contains("node") || name_lower.contains("npm") || name_lower.contains("express")
+        || name_lower.contains("react") || name_lower.contains("vue") || name_lower.contains("angular")
+        || name_lower.contains("jquery") || name_lower.contains("lodash") {
+        Ecosystem::Npm
+    } else if name_lower.contains("python") || name_lower.contains("django") || name_lower.contains("flask")
+        || name_lower.contains("fastapi") {
+        Ecosystem::PyPI
+    } else if name_lower.contains("rust") || name_lower.contains("cargo") {
+        Ecosystem::Cargo
+    } else if name_lower.contains("ruby") || name_lower.contains("rails") {
+        Ecosystem::RubyGems
+    } else if name_lower.contains("go") || name_lower.contains("golang") {
+        Ecosystem::Go
+    } else if name_lower.contains("java") || name_lower.contains("maven") || name_lower.contains("spring") {
+        Ecosystem::Maven
+    } else if name_lower.contains("nuget") || name_lower.contains(".net") || name_lower.contains("dotnet") {
+        Ecosystem::NuGet
+    } else if name_lower.contains("php") || name_lower.contains("composer") || name_lower.contains("laravel")
+        || name_lower.contains("wordpress") || name_lower.contains("drupal") {
+        Ecosystem::Packagist
+    } else {
+        Ecosystem::Npm  // Default to npm for JS-related technologies
     }
 }
 

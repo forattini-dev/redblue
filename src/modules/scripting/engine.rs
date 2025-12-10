@@ -53,11 +53,11 @@ impl ScriptEngine {
                 ScriptStep::HttpRequest { method, path, headers, body, match_status, match_body } => {
                     let url = format!("{}{}", target.trim_end_matches('/'), path);
                     let mut req = if method == "POST" {
-                        HttpRequest::post(&url, body.clone().unwrap_or_default().into_bytes())
+                        HttpRequest::post(&url).with_body(body.clone().unwrap_or_default().into_bytes())
                     } else {
                         HttpRequest::get(&url)
                     };
-                    
+
                     for (k, v) in headers {
                         req.headers.insert(k.clone(), v.clone());
                     }
@@ -65,9 +65,9 @@ impl ScriptEngine {
                     match self.http_client.send(&req) {
                         Ok(resp) => {
                             if let Some(status) = match_status {
-                                if resp.status != *status {
+                                if resp.status_code != *status {
                                     success = false;
-                                    output.push_str(&format!("Step failed: Status {} != \n", resp.status, status));
+                                    output.push_str(&format!("Step failed: Status {} != {}\n", resp.status_code, status));
                                     break;
                                 }
                             }

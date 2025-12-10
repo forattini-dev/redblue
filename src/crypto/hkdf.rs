@@ -1,24 +1,9 @@
-/// HKDF (HMAC-based Key Derivation Function) using OpenSSL
-///
-/// This replaces our custom HKDF implementation with OpenSSL's battle-tested HMAC.
-/// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
+//! HKDF (HMAC-based Key Derivation Function)
+//!
+//! RFC 5869 - HMAC-based Extract-and-Expand Key Derivation Function
+//! Uses our from-scratch HMAC-SHA256 implementation.
 
-use openssl::hash::MessageDigest;
-use openssl::pkey::PKey;
-use openssl::sign::Signer;
-
-/// HMAC-SHA256 using OpenSSL
-fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
-    let pkey = PKey::hmac(key).expect("Failed to create HMAC key");
-    let mut signer = Signer::new(MessageDigest::sha256(), &pkey).expect("Failed to create signer");
-
-    signer.update(data).expect("Failed to update signer");
-    let signature = signer.sign_to_vec().expect("Failed to sign");
-
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&signature);
-    output
-}
+use super::hmac::hmac_sha256;
 
 /// HKDF-Extract
 ///
@@ -35,14 +20,15 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 /// PRK = HMAC-Hash(salt, IKM)
 /// Note: If salt is not provided, it is set to a string of HashLen zeros (RFC 5869 Section 2.2)
 pub fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> [u8; 32] {
-    match salt {
-        Some(s) => hmac_sha256(s, ikm),
+    let actual_salt = match salt {
+        Some(s) => s,
         None => {
-            // RFC 5869: If salt is not provided, set to HashLen zeros
-            let zero_salt = [0u8; 32];
-            hmac_sha256(&zero_salt, ikm)
+            static ZERO_SALT: [u8; 32] = [0u8; 32];
+            &ZERO_SALT
         }
-    }
+    };
+    let prk = hmac_sha256(actual_salt, ikm);
+    prk
 }
 
 /// HKDF-Expand
@@ -71,7 +57,7 @@ pub fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> [u8; 32] {
 pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Vec<u8> {
     const HASH_LEN: usize = 32; // SHA-256 output size
 
-    // RFC 5869: Length must not exceed 255 * HashLen
+    // RFC 5869: Length must not exceed 255 * HASH_LEN
     assert!(
         length <= 255 * HASH_LEN,
         "Output length too large (max {} bytes)",
@@ -141,7 +127,7 @@ pub fn hkdf_expand_label(secret: &[u8; 32], label: &[u8], context: &[u8], length
     hkdf_label.push(length as u8);
 
     // Label length and value (with "tls13 " prefix)
-    let full_label = [b"tls13 ", label].concat();
+    let full_label = [b"tls13 ".as_ref(), label].concat();
     assert!(
         full_label.len() <= 255,
         "Label too long: {} bytes",
@@ -158,6 +144,12 @@ pub fn hkdf_expand_label(secret: &[u8; 32], label: &[u8], context: &[u8], length
     );
     hkdf_label.push(context.len() as u8);
     hkdf_label.extend_from_slice(context);
+
+    eprintln!("HKDF Expand Label:");
+    eprintln!("  Secret: {:02x?}", secret);
+    eprintln!("  Label: {:?}", String::from_utf8_lossy(label));
+    eprintln!("  Full Label: {:?}", String::from_utf8_lossy(&full_label));
+    eprintln!("  Info (HkdfLabel): {:02x?}", hkdf_label);
 
     hkdf_expand(secret, &hkdf_label, length as usize)
 }

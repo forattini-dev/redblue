@@ -6,6 +6,7 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct RequestStats {
     pub duration: Duration,
+    pub ttfb: Duration,
     pub status_code: u16,
     pub bytes_received: usize,
     pub success: bool,
@@ -13,9 +14,10 @@ pub struct RequestStats {
 }
 
 impl RequestStats {
-    pub fn success(duration: Duration, status_code: u16, bytes: usize) -> Self {
+    pub fn success(duration: Duration, ttfb: Duration, status_code: u16, bytes: usize) -> Self {
         Self {
             duration,
+            ttfb,
             status_code,
             bytes_received: bytes,
             success: true,
@@ -23,9 +25,10 @@ impl RequestStats {
         }
     }
 
-    pub fn error(duration: Duration, error: String) -> Self {
+    pub fn error(duration: Duration, ttfb: Duration, error: String) -> Self {
         Self {
             duration,
+            ttfb,
             status_code: 0,
             bytes_received: 0,
             success: false,
@@ -96,8 +99,14 @@ pub struct AtomicStatsCollector {
     pub status_4xx: AtomicUsize,
     pub status_5xx: AtomicUsize,
     pub total_bytes: AtomicUsize,
-    // Only latencies and errors need locking (but much less contention)
+    // Connection metrics
+    pub connections_created: AtomicUsize,
+    pub connections_reused: AtomicUsize,
+    pub tls_handshakes: AtomicUsize,
+    pub http2_streams: AtomicUsize,
+    // Latencies, TTFB, and errors require locking but are low contention
     pub latencies: Mutex<Vec<Duration>>,
+    pub ttfb: Mutex<Vec<Duration>>,
     pub errors: Mutex<Vec<String>>,
 }
 
@@ -112,21 +121,46 @@ impl AtomicStatsCollector {
             status_4xx: AtomicUsize::new(0),
             status_5xx: AtomicUsize::new(0),
             total_bytes: AtomicUsize::new(0),
+            connections_created: AtomicUsize::new(0),
+            connections_reused: AtomicUsize::new(0),
+            tls_handshakes: AtomicUsize::new(0),
+            http2_streams: AtomicUsize::new(0),
             latencies: Mutex::new(Vec::with_capacity(100000)), // Pre-allocate for 100k requests
+            ttfb: Mutex::new(Vec::with_capacity(100000)),
             errors: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Record a new connection being created
+    pub fn record_connection_created(&self) {
+        self.connections_created.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a connection being reused from pool
+    pub fn record_connection_reused(&self) {
+        self.connections_reused.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a TLS handshake
+    pub fn record_tls_handshake(&self) {
+        self.tls_handshakes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record an HTTP/2 stream being used
+    pub fn record_http2_stream(&self) {
+        self.http2_streams.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn add(&self, stat: RequestStats) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
 
-        // Only lock for latencies (fast push)
-        {
-            let mut latencies = self.latencies.lock().unwrap();
-            latencies.push(stat.duration);
-        }
-
         if stat.success {
+            {
+                let mut latencies = self.latencies.lock().unwrap();
+                latencies.push(stat.duration);
+            }
+            let mut ttfb_samples = self.ttfb.lock().unwrap();
+            ttfb_samples.push(stat.ttfb);
             self.successful_requests.fetch_add(1, Ordering::Relaxed);
             self.total_bytes
                 .fetch_add(stat.bytes_received, Ordering::Relaxed);
@@ -157,6 +191,7 @@ impl AtomicStatsCollector {
 
     pub fn snapshot(&self) -> StatsAggregator {
         let latencies = self.latencies.lock().unwrap();
+        let ttfb = self.ttfb.lock().unwrap();
         let errors = self.errors.lock().unwrap();
 
         StatsAggregator {
@@ -168,7 +203,12 @@ impl AtomicStatsCollector {
             status_4xx: self.status_4xx.load(Ordering::Relaxed),
             status_5xx: self.status_5xx.load(Ordering::Relaxed),
             total_bytes: self.total_bytes.load(Ordering::Relaxed),
+            connections_created: self.connections_created.load(Ordering::Relaxed),
+            connections_reused: self.connections_reused.load(Ordering::Relaxed),
+            tls_handshakes: self.tls_handshakes.load(Ordering::Relaxed),
+            http2_streams: self.http2_streams.load(Ordering::Relaxed),
             latencies: latencies.clone(),
+            ttfb: ttfb.clone(),
             errors: errors.clone(),
         }
     }
@@ -191,7 +231,13 @@ pub struct StatsAggregator {
     pub status_4xx: usize,
     pub status_5xx: usize,
     pub total_bytes: usize,
+    // Connection metrics
+    pub connections_created: usize,
+    pub connections_reused: usize,
+    pub tls_handshakes: usize,
+    pub http2_streams: usize,
     pub latencies: Vec<Duration>,
+    pub ttfb: Vec<Duration>,
     pub errors: Vec<String>,
 }
 
@@ -199,6 +245,10 @@ impl StatsAggregator {
     pub fn percentiles(&self) -> Percentile {
         // OPTIMIZATION: Avoid clone by moving
         Percentile::calculate(self.latencies.clone())
+    }
+
+    pub fn ttfb_percentiles(&self) -> Percentile {
+        Percentile::calculate(self.ttfb.clone())
     }
 
     pub fn success_rate(&self) -> f64 {
@@ -221,6 +271,20 @@ impl StatsAggregator {
         }
         let bytes_per_sec = self.total_bytes as f64 / duration.as_secs_f64();
         (bytes_per_sec * 8.0) / 1_000_000.0 // Convert to Mbps
+    }
+
+    /// Calculate connection reuse efficiency (percentage of requests using reused connections)
+    pub fn connection_reuse_rate(&self) -> f64 {
+        let total_connections = self.connections_created + self.connections_reused;
+        if total_connections == 0 {
+            return 0.0;
+        }
+        (self.connections_reused as f64 / total_connections as f64) * 100.0
+    }
+
+    /// Total unique connections made (created connections)
+    pub fn total_connections(&self) -> usize {
+        self.connections_created
     }
 }
 

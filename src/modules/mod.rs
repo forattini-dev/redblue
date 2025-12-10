@@ -90,3 +90,15 @@ pub mod wordlist;
 
 // Scripting Engine
 pub mod scripting;
+
+// Built-in HTTP Server for Payload Hosting
+pub mod http_server;
+
+// Report Generation (JSON, HTML, Markdown)
+pub mod report;
+
+// Service Manager (systemd, launchd, Windows Tasks)
+pub mod service;
+
+// AV/EDR Evasion (obfuscation, sandbox detection, network jitter)
+pub mod evasion;

@@ -847,7 +847,7 @@ impl TlsStream {
                                         "TLS 1.3 key schedule missing for CertificateVerify"
                                             .to_string()
                                     })?;
-                                let transcript_hash = schedule.transcript_hash();
+                                let transcript_hash = schedule.get_handshake_hash_value();
                                 if message.len() < 8 {
                                     return Err(
                                         "TLS 1.3 CertificateVerify message too short".to_string()

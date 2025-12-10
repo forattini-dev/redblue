@@ -2,10 +2,10 @@
 ///
 /// This replaces our custom SHA-256 implementation with OpenSSL's battle-tested implementation.
 /// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
-
 use openssl::hash::{hash, MessageDigest};
+use openssl::sha;
 
-/// Compute SHA-256 hash of data
+/// Compute SHA-256 hash of data (one-shot)
 ///
 /// # Arguments
 /// * `data` - The data to hash
@@ -17,6 +17,31 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut output = [0u8; 32];
     output.copy_from_slice(&result);
     output
+}
+
+/// Incremental SHA-256 hasher
+#[derive(Clone)]
+pub struct Sha256 {
+    hasher: sha::Sha256,
+}
+
+impl Sha256 {
+    /// Creates a new SHA-256 hasher.
+    pub fn new() -> Self {
+        Sha256 {
+            hasher: sha::Sha256::new(),
+        }
+    }
+
+    /// Updates the hasher with more data.
+    pub fn update(&mut self, data: &[u8]) {
+        self.hasher.update(data);
+    }
+
+    /// Finalizes the hash computation and returns the 32-byte digest.
+    pub fn finalize(self) -> [u8; 32] {
+        self.hasher.finish()
+    }
 }
 
 #[cfg(test)]
@@ -33,6 +58,10 @@ mod tests {
             0x78, 0x52, 0xb8, 0x55,
         ];
         assert_eq!(result, expected);
+
+        let mut hasher = Sha256::new();
+        let result_inc = hasher.finalize();
+        assert_eq!(result_inc, expected);
     }
 
     #[test]
@@ -45,18 +74,29 @@ mod tests {
             0xf2, 0x00, 0x15, 0xad,
         ];
         assert_eq!(result, expected);
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"abc");
+        let result_inc = hasher.finalize();
+        assert_eq!(result_inc, expected);
     }
 
     #[test]
     fn test_sha256_longer() {
         // SHA-256 of "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
-        let result = sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq");
+        let data = b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+        let result = sha256(data);
         let expected = [
             0x24, 0x8d, 0x6a, 0x61, 0xd2, 0x06, 0x38, 0xb8, 0xe5, 0xc0, 0x26, 0x93, 0x0c, 0x3e,
             0x60, 0x39, 0xa3, 0x3c, 0xe4, 0x59, 0x64, 0xff, 0x21, 0x67, 0xf6, 0xec, 0xed, 0xd4,
             0x19, 0xdb, 0x06, 0xc1,
         ];
         assert_eq!(result, expected);
+
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let result_inc = hasher.finalize();
+        assert_eq!(result_inc, expected);
     }
 
     #[test]
@@ -70,5 +110,10 @@ mod tests {
             0xc7, 0x11, 0x2c, 0xd0,
         ];
         assert_eq!(result, expected);
+
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let result_inc = hasher.finalize();
+        assert_eq!(result_inc, expected);
     }
 }

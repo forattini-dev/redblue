@@ -275,6 +275,197 @@ fn parse_windows_ping_output(host: &str, output: &str) -> Result<PingSystemResul
     })
 }
 
+// ============================================================================
+// TCP Ping Fallback - For when ICMP is unavailable
+// ============================================================================
+
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Instant;
+
+/// TCP Ping Configuration
+#[derive(Debug, Clone)]
+pub struct TcpPingConfig {
+    pub count: usize,
+    pub timeout: Duration,
+    pub port: u16,
+}
+
+impl Default for TcpPingConfig {
+    fn default() -> Self {
+        Self {
+            count: 4,
+            timeout: Duration::from_secs(2),
+            port: 443, // HTTPS by default
+        }
+    }
+}
+
+/// TCP Ping Result
+#[derive(Debug, Clone)]
+pub struct TcpPingResult {
+    pub host: String,
+    pub port: u16,
+    pub packets_sent: usize,
+    pub packets_received: usize,
+    pub packet_loss_percent: f64,
+    pub min_rtt_ms: f64,
+    pub max_rtt_ms: f64,
+    pub avg_rtt_ms: f64,
+    pub rtt_samples: Vec<f64>,
+}
+
+/// TCP Ping - measures TCP connection time as a proxy for latency
+/// Works without root/admin privileges (unlike ICMP)
+pub fn tcp_ping(host: &str, config: &TcpPingConfig) -> Result<TcpPingResult, String> {
+    // Resolve hostname to IP
+    let addr = format!("{}:{}", host, config.port);
+    let socket_addrs: Vec<_> = addr
+        .to_socket_addrs()
+        .map_err(|e| format!("Failed to resolve {}: {}", host, e))?
+        .collect();
+
+    if socket_addrs.is_empty() {
+        return Err(format!("No addresses found for {}", host));
+    }
+
+    let socket_addr = socket_addrs[0];
+
+    let mut rtt_samples = Vec::with_capacity(config.count);
+    let mut success_count = 0;
+
+    for _ in 0..config.count {
+        let start = Instant::now();
+
+        match TcpStream::connect_timeout(&socket_addr, config.timeout) {
+            Ok(_stream) => {
+                let elapsed = start.elapsed();
+                let rtt_ms = elapsed.as_secs_f64() * 1000.0;
+                rtt_samples.push(rtt_ms);
+                success_count += 1;
+            }
+            Err(_) => {
+                // Connection failed - count as packet loss
+            }
+        }
+
+        // Brief delay between probes (100ms)
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Calculate statistics
+    let packets_sent = config.count;
+    let packets_received = success_count;
+    let packet_loss_percent = if packets_sent > 0 {
+        ((packets_sent - packets_received) as f64 / packets_sent as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    let (min_rtt_ms, max_rtt_ms, avg_rtt_ms) = if !rtt_samples.is_empty() {
+        let min = rtt_samples.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = rtt_samples.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let avg = rtt_samples.iter().sum::<f64>() / rtt_samples.len() as f64;
+        (min, max, avg)
+    } else {
+        (0.0, 0.0, 0.0)
+    };
+
+    Ok(TcpPingResult {
+        host: host.to_string(),
+        port: config.port,
+        packets_sent,
+        packets_received,
+        packet_loss_percent,
+        min_rtt_ms,
+        max_rtt_ms,
+        avg_rtt_ms,
+        rtt_samples,
+    })
+}
+
+/// Combined ping result (can be ICMP or TCP)
+#[derive(Debug, Clone)]
+pub struct SmartPingResult {
+    pub host: String,
+    pub method: PingMethod,
+    pub packets_sent: usize,
+    pub packets_received: usize,
+    pub packet_loss_percent: f64,
+    pub min_rtt_ms: f64,
+    pub max_rtt_ms: f64,
+    pub avg_rtt_ms: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PingMethod {
+    Icmp,
+    TcpPort(u16),
+}
+
+impl std::fmt::Display for PingMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PingMethod::Icmp => write!(f, "ICMP"),
+            PingMethod::TcpPort(port) => write!(f, "TCP/{}", port),
+        }
+    }
+}
+
+/// Smart ping - tries ICMP first, falls back to TCP if ICMP fails
+/// This is useful for unprivileged users or when ICMP is blocked
+pub fn smart_ping(host: &str, icmp_config: &PingConfig) -> Result<SmartPingResult, String> {
+    // First, try ICMP ping
+    match ping_system(host, icmp_config) {
+        Ok(result) => {
+            // ICMP succeeded
+            Ok(SmartPingResult {
+                host: result.host,
+                method: PingMethod::Icmp,
+                packets_sent: result.packets_sent,
+                packets_received: result.packets_received,
+                packet_loss_percent: result.packet_loss_percent,
+                min_rtt_ms: result.min_rtt_ms,
+                max_rtt_ms: result.max_rtt_ms,
+                avg_rtt_ms: result.avg_rtt_ms,
+            })
+        }
+        Err(_icmp_err) => {
+            // ICMP failed, try TCP fallback
+            // Try port 443 first (HTTPS), then 80 (HTTP)
+            let ports = [443, 80];
+
+            for port in ports {
+                let tcp_config = TcpPingConfig {
+                    count: icmp_config.count,
+                    timeout: icmp_config.timeout,
+                    port,
+                };
+
+                match tcp_ping(host, &tcp_config) {
+                    Ok(result) if result.packets_received > 0 => {
+                        return Ok(SmartPingResult {
+                            host: result.host,
+                            method: PingMethod::TcpPort(port),
+                            packets_sent: result.packets_sent,
+                            packets_received: result.packets_received,
+                            packet_loss_percent: result.packet_loss_percent,
+                            min_rtt_ms: result.min_rtt_ms,
+                            max_rtt_ms: result.max_rtt_ms,
+                            avg_rtt_ms: result.avg_rtt_ms,
+                        });
+                    }
+                    _ => continue,
+                }
+            }
+
+            Err(format!(
+                "Host {} unreachable via ICMP and TCP (ports 443, 80)",
+                host
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

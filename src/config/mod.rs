@@ -63,6 +63,7 @@ pub struct ReconConfig {
 pub struct DatabaseConfig {
     pub db_dir: Option<String>,
     pub auto_name: bool,
+    pub auto_persist: bool,
     pub format_version: u32,
 }
 
@@ -129,6 +130,7 @@ impl RedBlueConfig {
             database: DatabaseConfig {
                 db_dir: cfg.db_dir,
                 auto_name: cfg.db_auto_name.unwrap_or(true),
+                auto_persist: cfg.db_auto_persist.unwrap_or(true),
                 format_version: cfg.db_format_version.unwrap_or(1),
             },
 

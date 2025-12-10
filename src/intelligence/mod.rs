@@ -31,6 +31,13 @@ pub mod http_fingerprint;
 #[path = "os-fingerprint.rs"]
 pub mod os_fingerprint;
 
+#[path = "os-probes.rs"]
+pub mod os_probes;
+
+// Modular OS signature database (os-signatures/)
+#[path = "os-signatures/mod.rs"]
+pub mod os_signatures;
+
 #[path = "service-detection.rs"]
 pub mod service_detection;
 

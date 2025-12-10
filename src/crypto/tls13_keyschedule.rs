@@ -47,12 +47,22 @@ pub struct Tls13KeySchedule {
     handshake_hash: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ApplicationTrafficDirection {
+    Client,
+    Server,
+}
+
 impl Tls13KeySchedule {
     /// Create a new TLS 1.3 key schedule with the specified hash algorithm
     ///
-    /// Initializes with Early Secret = HKDF-Extract(0, 0)
+    /// Initializes with Early Secret = HKDF-Extract(0, PSK)
+    /// For non-PSK mode, PSK = zeros(Hash.length) per RFC 8446 §7.1
     pub fn new(hash_alg: Tls13HashAlgorithm) -> Self {
-        let early_secret = hash_alg.hkdf_extract(None, &[]);
+        // RFC 8446 §7.1: PSK defaults to a string of Hash.length zeros
+        let zero_psk = vec![0u8; hash_alg.hash_len()];
+        let early_secret = hash_alg.hkdf_extract(None, &zero_psk);
+        eprintln!("DEBUG: Early Secret: {:02x?}", early_secret);
 
         Self {
             hash_alg,
@@ -82,8 +92,8 @@ impl Tls13KeySchedule {
     }
 
     /// Expose the current transcript hash (ClientHello..latest message)
-    pub fn transcript_hash(&self) -> Vec<u8> {
-        self.get_transcript_hash()
+    pub fn get_handshake_hash_value(&self) -> Vec<u8> {
+        self.hash_alg.hash(&self.handshake_hash)
     }
 
     /// Expose the current secret for debugging / tracing purposes
@@ -120,7 +130,11 @@ impl Tls13KeySchedule {
             .hash_alg
             .derive_secret(&self.current_secret, b"derived", &empty_hash)
             .expect("Failed to derive handshake secret base");
+        
+        eprintln!("DEBUG: Derived Secret (for Handshake): {:02x?}", derived);
+
         let handshake_secret = self.hash_alg.hkdf_extract(Some(&derived), shared_secret);
+        eprintln!("DEBUG: Handshake Secret: {:02x?}", handshake_secret);
 
         self.current_secret = handshake_secret;
     }
@@ -141,18 +155,31 @@ impl Tls13KeySchedule {
     /// ```
     pub fn derive_handshake_traffic_secrets(&mut self) {
         let transcript_hash = self.get_transcript_hash();
+        eprintln!("Handshake Transcript Hash: {:02x?}", transcript_hash);
+        eprintln!("Full Transcript: {:02x?}", self.handshake_hash);
+        
+        // Debugging SHA256 consistency
+        eprintln!("DEBUG CHECK: SHA256(Transcript) calculated via self.hash_alg.hash: {:02x?}", transcript_hash);
+        
+        let direct_sha256 = crate::crypto::sha256::sha256(&self.handshake_hash);
+        eprintln!("DEBUG CHECK: SHA256(Transcript) calculated directly via crypto::sha256: {:02x?}", direct_sha256);
+        
+        let hello_hash = crate::crypto::sha256::sha256(b"Hello");
+        eprintln!("DEBUG CHECK: SHA256(b\"Hello\"): {:02x?}", hello_hash);
 
         // Client handshake traffic secret
         let client_secret = self
             .hash_alg
             .derive_secret(&self.current_secret, b"c hs traffic", &transcript_hash)
             .expect("Failed to derive client handshake traffic secret");
+        eprintln!("Derived Client Handshake Secret: {:02x?}", client_secret);
 
         // Server handshake traffic secret
         let server_secret = self
             .hash_alg
             .derive_secret(&self.current_secret, b"s hs traffic", &transcript_hash)
             .expect("Failed to derive server handshake traffic secret");
+        eprintln!("Derived Server Handshake Secret: {:02x?}", server_secret);
 
         self.client_handshake_traffic_secret = Some(client_secret);
         self.server_handshake_traffic_secret = Some(server_secret);
@@ -207,6 +234,9 @@ impl Tls13KeySchedule {
     /// ```
     pub fn derive_application_traffic_secrets(&mut self) {
         let transcript_hash = self.get_transcript_hash();
+        eprintln!("Application Transcript Hash: {:02x?}", transcript_hash);
+        eprintln!("Application Transcript Length: {}", self.handshake_hash.len());
+        eprintln!("Master Secret (current): {:02x?}", self.current_secret);
 
         // Client application traffic secret
         let client_secret = self
@@ -220,8 +250,59 @@ impl Tls13KeySchedule {
             .derive_secret(&self.current_secret, b"s ap traffic", &transcript_hash)
             .expect("Failed to derive server application traffic secret");
 
-        self.client_application_traffic_secret = Some(client_secret);
-        self.server_application_traffic_secret = Some(server_secret);
+        eprintln!("Client Application Traffic Secret: {:02x?}", client_secret);
+        eprintln!("Server Application Traffic Secret: {:02x?}", server_secret);
+
+        self.client_application_traffic_secret = Some(client_secret.clone());
+        self.server_application_traffic_secret = Some(server_secret.clone());
+    }
+
+    pub fn update_application_traffic_secret(
+        &mut self,
+        direction: ApplicationTrafficDirection,
+    ) -> Result<Vec<u8>, String> {
+        let target = match direction {
+            ApplicationTrafficDirection::Client => self
+                .client_application_traffic_secret
+                .as_mut()
+                .ok_or_else(|| "client application traffic secret missing".to_string())?,
+            ApplicationTrafficDirection::Server => self
+                .server_application_traffic_secret
+                .as_mut()
+                .ok_or_else(|| "server application traffic secret missing".to_string())?,
+        };
+
+        let new_secret = self
+            .hash_alg
+            .hkdf_expand_label(target, b"traffic upd", b"", self.hash_alg.hash_len())
+            .map_err(|e| format!("failed to derive updated traffic secret: {}", e))?;
+
+        *target = new_secret.clone();
+        Ok(new_secret)
+    }
+
+    /// Peek at the next traffic secret without updating the current one.
+    ///
+    /// This is used for pre-deriving keys to handle remote KEY_UPDATE (RFC 9001 §6.2).
+    /// Returns what the next traffic secret would be after an update.
+    pub fn peek_next_traffic_secret(
+        &self,
+        direction: ApplicationTrafficDirection,
+    ) -> Result<Vec<u8>, String> {
+        let current = match direction {
+            ApplicationTrafficDirection::Client => self
+                .client_application_traffic_secret
+                .as_ref()
+                .ok_or_else(|| "client application traffic secret missing".to_string())?,
+            ApplicationTrafficDirection::Server => self
+                .server_application_traffic_secret
+                .as_ref()
+                .ok_or_else(|| "server application traffic secret missing".to_string())?,
+        };
+
+        self.hash_alg
+            .hkdf_expand_label(current, b"traffic upd", b"", self.hash_alg.hash_len())
+            .map_err(|e| format!("failed to peek next traffic secret: {}", e))
     }
 
     /// Derive traffic keys from a traffic secret

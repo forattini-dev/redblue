@@ -198,15 +198,46 @@ fn scalarmult_base(out: &mut [u8; 32], scalar: &[u8; 32]) {
     scalarmult(out, scalar, &BASEPOINT);
 }
 
+/// Compute X25519 shared secret using OpenSSL
+///
+/// This replaces our custom implementation with OpenSSL's battle-tested X25519.
 pub fn x25519(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
-    let mut result = [0u8; 32];
-    scalarmult(&mut result, private_key, public_key);
-    result
+    use openssl::pkey::{PKey, Private};
+    use openssl::derive::Deriver;
+
+    // Create private key from raw bytes
+    let private = PKey::private_key_from_raw_bytes(private_key, openssl::pkey::Id::X25519)
+        .expect("Failed to create X25519 private key");
+
+    // Create public key from raw bytes
+    let public = PKey::public_key_from_raw_bytes(public_key, openssl::pkey::Id::X25519)
+        .expect("Failed to create X25519 public key");
+
+    // Derive shared secret
+    let mut deriver = Deriver::new(&private).expect("Failed to create deriver");
+    deriver.set_peer(&public).expect("Failed to set peer key");
+
+    let mut shared_secret = [0u8; 32];
+    let len = deriver.derive(&mut shared_secret).expect("Failed to derive shared secret");
+    assert_eq!(len, 32, "X25519 shared secret must be 32 bytes");
+
+    shared_secret
 }
 
+/// Compute X25519 public key from private key using OpenSSL
 pub fn x25519_public_key(private_key: &[u8; 32]) -> [u8; 32] {
+    use openssl::pkey::PKey;
+
+    // Create private key from raw bytes
+    let private = PKey::private_key_from_raw_bytes(private_key, openssl::pkey::Id::X25519)
+        .expect("Failed to create X25519 private key");
+
+    // Get the public key bytes
+    let public_bytes = private.raw_public_key()
+        .expect("Failed to get X25519 public key");
+
     let mut result = [0u8; 32];
-    scalarmult_base(&mut result, private_key);
+    result.copy_from_slice(&public_bytes);
     result
 }
 

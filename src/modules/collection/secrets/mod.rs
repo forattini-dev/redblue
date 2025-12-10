@@ -1,5 +1,11 @@
 #![allow(dead_code)]
 
+pub mod archive;
+pub mod decoding;
+pub mod config;
+pub mod verifiers;
+pub mod git_scanner;
+
 /// Secret detection module (Gitleaks replacement)
 ///
 /// Detects secrets, API keys, tokens, and credentials in code using:
@@ -13,6 +19,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use config::SecretsConfig;
 
 struct HighRiskFile {
     rule_id: &'static str,
@@ -32,13 +39,31 @@ pub struct SecretRule {
 #[derive(Debug, Clone)]
 pub struct SecretFinding {
     pub file: String,
-    pub line: usize,
+    pub line: Option<usize>,
     pub column: usize,
     pub rule_id: String,
     pub description: String,
     pub secret: String,
+    pub severity: SecretSeverity,
     pub entropy: Option<f64>,
+    pub pattern_name: String,
+    pub matched: String,
     pub line_content: String,
+    pub secret_type: String, // For compatibility with existing code
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SecretSeverity {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+impl std::fmt::Display for SecretSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub struct SecretScanner {
@@ -47,29 +72,45 @@ pub struct SecretScanner {
     max_file_size: usize,
     exclude_patterns: Vec<String>,
     exclude_dirs: Vec<String>,
+    allowlist: HashSet<String>, // Added allowlist field
 }
 
 impl SecretScanner {
     pub fn new() -> Self {
+        Self::from_config(SecretsConfig::default()) // Use default config
+    }
+
+    pub fn from_config(cfg: SecretsConfig) -> Self {
+        let rules = if let Some(path) = cfg.rules_path {
+            // Placeholder for loading custom rules from file
+            println!("Warning: Custom rules loading from {} not yet implemented. Using default rules.", path);
+            Self::default_rules()
+        } else {
+            Self::default_rules()
+        };
+
         Self {
-            rules: Self::default_rules(),
-            min_entropy: 3.5, // Base64 encoded strings typically have entropy > 4.5
-            max_file_size: 10 * 1024 * 1024, // 10 MB
-            exclude_patterns: Self::default_excludes(),
-            exclude_dirs: vec![
-                ".git".to_string(),
-                "node_modules".to_string(),
-                "target".to_string(),
-                "vendor".to_string(),
-                ".idea".to_string(),
-                ".vscode".to_string(),
-            ],
+            rules,
+            min_entropy: cfg.min_entropy.unwrap_or(3.5),
+            max_file_size: cfg.max_file_size_mb.unwrap_or(10) * 1024 * 1024,
+            exclude_patterns: cfg.exclude_patterns.clone(),
+            exclude_dirs: cfg.exclude_dirs.clone(),
+            allowlist: cfg.allowlist.into_iter().collect(),
         }
     }
+
+
+    /// Set an allowlist of secrets to ignore
+    pub fn with_allowlist(mut self, allowlist: HashSet<String>) -> Self {
+        self.allowlist = allowlist;
+        self
+    }
+
 
     /// Default secret detection rules (Gitleaks-inspired)
     fn default_rules() -> Vec<SecretRule> {
         vec![
+            // --- Cloud Provider Credentials ---
             SecretRule {
                 id: "aws-access-key-id".to_string(),
                 description: "AWS Access Key ID".to_string(),
@@ -79,75 +120,132 @@ impl SecretScanner {
             SecretRule {
                 id: "aws-secret-access-key".to_string(),
                 description: "AWS Secret Access Key".to_string(),
-                pattern: "aws[_\\-]?secret[_\\-]?access[_\\-]?key[\"'\\s:=]+([a-zA-Z0-9/+]{40})".to_string(),
+                pattern: r#"aws[_\-]?secret[_\-]?access[_\-]?key["'\s:=]+([a-zA-Z0-9/+]{40})"#.to_string(),
                 min_entropy: Some(4.5),
             },
             SecretRule {
-                id: "generic-api-key".to_string(),
-                description: "Generic API Key".to_string(),
-                pattern: "api[_\\-]?key[\"'\\s:=]+([a-zA-Z0-9]{32,})".to_string(),
+                id: "aws-session-token".to_string(),
+                description: "AWS Session Token".to_string(),
+                pattern: r#"aws[_\-]?session[_\-]?token["'\s:=]+(T?KID[a-zA-Z0-9]{20,})"#.to_string(),
                 min_entropy: Some(4.0),
             },
             SecretRule {
-                id: "generic-secret".to_string(),
-                description: "Generic Secret".to_string(),
-                pattern: "secret[\"'\\s:=]+([a-zA-Z0-9]{32,})".to_string(),
+                id: "azure-client-secret".to_string(),
+                description: "Azure Client Secret".to_string(),
+                pattern: r#"(Azure|AZURE)[\s_.-]?(Client|CLIENT)[\s_.-]?(Secret|SECRET)[\s:=]+([a-zA-Z0-9\-_~.]{43})"#.to_string(),
                 min_entropy: Some(4.0),
             },
-            SecretRule {
-                id: "password".to_string(),
-                description: "Password in code".to_string(),
-                pattern: "password[\"'\\s:=]+([^\\s\"']{8,})".to_string(),
-                min_entropy: None,
-            },
-            SecretRule {
-                id: "private-key".to_string(),
-                description: "Private Key".to_string(),
-                pattern: r"-----BEGIN (RSA |EC )?PRIVATE KEY-----".to_string(),
-                min_entropy: None,
-            },
+            // --- Source Code & Version Control ---
             SecretRule {
                 id: "github-token".to_string(),
-                description: "GitHub Token".to_string(),
-                pattern: r"gh[pousr]_[A-Za-z0-9]{36}".to_string(),
+                description: "GitHub Personal Access Token".to_string(),
+                pattern: r"gh[pousr]_[A-Za-z0-9_]{36}".to_string(),
                 min_entropy: Some(4.0),
             },
             SecretRule {
+                id: "github-oauth-access-token".to_string(),
+                description: "GitHub OAuth Access Token".to_string(),
+                pattern: r"gho_[A-Za-z0-9_]{36}".to_string(),
+                min_entropy: Some(4.0),
+            },
+            SecretRule {
+                id: "gitlab-personal-access-token".to_string(),
+                description: "GitLab Personal Access Token".to_string(),
+                pattern: r"glpat-[a-zA-Z0-9\-]{20}".to_string(),
+                min_entropy: Some(4.0),
+            },
+            SecretRule {
+                id: "gitlab-private-token".to_string(),
+                description: "GitLab Private Token".to_string(),
+                pattern: r"[a-f0-9]{20}".to_string(), // General 20-char hex for now
+                min_entropy: Some(4.0),
+            },
+            // --- Communication & Collaboration ---
+            SecretRule {
                 id: "slack-token".to_string(),
-                description: "Slack Token".to_string(),
-                pattern: r"xox[baprs]-[0-9]{10,12}-[0-9]{10,12}-[a-zA-Z0-9]{24,}".to_string(),
+                description: "Slack Bot/User Token".to_string(),
+                pattern: r"(xoxb|xoxp|xapp|xoxa|xoxr)-[0-9]{10,12}-[0-9]{10,12}(-[a-zA-Z0-9]{10,})?".to_string(),
                 min_entropy: Some(4.0),
             },
             SecretRule {
                 id: "slack-webhook".to_string(),
-                description: "Slack Webhook".to_string(),
+                description: "Slack Webhook URL".to_string(),
                 pattern: r"https://hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}".to_string(),
                 min_entropy: None,
             },
+            // --- API Keys & Generic Tokens ---
             SecretRule {
-                id: "jwt-token".to_string(),
-                description: "JWT Token".to_string(),
-                pattern: r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+".to_string(),
+                id: "generic-api-key".to_string(),
+                description: "Generic API Key".to_string(),
+                pattern: r"(api|API)[-_]?(key|KEY)[\s:=]+([a-zA-Z0-9\-_]{20,})".to_string(),
                 min_entropy: Some(4.0),
             },
             SecretRule {
-                id: "database-connection".to_string(),
-                description: "Database Connection String".to_string(),
-                pattern: r"(postgres|mysql|mongodb)://[a-zA-Z0-9_]+:[^\s@]+@".to_string(),
-                min_entropy: None,
+                id: "jwt-token".to_string(),
+                description: "JSON Web Token (JWT)".to_string(),
+                pattern: r"ey[A-Za-z0-9-_]+\.ey[A-Za-z0-9-_]+\.ey[A-Za-z0-9-_]+".to_string(),
+                min_entropy: Some(4.0),
             },
             SecretRule {
                 id: "bearer-token".to_string(),
                 description: "Bearer Token".to_string(),
-                pattern: r"bearer\s+[a-zA-Z0-9_\-\.=]{32,}".to_string(),
+                pattern: r"Bearer\s+([a-zA-Z0-9-._~+/]{20,})".to_string(),
                 min_entropy: Some(4.0),
             },
             SecretRule {
                 id: "oauth-token".to_string(),
                 description: "OAuth Token".to_string(),
-                pattern: "oauth[_\\-]?token[\"'\\s:=]+([a-zA-Z0-9_\\-\\.=]{32,})".to_string(),
+                pattern: r"(oauth|OAuth)[-_]?(token|TOKEN)[\s:=]+([a-zA-Z0-9_.-]{30,})".to_string(),
                 min_entropy: Some(4.0),
             },
+            // --- Database & Connection Strings ---
+            SecretRule {
+                id: "database-connection-string".to_string(),
+                description: "Database Connection String".to_string(),
+                pattern: r#"(postgres|mysql|mongodb|redis|amqp|jdbc)://[^\s"']+"#.to_string(),
+                min_entropy: None,
+            },
+            SecretRule {
+                id: "ssh-private-key".to_string(),
+                description: "SSH Private Key".to_string(),
+                pattern: r"-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----".to_string(),
+                min_entropy: None,
+            },
+            SecretRule {
+                id: "pgp-private-key".to_string(),
+                description: "PGP Private Key Block".to_string(),
+                pattern: r"-----BEGIN PGP PRIVATE KEY BLOCK-----".to_string(),
+                min_entropy: None,
+            },
+            // --- Generic Passwords ---
+            SecretRule {
+                id: "password-in-url".to_string(),
+                description: "Password found in URL".to_string(),
+                pattern: r"(username|user|pass|password|pwd)=([a-zA-Z0-9!@#$%^&*()_+=\-]{6,})".to_string(),
+                min_entropy: None,
+            },
+            // --- Other Specifics ---
+            SecretRule {
+                id: "stripe-api-key".to_string(),
+                description: "Stripe API Key".to_string(),
+                pattern: r"sk_live_[0-9a-zA-Z]{24}".to_string(),
+                min_entropy: Some(4.0),
+            },
+            SecretRule {
+                id: "twilio-api-key".to_string(),
+                description: "Twilio API Key".to_string(),
+                pattern: r"SK[0-9a-fA-F]{32}".to_string(),
+                min_entropy: Some(4.0),
+            },
+            SecretRule {
+                id: "sentry-dsn".to_string(),
+                description: "Sentry DSN (Data Source Name)".to_string(),
+                pattern: r"https:\/\/[0-9a-fA-F]{32}@sentry\.io\/[0-9]+".to_string(),
+                min_entropy: None,
+            },
+            // Placeholder for many more rules for "trufflehog parity"
+            // True parity would involve loading a large list of patterns from a file
+            // and a more sophisticated regex engine.
         ]
     }
 
@@ -246,11 +344,11 @@ impl SecretScanner {
         // Handle end-of-line anchor
         if pattern.ends_with('$') {
             let pattern = &pattern[..pattern.len() - 1];
-            return text.ends_with(pattern.trim_start_matches(r"\."));
+            return text.ends_with(pattern.trim_start_matches(r"\\."));
         }
 
         // Handle literal dot escaping
-        let pattern = pattern.replace(r"\.", ".");
+        let pattern = pattern.replace(r"\\.", ".");
         text.contains(&pattern)
     }
 
@@ -266,13 +364,17 @@ impl SecretScanner {
         if let Some(risk) = Self::classify_high_risk_file(path) {
             findings.push(SecretFinding {
                 file: file_path.to_string(),
-                line: 0,
+                line: None, // No specific line for binary match
                 column: 0,
                 rule_id: risk.rule_id.to_string(),
                 description: risk.description,
                 secret: risk.secret_label,
+                severity: SecretSeverity::High,
                 entropy: None,
+                pattern_name: risk.rule_id.to_string(),
+                matched: "BINARY FILE".to_string(),
                 line_content: "<binary>".to_string(),
+                secret_type: "High Risk File".to_string(),
             });
 
             if risk.skip_text_scan {
@@ -293,13 +395,28 @@ impl SecretScanner {
         Ok(findings)
     }
 
+    /// Scan a single line for secrets (public wrapper for URL scanning)
+    pub fn scan_line_internal(&self, file_path: &str, line_num: usize, line: &str) -> Vec<SecretFinding> {
+        self.scan_line(file_path, line_num, line)
+    }
+
     /// Scan a single line for secrets
     fn scan_line(&self, file_path: &str, line_num: usize, line: &str) -> Vec<SecretFinding> {
         let mut findings = Vec::new();
 
+        // Check for ignore comments like 'gitleaks:allow' or 'redblue:ignore'
+        if line.contains("gitleaks:allow") || line.contains("redblue:ignore") {
+            return findings; // Skip scanning this line if ignore comment is present
+        }
+
         for rule in &self.rules {
             if let Some(matches) = self.pattern_match(&rule.pattern, line) {
                 for (col, secret) in matches {
+                    // Check against allowlist
+                    if self.allowlist.contains(&secret) {
+                        continue;
+                    }
+
                     // Calculate entropy if required
                     let entropy = if rule.min_entropy.is_some() {
                         Some(Self::calculate_entropy(&secret))
@@ -323,13 +440,17 @@ impl SecretScanner {
 
                     findings.push(SecretFinding {
                         file: file_path.to_string(),
-                        line: line_num,
+                        line: Some(line_num),
                         column: col,
                         rule_id: rule.id.clone(),
                         description: rule.description.clone(),
                         secret: secret.clone(),
+                        severity: SecretSeverity::High,
                         entropy,
+                        pattern_name: rule.id.clone(),
+                        matched: secret.clone(),
                         line_content: line.to_string(),
+                        secret_type: rule.description.clone(),
                     });
                 }
             }

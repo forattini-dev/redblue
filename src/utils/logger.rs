@@ -1,7 +1,6 @@
 /// Centralized logging module for redblue
 ///
 /// Controls debug output with --verbose flag
-
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static VERBOSE: AtomicBool = AtomicBool::new(false);
@@ -19,33 +18,33 @@ pub fn is_verbose() -> bool {
 /// Log debug message (only if verbose mode is enabled)
 #[macro_export]
 macro_rules! debug {
-    ($($arg:tt)*) => {
+    ($($arg:tt)*) => {{
         if $crate::utils::logger::is_verbose() {
-            eprintln!("[DEBUG] {}", format!($($arg)*));
+            eprintln!("[DEBUG] {}", format!($($arg)*))
         }
-    };
+    }};
 }
 
 /// Log info message (always shown)
 #[macro_export]
 macro_rules! info {
-    ($($arg:tt)*) => {
-        eprintln!("[INFO] {}", format!($($arg)*));
-    };
+    ($($arg:tt)*) => {{
+        eprintln!("[INFO] {}", format!($($arg)*))
+    }};
 }
 
 /// Log warning message (always shown)
 #[macro_export]
 macro_rules! warn {
-    ($($arg:tt)*) => {
-        eprintln!("[WARN] {}", format!($($arg)*));
-    };
+    ($($arg:tt)*) => {{
+        eprintln!("[WARN] {}", format!($($arg)*))
+    }};
 }
 
 /// Log error message (always shown)
 #[macro_export]
 macro_rules! error {
-    ($($arg:tt)*) => {
-        eprintln!("[ERROR] {}", format!($($arg)*));
-    };
+    ($($arg:tt)*) => {{
+        eprintln!("[ERROR] {}", format!($($arg)*))
+    }};
 }
