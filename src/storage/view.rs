@@ -9,6 +9,7 @@ use crate::storage::segments::dns::DnsSegmentView;
 use crate::storage::segments::hosts::HostSegmentView;
 use crate::storage::segments::http::HttpSegmentView;
 use crate::storage::segments::ports::PortSegmentView;
+use crate::storage::segments::proxy::ProxySegmentView;
 use crate::storage::segments::subdomains::SubdomainSegmentView;
 use crate::storage::segments::tls::TlsSegmentView;
 use crate::storage::segments::whois::WhoisSegmentView;
@@ -21,6 +22,7 @@ pub struct RedDbView {
     tls: Option<TlsSegmentView>,
     whois: Option<WhoisSegmentView>,
     hosts: Option<HostSegmentView>,
+    proxy: Option<ProxySegmentView>,
 }
 
 impl RedDbView {
@@ -58,6 +60,7 @@ impl RedDbView {
         let mut tls = None;
         let mut whois = None;
         let mut hosts_view = None;
+        let mut proxy_view = None;
 
         for entry in directory {
             let start = entry.offset as usize;
@@ -111,7 +114,11 @@ impl RedDbView {
                         .map_err(decode_err_to_io)?;
                     whois = Some(view);
                 }
-                _ => {}
+                SegmentKind::Proxy => {
+                    let view = ProxySegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                        .map_err(decode_err_to_io)?;
+                    proxy_view = Some(view);
+                }
             }
         }
 
@@ -123,6 +130,7 @@ impl RedDbView {
             tls,
             whois,
             hosts: hosts_view,
+            proxy: proxy_view,
         })
     }
 
@@ -153,8 +161,126 @@ impl RedDbView {
     pub fn hosts(&self) -> Option<&HostSegmentView> {
         self.hosts.as_ref()
     }
+
+    pub fn proxy(&self) -> Option<&ProxySegmentView> {
+        self.proxy.as_ref()
+    }
 }
 
 fn decode_err_to_io(err: DecodeError) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, err.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
+    use crate::storage::reddb::RedDb;
+    use crate::storage::records::PortStatus;
+
+    struct FileGuard {
+        path: PathBuf,
+    }
+
+    impl Drop for FileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn temp_db(name: &str) -> (FileGuard, PathBuf) {
+        let path = std::env::temp_dir().join(format!("rb_view_{}_{}.db", name, std::process::id()));
+        let guard = FileGuard { path: path.clone() };
+        let _ = std::fs::remove_file(&path);
+        (guard, path)
+    }
+
+    #[test]
+    fn test_open_nonexistent_file() {
+        let result = RedDbView::open("/nonexistent/path/file.db");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_open_empty_file() {
+        let (_guard, path) = temp_db("empty");
+        std::fs::write(&path, &[]).unwrap();
+
+        let result = RedDbView::open(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_view_with_ports() {
+        let (_guard, path) = temp_db("ports");
+
+        // Create database with port scans
+        {
+            let mut db = RedDb::open(&path).unwrap();
+            let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
+            db.save_port_scan(ip, 22, PortStatus::Open).unwrap();
+            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.save_port_scan(ip, 443, PortStatus::Closed).unwrap();
+            db.flush().unwrap();
+        }
+
+        // Open as view
+        let view = RedDbView::open(&path).unwrap();
+        assert!(view.ports().is_some());
+    }
+
+    #[test]
+    fn test_view_with_subdomains() {
+        let (_guard, path) = temp_db("subs");
+
+        // Create database with subdomains
+        {
+            let mut db = RedDb::open(&path).unwrap();
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+            db.save_subdomain("example.com", "api.example.com", vec![ip], crate::storage::records::SubdomainSource::DnsBruteforce).unwrap();
+            db.save_subdomain("example.com", "www.example.com", vec![ip], crate::storage::records::SubdomainSource::CertTransparency).unwrap();
+            db.flush().unwrap();
+        }
+
+        // Open as view
+        let view = RedDbView::open(&path).unwrap();
+        assert!(view.subdomains().is_some());
+    }
+
+    #[test]
+    fn test_view_accessors() {
+        let (_guard, path) = temp_db("accessors");
+
+        // Create database with data
+        {
+            let mut db = RedDb::open(&path).unwrap();
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.flush().unwrap();
+        }
+
+        // Verify accessors
+        let view = RedDbView::open(&path).unwrap();
+
+        // Some accessors may be None if no data was written for that type
+        assert!(view.ports().is_some());
+        // These may or may not have data depending on the flush
+        let _ = view.subdomains();
+        let _ = view.dns();
+        let _ = view.http();
+        let _ = view.tls();
+        let _ = view.whois();
+        let _ = view.hosts();
+    }
+
+    #[test]
+    fn test_too_small_file() {
+        let (_guard, path) = temp_db("small");
+        // Write less than FileHeader::SIZE bytes
+        std::fs::write(&path, b"tiny").unwrap();
+
+        let result = RedDbView::open(&path);
+        assert!(result.is_err());
+    }
 }

@@ -2,8 +2,9 @@
 // Provides list, get, describe, delete operations on stored data
 
 use crate::storage::encoding::{DecodeError, IpKey};
-use crate::storage::schema::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus, SubdomainRecord,
+use crate::storage::records::{
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus,
+    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, SubdomainRecord,
     TlsScanRecord, WhoisRecord,
 };
 use crate::storage::service::StorageService;
@@ -146,6 +147,82 @@ impl QueryManager {
         }
         Ok(None)
     }
+
+    // ========================================================================
+    // Proxy Data Query Methods
+    // ========================================================================
+
+    /// List all proxy connections from stored data
+    pub fn list_proxy_connections(&self) -> io::Result<Vec<ProxyConnectionRecord>> {
+        if let Some(proxy) = self.view.proxy() {
+            let mut connections = proxy.all_connections().map_err(decode_err_to_io)?;
+            connections.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+            return Ok(connections);
+        }
+        Ok(Vec::new())
+    }
+
+    /// List all HTTP requests from proxy sessions
+    pub fn list_proxy_requests(&self) -> io::Result<Vec<ProxyHttpRequestRecord>> {
+        if let Some(proxy) = self.view.proxy() {
+            let mut requests = proxy.all_requests().map_err(decode_err_to_io)?;
+            requests.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            return Ok(requests);
+        }
+        Ok(Vec::new())
+    }
+
+    /// List all HTTP responses from proxy sessions
+    pub fn list_proxy_responses(&self) -> io::Result<Vec<ProxyHttpResponseRecord>> {
+        if let Some(proxy) = self.view.proxy() {
+            let mut responses = proxy.all_responses().map_err(decode_err_to_io)?;
+            responses.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            return Ok(responses);
+        }
+        Ok(Vec::new())
+    }
+
+    /// Get a specific proxy connection by ID
+    pub fn get_proxy_connection(&self, connection_id: u64) -> io::Result<Option<ProxyConnectionRecord>> {
+        if let Some(proxy) = self.view.proxy() {
+            return proxy.get_connection(connection_id).map_err(decode_err_to_io);
+        }
+        Ok(None)
+    }
+
+    /// Get proxy connection statistics
+    pub fn proxy_stats(&self) -> io::Result<ProxyStats> {
+        if let Some(proxy) = self.view.proxy() {
+            let connections = proxy.all_connections().map_err(decode_err_to_io)?;
+            let requests = proxy.all_requests().map_err(decode_err_to_io)?;
+            let responses = proxy.all_responses().map_err(decode_err_to_io)?;
+
+            let total_bytes_sent: u64 = connections.iter().map(|c| c.bytes_sent).sum();
+            let total_bytes_received: u64 = connections.iter().map(|c| c.bytes_received).sum();
+            let tls_intercepted_count = connections.iter().filter(|c| c.tls_intercepted).count();
+
+            return Ok(ProxyStats {
+                connection_count: connections.len(),
+                request_count: requests.len(),
+                response_count: responses.len(),
+                total_bytes_sent,
+                total_bytes_received,
+                tls_intercepted_count,
+            });
+        }
+        Ok(ProxyStats::default())
+    }
+}
+
+/// Statistics for proxy data
+#[derive(Debug, Clone, Default)]
+pub struct ProxyStats {
+    pub connection_count: usize,
+    pub request_count: usize,
+    pub response_count: usize,
+    pub total_bytes_sent: u64,
+    pub total_bytes_received: u64,
+    pub tls_intercepted_count: usize,
 }
 
 fn decode_err_to_io(err: DecodeError) -> io::Error {
