@@ -251,21 +251,34 @@ impl OcspValidator {
 
     /// Send OCSP request via HTTP POST
     fn send_ocsp_request(&self, url: &str, request: &[u8]) -> Result<Vec<u8>, String> {
-        use crate::protocols::http::HttpRequest;
+        use crate::protocols::http::{HttpClient, HttpRequest};
         use crate::protocols::https::HttpsConnection;
 
-        // Parse URL
+        // Parse URL to determine protocol and build request
+        let is_https = url.starts_with("https://");
         let (host, port, path) = self.parse_url(url)?;
 
-        // Create HTTP POST request
-        let mut http_request = HttpRequest::post(&format!("{}:{}", host, port), &path);
-        http_request.add_header("Content-Type", "application/ocsp-request");
-        http_request.add_header("Content-Length", &request.len().to_string());
-        http_request.set_body(request.to_vec());
+        // Build full URL for HTTP request
+        let full_url = if is_https {
+            format!("https://{}:{}{}", host, port, path)
+        } else {
+            format!("http://{}:{}{}", host, port, path)
+        };
 
-        // Send request
-        let connection = HttpsConnection::new(&host, port).with_timeout(self.timeout);
-        let response = connection.request(&http_request)?;
+        // Create HTTP POST request using builder pattern
+        let http_request = HttpRequest::post(&full_url)
+            .with_body(request.to_vec())
+            .with_header("Content-Type", "application/ocsp-request");
+
+        // Send request based on protocol
+        let response = if is_https {
+            let connection = HttpsConnection::new(&host, port).with_timeout(self.timeout);
+            connection.request(&http_request)?
+        } else {
+            // Plain HTTP for OCSP (most OCSP responders use HTTP)
+            let client = HttpClient::new().with_timeout(self.timeout);
+            client.send(&http_request)?
+        };
 
         // Check status code
         if response.status_code != 200 {

@@ -7,24 +7,35 @@
 /// - Technology fingerprinting (whatweb-style)
 /// - Vulnerability scanning (nikto-style)
 /// - CMS-specific scanning with Strategy Pattern
+/// - Advanced CMS security testing (wpscan/droopescan style)
+/// - HTML DOM parsing and CSS selectors (Cheerio-like)
+/// - Built-in extractors (links, images, meta, forms, tables)
+/// - Rule-based web scraping with config support
 ///
 /// All implementations are from scratch with ZERO external dependencies.
+pub mod cms;  // Advanced CMS security testing (wpscan, droopescan replacement)
 pub mod crawler;
-pub mod fingerprint; // NEW: HTTP fingerprinting & tech detection
+pub mod dom; // HTML DOM parser with CSS selectors
+pub mod extractors; // Built-in extractors for common web data
+pub mod fingerprint; // HTTP fingerprinting & tech detection
 pub mod fingerprinter;
 pub mod fuzzer;
 pub mod headers;
 pub mod linkfinder;
 #[path = "scanner-strategy.rs"]
 pub mod scanner_strategy;
+pub mod scraper; // Rule-based web scraping
 pub mod strategies;
 #[path = "vuln-scanner.rs"]
 pub mod vuln_scanner;
 
 // Re-export commonly used types
+pub use cms::{CmsScanner, CmsScanConfig, CmsScanResult, CmsType, CmsDetector};
+pub use crawler::{CrawlResult, CrawledPage, CrawlerConfig, WebCrawler};
 pub use fingerprinter::WebFingerprinter;
-pub use fuzzer::DirectoryFuzzer;
+pub use fuzzer::{WebFuzzer, WordlistManager, FuzzerConfig, FuzzTarget, FuzzResult, HttpMethod, DirectoryFuzzer, Wordlists, DirFuzzResult, DirFuzzStats, ProgressBar};
 pub use scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
+pub use scraper::{ExtractType, ExtractedValue, ScrapeConfig, ScrapeResult, ScrapeRule, Scraper};
 pub use strategies::{
     DirectusScanResult, DirectusScanner, DrupalScanResult, DrupalScanner, GhostScanResult,
     GhostScanner, JoomlaScanResult, JoomlaScanner, StrapiScanResult, StrapiScanner, WPScanResult,

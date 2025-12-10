@@ -10,19 +10,41 @@
 /// - Link extraction (reuses linkfinder logic)
 /// - Visited URL tracking
 /// - Same-origin policy enforcement
+/// - HAR recording for all HTTP transactions
+/// - DOM-based extraction for better accuracy
 ///
 /// NO external dependencies - pure Rust std implementation
-use crate::protocols::http::HttpClient;
+use crate::modules::web::dom::Document;
+use crate::modules::web::extractors;
+use crate::protocols::har::{HarRecorder, HttpClientWithHar};
+use crate::protocols::http::{HttpClient, HttpRequest, HttpResponseHandler, HttpResponseHead};
 use std::collections::{HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct CrawledPage {
     pub url: String,
     pub status_code: u16,
     pub depth: usize,
+    pub content_type: Option<String>,
+    pub html: Option<String>,
     pub links: Vec<String>,
     pub forms: Vec<Form>,
     pub assets: Vec<Asset>,
+    /// Extracted meta information
+    pub meta: PageMeta,
+}
+
+/// Metadata extracted from the page
+#[derive(Debug, Clone, Default)]
+pub struct PageMeta {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub keywords: Vec<String>,
+    pub og_title: Option<String>,
+    pub og_description: Option<String>,
+    pub og_image: Option<String>,
+    pub canonical: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,12 +77,44 @@ pub struct CrawlResult {
     pub max_depth_reached: usize,
 }
 
+/// Callback type for page crawl events
+pub type PageCallback = Box<dyn Fn(&CrawledPage) + Send + Sync>;
+
+/// Crawler configuration for advanced options
+#[derive(Clone)]
+pub struct CrawlerConfig {
+    pub max_depth: usize,
+    pub max_pages: usize,
+    pub same_origin_only: bool,
+    pub respect_robots: bool,
+    pub record_har: bool,
+    pub use_dom_parser: bool,
+    pub store_html: bool,
+    pub follow_redirects: bool,
+    pub user_agent: Option<String>,
+}
+
+impl Default for CrawlerConfig {
+    fn default() -> Self {
+        Self {
+            max_depth: 3,
+            max_pages: 100,
+            same_origin_only: true,
+            respect_robots: true,
+            record_har: false,
+            use_dom_parser: true,
+            store_html: false,
+            follow_redirects: true,
+            user_agent: None,
+        }
+    }
+}
+
 pub struct WebCrawler {
     client: HttpClient,
-    max_depth: usize,
-    max_pages: usize,
-    same_origin_only: bool,
-    respect_robots: bool,
+    config: CrawlerConfig,
+    har_recorder: Option<Arc<Mutex<HarRecorder>>>,
+    callback: Option<PageCallback>,
     visited: HashSet<String>,
     queue: VecDeque<(String, usize)>, // (URL, depth)
 }
@@ -69,28 +123,95 @@ impl WebCrawler {
     pub fn new() -> Self {
         Self {
             client: HttpClient::new(),
-            max_depth: 3,
-            max_pages: 100,
-            same_origin_only: true,
-            respect_robots: true,
+            config: CrawlerConfig::default(),
+            har_recorder: None,
+            callback: None,
+            visited: HashSet::new(),
+            queue: VecDeque::new(),
+        }
+    }
+
+    /// Create a crawler with custom configuration
+    pub fn with_config(config: CrawlerConfig) -> Self {
+        let har_recorder = if config.record_har {
+            Some(Arc::new(Mutex::new(HarRecorder::new())))
+        } else {
+            None
+        };
+
+        Self {
+            client: HttpClient::new(),
+            config,
+            har_recorder,
+            callback: None,
             visited: HashSet::new(),
             queue: VecDeque::new(),
         }
     }
 
     pub fn with_max_depth(mut self, depth: usize) -> Self {
-        self.max_depth = depth;
+        self.config.max_depth = depth;
         self
     }
 
     pub fn with_max_pages(mut self, pages: usize) -> Self {
-        self.max_pages = pages;
+        self.config.max_pages = pages;
         self
     }
 
     pub fn with_same_origin(mut self, same_origin: bool) -> Self {
-        self.same_origin_only = same_origin;
+        self.config.same_origin_only = same_origin;
         self
+    }
+
+    /// Enable HAR recording for all HTTP transactions
+    pub fn with_har_recording(mut self, enabled: bool) -> Self {
+        self.config.record_har = enabled;
+        if enabled && self.har_recorder.is_none() {
+            self.har_recorder = Some(Arc::new(Mutex::new(HarRecorder::new())));
+        }
+        self
+    }
+
+    /// Enable DOM-based parsing for better extraction accuracy
+    pub fn with_dom_parser(mut self, enabled: bool) -> Self {
+        self.config.use_dom_parser = enabled;
+        self
+    }
+
+    /// Store full HTML content in CrawledPage
+    pub fn with_store_html(mut self, enabled: bool) -> Self {
+        self.config.store_html = enabled;
+        self
+    }
+
+    /// Set callback for each crawled page
+    pub fn on_page<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(&CrawledPage) + Send + Sync + 'static,
+    {
+        self.callback = Some(Box::new(callback));
+        self
+    }
+
+    /// Get the HAR recorder (for export after crawling)
+    pub fn har_recorder(&self) -> Option<Arc<Mutex<HarRecorder>>> {
+        self.har_recorder.clone()
+    }
+
+    /// Export HAR to JSON string
+    pub fn export_har(&self) -> Option<String> {
+        self.har_recorder
+            .as_ref()
+            .map(|r| r.lock().unwrap().to_json())
+    }
+
+    /// Save HAR to file
+    pub fn save_har(&self, path: &str) -> Result<(), String> {
+        match &self.har_recorder {
+            Some(recorder) => recorder.lock().unwrap().save(path),
+            None => Err("HAR recording not enabled".to_string()),
+        }
     }
 
     /// Crawl a website starting from the given URL
@@ -98,6 +219,12 @@ impl WebCrawler {
         // Normalize start URL
         let base_url = self.normalize_url(start_url);
         let base_domain = self.extract_domain(&base_url)?;
+
+        // Start HAR page if recording
+        if let Some(ref recorder) = self.har_recorder {
+            let mut r = recorder.lock().unwrap();
+            r.start_page(&format!("Crawl: {}", start_url));
+        }
 
         // Initialize
         self.visited.clear();
@@ -111,11 +238,11 @@ impl WebCrawler {
         // BFS traversal
         while let Some((url, depth)) = self.queue.pop_front() {
             // Check limits
-            if pages.len() >= self.max_pages {
+            if pages.len() >= self.config.max_pages {
                 break;
             }
 
-            if depth > self.max_depth {
+            if depth > self.config.max_depth {
                 continue;
             }
 
@@ -128,18 +255,23 @@ impl WebCrawler {
             self.visited.insert(url.clone());
 
             // Fetch page
-            match self.fetch_page(&url) {
+            match self.fetch_page(&url, &base_url) {
                 Ok(mut page) => {
                     page.depth = depth;
                     total_links += page.links.len();
                     max_depth_reached = max_depth_reached.max(depth);
+
+                    // Call page callback if set
+                    if let Some(ref callback) = self.callback {
+                        callback(&page);
+                    }
 
                     // Queue child links
                     for link in &page.links {
                         let normalized = self.normalize_url(link);
 
                         // Check same-origin policy
-                        if self.same_origin_only {
+                        if self.config.same_origin_only {
                             if let Ok(link_domain) = self.extract_domain(&normalized) {
                                 if link_domain != base_domain {
                                     continue; // Skip external links
@@ -171,28 +303,230 @@ impl WebCrawler {
     }
 
     /// Fetch a page and extract links
-    fn fetch_page(&self, url: &str) -> Result<CrawledPage, String> {
-        let response = self.client.get(url)?;
+    fn fetch_page(&self, url: &str, base_url: &str) -> Result<CrawledPage, String> {
+        let mut handler = CollectingHandler::new();
+        let request = HttpRequest::get(url);
 
-        let body = String::from_utf8_lossy(&response.body);
+        let (head, _metrics) = self
+            .client
+            .send_with_handler(&request, &mut handler)
+            .map_err(|e| e.message.clone())?;
 
-        // Extract links
-        let links = self.extract_links(&body, url);
+        // Record to HAR if enabled
+        if let Some(ref recorder) = self.har_recorder {
+            use crate::protocols::har::{
+                HarCache, HarContent, HarEntry, HarHeader, HarRequest, HarResponse, HarTimings,
+                iso8601_now, parse_query_string,
+            };
 
-        // Extract forms
-        let forms = self.extract_forms(&body, url);
+            let content_type = head
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
 
-        // Extract assets
-        let assets = self.extract_assets(&body, url);
+            let body_text = if is_text_content(&content_type) {
+                Some(String::from_utf8_lossy(&handler.buffer).to_string())
+            } else {
+                None
+            };
+
+            let entry = HarEntry {
+                pageref: None,
+                started_date_time: iso8601_now(),
+                time: 0.0,
+                request: HarRequest {
+                    method: request.method.to_string(),
+                    url: url.to_string(),
+                    http_version: "HTTP/1.1".to_string(),
+                    cookies: Vec::new(),
+                    headers: request
+                        .headers
+                        .iter()
+                        .map(|(k, v)| HarHeader {
+                            name: k.clone(),
+                            value: v.clone(),
+                            comment: None,
+                        })
+                        .collect(),
+                    query_string: if let Some(q) = url.split('?').nth(1) {
+                        parse_query_string(q)
+                    } else {
+                        Vec::new()
+                    },
+                    post_data: None,
+                    headers_size: -1,
+                    body_size: 0,
+                    comment: None,
+                },
+                response: HarResponse {
+                    status: head.status_code,
+                    status_text: head.status_text.clone(),
+                    http_version: "HTTP/1.1".to_string(),
+                    cookies: Vec::new(),
+                    headers: head
+                        .headers
+                        .iter()
+                        .map(|(k, v)| HarHeader {
+                            name: k.clone(),
+                            value: v.clone(),
+                            comment: None,
+                        })
+                        .collect(),
+                    content: HarContent {
+                        size: handler.buffer.len() as i64,
+                        compression: None,
+                        mime_type: content_type.clone(),
+                        text: body_text,
+                        encoding: None,
+                        comment: None,
+                    },
+                    redirect_url: String::new(),
+                    headers_size: -1,
+                    body_size: handler.buffer.len() as i64,
+                    comment: None,
+                },
+                cache: HarCache {
+                    before_request: None,
+                    after_request: None,
+                    comment: None,
+                },
+                timings: HarTimings {
+                    blocked: -1.0,
+                    dns: -1.0,
+                    connect: -1.0,
+                    send: 0.0,
+                    wait: 0.0,
+                    receive: 0.0,
+                    ssl: -1.0,
+                    comment: None,
+                },
+                server_ip_address: None,
+                connection: None,
+                comment: None,
+            };
+
+            let mut r = recorder.lock().unwrap();
+            r.add_entry(entry);
+        }
+
+        let body = String::from_utf8_lossy(&handler.buffer);
+        let content_type = head
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+            .map(|(_, v)| v.clone());
+
+        // Use DOM parser if enabled, otherwise use regex-based extraction
+        let (links, forms, assets, meta) = if self.config.use_dom_parser {
+            self.extract_with_dom(&body, url)
+        } else {
+            (
+                self.extract_links(&body, url),
+                self.extract_forms(&body, url),
+                self.extract_assets(&body, url),
+                PageMeta::default(),
+            )
+        };
 
         Ok(CrawledPage {
             url: url.to_string(),
-            status_code: response.status_code,
+            status_code: head.status_code,
             depth: 0, // Will be set by caller
+            content_type,
+            html: if self.config.store_html {
+                Some(body.to_string())
+            } else {
+                None
+            },
             links,
             forms,
             assets,
+            meta,
         })
+    }
+
+    /// Extract data using DOM parser for better accuracy
+    fn extract_with_dom(&self, html: &str, base_url: &str) -> (Vec<String>, Vec<Form>, Vec<Asset>, PageMeta) {
+        let doc = Document::parse_with_base(html, base_url);
+
+        // Extract links using DOM
+        let extracted_links = extractors::links(&doc);
+        let links: Vec<String> = extracted_links
+            .into_iter()
+            .filter(|link| {
+                // Filter out non-crawlable links
+                !link.href.starts_with('#')
+                    && !link.href.starts_with("javascript:")
+                    && !link.href.starts_with("mailto:")
+                    && !link.href.starts_with("tel:")
+            })
+            .map(|link| link.url)
+            .collect();
+
+        // Extract forms using DOM
+        let extracted_forms = extractors::forms(&doc);
+        let forms: Vec<Form> = extracted_forms
+            .into_iter()
+            .map(|f| Form {
+                action: f.action,
+                method: f.method,
+                inputs: f
+                    .fields
+                    .into_iter()
+                    .filter_map(|field| field.name)
+                    .collect(),
+            })
+            .collect();
+
+        // Extract assets using DOM
+        let extracted_scripts = extractors::scripts(&doc);
+        let extracted_styles = extractors::styles(&doc);
+        let extracted_images = extractors::images(&doc);
+
+        let mut assets = Vec::new();
+
+        for script in extracted_scripts {
+            if let Some(src) = script.src {
+                assets.push(Asset {
+                    url: src,
+                    asset_type: AssetType::JavaScript,
+                });
+            }
+        }
+
+        for style in extracted_styles {
+            if let Some(href) = style.href {
+                assets.push(Asset {
+                    url: href,
+                    asset_type: AssetType::CSS,
+                });
+            }
+        }
+
+        for image in extracted_images {
+            assets.push(Asset {
+                url: image.url,
+                asset_type: AssetType::Image,
+            });
+        }
+
+        // Extract meta information using DOM
+        let extracted_meta = extractors::meta(&doc);
+        let og_data = extractors::open_graph(&doc);
+
+        let meta = PageMeta {
+            title: extracted_meta.title,
+            description: extracted_meta.description,
+            keywords: extracted_meta.keywords,
+            og_title: og_data.title,
+            og_description: og_data.description,
+            og_image: og_data.image,
+            canonical: extracted_meta.canonical,
+        };
+
+        (links, forms, assets, meta)
     }
 
     /// Extract all links from HTML
@@ -508,6 +842,37 @@ impl WebCrawler {
         }
 
         Ok(parts[2].to_string())
+    }
+}
+
+/// Check if content type indicates text content (for HAR recording)
+fn is_text_content(content_type: &str) -> bool {
+    let ct = content_type.to_lowercase();
+    ct.starts_with("text/")
+        || ct.contains("json")
+        || ct.contains("xml")
+        || ct.contains("javascript")
+        || ct.contains("html")
+}
+
+struct CollectingHandler {
+    buffer: Vec<u8>,
+}
+
+impl CollectingHandler {
+    fn new() -> Self {
+        Self { buffer: Vec::new() }
+    }
+}
+
+impl HttpResponseHandler for CollectingHandler {
+    fn on_head(&mut self, _head: &HttpResponseHead) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn on_chunk(&mut self, chunk: &[u8]) -> Result<(), String> {
+        self.buffer.extend_from_slice(chunk);
+        Ok(())
     }
 }
 

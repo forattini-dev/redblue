@@ -83,13 +83,13 @@ pub struct ProtocolTestResult {
 }
 
 /// Overall security grade
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SecurityGrade {
-    A,  // Excellent - TLS 1.2+ only, strong ciphers, PFS, no vulnerabilities
-    B,  // Good - TLS 1.2+ but some weak ciphers or minor issues
-    C,  // Fair - Supports TLS 1.0/1.1, has weak ciphers
-    D,  // Poor - Serious vulnerabilities or very weak configuration
     F,  // Fail - Critical vulnerabilities (Heartbleed, NULL ciphers, etc.)
+    D,  // Poor - Serious vulnerabilities or very weak configuration
+    C,  // Fair - Supports TLS 1.0/1.1, has weak ciphers
+    B,  // Good - TLS 1.2+ but some weak ciphers or minor issues
+    A,  // Excellent - TLS 1.2+ only, strong ciphers, PFS, no vulnerabilities
 }
 
 impl SecurityGrade {
@@ -143,13 +143,13 @@ impl ComprehensiveTlsAuditor {
         let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
 
         // Step 1: Enumerate protocols and ciphers
-        let scanner = TlsScanner::new().with_timeout(self.timeout);
+        let scanner = TlsScanner::with_timeout(self.timeout);
         let scan_results = scanner
             .scan_all(host, port)
             .map_err(|e| format!("Protocol scan failed: {}", e))?;
 
         // Step 2: Test for Heartbleed
-        let heartbleed_tester = HeartbleedTester::new().with_timeout(self.timeout);
+        let heartbleed_tester = HeartbleedTester::with_timeout(self.timeout);
         let heartbleed_result = heartbleed_tester.test(host, port);
 
         // Step 3: Get certificate chain
