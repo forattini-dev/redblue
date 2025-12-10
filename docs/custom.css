@@ -1,17 +1,163 @@
 /* redblue Custom Styles */
 
-/* Cover Page */
+/* ===============================================
+   EPIC ANIMATED COVER PAGE BACKGROUND
+   =============================================== */
+
+/* Particles canvas */
+#particles-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Cover Page - Dark gradient with animated mesh */
 section.cover {
-  background: radial-gradient(circle at 30% 30%, rgba(229, 57, 53, 0.15) 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, rgba(33, 150, 243, 0.15) 0%, transparent 50%),
-              #0a0d12 !important;
+  background:
+    /* Animated gradient orbs */
+    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(139, 0, 0, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 80% at 80% 20%, rgba(0, 0, 139, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(75, 0, 130, 0.3) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 100% at 70% 60%, rgba(139, 0, 0, 0.2) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 80% at 30% 70%, rgba(0, 0, 80, 0.3) 0%, transparent 60%),
+    /* Base gradient */
+    linear-gradient(135deg,
+      #0a0508 0%,
+      #0d0a14 15%,
+      #080812 30%,
+      #0f0510 50%,
+      #050810 70%,
+      #0a0a12 85%,
+      #08050a 100%
+    ) !important;
+  animation: gradientShift 15s ease infinite;
+  position: relative;
+  overflow: hidden;
 }
 
 section.cover.show {
-  background: radial-gradient(circle at 30% 30%, rgba(229, 57, 53, 0.15) 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, rgba(33, 150, 243, 0.15) 0%, transparent 50%),
-              #0a0d12 !important;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(139, 0, 0, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 80% at 80% 20%, rgba(0, 0, 139, 0.4) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(75, 0, 130, 0.3) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 100% at 70% 60%, rgba(139, 0, 0, 0.2) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 80% at 30% 70%, rgba(0, 0, 80, 0.3) 0%, transparent 60%),
+    linear-gradient(135deg,
+      #0a0508 0%,
+      #0d0a14 15%,
+      #080812 30%,
+      #0f0510 50%,
+      #050810 70%,
+      #0a0a12 85%,
+      #08050a 100%
+    ) !important;
+  animation: gradientShift 15s ease infinite;
 }
+
+/* Animated gradient keyframes */
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+    filter: hue-rotate(0deg);
+  }
+  25% {
+    filter: hue-rotate(10deg);
+  }
+  50% {
+    background-position: 100% 50%;
+    filter: hue-rotate(-10deg);
+  }
+  75% {
+    filter: hue-rotate(5deg);
+  }
+}
+
+/* Glowing orb overlay effect */
+section.cover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 25% 25%, rgba(220, 20, 60, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 75% 75%, rgba(30, 144, 255, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(138, 43, 226, 0.1) 0%, transparent 50%);
+  animation: orbFloat 20s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes orbFloat {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.8;
+  }
+  25% {
+    transform: translate(30px, -30px) scale(1.05);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-20px, 20px) scale(0.95);
+    opacity: 0.7;
+  }
+  75% {
+    transform: translate(10px, 10px) scale(1.02);
+    opacity: 0.85;
+  }
+}
+
+/* Noise texture overlay for depth */
+section.cover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Make cover content appear above effects */
+section.cover .cover-main {
+  position: relative;
+  z-index: 10;
+}
+
+/* Animated glow on cover title */
+section.cover .cover-main > h1,
+section.cover .cover-main > div:first-child {
+  text-shadow:
+    0 0 20px rgba(229, 57, 53, 0.5),
+    0 0 40px rgba(33, 150, 243, 0.3),
+    0 0 60px rgba(139, 0, 139, 0.2);
+  animation: titleGlow 4s ease-in-out infinite alternate;
+}
+
+@keyframes titleGlow {
+  0% {
+    text-shadow:
+      0 0 20px rgba(229, 57, 53, 0.5),
+      0 0 40px rgba(33, 150, 243, 0.3),
+      0 0 60px rgba(139, 0, 139, 0.2);
+  }
+  100% {
+    text-shadow:
+      0 0 30px rgba(33, 150, 243, 0.5),
+      0 0 50px rgba(229, 57, 53, 0.3),
+      0 0 70px rgba(75, 0, 130, 0.3);
+  }
+}
+
+/* =============================================== */
 
 /* Cover page buttons */
 section.cover .cover-main > p:last-child a {
