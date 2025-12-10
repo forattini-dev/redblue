@@ -159,58 +159,205 @@
       z-index: 10;
     }
 
-    /* Main content area - ensure dark background when cover hidden */
+    /* ============================================
+       ANIMATED LIVING GRADIENT BACKGROUND
+       ============================================ */
+
+    /* Main body with animated gradient */
     body {
-      background: #0a0d12 !important;
+      background: linear-gradient(
+        -45deg,
+        #0a0d12,
+        #0d0a18,
+        #0a1015,
+        #12080d,
+        #0a0d12
+      ) !important;
+      background-size: 400% 400% !important;
+      animation: gradientFlow 20s ease infinite !important;
     }
 
-    /* App container needs dark background */
+    @keyframes gradientFlow {
+      0% {
+        background-position: 0% 50%;
+      }
+      25% {
+        background-position: 50% 100%;
+      }
+      50% {
+        background-position: 100% 50%;
+      }
+      75% {
+        background-position: 50% 0%;
+      }
+      100% {
+        background-position: 0% 50%;
+      }
+    }
+
+    /* App container transparent to show body gradient */
     #app {
-      background: #0a0d12;
+      background: transparent;
     }
 
-    /* Main content wrapper */
+    /* Main content wrapper with subtle gradient overlay */
     .content {
-      background: #0a0d12 !important;
+      background: transparent !important;
     }
 
-    /* Sidebar with dark background */
+    /* Sidebar with glass effect */
     .sidebar {
-      background: #0a0d12 !important;
+      background: linear-gradient(
+        180deg,
+        rgba(10, 13, 18, 0.95) 0%,
+        rgba(15, 10, 20, 0.9) 50%,
+        rgba(10, 13, 18, 0.95) 100%
+      ) !important;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       position: relative;
       z-index: 100;
+      border-right: 1px solid rgba(229, 57, 53, 0.1);
     }
 
-    /* Main content area with solid dark background */
+    /* Main content area with subtle animated glow */
     main {
-      background: #0a0d12 !important;
+      background: linear-gradient(
+        135deg,
+        rgba(10, 13, 18, 0.98) 0%,
+        rgba(13, 10, 24, 0.95) 25%,
+        rgba(10, 16, 21, 0.95) 50%,
+        rgba(18, 8, 13, 0.95) 75%,
+        rgba(10, 13, 18, 0.98) 100%
+      ) !important;
+      background-size: 200% 200% !important;
+      animation: contentGlow 15s ease infinite !important;
       position: relative;
       z-index: 100;
     }
 
-    /* Markdown section */
+    @keyframes contentGlow {
+      0%, 100% {
+        background-position: 0% 0%;
+      }
+      50% {
+        background-position: 100% 100%;
+      }
+    }
+
+    /* Markdown section with soft radial glow */
     .markdown-section {
-      background: #0a0d12 !important;
+      background: radial-gradient(
+        ellipse at 50% 0%,
+        rgba(229, 57, 53, 0.03) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        ellipse at 100% 100%,
+        rgba(33, 150, 243, 0.03) 0%,
+        transparent 50%
+      ) !important;
     }
 
-    /* App nav bar */
+    /* App nav bar with gradient */
     .app-nav {
-      background: #0a0d12 !important;
+      background: linear-gradient(
+        90deg,
+        rgba(10, 13, 18, 0.95) 0%,
+        rgba(15, 10, 20, 0.9) 50%,
+        rgba(10, 13, 18, 0.95) 100%
+      ) !important;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       position: relative;
       z-index: 100;
     }
 
-    /* Light theme overrides */
-    body.light {
-      background: #ffffff !important;
+    /* Animated accent line under navbar */
+    .app-nav::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(229, 57, 53, 0.5) 25%,
+        rgba(138, 43, 226, 0.5) 50%,
+        rgba(33, 150, 243, 0.5) 75%,
+        transparent 100%
+      );
+      background-size: 200% 100%;
+      animation: navGlow 3s ease infinite;
     }
+
+    @keyframes navGlow {
+      0%, 100% {
+        background-position: 0% 0%;
+      }
+      50% {
+        background-position: 100% 0%;
+      }
+    }
+
+    /* Light theme overrides - subtle gradient too */
+    body.light {
+      background: linear-gradient(
+        -45deg,
+        #ffffff,
+        #f8f9fc,
+        #f5f7fa,
+        #faf8f9,
+        #ffffff
+      ) !important;
+      background-size: 400% 400% !important;
+      animation: gradientFlowLight 20s ease infinite !important;
+    }
+
+    @keyframes gradientFlowLight {
+      0% { background-position: 0% 50%; }
+      25% { background-position: 50% 100%; }
+      50% { background-position: 100% 50%; }
+      75% { background-position: 50% 0%; }
+      100% { background-position: 0% 50%; }
+    }
+
     body.light #app,
-    body.light .content,
-    body.light .sidebar,
-    body.light main,
-    body.light .markdown-section,
+    body.light .content {
+      background: transparent !important;
+    }
+
+    body.light .sidebar {
+      background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(248, 249, 252, 0.9) 50%,
+        rgba(255, 255, 255, 0.95) 100%
+      ) !important;
+      border-right: 1px solid rgba(229, 57, 53, 0.1);
+    }
+
+    body.light main {
+      background: rgba(255, 255, 255, 0.9) !important;
+    }
+
+    body.light .markdown-section {
+      background: radial-gradient(
+        ellipse at 50% 0%,
+        rgba(229, 57, 53, 0.05) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        ellipse at 100% 100%,
+        rgba(33, 150, 243, 0.05) 0%,
+        transparent 50%
+      ) !important;
+    }
+
     body.light .app-nav {
-      background: #ffffff !important;
+      background: rgba(255, 255, 255, 0.95) !important;
     }
   </style>
 </head>
