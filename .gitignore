@@ -41,7 +41,7 @@ ctf-data/
 test-certs/
 scan-ctf.sh
 test-ctf.sh
-wordlists/
+/wordlists/
 
 # Release artifacts
 rb-*
