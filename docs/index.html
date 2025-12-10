@@ -160,204 +160,70 @@
     }
 
     /* ============================================
-       ANIMATED LIVING GRADIENT BACKGROUND
+       SOLID DARK THEME - Gradient only in Hero
        ============================================ */
 
-    /* Main body with animated gradient */
-    body {
-      background: linear-gradient(
-        -45deg,
-        #0a0d12,
-        #0d0a18,
-        #0a1015,
-        #12080d,
-        #0a0d12
-      ) !important;
-      background-size: 400% 400% !important;
-      animation: gradientFlow 20s ease infinite !important;
-    }
-
-    @keyframes gradientFlow {
-      0% {
-        background-position: 0% 50%;
-      }
-      25% {
-        background-position: 50% 100%;
-      }
-      50% {
-        background-position: 100% 50%;
-      }
-      75% {
-        background-position: 50% 0%;
-      }
-      100% {
-        background-position: 0% 50%;
-      }
-    }
-
-    /* App container transparent to show body gradient */
-    #app {
-      background: transparent;
-    }
-
-    /* Main content wrapper with subtle gradient overlay */
-    .content {
-      background: transparent !important;
-    }
-
-    /* Sidebar with glass effect */
-    .sidebar {
-      background: linear-gradient(
-        180deg,
-        rgba(10, 13, 18, 0.95) 0%,
-        rgba(15, 10, 20, 0.9) 50%,
-        rgba(10, 13, 18, 0.95) 100%
-      ) !important;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      position: relative;
-      z-index: 100;
-      border-right: 1px solid rgba(229, 57, 53, 0.1);
-    }
-
-    /* Main content area with subtle animated glow */
-    main {
-      background: linear-gradient(
-        135deg,
-        rgba(10, 13, 18, 0.98) 0%,
-        rgba(13, 10, 24, 0.95) 25%,
-        rgba(10, 16, 21, 0.95) 50%,
-        rgba(18, 8, 13, 0.95) 75%,
-        rgba(10, 13, 18, 0.98) 100%
-      ) !important;
-      background-size: 200% 200% !important;
-      animation: contentGlow 15s ease infinite !important;
-      position: relative;
-      z-index: 100;
-    }
-
-    @keyframes contentGlow {
-      0%, 100% {
-        background-position: 0% 0%;
-      }
-      50% {
-        background-position: 100% 100%;
-      }
-    }
-
-    /* Markdown section with soft radial glow */
+    /* All content areas - solid dark background */
+    body,
+    #app,
+    .content,
+    .sidebar,
+    main,
     .markdown-section {
-      background: radial-gradient(
-        ellipse at 50% 0%,
-        rgba(229, 57, 53, 0.03) 0%,
-        transparent 50%
-      ),
-      radial-gradient(
-        ellipse at 100% 100%,
-        rgba(33, 150, 243, 0.03) 0%,
-        transparent 50%
-      ) !important;
+      background: #0a0d12 !important;
     }
 
-    /* App nav bar with gradient */
+    .sidebar {
+      border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+    }
+
+    /* Navbar - legible on dark background */
     .app-nav {
-      background: linear-gradient(
-        90deg,
-        rgba(10, 13, 18, 0.95) 0%,
-        rgba(15, 10, 20, 0.9) 50%,
-        rgba(10, 13, 18, 0.95) 100%
-      ) !important;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      position: relative;
-      z-index: 100;
+      background: #0a0d12 !important;
     }
 
-    /* Animated accent line under navbar */
-    .app-nav::after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(229, 57, 53, 0.5) 25%,
-        rgba(138, 43, 226, 0.5) 50%,
-        rgba(33, 150, 243, 0.5) 75%,
-        transparent 100%
-      );
-      background-size: 200% 100%;
-      animation: navGlow 3s ease infinite;
+    .app-nav a,
+    .app-nav li {
+      color: #e8ecf2 !important;
     }
 
-    @keyframes navGlow {
-      0%, 100% {
-        background-position: 0% 0%;
-      }
-      50% {
-        background-position: 100% 0%;
-      }
+    .app-nav a:hover {
+      color: #e53935 !important;
     }
 
-    /* Light theme overrides - subtle gradient too */
-    body.light {
-      background: linear-gradient(
-        -45deg,
-        #ffffff,
-        #f8f9fc,
-        #f5f7fa,
-        #faf8f9,
-        #ffffff
-      ) !important;
-      background-size: 400% 400% !important;
-      animation: gradientFlowLight 20s ease infinite !important;
+    .app-nav ul li a {
+      color: #e8ecf2 !important;
     }
 
-    @keyframes gradientFlowLight {
-      0% { background-position: 0% 50%; }
-      25% { background-position: 50% 100%; }
-      50% { background-position: 100% 50%; }
-      75% { background-position: 50% 0%; }
-      100% { background-position: 0% 50%; }
+    /* Dropdown menus in navbar */
+    .app-nav li ul {
+      background: #1a1d24 !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-radius: 6px !important;
     }
 
+    .app-nav li ul li a {
+      color: #a6b0c3 !important;
+    }
+
+    .app-nav li ul li a:hover {
+      color: #e53935 !important;
+      background: rgba(229, 57, 53, 0.1) !important;
+    }
+
+    /* Light theme overrides */
+    body.light,
     body.light #app,
-    body.light .content {
-      background: transparent !important;
+    body.light .content,
+    body.light .sidebar,
+    body.light main,
+    body.light .markdown-section,
+    body.light .app-nav {
+      background: #ffffff !important;
     }
 
     body.light .sidebar {
-      background: linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(248, 249, 252, 0.9) 50%,
-        rgba(255, 255, 255, 0.95) 100%
-      ) !important;
-      border-right: 1px solid rgba(229, 57, 53, 0.1);
-    }
-
-    body.light main {
-      background: rgba(255, 255, 255, 0.9) !important;
-    }
-
-    body.light .markdown-section {
-      background: radial-gradient(
-        ellipse at 50% 0%,
-        rgba(229, 57, 53, 0.05) 0%,
-        transparent 50%
-      ),
-      radial-gradient(
-        ellipse at 100% 100%,
-        rgba(33, 150, 243, 0.05) 0%,
-        transparent 50%
-      ) !important;
-    }
-
-    body.light .app-nav {
-      background: rgba(255, 255, 255, 0.95) !important;
+      border-right: 1px solid rgba(0, 0, 0, 0.05) !important;
     }
   </style>
 </head>
@@ -639,7 +505,76 @@
         `;
         return html + footer;
       });
+
+      // Apply living gradient after Docsify renders
+      hook.doneEach(function() {
+        applyLivingGradient();
+      });
     }, window.$docsify.plugins || []);
+
+    // Apply solid dark backgrounds to content areas (gradient only in hero/cover)
+    function applyLivingGradient() {
+      // Body - solid dark background
+      document.body.style.cssText = `
+        background: #0a0d12 !important;
+      `;
+
+      // Main content - solid dark
+      const main = document.querySelector('main');
+      if (main) {
+        main.style.cssText = `
+          background: #0a0d12 !important;
+        `;
+      }
+
+      // Sidebar - solid dark
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) {
+        sidebar.style.cssText = `
+          background: #0a0d12 !important;
+          border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+        `;
+      }
+
+      // Markdown section - solid dark
+      const markdown = document.querySelector('.markdown-section');
+      if (markdown) {
+        markdown.style.cssText = `
+          background: #0a0d12 !important;
+        `;
+      }
+
+      // Content wrapper - transparent
+      const content = document.querySelector('.content');
+      if (content) {
+        content.style.background = '#0a0d12 !important';
+      }
+
+      // App nav - solid dark with legible text
+      const appNav = document.querySelector('.app-nav');
+      if (appNav) {
+        appNav.style.cssText = `
+          background: #0a0d12 !important;
+        `;
+        // Make navbar links legible
+        const navLinks = appNav.querySelectorAll('a');
+        navLinks.forEach(link => {
+          link.style.color = '#e8ecf2';
+        });
+      }
+
+      // #app container
+      const app = document.getElementById('app');
+      if (app) {
+        app.style.background = '#0a0d12 !important';
+      }
+    }
+
+    // Run on load too
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(applyLivingGradient, 500);
+      setTimeout(applyLivingGradient, 1500);
+    });
   </script>
 
   <!-- Floating Particles Animation for Cover Page -->

@@ -27,104 +27,83 @@
   pointer-events: none;
 }
 
-/* Cover Page - Dark gradient with animated mesh */
-section.cover {
-  background:
-    /* Animated gradient orbs */
-    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(139, 0, 0, 0.4) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 80% at 80% 20%, rgba(0, 0, 139, 0.4) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(75, 0, 130, 0.3) 0%, transparent 50%),
-    radial-gradient(ellipse 100% 100% at 70% 60%, rgba(139, 0, 0, 0.2) 0%, transparent 60%),
-    radial-gradient(ellipse 80% 80% at 30% 70%, rgba(0, 0, 80, 0.3) 0%, transparent 60%),
-    /* Base gradient */
-    linear-gradient(135deg,
-      #0a0508 0%,
-      #0d0a14 15%,
-      #080812 30%,
-      #0f0510 50%,
-      #050810 70%,
-      #0a0a12 85%,
-      #08050a 100%
-    ) !important;
-  animation: gradientShift 15s ease infinite;
+/* ===============================================
+   HERO - SMOOTH BLENDED GRADIENT (Red/Blue Dark)
+   =============================================== */
+
+/* Cover Page - Smooth flowing gradient */
+section.cover,
+section.cover.show {
+  background: linear-gradient(
+    -45deg,
+    #08050a,    /* Near black */
+    #0a0815,    /* Dark blue tint */
+    #0d0510,    /* Dark purple */
+    #050a12,    /* Dark navy */
+    #0a0508,    /* Dark red tint */
+    #050810,    /* Dark blue */
+    #08050a     /* Loop back */
+  ) !important;
+  background-size: 400% 400% !important;
+  animation: heroGradientFlow 15s ease infinite !important;
   position: relative;
   overflow: hidden;
 }
 
-section.cover.show {
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(139, 0, 0, 0.4) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 80% at 80% 20%, rgba(0, 0, 139, 0.4) 0%, transparent 50%),
-    radial-gradient(ellipse 50% 60% at 50% 80%, rgba(75, 0, 130, 0.3) 0%, transparent 50%),
-    radial-gradient(ellipse 100% 100% at 70% 60%, rgba(139, 0, 0, 0.2) 0%, transparent 60%),
-    radial-gradient(ellipse 80% 80% at 30% 70%, rgba(0, 0, 80, 0.3) 0%, transparent 60%),
-    linear-gradient(135deg,
-      #0a0508 0%,
-      #0d0a14 15%,
-      #080812 30%,
-      #0f0510 50%,
-      #050810 70%,
-      #0a0a12 85%,
-      #08050a 100%
-    ) !important;
-  animation: gradientShift 15s ease infinite;
-}
-
-/* Animated gradient keyframes */
-@keyframes gradientShift {
-  0%, 100% {
+/* Main gradient animation - smooth color flow */
+@keyframes heroGradientFlow {
+  0% {
     background-position: 0% 50%;
-    filter: hue-rotate(0deg);
-  }
-  25% {
-    filter: hue-rotate(10deg);
   }
   50% {
     background-position: 100% 50%;
-    filter: hue-rotate(-10deg);
   }
-  75% {
-    filter: hue-rotate(5deg);
+  100% {
+    background-position: 0% 50%;
   }
 }
 
-/* Glowing orb overlay effect */
+/* Soft blended color clouds - no hard circles */
 section.cover::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: -20%;
+  left: -20%;
+  right: -20%;
+  bottom: -20%;
   background:
-    radial-gradient(circle at 25% 25%, rgba(220, 20, 60, 0.15) 0%, transparent 40%),
-    radial-gradient(circle at 75% 75%, rgba(30, 144, 255, 0.15) 0%, transparent 40%),
-    radial-gradient(circle at 50% 50%, rgba(138, 43, 226, 0.1) 0%, transparent 50%);
-  animation: orbFloat 20s ease-in-out infinite;
+    /* Large soft blue cloud - moves around */
+    radial-gradient(ellipse 120% 80% at 70% 30%, rgba(20, 60, 150, 0.25) 0%, transparent 70%),
+    /* Large soft red cloud */
+    radial-gradient(ellipse 100% 100% at 20% 70%, rgba(150, 30, 50, 0.2) 0%, transparent 70%),
+    /* Soft blue bottom */
+    radial-gradient(ellipse 140% 60% at 80% 90%, rgba(30, 80, 180, 0.2) 0%, transparent 60%),
+    /* Soft purple center blend */
+    radial-gradient(ellipse 80% 80% at 50% 50%, rgba(80, 30, 120, 0.15) 0%, transparent 70%),
+    /* Soft red accent top */
+    radial-gradient(ellipse 90% 50% at 30% 20%, rgba(120, 20, 40, 0.18) 0%, transparent 65%),
+    /* Blue mist */
+    radial-gradient(ellipse 100% 70% at 60% 60%, rgba(40, 70, 140, 0.12) 0%, transparent 60%);
+  animation: cloudsFloat 20s ease-in-out infinite;
   pointer-events: none;
-  z-index: 0;
+  z-index: 2;
+  filter: blur(40px);
 }
 
-@keyframes orbFloat {
+/* Clouds floating animation */
+@keyframes cloudsFloat {
   0%, 100% {
     transform: translate(0, 0) scale(1);
-    opacity: 0.8;
   }
-  25% {
-    transform: translate(30px, -30px) scale(1.05);
-    opacity: 0.9;
+  33% {
+    transform: translate(30px, -20px) scale(1.05);
   }
-  50% {
-    transform: translate(-20px, 20px) scale(0.95);
-    opacity: 0.7;
-  }
-  75% {
-    transform: translate(10px, 10px) scale(1.02);
-    opacity: 0.85;
+  66% {
+    transform: translate(-20px, 15px) scale(0.98);
   }
 }
 
-/* Noise texture overlay for depth */
+/* Second overlay - subtle color wash */
 section.cover::after {
   content: '';
   position: absolute;
@@ -132,10 +111,24 @@ section.cover::after {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  opacity: 0.03;
+  background:
+    /* Diagonal blue wash */
+    linear-gradient(135deg, transparent 0%, rgba(30, 70, 150, 0.1) 30%, transparent 60%),
+    /* Diagonal red wash */
+    linear-gradient(-135deg, transparent 40%, rgba(140, 30, 50, 0.08) 70%, transparent 100%);
+  animation: washShift 25s ease infinite;
   pointer-events: none;
   z-index: 1;
+}
+
+/* Color wash shifting */
+@keyframes washShift {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 /* Make cover content appear above effects */

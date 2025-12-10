@@ -88,8 +88,6 @@
   - [UI Graphs](/guides/ui-graphs-integration.md)
 
 - **Reference**
-  - [Tool Equivalents](/reference/tool-equivalents.md)
-  - [Configuration](/reference/configuration.md)
   - [Examples](/examples/CONFIG.md)
 
 - **Resources**

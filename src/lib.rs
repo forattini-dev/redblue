@@ -12,4 +12,4 @@ pub mod scripts; // Zero-dependency scripting engine for security checks
 pub mod storage;
 pub mod ui; // Terminal graphics library (Braille canvas, charts, colors)
 pub mod utils;
-pub mod wordlists;
+pub mod wordlists; // Wordlist management for bruteforce operations
