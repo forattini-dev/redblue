@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Size](https://img.shields.io/badge/size-2.7MB-green.svg)](https://github.com/forattini-dev/redblue/releases)
 [![CI](https://github.com/forattini-dev/redblue/workflows/CI/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/ci.yml)
-[![Alpha Release](https://github.com/forattini-dev/redblue/workflows/Alpha%20Release/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/alpha-release.yml)
+[![Next Release](https://github.com/forattini-dev/redblue/workflows/Next%20Release/badge.svg)](https://github.com/forattini-dev/redblue/actions/workflows/next-release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/forattini-dev/redblue?include_prereleases&label=latest)](https://github.com/forattini-dev/redblue/releases)
 
 *30+ security tools in one binary. Zero dependencies. 100% Rust.*

@@ -78,15 +78,15 @@ rb help
 rb dns lookup record google.com
 ```
 
-## Alpha Channel
+## Next Channel
 
 For bleeding-edge features:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
 ```
 
-> **Note:** Alpha releases may contain unstable features.
+> **Note:** Next releases may contain unstable features.
 
 ## Uninstallation
 

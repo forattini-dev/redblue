@@ -5,7 +5,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
+#   curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
 #   curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --version v0.1.0
 #
 set -e
@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 REPO="forattini-dev/redblue"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BINARY_NAME="rb"
-CHANNEL="stable"  # stable, alpha, latest
+CHANNEL="stable"  # stable, next, latest
 VERSION=""
 
 # Parse arguments
@@ -46,14 +46,14 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --channel <stable|alpha|latest>  Release channel (default: stable)"
+            echo "  --channel <stable|next|latest>  Release channel (default: stable)"
             echo "  --version <version>               Install specific version (e.g., v0.1.0)"
             echo "  --install-dir <path>              Installation directory (default: ~/.local/bin)"
             echo "  -h, --help                        Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0                                # Install latest stable"
-            echo "  $0 --channel alpha                # Install latest alpha"
+            echo "  $0 --channel next                # Install latest next"
             echo "  $0 --version v0.1.0               # Install specific version"
             exit 0
             ;;
@@ -130,10 +130,10 @@ get_release_info() {
         # Latest release (including pre-releases)
         api_url="https://api.github.com/repos/$REPO/releases"
         echo -e "${BLUE}  Channel: latest (any release)${NC}"
-    elif [ "$CHANNEL" = "alpha" ]; then
-        # Latest alpha pre-release
+    elif [ "$CHANNEL" = "next" ]; then
+        # Latest next pre-release
         api_url="https://api.github.com/repos/$REPO/releases"
-        echo -e "${BLUE}  Channel: alpha (pre-release)${NC}"
+        echo -e "${BLUE}  Channel: next (pre-release)${NC}"
     else
         # Stable release only
         api_url="https://api.github.com/repos/$REPO/releases/latest"
@@ -141,10 +141,10 @@ get_release_info() {
     fi
 
     if command -v curl >/dev/null 2>&1; then
-        if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "alpha" ]; then
-            # Get first release (latest or alpha)
+        if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "next" ]; then
+            # Get first release (latest or next)
             local releases=$(curl -fsSL "$api_url")
-            if [ "$CHANNEL" = "alpha" ]; then
+            if [ "$CHANNEL" = "next" ]; then
                 # Find first pre-release
                 RELEASE_DATA=$(echo "$releases" | grep -A 100 '"prerelease": true' | head -100)
             else
@@ -155,9 +155,9 @@ get_release_info() {
             RELEASE_DATA=$(curl -fsSL "$api_url")
         fi
     elif command -v wget >/dev/null 2>&1; then
-        if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "alpha" ]; then
+        if [ "$CHANNEL" = "latest" ] || [ "$CHANNEL" = "next" ]; then
             local releases=$(wget -qO- "$api_url")
-            if [ "$CHANNEL" = "alpha" ]; then
+            if [ "$CHANNEL" = "next" ]; then
                 RELEASE_DATA=$(echo "$releases" | grep -A 100 '"prerelease": true' | head -100)
             else
                 RELEASE_DATA=$(echo "$releases" | head -100)

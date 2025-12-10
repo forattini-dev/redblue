@@ -123,8 +123,8 @@ rb exploit replicate payload --os linux
 # Latest stable
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
 
-# Latest alpha
-curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel alpha
+# Latest next
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
 ```
 
 ### Manual Download

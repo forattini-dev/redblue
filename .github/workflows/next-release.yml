@@ -1,4 +1,4 @@
-name: Alpha Release
+name: Next Release
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
           # Skip if commit is a release (chore: release) or version bump
           if [[ "$COMMIT_MSG" =~ ^chore:\ release ]] || [[ "$COMMIT_MSG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "should_skip=true" >> $GITHUB_OUTPUT
-            echo "Skipping alpha release for release commit: $COMMIT_MSG"
+            echo "Skipping next release for release commit: $COMMIT_MSG"
           else
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
@@ -52,7 +52,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-alpha-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-next-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check if project builds
         id: check
@@ -61,7 +61,7 @@ jobs:
             echo "can_build=true" >> $GITHUB_OUTPUT
           else
             echo "can_build=false" >> $GITHUB_OUTPUT
-            echo "::warning::Build failed, skipping alpha release"
+            echo "::warning::Build failed, skipping next release"
           fi
 
   build:
@@ -109,7 +109,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-alpha-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-next-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
@@ -133,7 +133,7 @@ jobs:
             ${{ matrix.asset_name }}.sha256
 
   release:
-    name: Create Alpha Release
+    name: Create Next Release
     needs: [check-build, build]
     runs-on: ubuntu-latest
     steps:
@@ -145,9 +145,9 @@ jobs:
         run: |
           # Get base version from Cargo.toml
           BASE_VERSION=$(grep "^version" Cargo.toml | head -n1 | cut -d '"' -f2)
-          VERSION="${BASE_VERSION}-alpha.${{ github.run_number }}+${{ needs.check-build.outputs.short_sha }}"
+          VERSION="${BASE_VERSION}-next.${{ github.run_number }}+${{ needs.check-build.outputs.short_sha }}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Alpha version: ${VERSION}"
+          echo "Next version: ${VERSION}"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -160,21 +160,21 @@ jobs:
           find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
           ls -la release/
 
-      - name: Delete old alpha releases
+      - name: Delete old next releases
         uses: dev-drprasad/delete-older-releases@v0.3.4
         with:
           keep_latest: 5
-          delete_tag_pattern: ".*-alpha.*"
+          delete_tag_pattern: ".*-next.*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Alpha Release
+      - name: Create Next Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: redblue v${{ steps.version.outputs.version }} (alpha)
+          name: redblue v${{ steps.version.outputs.version }} (next)
           body: |
-            # redblue Alpha Release
+            # redblue Next Release
 
             **Version**: `${{ steps.version.outputs.version }}`
             **Commit**: `${{ github.sha }}`
@@ -182,7 +182,7 @@ jobs:
 
             ## Warning
 
-            This is an automated alpha release from the latest commit on `main`.
+            This is an automated next release from the latest commit on `main`.
             It may contain unstable features or breaking changes.
 
             For stable releases, use:
@@ -216,3 +216,25 @@ jobs:
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Job Summary
+        run: |
+          echo "## 🚀 Next Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | `${{ steps.version.outputs.version }}` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag** | `next` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | [`${GITHUB_SHA::7}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | `${{ github.ref_name }}` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Installation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "```bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Install latest next" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash -s -- --channel next" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [Release Page](${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }})" >> $GITHUB_STEP_SUMMARY
