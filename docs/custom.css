@@ -1,17 +1,29 @@
 /* redblue Custom Styles */
 
 /* ===============================================
+   DARK THEME FOUNDATIONS
+   =============================================== */
+
+/* Ensure dark theme is applied to all content areas */
+:root {
+  --rb-dark-bg: #0a0d12;
+  --rb-dark-bg-secondary: #1a1d24;
+  --rb-light-bg: #ffffff;
+  --rb-light-bg-secondary: #f7f8fa;
+}
+
+/* ===============================================
    EPIC ANIMATED COVER PAGE BACKGROUND
    =============================================== */
 
-/* Particles canvas */
+/* Particles canvas - only visible inside cover section */
 #particles-canvas {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
 }
 

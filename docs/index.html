@@ -159,16 +159,58 @@
       z-index: 10;
     }
 
-    /* Ensure content is above particles */
-    .sidebar, main, .app-nav {
-      position: relative;
-      z-index: 100;
-      background: var(--background);
+    /* Main content area - ensure dark background when cover hidden */
+    body {
+      background: #0a0d12 !important;
     }
 
-    /* Make sure main content has solid background */
+    /* App container needs dark background */
+    #app {
+      background: #0a0d12;
+    }
+
+    /* Main content wrapper */
+    .content {
+      background: #0a0d12 !important;
+    }
+
+    /* Sidebar with dark background */
+    .sidebar {
+      background: #0a0d12 !important;
+      position: relative;
+      z-index: 100;
+    }
+
+    /* Main content area with solid dark background */
     main {
-      background: var(--background) !important;
+      background: #0a0d12 !important;
+      position: relative;
+      z-index: 100;
+    }
+
+    /* Markdown section */
+    .markdown-section {
+      background: #0a0d12 !important;
+    }
+
+    /* App nav bar */
+    .app-nav {
+      background: #0a0d12 !important;
+      position: relative;
+      z-index: 100;
+    }
+
+    /* Light theme overrides */
+    body.light {
+      background: #ffffff !important;
+    }
+    body.light #app,
+    body.light .content,
+    body.light .sidebar,
+    body.light main,
+    body.light .markdown-section,
+    body.light .app-nav {
+      background: #ffffff !important;
     }
   </style>
 </head>
