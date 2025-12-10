@@ -1,5 +1,5 @@
 - [Home](/)
-- [Quick Start](getting-started/quickstart.md)
-- [Domains](domains/)
-- [Guides](guides/)
+- [Quick Start](/getting-started/quickstart.md)
+- [Domains](/domains/)
+- [Guides](/guides/)
 - [GitHub](https://github.com/forattini-dev/redblue)
