@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::storage::encoding::{
     read_ip, read_string, read_varu32, write_ip, write_string, write_varu32, DecodeError,
 };
-use crate::storage::schema::{SubdomainRecord, SubdomainSource};
+use crate::storage::records::{SubdomainRecord, SubdomainSource};
 use crate::storage::segments::utils::StringTable;
 
 fn encode_string_table(table: &StringTable) -> Vec<u8> {
@@ -495,11 +495,7 @@ impl SubdomainSegmentView {
             return Ok(Vec::new());
         };
 
-        let Some(entry) = self
-            .directory
-            .iter()
-            .find(|dir| dir.domain_id == domain_id)
-        else {
+        let Some(entry) = self.directory.iter().find(|dir| dir.domain_id == domain_id) else {
             return Ok(Vec::new());
         };
         let payload = &self.data[self.payload_offset..self.payload_offset + self.payload_len];

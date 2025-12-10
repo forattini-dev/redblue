@@ -162,7 +162,7 @@ The `seal_packet()` function encrypts the payload but doesn't preserve the paddi
 ```rust
 let mut packet = QuicPacket::new(header, pn, payload);
 if matches!(space, PacketNumberSpace::Initial) {
-    packet.ensure_initial_minimum();  // ✅ Correctly pads to 1199 bytes
+    packet.ensure_initial_minimum(tag_len);  // ✅ Correctly pads to 1199 bytes
 }
 // ... payload_length update ...
 let datagram = self.seal_packet(packet, space)?;  // ❌ Returns only 70 bytes

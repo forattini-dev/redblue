@@ -750,7 +750,7 @@ diff google.json cloudflare.json
 rb dns record all example.com --persist
 
 # Load later in REPL
-rb repl example.com.rb-session
+rb shell example.com.rb-session
 ```
 
 ---

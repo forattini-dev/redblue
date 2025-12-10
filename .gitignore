@@ -53,3 +53,43 @@ rb-*
 .redblue.toml
 .redblue.yaml
 .redblue/*
+
+# Session files
+*.rb-session
+
+# Debug logs
+debug_log*.txt
+
+# Temporary files
+temp_*
+verify_*
+*.pem
+
+# Python virtual environments
+venv/
+
+# Agent folders (AI assistants)
+.agent/
+.gemini/
+
+# Test binaries
+aes.rs
+hmac.rs
+sha256.rs
+
+# Reference Material & Learning Repos
+references/
+docs/references/
+docs/rust-openssl/
+docs/rustls/
+docs/quinn/
+docs/quiche/
+docs/h3/
+docs/h3-quinn/
+docs/reqwest/
+docs/ureq/
+docs/undici/
+docs/tls-parser/
+docs/ombrac/
+docs/rfcs/
+docs/recker/

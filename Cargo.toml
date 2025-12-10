@@ -27,5 +27,11 @@ opt-level = 1
 #
 libc = "0.2"  # FFI to kernel syscalls (PTY/terminal/socket options)
 
-# TLS 1.3 + HTTP/2 client leverages vendored OpenSSL bindings committed under docs/
-openssl = { path = "docs/rust-openssl/openssl", features = ["vendored"] }
+# TLS 1.3 + HTTP/2 client uses OpenSSL bindings
+openssl = { version = "0.10", features = ["vendored"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+uuid = { version = "1.19.0", features = ["v4", "fast-rng"] }
+
+[dev-dependencies]
+hex = "0.4"  # Only for tests - hex encode/decode

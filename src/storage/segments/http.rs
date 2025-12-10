@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
-use crate::storage::schema::{HttpHeadersRecord, HttpTlsSnapshot};
+use crate::storage::records::{HttpHeadersRecord, HttpTlsSnapshot};
 use crate::storage::segments::utils::StringTable;
 
 fn encode_string_table(table: &StringTable) -> Vec<u8> {
@@ -925,7 +925,7 @@ fn extract_scheme(url: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::schema::HttpTlsSnapshot;
+    use crate::storage::records::HttpTlsSnapshot;
 
     #[test]
     fn roundtrip_http_segment() {

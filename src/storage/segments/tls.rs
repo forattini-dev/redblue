@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
-use crate::storage::schema::{
+use crate::storage::records::{
     TlsCertRecord, TlsCipherRecord, TlsCipherStrength, TlsScanRecord, TlsSeverity,
     TlsVersionRecord, TlsVulnerabilityRecord,
 };

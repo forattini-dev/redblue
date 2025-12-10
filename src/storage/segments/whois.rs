@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
-use crate::storage::schema::WhoisRecord;
+use crate::storage::records::WhoisRecord;
 use crate::storage::segments::utils::StringTable;
 
 fn encode_string_table(table: &StringTable) -> Vec<u8> {
@@ -406,7 +406,11 @@ impl WhoisSegmentView {
         let Some(domain_id) = self.strings.get_id(domain) else {
             return Ok(None);
         };
-        let Some(dir) = self.directory.iter().find(|entry| entry.domain_id == domain_id) else {
+        let Some(dir) = self
+            .directory
+            .iter()
+            .find(|entry| entry.domain_id == domain_id)
+        else {
             return Ok(None);
         };
 

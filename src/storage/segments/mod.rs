@@ -2,6 +2,7 @@ pub mod dns;
 pub mod hosts;
 pub mod http;
 pub mod ports;
+pub mod proxy;
 pub mod subdomains;
 pub mod tls;
 pub mod utils;

@@ -31,6 +31,7 @@ The `web` domain provides comprehensive web application security testing includi
 - CMS fingerprinting strategies (`strategies/wordpress.rs`, `drupal.rs`, `joomla.rs`, `ghost.rs`, `strapi.rs`) power `rb web asset scan` without relying on third-party signatures.
 - CLI verbs in `src/cli/commands/web.rs` expose `get`, `post`, `headers`, `security`, `scan`, and `fuzz` flows with shared output envelopes and persistence hooks.
 - Linkfinder and crawler modules extract URLs/JS endpoints, feeding discoveries back into the intelligence pipeline.
+- HTTP dispatcher now exposes streaming handlers (`HttpResponseHandler`) and middleware hooks so modules can process large bodies incrementally while sharing logging/caching layers.
 
 ### In Flight / Backlog
 - Directory fuzzing still needs adaptive rate limiting and wordlist rotation; integration with global wordlists (`wordlists/`) is pending.
@@ -42,6 +43,42 @@ The `web` domain provides comprehensive web application security testing includi
 1. Implement persistent session support (cookies/auth) so chained requests can maintain state during scans.
 2. Add JSON/YAML rendering for `--intel` output to align with network/TLS domains.
 3. Document troubleshooting (timeouts, TLS handshake failures) once the TLS 1.3 work stabilizes.
+
+### Developer Streaming Example
+
+RedBlue modules can now tap into the streaming HTTP pipeline and middleware stack directly:
+
+```rust
+use std::sync::Arc;
+use crate::protocols::http::{
+    HttpClient, HttpRequest, HttpResponseHandler, HttpResponseHead,
+    LoggingMiddleware,
+};
+
+struct BodyPrinter;
+
+impl HttpResponseHandler for BodyPrinter {
+    fn on_head(&mut self, head: &HttpResponseHead) -> Result<(), String> {
+        println!("Status: {}", head.status_code);
+        Ok(())
+    }
+
+    fn on_chunk(&mut self, chunk: &[u8]) -> Result<(), String> {
+        std::io::stdout().write_all(chunk).map_err(|e| e.to_string())
+    }
+}
+
+let mut handler = BodyPrinter;
+let client = HttpClient::new()
+    .with_keep_alive(true)
+    .with_middleware(Arc::new(LoggingMiddleware));
+
+client
+    .send_with_handler(&HttpRequest::get("http://example.com"), &mut handler)
+    .expect("streamed response");
+```
+
+`send_with_handler` guarantees headers land before any body chunk, while middlewares (logging, caching, throttling) stay reusable across every module.
 
 ---
 

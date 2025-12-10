@@ -601,7 +601,7 @@ Open database in interactive REPL mode:
 
 ```bash
 # Launch REPL with previous session
-rb repl 192.168.1.1.rb-session
+rb shell 192.168.1.1.rb-session
 
 # Inside REPL:
 > show ports
@@ -728,7 +728,7 @@ rb database data query large.rdb
 rb database data export large.rdb -o full_export.csv
 
 # Use REPL for interactive queries
-rb repl large.rb-session
+rb shell large.rb-session
 ```
 
 ### Integrity Check

@@ -1,0 +1,237 @@
+/* redblue Custom Styles */
+
+/* Cover Page */
+section.cover {
+  background: radial-gradient(circle at 30% 30%, rgba(229, 57, 53, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 70% 70%, rgba(33, 150, 243, 0.15) 0%, transparent 50%),
+              #0a0d12 !important;
+}
+
+section.cover.show {
+  background: radial-gradient(circle at 30% 30%, rgba(229, 57, 53, 0.15) 0%, transparent 50%),
+              radial-gradient(circle at 70% 70%, rgba(33, 150, 243, 0.15) 0%, transparent 50%),
+              #0a0d12 !important;
+}
+
+/* Cover page buttons */
+section.cover .cover-main > p:last-child a {
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+section.cover .cover-main > p:last-child a:first-child {
+  background: linear-gradient(135deg, #e53935, #c62828) !important;
+  color: white !important;
+  border: none !important;
+}
+
+section.cover .cover-main > p:last-child a:first-child:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(229, 57, 53, 0.4);
+}
+
+section.cover .cover-main > p:last-child a:last-child {
+  background: transparent !important;
+  color: #2196f3 !important;
+  border: 2px solid #2196f3 !important;
+}
+
+section.cover .cover-main > p:last-child a:last-child:hover {
+  background: rgba(33, 150, 243, 0.1) !important;
+  transform: translateY(-2px);
+}
+
+/* Fix sidebar toggle position */
+.sidebar-toggle {
+  position: fixed !important;
+  top: 1rem !important;
+  left: 1rem !important;
+  bottom: auto !important;
+  width: 40px !important;
+  height: 40px !important;
+  z-index: 999 !important;
+}
+
+/* Sidebar styling */
+.sidebar {
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-nav a {
+  transition: color 0.2s ease, padding-left 0.2s ease;
+}
+
+.sidebar-nav a:hover {
+  color: #e53935 !important;
+  padding-left: 5px;
+}
+
+.sidebar-nav a.active {
+  color: #e53935 !important;
+  border-left: 3px solid #e53935;
+  padding-left: 10px;
+}
+
+/* Code blocks */
+.markdown-section pre {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.markdown-section code {
+  border-radius: 4px;
+}
+
+/* Inline code */
+.markdown-section p code,
+.markdown-section li code {
+  background: rgba(229, 57, 53, 0.1);
+  color: #e53935;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Tables */
+.markdown-section table {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.markdown-section table thead {
+  background: linear-gradient(135deg, rgba(229, 57, 53, 0.2), rgba(33, 150, 243, 0.2));
+}
+
+.markdown-section table th {
+  font-weight: 600;
+  color: #e8ecf2;
+}
+
+.markdown-section table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Blockquotes */
+.markdown-section blockquote {
+  border-left: 4px solid #2196f3;
+  background: rgba(33, 150, 243, 0.1);
+  border-radius: 0 8px 8px 0;
+  padding: 1em 1.5em;
+}
+
+/* Warning/Alert blockquotes */
+.markdown-section blockquote p:first-child strong:first-child {
+  color: #e53935;
+}
+
+/* Links */
+.markdown-section a {
+  color: #2196f3;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.markdown-section a:hover {
+  border-bottom-color: #2196f3;
+}
+
+/* Headings */
+.markdown-section h2 {
+  border-bottom: 2px solid rgba(229, 57, 53, 0.3);
+  padding-bottom: 0.5em;
+}
+
+.markdown-section h3 {
+  color: #2196f3;
+}
+
+/* Lists */
+.markdown-section ul li::marker {
+  color: #e53935;
+}
+
+.markdown-section ol li::marker {
+  color: #2196f3;
+}
+
+/* Search highlight */
+.search .matching-post {
+  border-left: 3px solid #e53935;
+}
+
+.search .matching-post .search-keyword {
+  background: rgba(229, 57, 53, 0.3);
+  color: #fff;
+}
+
+/* Docsify alerts */
+.alert {
+  border-radius: 8px;
+}
+
+.alert.callout-danger,
+.alert.callout-warning {
+  border-left-color: #e53935;
+}
+
+.alert.callout-info,
+.alert.callout-tip {
+  border-left-color: #2196f3;
+}
+
+/* Copy code button */
+.docsify-copy-code-button {
+  background: linear-gradient(135deg, #e53935, #2196f3) !important;
+  border-radius: 4px !important;
+}
+
+/* Pagination */
+.pagination-item-title {
+  color: #e53935 !important;
+}
+
+.pagination-item:hover {
+  background: rgba(229, 57, 53, 0.1);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0d12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #e53935, #2196f3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #c62828, #1565c0);
+}
+
+/* Selection */
+::selection {
+  background: rgba(229, 57, 53, 0.3);
+  color: #fff;
+}
+
+/* Responsive */
+@media screen and (max-width: 768px) {
+  .markdown-section h1 {
+    font-size: 1.8em;
+  }
+
+  .back-to-top {
+    bottom: 20px;
+    right: 20px;
+    width: 36px;
+    height: 36px;
+  }
+}

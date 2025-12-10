@@ -201,7 +201,7 @@ When `--persist` is used, results are saved to `./<target>.rdb` in binary format
 - Timestamps
 - Intelligence data (if `--intel` used)
 
-Session history can be loaded later using REPL: `rb repl <target>.rb-session`
+Session history can be loaded later using shell: `rb shell <target>.rb-session`
 
 ---
 
@@ -847,7 +847,7 @@ rb network ports range 192.168.1.1 1 65535 --fast
 rb network ports scan target.com --preset common --persist
 
 # Load results later in REPL
-rb repl target.com.rb-session
+rb shell target.com.rb-session
 ```
 
 ---
@@ -887,8 +887,8 @@ rb repl target.com.rb-session
 | `fping` | `rb network host ping` | Fast ping utility |
 | `netdiscover` | `rb network host discover` | Network discovery |
 | `arp-scan` | `rb network host discover` | ARP scanning (planned) |
-| `traceroute` | `rb network path trace` | Route tracing (planned) |
-| `mtr` | `rb network path trace --live` | Live route monitoring (planned) |
+| `traceroute` | `rb network trace run` | Route tracing |
+| `mtr` | `rb network trace mtr` | Live route monitoring |
 
 ---
 

@@ -1,4 +1,4 @@
-use crate::storage::client::{PersistenceManager, QueryManager};
+use crate::storage::client::{PersistenceConfig, PersistenceManager, QueryManager};
 use crate::storage::encoding::DecodeError;
 use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
 use std::collections::{BTreeMap, HashMap};
@@ -337,6 +337,24 @@ impl StorageService {
         Ok(manager)
     }
 
+    /// Create a persistence manager using a PersistenceConfig (supports --save, --db-password flags).
+    pub fn persistence_with_config<I>(
+        &self,
+        target: &str,
+        config: PersistenceConfig,
+        attrs: I,
+    ) -> Result<PersistenceManager, String>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
+        let manager = PersistenceManager::with_config(target, config)?;
+        let attrs_vec: Vec<(String, String)> = attrs.into_iter().collect();
+        if let Some(path) = manager.db_path().cloned() {
+            self.ensure_target_partition(target, path, None, Some(attrs_vec));
+        }
+        Ok(manager)
+    }
+
     /// Helper to build a custom partition key for arbitrary storage paths.
     pub fn key_for_path<P: AsRef<Path>>(path: P) -> PartitionKey {
         PartitionKey::Custom(path.as_ref().display().to_string())
@@ -377,4 +395,672 @@ impl StorageService {
 
 fn decode_err_to_io(err: DecodeError) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, err.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::reddb::RedDb;
+    use crate::storage::records::PortStatus;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::path::PathBuf;
+
+    struct FileGuard {
+        path: PathBuf,
+    }
+
+    impl Drop for FileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn temp_db(name: &str) -> (FileGuard, PathBuf) {
+        let path = std::env::temp_dir().join(format!("rb_svc_{}_{}.db", name, std::process::id()));
+        let guard = FileGuard { path: path.clone() };
+        let _ = std::fs::remove_file(&path);
+        (guard, path)
+    }
+
+    // ==================== PartitionKey Tests ====================
+
+    #[test]
+    fn test_partition_key_domain() {
+        let key = PartitionKey::Domain("example.com".to_string());
+        assert_eq!(key, PartitionKey::Domain("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_partition_key_target() {
+        let key = PartitionKey::Target("192.168.1.1".to_string());
+        assert_eq!(key, PartitionKey::Target("192.168.1.1".to_string()));
+    }
+
+    #[test]
+    fn test_partition_key_date() {
+        let key = PartitionKey::Date(20231215);
+        assert_eq!(key, PartitionKey::Date(20231215));
+    }
+
+    #[test]
+    fn test_partition_key_custom() {
+        let key = PartitionKey::Custom("/custom/path".to_string());
+        assert_eq!(key, PartitionKey::Custom("/custom/path".to_string()));
+    }
+
+    #[test]
+    fn test_partition_key_inequality() {
+        let key1 = PartitionKey::Domain("a.com".to_string());
+        let key2 = PartitionKey::Domain("b.com".to_string());
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_partition_key_type_inequality() {
+        let key1 = PartitionKey::Domain("example.com".to_string());
+        let key2 = PartitionKey::Target("example.com".to_string());
+        assert_ne!(key1, key2);
+    }
+
+    // ==================== PartitionMetadata Tests ====================
+
+    #[test]
+    fn test_partition_metadata_new() {
+        let meta = PartitionMetadata::new(
+            PartitionKey::Target("test".to_string()),
+            "test_label",
+            "/path/to/db",
+            vec![SegmentKind::Ports],
+        );
+
+        assert_eq!(meta.key, PartitionKey::Target("test".to_string()));
+        assert_eq!(meta.label, "test_label");
+        assert_eq!(meta.storage_path, PathBuf::from("/path/to/db"));
+        assert_eq!(meta.segments.len(), 1);
+        assert!(meta.attributes.is_empty());
+        assert!(meta.last_refreshed.is_none());
+    }
+
+    #[test]
+    fn test_partition_metadata_with_attribute() {
+        let meta = PartitionMetadata::new(
+            PartitionKey::Domain("test.com".to_string()),
+            "label",
+            "/path",
+            vec![],
+        )
+        .with_attribute("key1", "value1");
+
+        assert_eq!(meta.attributes.get("key1"), Some(&"value1".to_string()));
+    }
+
+    #[test]
+    fn test_partition_metadata_with_multiple_attributes() {
+        let meta = PartitionMetadata::new(
+            PartitionKey::Domain("test.com".to_string()),
+            "label",
+            "/path",
+            vec![],
+        )
+        .with_attribute("key1", "value1")
+        .with_attribute("key2", "value2");
+
+        assert_eq!(meta.attributes.len(), 2);
+        assert_eq!(meta.attributes.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(meta.attributes.get("key2"), Some(&"value2".to_string()));
+    }
+
+    #[test]
+    fn test_partition_metadata_with_attributes_batch() {
+        let attrs = vec![
+            ("category", "scan"),
+            ("target", "192.168.1.1"),
+            ("protocol", "tcp"),
+        ];
+
+        let meta = PartitionMetadata::new(
+            PartitionKey::Target("host".to_string()),
+            "label",
+            "/path",
+            vec![],
+        )
+        .with_attributes(attrs);
+
+        assert_eq!(meta.attributes.len(), 3);
+        assert_eq!(meta.attributes.get("category"), Some(&"scan".to_string()));
+        assert_eq!(meta.attributes.get("target"), Some(&"192.168.1.1".to_string()));
+    }
+
+    #[test]
+    fn test_partition_metadata_with_last_refreshed() {
+        let now = SystemTime::now();
+        let meta = PartitionMetadata::new(
+            PartitionKey::Domain("test.com".to_string()),
+            "label",
+            "/path",
+            vec![],
+        )
+        .with_last_refreshed(now);
+
+        assert_eq!(meta.last_refreshed, Some(now));
+    }
+
+    #[test]
+    fn test_partition_metadata_multiple_segments() {
+        let segments = vec![
+            SegmentKind::Ports,
+            SegmentKind::Subdomains,
+            SegmentKind::Dns,
+            SegmentKind::Http,
+            SegmentKind::Tls,
+        ];
+
+        let meta = PartitionMetadata::new(
+            PartitionKey::Target("test".to_string()),
+            "label",
+            "/path",
+            segments.clone(),
+        );
+
+        assert_eq!(meta.segments.len(), 5);
+        assert!(meta.segments.contains(&SegmentKind::Ports));
+        assert!(meta.segments.contains(&SegmentKind::Tls));
+    }
+
+    // ==================== PartitionRegistry Tests ====================
+
+    #[test]
+    fn test_partition_registry_new() {
+        let registry = PartitionRegistry::new();
+        assert!(registry.snapshot().is_empty());
+    }
+
+    #[test]
+    fn test_partition_registry_upsert_new() {
+        let mut registry = PartitionRegistry::new();
+        let meta = PartitionMetadata::new(
+            PartitionKey::Target("test".to_string()),
+            "label",
+            "/path",
+            vec![],
+        );
+
+        registry.upsert(meta);
+
+        assert_eq!(registry.snapshot().len(), 1);
+    }
+
+    #[test]
+    fn test_partition_registry_upsert_update() {
+        let mut registry = PartitionRegistry::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        let meta1 = PartitionMetadata::new(key.clone(), "label1", "/path1", vec![]);
+        registry.upsert(meta1);
+
+        let meta2 = PartitionMetadata::new(key.clone(), "label2", "/path2", vec![]);
+        registry.upsert(meta2);
+
+        // Should still have only 1 entry (updated)
+        assert_eq!(registry.snapshot().len(), 1);
+        let snapshot = registry.snapshot();
+        assert_eq!(snapshot[0].label, "label2");
+        assert_eq!(snapshot[0].storage_path, PathBuf::from("/path2"));
+    }
+
+    #[test]
+    fn test_partition_registry_get() {
+        let mut registry = PartitionRegistry::new();
+        let key = PartitionKey::Domain("example.com".to_string());
+
+        registry.upsert(PartitionMetadata::new(
+            key.clone(),
+            "example",
+            "/path/example",
+            vec![SegmentKind::Ports],
+        ));
+
+        let result = registry.get(&key);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().label, "example");
+    }
+
+    #[test]
+    fn test_partition_registry_get_nonexistent() {
+        let registry = PartitionRegistry::new();
+        let key = PartitionKey::Domain("nonexistent.com".to_string());
+
+        assert!(registry.get(&key).is_none());
+    }
+
+    #[test]
+    fn test_partition_registry_filter() {
+        let mut registry = PartitionRegistry::new();
+
+        registry.upsert(
+            PartitionMetadata::new(
+                PartitionKey::Target("target1".to_string()),
+                "target1",
+                "/p1",
+                vec![SegmentKind::Ports],
+            )
+            .with_attribute("category", "scan"),
+        );
+
+        registry.upsert(
+            PartitionMetadata::new(
+                PartitionKey::Target("target2".to_string()),
+                "target2",
+                "/p2",
+                vec![SegmentKind::Dns],
+            )
+            .with_attribute("category", "recon"),
+        );
+
+        registry.upsert(
+            PartitionMetadata::new(
+                PartitionKey::Target("target3".to_string()),
+                "target3",
+                "/p3",
+                vec![SegmentKind::Ports, SegmentKind::Dns],
+            )
+            .with_attribute("category", "scan"),
+        );
+
+        let scan_partitions = registry.filter(|meta| {
+            meta.attributes.get("category") == Some(&"scan".to_string())
+        });
+
+        assert_eq!(scan_partitions.len(), 2);
+    }
+
+    #[test]
+    fn test_partition_registry_merge_attributes() {
+        let mut registry = PartitionRegistry::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        registry.upsert(
+            PartitionMetadata::new(key.clone(), "label", "/path", vec![])
+                .with_attribute("initial", "value"),
+        );
+
+        registry.merge_attributes(&key, vec![
+            ("new_key".to_string(), "new_value".to_string()),
+            ("another".to_string(), "attr".to_string()),
+        ]);
+
+        let meta = registry.get(&key).unwrap();
+        assert_eq!(meta.attributes.len(), 3);
+        assert_eq!(meta.attributes.get("initial"), Some(&"value".to_string()));
+        assert_eq!(meta.attributes.get("new_key"), Some(&"new_value".to_string()));
+        assert!(meta.last_refreshed.is_some());
+    }
+
+    #[test]
+    fn test_partition_registry_merge_attributes_empty() {
+        let mut registry = PartitionRegistry::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        registry.upsert(PartitionMetadata::new(key.clone(), "label", "/path", vec![]));
+
+        // Empty merge should not change anything
+        registry.merge_attributes(&key, vec![]);
+
+        let meta = registry.get(&key).unwrap();
+        assert!(meta.attributes.is_empty());
+    }
+
+    #[test]
+    fn test_partition_registry_upsert_preserves_attributes() {
+        let mut registry = PartitionRegistry::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        registry.upsert(
+            PartitionMetadata::new(key.clone(), "label", "/path", vec![])
+                .with_attribute("preserved", "yes"),
+        );
+
+        // Upsert with empty attributes should preserve existing
+        registry.upsert(PartitionMetadata::new(key.clone(), "new_label", "/new_path", vec![]));
+
+        let meta = registry.get(&key).unwrap();
+        assert_eq!(meta.attributes.get("preserved"), Some(&"yes".to_string()));
+    }
+
+    // ==================== StorageService Tests ====================
+
+    #[test]
+    fn test_storage_service_global() {
+        let service1 = StorageService::global();
+        let service2 = StorageService::global();
+
+        // Should be the same instance
+        assert!(std::ptr::eq(service1, service2));
+    }
+
+    #[test]
+    fn test_storage_service_key_for_path() {
+        let key = StorageService::key_for_path("/some/path/file.db");
+        assert_eq!(key, PartitionKey::Custom("/some/path/file.db".to_string()));
+    }
+
+    #[test]
+    fn test_storage_service_partitions_empty() {
+        let service = StorageService::new();
+        assert!(service.partitions().is_empty());
+    }
+
+    #[test]
+    fn test_storage_service_register_partition() {
+        let service = StorageService::new();
+        let meta = PartitionMetadata::new(
+            PartitionKey::Target("test".to_string()),
+            "test",
+            "/test/path",
+            vec![SegmentKind::Ports],
+        );
+
+        service.register_partition(meta);
+
+        let partitions = service.partitions();
+        assert_eq!(partitions.len(), 1);
+        assert!(partitions[0].last_refreshed.is_some());
+    }
+
+    #[test]
+    fn test_storage_service_partition_lookup() {
+        let service = StorageService::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        service.register_partition(PartitionMetadata::new(
+            key.clone(),
+            "test",
+            "/test/path",
+            vec![],
+        ));
+
+        let result = service.partition(&key);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().label, "test");
+    }
+
+    #[test]
+    fn test_storage_service_partition_lookup_nonexistent() {
+        let service = StorageService::new();
+        let key = PartitionKey::Target("nonexistent".to_string());
+
+        assert!(service.partition(&key).is_none());
+    }
+
+    #[test]
+    fn test_storage_service_annotate_partition() {
+        let service = StorageService::new();
+        let key = PartitionKey::Target("test".to_string());
+
+        service.register_partition(PartitionMetadata::new(
+            key.clone(),
+            "test",
+            "/path",
+            vec![],
+        ));
+
+        service.annotate_partition(&key, vec![
+            ("annotation".to_string(), "value".to_string()),
+        ]);
+
+        let meta = service.partition(&key).unwrap();
+        assert_eq!(meta.attributes.get("annotation"), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_storage_service_annotate_nonexistent() {
+        let service = StorageService::new();
+        let key = PartitionKey::Target("nonexistent".to_string());
+
+        // Should not panic
+        service.annotate_partition(&key, vec![
+            ("key".to_string(), "value".to_string()),
+        ]);
+
+        // Should still be none
+        assert!(service.partition(&key).is_none());
+    }
+
+    #[test]
+    fn test_storage_service_ensure_target_partition() {
+        let service = StorageService::new();
+        let target = "192.168.1.1";
+
+        service.ensure_target_partition(target, "/path/to/db", None, None);
+
+        let key = PartitionKey::Target(target.to_string());
+        let meta = service.partition(&key).unwrap();
+
+        assert_eq!(meta.label, format!("target:{}", target));
+        assert_eq!(meta.attributes.get("category"), Some(&"target".to_string()));
+        assert_eq!(meta.attributes.get("target"), Some(&target.to_string()));
+        assert!(!meta.segments.is_empty()); // Default segments
+    }
+
+    #[test]
+    fn test_storage_service_ensure_target_partition_custom_segments() {
+        let service = StorageService::new();
+        let target = "test.com";
+
+        service.ensure_target_partition(
+            target,
+            "/path",
+            Some(vec![SegmentKind::Ports, SegmentKind::Tls]),
+            None,
+        );
+
+        let key = PartitionKey::Target(target.to_string());
+        let meta = service.partition(&key).unwrap();
+
+        assert_eq!(meta.segments.len(), 2);
+        assert!(meta.segments.contains(&SegmentKind::Ports));
+        assert!(meta.segments.contains(&SegmentKind::Tls));
+    }
+
+    #[test]
+    fn test_storage_service_ensure_target_partition_with_attrs() {
+        let service = StorageService::new();
+        let target = "test.com";
+
+        service.ensure_target_partition(
+            target,
+            "/path",
+            None,
+            Some(vec![
+                ("custom".to_string(), "attr".to_string()),
+                ("scan_type".to_string(), "full".to_string()),
+            ]),
+        );
+
+        let key = PartitionKey::Target(target.to_string());
+        let meta = service.partition(&key).unwrap();
+
+        assert_eq!(meta.attributes.get("custom"), Some(&"attr".to_string()));
+        assert_eq!(meta.attributes.get("scan_type"), Some(&"full".to_string()));
+    }
+
+    #[test]
+    fn test_storage_service_partitions_filtered() {
+        let service = StorageService::new();
+
+        service.register_partition(
+            PartitionMetadata::new(
+                PartitionKey::Target("t1".to_string()),
+                "t1",
+                "/t1",
+                vec![SegmentKind::Ports],
+            )
+            .with_attribute("type", "scan"),
+        );
+
+        service.register_partition(
+            PartitionMetadata::new(
+                PartitionKey::Target("t2".to_string()),
+                "t2",
+                "/t2",
+                vec![SegmentKind::Dns],
+            )
+            .with_attribute("type", "recon"),
+        );
+
+        let scan_partitions = service.partitions_filtered(|meta| {
+            meta.attributes.get("type") == Some(&"scan".to_string())
+        });
+
+        assert_eq!(scan_partitions.len(), 1);
+        assert_eq!(scan_partitions[0].label, "t1");
+    }
+
+    #[test]
+    fn test_storage_service_partitions_with_segment() {
+        let service = StorageService::new();
+
+        service.register_partition(PartitionMetadata::new(
+            PartitionKey::Target("t1".to_string()),
+            "t1",
+            "/t1",
+            vec![SegmentKind::Ports, SegmentKind::Dns],
+        ));
+
+        service.register_partition(PartitionMetadata::new(
+            PartitionKey::Target("t2".to_string()),
+            "t2",
+            "/t2",
+            vec![SegmentKind::Dns, SegmentKind::Tls],
+        ));
+
+        service.register_partition(PartitionMetadata::new(
+            PartitionKey::Target("t3".to_string()),
+            "t3",
+            "/t3",
+            vec![SegmentKind::Ports],
+        ));
+
+        let dns_partitions = service.partitions_with_segment(SegmentKind::Dns);
+        assert_eq!(dns_partitions.len(), 2);
+
+        let ports_partitions = service.partitions_with_segment(SegmentKind::Ports);
+        assert_eq!(ports_partitions.len(), 2);
+
+        let tls_partitions = service.partitions_with_segment(SegmentKind::Tls);
+        assert_eq!(tls_partitions.len(), 1);
+    }
+
+    #[test]
+    fn test_storage_service_partitions_with_attribute() {
+        let service = StorageService::new();
+
+        service.register_partition(
+            PartitionMetadata::new(
+                PartitionKey::Target("t1".to_string()),
+                "t1",
+                "/t1",
+                vec![],
+            )
+            .with_attribute("env", "prod"),
+        );
+
+        service.register_partition(
+            PartitionMetadata::new(
+                PartitionKey::Target("t2".to_string()),
+                "t2",
+                "/t2",
+                vec![],
+            )
+            .with_attribute("env", "dev"),
+        );
+
+        service.register_partition(
+            PartitionMetadata::new(
+                PartitionKey::Target("t3".to_string()),
+                "t3",
+                "/t3",
+                vec![],
+            )
+            .with_attribute("env", "prod"),
+        );
+
+        let prod_partitions = service.partitions_with_attribute("env", "prod");
+        assert_eq!(prod_partitions.len(), 2);
+
+        let dev_partitions = service.partitions_with_attribute("env", "dev");
+        assert_eq!(dev_partitions.len(), 1);
+
+        let staging_partitions = service.partitions_with_attribute("env", "staging");
+        assert!(staging_partitions.is_empty());
+    }
+
+    #[test]
+    fn test_storage_service_refresh_nonexistent_path() {
+        let service = StorageService::new();
+
+        let result = service.refresh_partition(
+            PartitionKey::Custom("test".to_string()),
+            "test".to_string(),
+            "/nonexistent/path/file.db",
+        );
+
+        // Should succeed (no-op for nonexistent files)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_storage_service_refresh_target_partition() {
+        let (_guard, path) = temp_db("refresh");
+
+        // Create a real database file
+        {
+            let mut db = RedDb::open(&path).unwrap();
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.flush().unwrap();
+        }
+
+        let service = StorageService::new();
+        let result = service.refresh_target_partition("test", &path);
+
+        assert!(result.is_ok());
+
+        let key = PartitionKey::Target("test".to_string());
+        let meta = service.partition(&key);
+        assert!(meta.is_some());
+        // Should have detected the Ports segment
+        assert!(!meta.unwrap().segments.is_empty());
+    }
+
+    #[test]
+    fn test_storage_service_inspect_segments() {
+        let (_guard, path) = temp_db("inspect");
+
+        // Create database with various segments
+        {
+            let mut db = RedDb::open(&path).unwrap();
+            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+            db.save_port_scan(ip, 22, PortStatus::Open).unwrap();
+            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.flush().unwrap();
+        }
+
+        let segments = StorageService::inspect_segments(&path).unwrap();
+
+        // Should detect ports segment
+        assert!(segments.contains(&SegmentKind::Ports));
+    }
+
+    #[test]
+    fn test_default_segments() {
+        // Verify DEFAULT_SEGMENTS contains all expected segment types
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Ports));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Subdomains));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Whois));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Tls));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Dns));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Http));
+        assert!(DEFAULT_SEGMENTS.contains(&SegmentKind::Host));
+    }
 }

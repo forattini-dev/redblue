@@ -133,12 +133,22 @@ Complete reference documentation for all redblue CLI domains.
 
 **Commands:** `rb exploit payload <verb>` ⚠️ **AUTHORIZED USE ONLY**
 
-- **[EXPLOIT.md](./EXPLOIT.md)** - Exploitation framework and post-exploitation ✨ NEW
+- **[EXPLOIT.md](./EXPLOIT.md)** - Exploitation framework and post-exploitation
   - Privilege escalation - `rb exploit payload privesc` (LinPEAS/WinPEAS) ✅
   - Reverse shells - `rb exploit payload shell` (11 shell types) ✅
   - Listener setup - `rb exploit payload listener` (nc, socat, metasploit) ✅
   - Lateral movement - `rb exploit payload lateral` (11 techniques) ✅
   - Persistence - `rb exploit payload persist` (8 mechanisms) ✅
+
+### Access & Sessions
+
+**Commands:** `rb access shell <verb>`
+
+- **[ACCESS.md](./ACCESS.md)** - Shell lifecycle management
+  - Session management - `rb access shell sessions` ✅
+  - Listeners - `rb access shell listen` (TCP/HTTP) ✅
+  - Interaction - `rb access shell connect` ✅
+  - HTTP C2 - `rb access shell create --protocol http` ✅
 
 <div align="right">
 
@@ -170,6 +180,15 @@ Complete reference documentation for all redblue CLI domains.
   - HTTP load testing - `rb bench load test` (wrk/k6 style, planned)
   - Performance profiling
   - Stress testing
+
+### MCP Integration
+
+**Commands:** `rb mcp server <verb>`
+
+- **[MCP.md](./MCP.md)** - Model Context Protocol server
+  - AI Integration - `rb mcp server start` ✅
+  - Semantic Search - Docs and resource search ✅
+  - Tool Exposure - `rb.scan_ports`, `rb.lookup_dns`, etc. ✅
 
 ---
 
@@ -206,12 +225,13 @@ Complete reference documentation for all redblue CLI domains.
 4. HTTP server → [WEB.md](./WEB.md)
 5. OSINT data harvesting → [RECON.md](./RECON.md) ✅
 
-### Exploitation & Post-Exploitation ✨ NEW
+### Exploitation & Access
 1. Privilege escalation → [EXPLOIT.md](./EXPLOIT.md) ✅
 2. Reverse shell generation → [EXPLOIT.md](./EXPLOIT.md) ✅
-3. Listener setup → [EXPLOIT.md](./EXPLOIT.md) ✅
-4. Lateral movement → [EXPLOIT.md](./EXPLOIT.md) ✅
-5. Persistence mechanisms → [EXPLOIT.md](./EXPLOIT.md) ✅
+3. Listener setup → [ACCESS.md](./ACCESS.md) ✅
+4. Session management → [ACCESS.md](./ACCESS.md) ✅
+5. Lateral movement → [EXPLOIT.md](./EXPLOIT.md) ✅
+6. Persistence mechanisms → [EXPLOIT.md](./EXPLOIT.md) ✅
 
 ### Data Management
 1. Query scan results → [DATABASE.md](./DATABASE.md) ✅
@@ -293,11 +313,11 @@ Found an error or want to improve documentation?
 ---
 
 **Last Updated:** 2025-11-03
-**Version:** Phase 2 (90% Complete)
+**Version:** Phase 2 (95% Complete)
 
 ## 📊 Feature Status
 
-**Implemented Domains:** 10/13 (77%)
+**Implemented Domains:** 12/13 (92%)
 - ✅ NETWORK (ports, trace)
 - ✅ DNS (record)
 - ✅ WEB (asset)
@@ -305,12 +325,14 @@ Found an error or want to improve documentation?
 - ✅ TLS (security)
 - ✅ CLOUD (asset takeover)
 - ✅ EXPLOIT (payload)
+- ✅ ACCESS (shell)
 - ✅ DATABASE (data)
+- ✅ MCP (server)
 - ⏳ CODE (planned)
 - ⏳ COLLECTION (planned)
 - ⏳ BENCH (planned)
 
-**Total Commands:** 30+ commands across 10 domains
+**Total Commands:** 35+ commands across 12 domains
 
 **Tool Replacements:** 30+ security tools replaced by redblue
 - nmap, masscan, traceroute, mtr

@@ -159,6 +159,7 @@ rb recon domain subdomains <domain> [FLAGS]
 
 **Flags:**
 - `-p, --passive` - Passive enumeration only (Certificate Transparency logs)
+- `--filter-wildcards` - Enable wildcard detection and filtering
 - `-r, --recursive` - Recursive subdomain enumeration
 - `-w, --wordlist <file>` - Custom wordlist path for DNS bruteforce
 - `-t, --threads <n>` - Number of threads for DNS bruteforce
@@ -196,6 +197,9 @@ rb recon domain subdomains example.com --passive
 
 # Custom wordlist and thread count
 rb recon domain subdomains example.com --wordlist subdomains.txt --threads 50
+
+# Filter wildcard DNS entries
+rb recon domain subdomains example.com --filter-wildcards
 
 # Recursive enumeration
 rb recon domain subdomains example.com --recursive
@@ -263,7 +267,79 @@ Discovered Subdomains (15)
 
 ---
 
-#### 3. `harvest` - OSINT Data Harvesting
+#### 3. `bruteforce` - DNS Subdomain Bruteforce
+
+Perform high-performance DNS subdomain bruteforce using custom wordlists and resolver pools.
+
+**Syntax:**
+```bash
+rb recon domain bruteforce <domain> --wordlist <file> [FLAGS]
+```
+
+**Arguments:**
+- `<domain>` - Target domain (required)
+
+**Flags:**
+- `--wordlist <file>` - Custom wordlist path for DNS bruteforce (required)
+- `--resolvers <list>` - Comma-separated DNS resolvers (e.g., `8.8.8.8,1.1.1.1`)
+- `--threads <n>` - Number of threads for concurrent queries
+  - Default: `20`
+- `--no-wildcard` - Disable wildcard DNS detection and filtering
+- `-o, --output <format>` - Output format: `text`, `json`, `yaml`
+  - Default: `text`
+- `--persist` - Save results to binary database (.rdb file)
+
+**Features:**
+- **Concurrent Resolver Pool**: Uses multiple DNS resolvers for speed and resilience.
+- **Wildcard Detection**: Automatically detects and filters wildcard DNS entries to reduce noise.
+- **Retry Logic**: Retries failed queries with exponential backoff.
+- **Custom Resolvers**: Allows specifying custom DNS servers.
+
+**Examples:**
+
+```bash
+# Basic DNS bruteforce with custom wordlist
+rb recon domain bruteforce example.com --wordlist subdomains_full.txt
+
+# Use custom resolvers and more threads
+rb recon domain bruteforce example.com --wordlist big.txt --resolvers 8.8.8.8,1.1.1.1,9.9.9.9 --threads 50
+
+# Disable wildcard filtering if desired (not recommended)
+rb recon domain bruteforce example.com --wordlist sub.txt --no-wildcard
+
+# JSON output
+rb recon domain bruteforce example.com --wordlist sub.txt -o json
+```
+
+**Sample Output (Text):**
+
+```
+🔍 DNS Bruteforce: example.com
+
+  Wordlist: 100000 entries
+  Threads: 20
+
+Detecting wildcards... ✓
+  ℹ️ Wildcard IPs detected: ["93.184.216.34"]
+
+Starting enumeration...
+
+Found 150 Subdomains
+────────────────────────────────────────────────────────────────────────────────
+SUBDOMAIN                                IP                  RESOLVER
+────────────────────────────────────────────────────────────────────────────────
+www.example.com                          93.184.216.34       8.8.8.8:53
+mail.example.com                         93.184.216.35       1.1.1.1:53
+api.example.com                          93.184.216.36       9.9.9.9:53
+dev.example.com                          93.184.216.37       8.8.8.8:53
+admin.example.com                        93.184.216.38       1.1.1.1:53
+blog.example.com                         93.184.216.39       9.9.9.9:53
+... (showing first 6, 144 more)
+```
+
+---
+
+#### 4. `harvest` - OSINT Data Harvesting
 
 Harvest OSINT data from multiple sources (emails, subdomains, IPs, URLs) using theHarvester-style techniques.
 
@@ -401,7 +477,7 @@ URLs (45)
 
 ---
 
-#### 4. `urls` - Historical URL Discovery
+#### 5. `urls` - Historical URL Discovery
 
 Harvest historical and current URLs from archives (Wayback Machine, URLScan, OTX, CommonCrawl) similar to waybackurls and gau.
 
@@ -543,7 +619,7 @@ CommonCrawl (5)
 
 ---
 
-#### 5. `osint` - Username OSINT (Coming Soon)
+#### 6. `osint` - Username OSINT
 
 Run username OSINT across multiple social platforms and services.
 
@@ -555,59 +631,106 @@ rb recon domain osint <username> [FLAGS]
 **Arguments:**
 - `<username>` - Target username (required)
 
-**Status:** ⏳ Phase 3 (Planned)
+**Status:** ✅ Implemented
 
-**Planned Features:**
-- Social media presence (Twitter, LinkedIn, GitHub, Instagram, Facebook)
-- Forums and communities (Reddit, HackerNews, Stack Overflow)
-- Gaming platforms (Steam, Xbox, PlayStation)
-- Code repositories (GitHub, GitLab, Bitbucket)
-- Professional networks (LinkedIn, AngelList, Crunchbase)
+**Features:**
+- Social media presence (Twitter, LinkedIn, GitHub, Instagram, Facebook, etc.)
+- Recursive discovery of linked usernames/mentions
+- Extraction of profile details (bio, followers, location)
 
-**Examples (Planned):**
+**Examples:**
 
 ```bash
 # Search for username across platforms
 rb recon domain osint johndoe
 
+# Recursive discovery up to 2 levels deep
+rb recon domain osint johndoe --recursive --depth 2
+
 # JSON output
 rb recon domain osint johndoe -o json
 ```
 
+**Sample Output (Text):**
+
+```
+👤 Username OSINT: johndoe
+
+Found 5 profiles
+  ✓ Twitter - @johndoe (1234 followers) - https://x.com/johndoe
+  ✓ GitHub - @johndoe - https://github.com/johndoe
+  ✓ LinkedIn - @johndoe - https://www.linkedin.com/in/johndoe
+  ✗ Instagram - @johndoe (not found)
+  ✓ Medium - @johndoe - https://medium.com/@johndoe
+
+Discovered linked usernames (2)
+  - @johndoetech
+  - @johndoe_dev
+```
+
 ---
 
-#### 6. `email` - Email Reconnaissance (Coming Soon)
+#### 7. `email` - Email Reconnaissance
 
 Email address reconnaissance and validation.
 
 **Syntax:**
 ```bash
-rb recon domain email <email> [FLAGS]
+rb recon domain email <email|domain> [FLAGS]
 ```
 
 **Arguments:**
-- `<email>` - Target email address (required)
+- `<email|domain>` - Target email address or domain (required)
 
-**Status:** ⏳ Phase 3 (Planned)
+**Status:** ✅ Implemented
 
-**Planned Features:**
+**Features:**
 - Email validation (syntax, MX records, SMTP verification)
+- Email permutation (generate variations like `john.doe@domain.com`)
 - Breach database lookup (HaveIBeenPwned integration)
-- Email enumeration (hunter.io style)
-- Domain email patterns
-- Social media association
+- Email correlation (find emails associated with a domain)
 
-**Examples (Planned):**
+**Flags:**
+- `--validate` - Perform SMTP validation for an email address
+- `--generate-permutations <first> <last>` - Generate permutations for a name on a domain
+- `--check-breaches` - Check if email found in data breaches (requires HIBP API key in config)
+- `--correlate` - Correlate emails for a given domain
+
+**Examples:**
 
 ```bash
 # Check email validity
-rb recon domain email john@example.com
+rb recon domain email john.doe@example.com --validate
 
-# Check breach databases
-rb recon domain email john@example.com --check-breaches
+# Generate email permutations for a full name and domain
+rb recon domain email example.com --generate-permutations "John Doe"
 
-# Enumerate company emails
-rb recon domain email @example.com --enumerate
+# Correlate emails for a domain
+rb recon domain email example.com --correlate
+
+# Check breach databases for an email
+rb recon domain email john.doe@example.com --check-breaches --hibp-key YOUR_KEY
+
+# JSON output for correlation
+rb recon domain email example.com --correlate -o json
+```
+
+**Sample Output (Text):**
+
+```
+✉️ Email Reconnaissance: john.doe@example.com
+
+  Target Email: john.doe@example.com
+
+  Validation: ✓ Valid (MX records found, SMTP check passed)
+
+Breach Check: ✗ Not found in known breaches
+
+Correlated Emails for example.com:
+  - info@example.com
+  - support@example.com
+  - john.doe@example.com
+  - j.doe@example.com
 ```
 
 ---
@@ -737,8 +860,8 @@ The RECON domain replaces or complements these traditional tools:
 | **waybackurls** | `rb recon domain urls` | Wayback Machine URL scraping |
 | **gau** | `rb recon domain urls` | Get All URLs from multiple sources |
 | **assetfinder** | `rb recon domain subdomains` | Asset discovery |
-| **sherlock** | `rb recon domain osint` (planned) | Username OSINT |
-| **h8mail** | `rb recon domain email` (planned) | Email recon |
+| **sherlock** | `rb recon domain osint` (Implemented) | Username OSINT |
+| **h8mail** | `rb recon domain email` (Implemented) | Email recon |
 
 ---
 
