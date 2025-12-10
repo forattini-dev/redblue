@@ -17,8 +17,8 @@ apt-get install nmap masscan nikto ffuf subfinder amass...
 **redblue approach:**
 ```bash
 # One binary, does everything
-curl -fsSL https://install.redblue.dev | bash
-# Total size: 2.7MB
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+# Total size: ~3MB
 # Consistent kubectl-style CLI
 ```
 
