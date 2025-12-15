@@ -204,13 +204,21 @@ impl DnsCache {
         let key = CacheKey::new(domain, rtype);
 
         if let Ok(mut entries) = self.entries.write() {
-            let entry = entries
-                .entry(key)
-                .or_insert_with(|| CacheEntry::new(rtype, ttl));
+            let mut is_new = false;
+            let entry = entries.entry(key).or_insert_with(|| {
+                is_new = true;
+                CacheEntry::new(rtype, ttl)
+            });
             entry.add_address(addr);
             // Update TTL if longer
             if ttl > entry.ttl {
                 entry.ttl = ttl.clamp(self.config.min_ttl, self.config.max_ttl);
+            }
+
+            if is_new {
+                if let Ok(mut stats) = self.stats.write() {
+                    stats.inserts += 1;
+                }
             }
         }
     }

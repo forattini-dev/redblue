@@ -241,7 +241,7 @@ impl BTree {
             return Err(BTreeError::ValueTooLarge(value.len()));
         }
 
-        let mut root_id = self.root_page_id();
+        let root_id = self.root_page_id();
 
         // Empty tree - create root leaf
         if root_id == 0 {

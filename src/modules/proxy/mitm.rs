@@ -757,7 +757,7 @@ impl MitmProxy {
 
         // Connect to target
         let target_addr = format!("{}:{}", hostname, port);
-        let mut target_stream = TcpStream::connect_timeout(
+        let target_stream = TcpStream::connect_timeout(
             &target_addr
                 .to_socket_addrs()?
                 .next()

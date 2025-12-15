@@ -1116,7 +1116,7 @@ impl NthExpr {
 
 impl Document {
     /// Select elements using a CSS selector
-    pub fn select(&self, selector: &str) -> Selection {
+    pub fn select(&self, selector: &str) -> Selection<'_> {
         match parse(selector) {
             Ok(sel) => sel.match_in(self),
             Err(_) => Selection::empty(),

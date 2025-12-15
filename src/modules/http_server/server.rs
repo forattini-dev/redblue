@@ -119,7 +119,7 @@ impl HttpServerConfig {
     }
 
     /// Set index file
-    pub fn index_file(mut self, _name: &str) -> Self {
+    pub fn index_file(self, _name: &str) -> Self {
         // Index file is always index.html for now
         self
     }

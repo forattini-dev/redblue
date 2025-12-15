@@ -408,7 +408,7 @@ impl TuiApp {
             tx.send(Event::Log(format!("Running: rb {}", args.join(" "))))
                 .ok();
 
-            let mut child = ProcessCommand::new(exe)
+            let child = ProcessCommand::new(exe)
                 .args(&args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -830,7 +830,7 @@ impl TuiApp {
 
                         // Simplified ANSI parser for this thread
                         // We can reuse the logic from the original handle_input but adapted
-                        let mut seq = vec![ch];
+                        let seq = vec![ch];
                         // We'll optimistically read a few bytes if available
                         // Since we can't peek, this is tricky without "crossterm".
                         // Hack: Just assume manual ESC press is rare and fast,
@@ -844,7 +844,7 @@ impl TuiApp {
                         // but that's acceptable for the input thread.
 
                         // Read next byte
-                        let mut next = [0u8; 1];
+                        let next = [0u8; 1];
                         // We assume if it's a sequence, bytes are ready.
                         // Real raw mode might need poll/select.
                         // Given "ZERO dependencies", we'll try a best effort.

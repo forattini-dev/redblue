@@ -22,7 +22,7 @@ pub struct ZipReader<R: Read> {
 }
 
 impl<R: Read> ZipReader<R> {
-    pub fn new(mut reader: R) -> io::Result<Self> {
+    pub fn new(reader: R) -> io::Result<Self> {
         // Find Central Directory End Record (EOCD) to locate Central Directory
         // For simplicity, we assume small files and read from start.
         // A robust reader would start from end to find EOCD.

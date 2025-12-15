@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn test_scanner_creation_defaults() {
         let scanner = PortScanner::new(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        assert_eq!(scanner.timeout_ms, 1000);
+        assert_eq!(scanner.timeout_ms, 5000);
         assert_eq!(scanner.threads, 100);
     }
 

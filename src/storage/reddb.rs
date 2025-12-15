@@ -39,55 +39,55 @@ impl RedDb {
         Database::is_encrypted_file(path)
     }
 
-    pub fn ports(&mut self) -> PortScanTable {
+    pub fn ports(&mut self) -> PortScanTable<'_> {
         PortScanTable::new(&mut self.store)
     }
 
-    pub fn subdomains(&mut self) -> SubdomainTable {
+    pub fn subdomains(&mut self) -> SubdomainTable<'_> {
         SubdomainTable::new(&mut self.store)
     }
 
-    pub fn whois(&mut self) -> WhoisTable {
+    pub fn whois(&mut self) -> WhoisTable<'_> {
         WhoisTable::new(&mut self.store)
     }
 
-    pub fn tls(&mut self) -> TlsScanTable {
+    pub fn tls(&mut self) -> TlsScanTable<'_> {
         TlsScanTable::new(&mut self.store)
     }
 
-    pub fn dns(&mut self) -> DnsTable {
+    pub fn dns(&mut self) -> DnsTable<'_> {
         DnsTable::new(&mut self.store)
     }
 
-    pub fn http(&mut self) -> HttpTable {
+    pub fn http(&mut self) -> HttpTable<'_> {
         HttpTable::new(&mut self.store)
     }
 
-    pub fn hosts(&mut self) -> HostIntelTable {
+    pub fn hosts(&mut self) -> HostIntelTable<'_> {
         HostIntelTable::new(&mut self.store)
     }
 
-    pub fn proxy(&mut self) -> ProxyTable {
+    pub fn proxy(&mut self) -> ProxyTable<'_> {
         ProxyTable::new(&mut self.store)
     }
 
-    pub fn mitre(&mut self) -> MitreTable {
+    pub fn mitre(&mut self) -> MitreTable<'_> {
         MitreTable::new(&mut self.store)
     }
 
-    pub fn iocs(&mut self) -> IocTable {
+    pub fn iocs(&mut self) -> IocTable<'_> {
         IocTable::new(&mut self.store)
     }
 
-    pub fn vulns(&mut self) -> VulnTable {
+    pub fn vulns(&mut self) -> VulnTable<'_> {
         VulnTable::new(&mut self.store)
     }
 
-    pub fn sessions(&mut self) -> SessionTable {
+    pub fn sessions(&mut self) -> SessionTable<'_> {
         SessionTable::new(&mut self.store)
     }
 
-    pub fn playbooks(&mut self) -> PlaybookTable {
+    pub fn playbooks(&mut self) -> PlaybookTable<'_> {
         PlaybookTable::new(&mut self.store)
     }
 

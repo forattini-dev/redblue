@@ -334,7 +334,7 @@ impl HpackDecoder {
         }
 
         let max_prefix = ((1 << n) - 1) as usize;
-        let mask = (max_prefix as u8);
+        let mask = max_prefix as u8;
 
         let mut value = (data[0] & mask) as usize;
 

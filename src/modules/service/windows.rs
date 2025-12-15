@@ -96,7 +96,7 @@ impl WindowsServiceManager {
         // Create scheduled task using schtasks
         let task_name = format!("redblue\\{}", config.name);
 
-        let mut schtasks_args = vec![
+        let schtasks_args = vec![
             "/Create".to_string(),
             "/TN".to_string(),
             task_name.clone(),

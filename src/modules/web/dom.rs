@@ -241,7 +241,7 @@ impl Document {
 
     /// Parse HTML string into a Document
     pub fn parse(html: &str) -> Self {
-        let mut parser = HtmlParser::new(html);
+        let parser = HtmlParser::new(html);
         parser.parse()
     }
 
@@ -967,15 +967,15 @@ impl<'a> Selection<'a> {
 impl Document {
     /// Select all elements matching a selector (basic implementation)
     /// Full CSS selector support is in the selector module
-    pub fn select_by_tag(&self, tag: &str) -> Selection {
+    pub fn select_by_tag(&self, tag: &str) -> Selection<'_> {
         Selection::new(self.get_elements_by_tag(tag))
     }
 
-    pub fn select_by_class(&self, class: &str) -> Selection {
+    pub fn select_by_class(&self, class: &str) -> Selection<'_> {
         Selection::new(self.get_elements_by_class(class))
     }
 
-    pub fn select_by_id(&self, id: &str) -> Selection {
+    pub fn select_by_id(&self, id: &str) -> Selection<'_> {
         Selection::new(self.get_element_by_id(id).into_iter().collect::<Vec<_>>())
     }
 }

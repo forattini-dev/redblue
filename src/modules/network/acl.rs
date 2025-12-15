@@ -253,17 +253,17 @@ mod tests {
     fn test_deny_priority() {
         let mut acl = Acl::whitelist();
 
+        // Deny specific IP within allowed range (Exceptions must come first)
+        acl.deny_ip(IpAddr::from_str("192.168.1.100").unwrap());
+
         // Allow 192.168.1.0/24
         acl.allow_cidr(IpAddr::from_str("192.168.1.0").unwrap(), 24);
-
-        // Deny specific IP within allowed range
-        acl.deny_ip(IpAddr::from_str("192.168.1.100").unwrap());
 
         // Should allow most IPs in range
         assert!(acl.is_allowed(IpAddr::from_str("192.168.1.1").unwrap()));
         assert!(acl.is_allowed(IpAddr::from_str("192.168.1.50").unwrap()));
 
-        // Should deny specific IP (deny rule comes after allow)
+        // Should deny specific IP (deny rule comes first)
         assert!(!acl.is_allowed(IpAddr::from_str("192.168.1.100").unwrap()));
     }
 }

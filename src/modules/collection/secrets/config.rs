@@ -20,7 +20,7 @@ impl SecretsConfig {
     }
 
     /// Minimal TOML parser for SecretsConfig.
-    /// Handles basic key = "value" and key = [ "value1", "value2" ]
+    /// Handles basic key = "value" and key = [ "value1", "value2" ] (multi-line supported)
     fn parse_toml(content: &str) -> Result<Self, String> {
         let mut config = Self::default();
         let mut current_array_key: Option<String> = None;
@@ -32,25 +32,30 @@ impl SecretsConfig {
                 continue;
             }
 
-            // Handle array values: key = [ "value1", "value2" ]
-            if trimmed.contains(" = [") {
-                if let Some((key, value_str)) = trimmed.split_once(" = [") {
-                    let key = key.trim().to_string();
-                    let values: Vec<String> = value_str
-                        .trim_end_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').to_string())
-                        .collect();
-
-                    match key.as_str() {
-                        "exclude_patterns" => config.exclude_patterns = values,
-                        "exclude_dirs" => config.exclude_dirs = values,
-                        "allowlist" => config.allowlist = values,
-                        _ => {}
-                    }
+            // Handle multi-line array continuation
+            if let Some(key) = &current_array_key {
+                if trimmed == "]" || trimmed.starts_with(']') {
                     current_array_key = None;
                     continue;
                 }
+                // Parse array item "value", or "value"
+                let val = trimmed.trim_end_matches(',').trim_matches('"').to_string();
+                if !val.is_empty() {
+                    match key.as_str() {
+                        "exclude_patterns" => config.exclude_patterns.push(val),
+                        "exclude_dirs" => config.exclude_dirs.push(val),
+                        "allowlist" => config.allowlist.push(val),
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            // Handle start of array: key = [
+            if trimmed.ends_with(" = [") {
+                let key = trimmed.trim_end_matches(" = [").trim().to_string();
+                current_array_key = Some(key);
+                continue;
             }
 
             // Handle key = value
@@ -64,7 +69,6 @@ impl SecretsConfig {
                     "max_file_size_mb" => config.max_file_size_mb = value.parse().ok(),
                     _ => {}
                 }
-                current_array_key = None;
             }
         }
         Ok(config)

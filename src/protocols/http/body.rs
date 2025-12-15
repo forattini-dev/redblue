@@ -59,6 +59,9 @@ pub fn chunked_body_complete(data: &[u8]) -> bool {
         index = line_end + 2;
         if chunk_size == 0 {
             let trailer = &data.get(index..).unwrap_or(&[]);
+            if trailer.starts_with(b"\r\n") {
+                return true;
+            }
             if let Some(pos) = trailer.windows(4).position(|w| w == b"\r\n\r\n") {
                 return index + pos + 4 <= data.len();
             }

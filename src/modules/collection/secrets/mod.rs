@@ -342,15 +342,22 @@ impl SecretScanner {
 
     /// Simple regex matching (basic implementation)
     fn simple_regex_match(&self, pattern: &str, text: &str) -> bool {
-        // Handle end-of-line anchor
-        if pattern.ends_with('$') {
-            let pattern = &pattern[..pattern.len() - 1];
-            return text.ends_with(pattern.trim_start_matches(r"\\."));
+        let mut clean_pattern = pattern.to_string();
+        let mut check_end = false;
+
+        if clean_pattern.ends_with('$') {
+            check_end = true;
+            clean_pattern.pop();
         }
 
-        // Handle literal dot escaping
-        let pattern = pattern.replace(r"\\.", ".");
-        text.contains(&pattern)
+        // Replace all escaped dots with literal dots
+        let clean_pattern = clean_pattern.replace(r"\.", ".");
+
+        if check_end {
+            text.ends_with(&clean_pattern)
+        } else {
+            text.contains(&clean_pattern)
+        }
     }
 
     /// Scan a single file for secrets

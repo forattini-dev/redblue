@@ -80,7 +80,7 @@ impl BreachChecker {
             urlencoded(email)
         );
 
-        let mut headers = vec![("hibp-api-key", self.hibp_api_key.as_deref().unwrap_or(""))];
+        let headers = vec![("hibp-api-key", self.hibp_api_key.as_deref().unwrap_or(""))];
 
         if self.hibp_api_key.is_none() {
             // Without API key, HIBP returns 401

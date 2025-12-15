@@ -336,7 +336,7 @@ impl PersistenceManager {
     }
 
     /// Commit and finalize database
-    pub fn commit(mut self) -> Result<Option<PathBuf>, String> {
+    pub fn commit(self) -> Result<Option<PathBuf>, String> {
         if let Some(mut db) = self.db {
             db.flush().map_err(|e| format!("Database error: {}", e))?;
             if let Some(path) = &self.db_path {

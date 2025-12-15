@@ -226,7 +226,7 @@ impl SqliteReader {
                         let cell_ptr =
                             u16::from_be_bytes([page[ptr_offset], page[ptr_offset + 1]]) as usize;
 
-                        let mut pos = cell_ptr;
+                        let pos = cell_ptr;
                         let left_child = u32::from_be_bytes([
                             page[pos],
                             page[pos + 1],

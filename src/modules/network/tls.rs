@@ -2254,7 +2254,7 @@ impl TlsStream {
         key_array.copy_from_slice(enc_key);
 
         let explicit_iv_mode = matches!(self.config.version, TlsVersion::Tls11 | TlsVersion::Tls12);
-        let (ciphertext, mut iv_array_opt) = if explicit_iv_mode {
+        let (ciphertext, iv_array_opt) = if explicit_iv_mode {
             if payload.len() < 16 {
                 return Err("TLS record payload too short for explicit IV".to_string());
             }
@@ -2275,7 +2275,7 @@ impl TlsStream {
             (payload, Some(iv_array))
         };
 
-        let mut iv_array = iv_array_opt.expect("IV should always be set");
+        let iv_array = iv_array_opt.expect("IV should always be set");
         if ciphertext.is_empty() {
             return Err("TLS record missing ciphertext".to_string());
         }

@@ -435,7 +435,7 @@ impl CmsDetector {
         // Find CMS with highest score
         if let Some((cms, score)) = scores.iter().max_by_key(|(_, s)| *s) {
             result.cms_type = *cms;
-            result.confidence = ((*score).min(100) as u8);
+            result.confidence = (*score).min(100) as u8;
             result.methods = methods.get(cms).cloned().unwrap_or_default();
 
             // Try to detect version

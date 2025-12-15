@@ -65,7 +65,7 @@ static mut COMMAND_REGISTRY: Option<CommandRegistry> = None;
 
 impl CommandRegistry {
     fn new() -> Self {
-        let mut commands: Vec<Box<dyn Command>> = vec![
+        let commands: Vec<Box<dyn Command>> = vec![
             Box::new(access::AccessCommand), // ✅ Remote access - rb access shell create
             Box::new(agent::AgentCommand),   // ✅ C2 Agent
             Box::new(attack::AttackCommand), // ✅ Attack workflow - plan, run, playbooks

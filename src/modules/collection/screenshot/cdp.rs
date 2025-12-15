@@ -156,7 +156,7 @@ impl CdpClient {
         stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
 
         // Perform WebSocket handshake
-        let mut stream = self.websocket_handshake(stream, &host, &path)?;
+        let stream = self.websocket_handshake(stream, &host, &path)?;
 
         self.stream = Some(stream);
 

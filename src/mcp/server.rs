@@ -1961,7 +1961,7 @@ impl McpServer {
         let _ = kev_client.enrich_vulnerability(&mut vuln);
 
         // Enrich with exploit info
-        let mut exploit_client = ExploitDbClient::new();
+        let exploit_client = ExploitDbClient::new();
         let _ = exploit_client.enrich_vulnerability(&mut vuln);
 
         // Calculate risk score
@@ -2105,7 +2105,7 @@ impl McpServer {
             .map(|n| n as usize)
             .unwrap_or(10);
 
-        let mut exploit_client = ExploitDbClient::new();
+        let exploit_client = ExploitDbClient::new();
         let exploits = exploit_client.search(query)?;
 
         let exploits_json: Vec<JsonValue> = exploits
@@ -2171,7 +2171,7 @@ impl McpServer {
         let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("nvd");
 
         // Fingerprint the URL
-        let mut fingerprinter = WebFingerprinter::new();
+        let fingerprinter = WebFingerprinter::new();
         let result = fingerprinter.fingerprint(url)?;
         let techs = &result.technologies;
 

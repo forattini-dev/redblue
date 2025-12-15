@@ -152,7 +152,7 @@ impl ReconUsernameCommand {
         };
 
         // Build config
-        let mut config = OsintConfig {
+        let config = OsintConfig {
             timeout: Duration::from_millis(timeout),
             threads,
             delay: Duration::from_millis(50),

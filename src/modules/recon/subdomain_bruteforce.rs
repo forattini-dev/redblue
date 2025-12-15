@@ -124,7 +124,7 @@ impl SubdomainBruteforcer {
 
     /// Get a healthy resolver round-robin
     fn get_resolver(&self, index: usize) -> Option<String> {
-        let mut resolvers = self.resolvers.lock().unwrap();
+        let resolvers = self.resolvers.lock().unwrap();
         let count = resolvers.len();
         if count == 0 {
             return None;
@@ -179,7 +179,7 @@ impl SubdomainBruteforcer {
             let handle = thread::spawn(move || {
                 // Helper to get resolver inside thread
                 let get_res = |idx: usize| -> Option<String> {
-                    let mut resolvers = resolvers_arc.lock().unwrap();
+                    let resolvers = resolvers_arc.lock().unwrap();
                     let count = resolvers.len();
                     for i in 0..count {
                         let idx = (idx + i) % count;
@@ -212,7 +212,7 @@ impl SubdomainBruteforcer {
                             match client.query(&subdomain, DnsRecordType::A) {
                                 Ok(answers) => {
                                     let mut ips = Vec::new();
-                                    let mut cnames = Vec::new();
+                                    let cnames = Vec::new();
 
                                     for ans in answers {
                                         if let Some(ip) = ans.as_ip() {
