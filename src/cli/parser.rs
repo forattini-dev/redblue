@@ -100,17 +100,28 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     }
 
     // Parse positional arguments following CLAUDE.md pattern:
-    // rb [domain] [resource] [verb] [target] [args...]
+    // rb [domain] [verb] [resource] [target] [args...]
+    // But also support fallback: rb [domain] [resource] [verb] [target]
     if !positionals.is_empty() {
         ctx.domain = Some(positionals[0].clone());
     }
 
     if positionals.len() > 1 {
-        ctx.resource = Some(positionals[1].clone());
-    }
-
-    if positionals.len() > 2 {
-        ctx.verb = Some(positionals[2].clone());
+        let arg1 = &positionals[1];
+        // Check if arg1 is a known verb
+        if RESTFUL_VERBS.contains(&arg1.as_str()) {
+            // Pattern: domain verb resource
+            ctx.verb = Some(arg1.clone());
+            if positionals.len() > 2 {
+                ctx.resource = Some(positionals[2].clone());
+            }
+        } else {
+            // Pattern: domain resource verb (fallback)
+            ctx.resource = Some(arg1.clone());
+            if positionals.len() > 2 {
+                ctx.verb = Some(positionals[2].clone());
+            }
+        }
     }
 
     if positionals.len() > 3 {
@@ -124,6 +135,8 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     if let Some(config) = cached_config {
         apply_config_defaults(&mut ctx, config);
     }
+
+    println!("DEBUG: parsed args -> domain: {:?}, resource: {:?}, verb: {:?}, target: {:?}", ctx.domain, ctx.resource, ctx.verb, ctx.target);
 
     Ok(ctx)
 }
