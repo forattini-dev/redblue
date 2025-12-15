@@ -363,9 +363,9 @@ impl Poly1305 {
 
         let mut carry = 5u64;
         for i in 0..5 {
-            carry += acc[i] as u64 - (mask as u64);
+            carry = carry.wrapping_add(acc[i] as u64).wrapping_sub(mask as u64);
             acc[i] = carry as u32;
-            carry = (carry >> 32) + !0u64;
+            carry = (carry >> 32).wrapping_add(!0u64);
         }
     }
 }
