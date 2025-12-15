@@ -75,8 +75,8 @@ rb web asset scrape http://example.com --select "h1, h2, h3"
 rb web asset crawl http://example.com --har crawl.har
 
 # Vulnerability intelligence
-rb vuln intel search nginx 1.18.0
-rb vuln intel cve CVE-2021-44228
+rb intel vuln search nginx 1.18.0
+rb intel vuln cve CVE-2021-44228
 
 # Crypto vault
 rb crypto vault encrypt secrets.txt
@@ -209,27 +209,27 @@ The built-in CPE (Common Platform Enumeration) dictionary maps 60+ technologies 
 
 ```bash
 # Search vulnerabilities for a technology
-rb vuln intel search nginx
-rb vuln intel search nginx 1.18.0                    # With version
-rb vuln intel search lodash --source osv --ecosystem npm  # OSV for packages
+rb intel vuln search nginx
+rb intel vuln search nginx 1.18.0                    # With version
+rb intel vuln search lodash --source osv --ecosystem npm  # OSV for packages
 
 # Get detailed CVE information
-rb vuln intel cve CVE-2021-44228                     # Log4Shell details
-rb vuln intel cve CVE-2024-3400                      # With exploit enrichment
+rb intel vuln cve CVE-2021-44228                     # Log4Shell details
+rb intel vuln cve CVE-2024-3400                      # With exploit enrichment
 
 # Check CISA KEV catalog
-rb vuln intel kev --stats                            # Catalog statistics
-rb vuln intel kev --vendor Microsoft                 # Filter by vendor
-rb vuln intel kev --product "Windows Server"         # Filter by product
+rb intel vuln kev --stats                            # Catalog statistics
+rb intel vuln kev --vendor Microsoft                 # Filter by vendor
+rb intel vuln kev --product "Windows Server"         # Filter by product
 
 # Search Exploit-DB
-rb vuln intel exploit "Apache Struts"
-rb vuln intel exploit "privilege escalation linux"
+rb intel vuln exploit "Apache Struts"
+rb intel vuln exploit "privilege escalation linux"
 
 # List CPE mappings
-rb vuln intel cpe                                    # All mappings
-rb vuln intel cpe --category webserver               # By category
-rb vuln intel cpe --search nginx                     # Search
+rb intel vuln cpe                                    # All mappings
+rb intel vuln cpe --category webserver               # By category
+rb intel vuln cpe --search nginx                     # Search
 ```
 
 ### Example Output

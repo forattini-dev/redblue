@@ -675,33 +675,39 @@ impl SecretScanner {
     /// Extract key=value or key: value patterns
     fn extract_key_value(&self, text: &str, keyword: &str) -> Option<Vec<(usize, String)>> {
         let mut matches = Vec::new();
-        let text_lower = text.to_lowercase();
+        let keyword_len = keyword.len();
 
-        // Find all occurrences of the keyword
-        for (i, _) in text_lower.match_indices(keyword) {
-            let rest = &text[i..];
+        // Use char_indices to safely iterate through valid character boundaries
+        for (i, _) in text.char_indices() {
+            // Check if the substring starting at i matches the keyword case-insensitively
+            // text.get(i..i+len) returns None if the end index is not a char boundary
+            if let Some(candidate) = text.get(i..i + keyword_len) {
+                if candidate.eq_ignore_ascii_case(keyword) {
+                    let rest = &text[i..];
 
-            // Look for assignment operators
-            let after_keyword = &rest[keyword.len()..];
-            let trimmed = after_keyword.trim_start();
+                    // Look for assignment operators
+                    let after_keyword = &rest[keyword.len()..];
+                    let trimmed = after_keyword.trim_start();
 
-            if trimmed.is_empty() {
-                continue;
-            }
+                    if trimmed.is_empty() {
+                        continue;
+                    }
 
-            // Check for assignment operators: =, :, or quotes
-            let first_char = trimmed.chars().next().unwrap();
-            if first_char == '=' || first_char == ':' || first_char == '"' || first_char == '\'' {
-                let value_start = if first_char == '=' || first_char == ':' {
-                    trimmed[1..].trim_start()
-                } else {
-                    trimmed
-                };
+                    // Check for assignment operators: =, :, or quotes
+                    let first_char = trimmed.chars().next().unwrap();
+                    if first_char == '=' || first_char == ':' || first_char == '"' || first_char == '\'' {
+                        let value_start = if first_char == '=' || first_char == ':' {
+                            trimmed[1..].trim_start()
+                        } else {
+                            trimmed
+                        };
 
-                // Extract the value
-                let value = self.extract_quoted_or_unquoted_value(value_start);
-                if !value.is_empty() && value.len() >= 8 {
-                    matches.push((i, value));
+                        // Extract the value
+                        let value = self.extract_quoted_or_unquoted_value(value_start);
+                        if !value.is_empty() && value.len() >= 8 {
+                            matches.push((i, value));
+                        }
+                    }
                 }
             }
         }
