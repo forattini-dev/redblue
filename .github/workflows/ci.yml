@@ -16,6 +16,7 @@ jobs:
   quality:
     name: Quality Check (Fmt, Clippy, Check)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +48,7 @@ jobs:
   tests:
     name: Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
