@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
+use crate::protocols::tls_impersonator::TlsProfile;
+use boring::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
 
 mod body;
 pub mod pool;
@@ -100,6 +101,7 @@ pub struct HttpRequest {
     host: String,
     port: u16,
     scheme: Scheme,
+    pub tls_profile: Option<TlsProfile>,
 }
 
 impl HttpRequest {
@@ -126,6 +128,7 @@ impl HttpRequest {
             host: parsed.host,
             port: parsed.port,
             scheme: parsed.scheme,
+            tls_profile: None,
         }
     }
 
@@ -151,6 +154,11 @@ impl HttpRequest {
 
     pub fn with_header(mut self, key: &str, value: &str) -> Self {
         self.headers.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn with_tls_profile(mut self, profile: TlsProfile) -> Self {
+        self.tls_profile = Some(profile);
         self
     }
 
@@ -314,7 +322,8 @@ impl HttpRequest {
             body,
             host,
             port,
-            scheme: Scheme::Http, // Assume HTTP for incoming
+            scheme: Scheme::Http,
+            tls_profile: None,
         })
     }
 }
@@ -509,10 +518,12 @@ pub struct HttpDispatchOptions {
     pub max_response_bytes: Option<usize>,
     pub expect_continue: bool,
     pub max_retries: Option<usize>,
+    pub tls_profile: Option<TlsProfile>,
 }
 
 impl HttpDispatchOptions {
     pub fn new(request: HttpRequest) -> Self {
+        let tls_profile = request.tls_profile;
         let method = request.method.to_ascii_uppercase();
         Self {
             request,
@@ -524,6 +535,7 @@ impl HttpDispatchOptions {
             max_response_bytes: None,
             expect_continue: false,
             max_retries: None,
+            tls_profile,
         }
     }
 
@@ -580,6 +592,22 @@ pub struct HttpDispatcher {
     middlewares: Vec<Arc<dyn HttpMiddleware>>,
 }
 
+impl std::fmt::Debug for HttpDispatcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpDispatcher")
+            .field("request_delay_ms", &self.request_delay_ms)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("default_headers_timeout", &self.default_headers_timeout)
+            .field("default_body_timeout", &self.default_body_timeout)
+            .field("default_max_response_bytes", &self.default_max_response_bytes)
+            .field("default_max_retries", &self.default_max_retries)
+            .field("keep_alive_default", &self.keep_alive_default)
+            .field("pool", &self.pool)
+            .field("middlewares", &format!("{} middlewares", self.middlewares.len()))
+            .finish()
+    }
+}
+
 impl HttpDispatcher {
     pub fn new() -> Self {
         let cfg = config::get();
@@ -616,6 +644,12 @@ impl HttpDispatcher {
 
     pub fn with_middleware(mut self, middleware: Arc<dyn HttpMiddleware>) -> Self {
         self.middlewares.push(middleware);
+        self
+    }
+
+    /// Set the default max response bytes limit
+    pub fn with_max_response_bytes(mut self, limit: usize) -> Self {
+        self.default_max_response_bytes = limit;
         self
     }
 
@@ -850,6 +884,7 @@ impl HttpDispatcher {
     }
 }
 
+#[derive(Debug)]
 pub struct HttpClient {
     dispatcher: HttpDispatcher,
 }
@@ -868,6 +903,12 @@ impl HttpClient {
 
     pub fn with_keep_alive(mut self, keep_alive: bool) -> Self {
         self.dispatcher = self.dispatcher.with_keep_alive_default(keep_alive);
+        self
+    }
+
+    /// Set the maximum response bytes limit for all requests
+    pub fn with_max_response_bytes(mut self, limit: usize) -> Self {
+        self.dispatcher = self.dispatcher.with_max_response_bytes(limit);
         self
     }
 

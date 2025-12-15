@@ -1,6 +1,7 @@
 use crate::protocols::http::body::{analyze_headers, chunked_body_complete, BodyStrategy};
+use crate::protocols::tls_impersonator::TlsProfile;
 use crate::protocols::http::build_default_ssl_connector;
-use openssl::ssl::{Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion};
+use boring::ssl::{Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -11,6 +12,21 @@ use std::time::{Duration, Instant};
 pub enum PooledStream {
     Plain(TcpStream),
     Tls(SslStream<TcpStream>),
+}
+
+impl std::fmt::Debug for PooledStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PooledStream::Plain(stream) => f
+                .debug_struct("PooledStream::Plain")
+                .field("peer_addr", &stream.peer_addr().ok())
+                .finish(),
+            PooledStream::Tls(stream) => f
+                .debug_struct("PooledStream::Tls")
+                .field("peer_addr", &stream.get_ref().peer_addr().ok())
+                .finish(),
+        }
+    }
 }
 
 impl PooledStream {
@@ -64,12 +80,14 @@ impl Write for PooledStream {
     }
 }
 
+#[derive(Debug)]
 struct PooledConnection {
     stream: PooledStream,
     last_used: Instant,
 }
 
 /// Thread-safe connection pool keyed by host/port/protocol
+#[derive(Debug)]
 pub struct ConnectionPool {
     pools: Arc<Mutex<HashMap<String, Vec<PooledConnection>>>>,
     /// Cached SSL contexts per host (enables TLS session resumption)
@@ -99,7 +117,7 @@ impl ConnectionPool {
     }
 
     /// Get or create an SSL context for the given host with session caching enabled
-    fn get_or_create_ssl_context(&self, host: &str) -> Result<SslContext, String> {
+    fn get_or_create_ssl_context(&self, host: &str, profile: Option<TlsProfile>) -> Result<SslContext, String> {
         let mut contexts = self.ssl_contexts.lock().unwrap();
 
         if let Some(ctx) = contexts.get(host) {
@@ -158,7 +176,7 @@ impl ConnectionPool {
 
         if use_tls {
             // Use cached SSL context for session resumption
-            let ctx = self.get_or_create_ssl_context(host)?;
+            let ctx = self.get_or_create_ssl_context(host, None)?;
             let addr = format!("{}:{}", host, port);
             let tcp_stream = TcpStream::connect(&addr)
                 .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;

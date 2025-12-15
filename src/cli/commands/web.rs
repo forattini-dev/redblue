@@ -12,6 +12,7 @@ use crate::modules::web::linkfinder::{EndpointType, LinkFinder};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 use crate::protocols::har::{Har, HarRecorder};
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
+use crate::protocols::tls_impersonator::TlsProfile;
 use crate::protocols::http2::{
     Header, Http2Dispatcher, Http2LoggingMiddleware, Http2Request, Http2Response,
     Http2ResponseHandler,
@@ -202,6 +203,7 @@ impl Command for WebCommand {
                 .with_short('t')
                 .with_default("10"),
             Flag::new("user-agent", "Custom User-Agent header").with_short('u'),
+            Flag::new("impersonate", "Impersonate a browser profile (chrome, firefox, safari)").with_short('I'),
             Flag::new("follow", "Follow redirects").with_short('f'),
             Flag::new("wordlist", "Wordlist for fuzzing").with_short('w'),
             Flag::new("threads", "Number of concurrent threads for fuzzing").with_default("50"),
@@ -509,7 +511,16 @@ impl WebCommand {
         let format = ctx.get_output_format();
 
         let client = HttpClient::new();
-        let request = HttpRequest::get(url);
+        let mut request = HttpRequest::get(url);
+        if let Some(profile_str) = ctx.get_flag("impersonate") {
+            if let Some(profile) = TlsProfile::from_str(&profile_str) {
+                request = request.with_tls_profile(profile);
+            } else {
+                Output::warning(&format!("Unknown impersonation profile: {}", profile_str));
+                Output::info("Available profiles: chrome, firefox, safari");
+            }
+        }
+
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Sending request");
@@ -787,7 +798,16 @@ impl WebCommand {
         let format = ctx.get_output_format();
 
         let client = HttpClient::new();
-        let request = HttpRequest::get(url);
+        let mut request = HttpRequest::get(url);
+        if let Some(profile_str) = ctx.get_flag("impersonate") {
+            if let Some(profile) = TlsProfile::from_str(&profile_str) {
+                request = request.with_tls_profile(profile);
+            } else {
+                Output::warning(&format!("Unknown impersonation profile: {}", profile_str));
+                Output::info("Available profiles: chrome, firefox, safari");
+            }
+        }
+
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Fetching headers");
