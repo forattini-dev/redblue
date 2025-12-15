@@ -507,7 +507,19 @@ pub mod raw_socket {
 
         /// Send raw packet to destination
         pub fn send_to(&self, packet: &[u8], dest: Ipv4Addr) -> io::Result<usize> {
+            #[cfg(not(any(target_os = "macos", target_os = "ios")))]
             let dest_addr = libc::sockaddr_in {
+                sin_family: libc::AF_INET as libc::sa_family_t,
+                sin_port: 0,
+                sin_addr: libc::in_addr {
+                    s_addr: u32::from_ne_bytes(dest.octets()),
+                },
+                sin_zero: [0; 8],
+            };
+
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            let dest_addr = libc::sockaddr_in {
+                sin_len: std::mem::size_of::<libc::sockaddr_in>() as u8,
                 sin_family: libc::AF_INET as libc::sa_family_t,
                 sin_port: 0,
                 sin_addr: libc::in_addr {

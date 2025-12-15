@@ -131,7 +131,7 @@ fn ping_windows(host: &str, config: &PingConfig) -> Result<PingSystemResult, Str
     parse_windows_ping_output(host, &stdout)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn parse_linux_ping_output(host: &str, output: &str) -> Result<PingSystemResult, String> {
     let mut packets_sent = 0;
     let mut packets_received = 0;
