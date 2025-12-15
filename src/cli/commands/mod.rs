@@ -15,12 +15,10 @@ pub mod search; // ✅ Global search across all stored data
 pub mod deps;
 pub mod docs; // ✅ Documentation search and indexing
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
-#[path = "dns-server.rs"]
 pub mod dns_server; // ✅ DNS server with hijacking for MITM
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
 pub mod fuzz;
 pub mod health; // ✅ Port health monitoring (check, diff, watch)
-#[path = "http-server.rs"]
 pub mod http_server; // ✅ HTTP server for file serving and payload hosting
 pub mod init; // ✅ Config init command
 pub mod magic;
@@ -33,23 +31,17 @@ pub mod ping; // ICMP ping
 pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
 pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod recon;
-#[path = "recon-username.rs"]
 pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
-#[path = "recon-identity.rs"]
 pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email/breach
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
 pub mod tls; // TLS security testing - audit, ciphers, vuln
-#[path = "tls-intel.rs"]
 pub mod tls_intel; // ✅ TLS intelligence gathering
 pub mod trace;
 pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
-#[path = "intel-mitre.rs"]
 pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
-#[path = "intel-ioc.rs"]
 pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
-#[path = "intel-taxii.rs"]
 pub mod intel_taxii; // ✅ TAXII 2.1 client - rb intel taxii
 // pub mod vuln; // REMOVED - use intel vuln
 pub mod web; // ✅ Re-enabled with TLS routes!
