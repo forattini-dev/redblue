@@ -138,29 +138,9 @@ impl ConnectionLogger {
 
     /// Get current timestamp
     fn timestamp() -> String {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-
-        let secs = now.as_secs();
-        let millis = now.subsec_millis();
-
-        // Format: YYYY-MM-DD HH:MM:SS.mmm
-        let datetime = secs / 86400 + 719_162; // Days since Unix epoch to days since 0000-01-01
-        let year = (400 * datetime + 292_194) / 146_097;
-        let day_of_year = datetime - (365 * year + year / 4 - year / 100 + year / 400);
-        let month = (5 * day_of_year + 2) / 153;
-        let day = day_of_year - (153 * month + 2) / 5 + 1;
-        let month = month + 3 - 12 * (month / 10);
-
-        let hour = (secs % 86400) / 3600;
-        let minute = (secs % 3600) / 60;
-        let second = secs % 60;
-
-        format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-            year, month, day, hour, minute, second, millis
-        )
+        use chrono::Utc;
+        let now = Utc::now();
+        now.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
     }
 }
 
