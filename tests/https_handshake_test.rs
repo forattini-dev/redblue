@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod https_tests {
-    use std::io::{Read, Write};
+
     use std::net::TcpStream;
     use std::time::Duration;
 
@@ -11,7 +11,7 @@ mod https_tests {
     #[ignore] // Run with: cargo test --test https_handshake_test -- --ignored
     fn test_tls_handshake_google() {
         // Connect to Google's HTTPS server
-        let mut stream =
+        let stream =
             TcpStream::connect("google.com:443").expect("Failed to connect to google.com:443");
 
         stream

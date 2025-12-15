@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use redblue::{cli, config, utils::logger};
 
 use cli::{commands, output::Output, parser};

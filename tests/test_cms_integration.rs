@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+
     // use redblue::modules::cms::scanner::CmsScanner; // Assuming this module will be created
 
     #[test]

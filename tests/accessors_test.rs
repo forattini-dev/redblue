@@ -3,11 +3,10 @@ use redblue::accessors::network::NetworkAccessor;
 use redblue::accessors::process::ProcessAccessor;
 use redblue::accessors::registry::RegistryAccessor;
 use redblue::accessors::service::ServiceAccessor;
-use redblue::accessors::{Accessor, AccessorResult};
+use redblue::accessors::Accessor;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
 
 #[test]
 fn test_file_accessor() {

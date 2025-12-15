@@ -1,12 +1,3 @@
-/// Tests for advanced port scanning features
-///
-/// These tests verify:
-/// - Timing template configurations
-/// - Port state classification
-/// - Packet structure for various scan types
-/// - Service detection accuracy
-use std::net::Ipv4Addr;
-
 // Import the redblue library
 use redblue::modules::network::scanner::{AdvancedScanner, ScanType, TimingTemplate};
 use redblue::protocols::raw::PortState;

@@ -1,8 +1,7 @@
 use redblue::playbooks::{
     Playbook, PlaybookContext, PlaybookExecutor, PlaybookPhase, PlaybookStep, RiskLevel,
-    StepFailureAction, TargetType,
+    StepFailureAction,
 };
-use std::time::Duration;
 
 #[test]
 fn test_playbook_execution_simple() {

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use redblue::config;
+
     use redblue::modules::recon::subdomain::{EnumerationSource, SubdomainEnumerator};
     use std::collections::HashSet;
 

@@ -1,8 +1,6 @@
 // Simple HTTP/2 test against Google
 // Run with: cargo test --test test_http2_google -- --nocapture
 
-use std::io::Write;
-
 #[test]
 #[ignore] // Run explicitly: cargo test test_http2_live -- --ignored --nocapture
 fn test_http2_live() {

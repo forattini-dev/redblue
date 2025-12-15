@@ -435,18 +435,20 @@ mod tests {
 
         // Verify session exists on server
         thread::sleep(Duration::from_millis(50)); // Allow server to process request
-        let server_clients = agent_server.clients.lock().unwrap();
-        assert!(
-            server_clients.contains_key(&client_session_id),
-            "Server did not register client session after handshake"
-        );
-        let session = server_clients.get(&client_session_id).unwrap();
-        assert!(
-            session.session_key.is_some(),
-            "Server did not derive session key for client"
-        );
-        assert_eq!(session.status, SessionStatus::Active);
-        println!("Server verified client {} session.", client_session_id);
+        {
+            let server_clients = agent_server.clients.lock().unwrap();
+            assert!(
+                server_clients.contains_key(&client_session_id),
+                "Server did not register client session after handshake"
+            );
+            let session = server_clients.get(&client_session_id).unwrap();
+            assert!(
+                session.session_key.is_some(),
+                "Server did not derive session key for client"
+            );
+            assert_eq!(session.status, SessionStatus::Active);
+            println!("Server verified client {} session.", client_session_id);
+        }
 
         // --- 4. Client Sends First Beacon (Heartbeat) ---
         let beacon_res = agent_client.send_beacon();
@@ -459,16 +461,18 @@ mod tests {
         thread::sleep(Duration::from_millis(50)); // Allow server to process request
 
         // Verify no commands sent from server (empty queue)
-        let server_clients = agent_server.clients.lock().unwrap();
-        let session = server_clients.get(&client_session_id).unwrap();
-        assert!(
-            session.command_queue.is_empty(),
-            "Server should have an empty command queue initially"
-        );
-        assert!(
-            session.response_queue.is_empty(),
-            "Server should have an empty response queue initially"
-        );
+        {
+            let server_clients = agent_server.clients.lock().unwrap();
+            let session = server_clients.get(&client_session_id).unwrap();
+            assert!(
+                session.command_queue.is_empty(),
+                "Server should have an empty command queue initially"
+            );
+            assert!(
+                session.response_queue.is_empty(),
+                "Server should have an empty response queue initially"
+            );
+        }
 
         // --- 5. Server Enqueues a Command for Client ---
         let test_command = AgentCommand {

@@ -1,8 +1,6 @@
 // HTTP/2 Live Test - Test against real servers
 // Run with: cargo test --test http2_live_test -- --nocapture
 
-use std::io::Write;
-
 // Simpler standalone test that doesn't depend on the full crate
 #[test]
 #[ignore] // Ignore by default, run explicitly with: cargo test http2_google_test -- --ignored --nocapture

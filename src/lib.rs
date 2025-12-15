@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 pub mod accessors; // System accessors for agent
 pub mod agent; // C2 Agent and Server
 pub mod cli;

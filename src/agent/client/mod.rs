@@ -41,10 +41,12 @@ impl AgentClient {
             .unwrap_or_default()
             .as_nanos() as u64;
 
+        let http_client = HttpClient::new().with_timeout(Duration::from_secs(5));
+
         Self {
             config,
             crypto: AgentCrypto::new(),
-            http_client: HttpClient::new(),
+            http_client,
             session_id,
         }
     }
