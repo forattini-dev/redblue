@@ -223,7 +223,7 @@ pub fn check_low_resources() -> bool {
         // Check disk size (less than 60GB is suspicious)
         if let Ok(output) = std::process::Command::new("df").args(["-B1", "/"]).output() {
             let df_output = String::from_utf8_lossy(&output.stdout);
-            for line in df_output.lines().skip(1) {
+            if let Some(line) = df_output.lines().skip(1).next() {
                 if let Some(size_str) = line.split_whitespace().nth(1) {
                     if let Ok(bytes) = size_str.parse::<u64>() {
                         if bytes < 60_000_000_000 {
@@ -232,7 +232,6 @@ pub fn check_low_resources() -> bool {
                         }
                     }
                 }
-                break;
             }
         }
     }

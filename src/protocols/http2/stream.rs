@@ -187,10 +187,6 @@ impl Stream {
             .checked_add(delta)
             .ok_or_else(|| "Window size overflow".to_string())?;
 
-        if new_window > 2147483647 {
-            return Err("Window size exceeds maximum (2^31-1)".to_string());
-        }
-
         self.window_size = new_window;
         Ok(())
     }

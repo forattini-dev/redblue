@@ -45,7 +45,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use super::{Address, ConnectionId, FlowStats, Protocol, ProxyContext, ProxyError, ProxyResult};
+use super::{FlowStats, Protocol, ProxyContext, ProxyError, ProxyResult};
 
 /// SO_ORIGINAL_DST socket option (Linux specific)
 #[cfg(target_os = "linux")]
@@ -328,13 +328,13 @@ fn set_transparent(_listener: &TcpListener) -> ProxyResult<()> {
 /// Handle a transparent proxy connection
 fn handle_connection(
     mut client: TcpStream,
-    client_addr: SocketAddr,
+    _client_addr: SocketAddr,
     orig_dst: SocketAddr,
     ctx: Arc<ProxyContext>,
     config: TransparentConfig,
     running: Arc<AtomicBool>,
 ) -> ProxyResult<()> {
-    let conn_id = ctx.id_generator.next_tcp();
+    let _conn_id = ctx.id_generator.next_tcp();
     ctx.flow_stats.connection_opened(Protocol::Tcp);
 
     // Connect to original destination
@@ -406,7 +406,7 @@ fn relay_tcp(
 
     // Server to client relay
     let mut buffer = vec![0u8; buffer_size];
-    let mut total_received = 0u64;
+    let mut _total_received = 0u64;
 
     while running.load(Ordering::Relaxed) && running_s2c.load(Ordering::Relaxed) {
         match server_read.read(&mut buffer) {
@@ -415,7 +415,7 @@ fn relay_tcp(
                 if client_write.write_all(&buffer[..n]).is_err() {
                     break;
                 }
-                total_received += n as u64;
+                _total_received += n as u64;
                 stats.add_received(n as u64);
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {

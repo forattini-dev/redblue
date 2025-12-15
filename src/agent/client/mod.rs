@@ -60,18 +60,12 @@ impl AgentClient {
         println!("Handshake successful. Session secured.");
 
         // Main beacon loop
-        loop {
-            // 1. Sleep for interval +/- jitter
-            self.sleep_with_jitter();
+        // 1. Sleep for interval +/- jitter
+        self.sleep_with_jitter();
 
-            // 2. Send beacon
-            if let Err(e) = self.send_beacon() {
-                eprintln!("Beacon failed: {}", e);
-            }
-
-            // Placeholder break to avoid infinite loop in tests/dev
-            // Remove this break for production agent!
-            break;
+        // 2. Send beacon
+        if let Err(e) = self.send_beacon() {
+            eprintln!("Beacon failed: {}", e);
         }
 
         Ok(())

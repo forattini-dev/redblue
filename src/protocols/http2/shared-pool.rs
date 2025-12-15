@@ -212,16 +212,7 @@ impl SharedHttp2Pool {
             }
         }
 
-        // All connections are busy, but we might be able to create a new one
-        if pool.len() < self.config.max_connections_per_origin {
-            return None; // Signal that we should create a new connection
-        }
-
-        // Pool is full, wait for any available connection
-        for entry in pool.iter() {
-            return Some(Arc::clone(entry));
-        }
-
+        // All connections are busy or pool is empty
         None
     }
 

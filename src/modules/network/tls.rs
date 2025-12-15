@@ -62,12 +62,12 @@ impl TlsVersion {
 /// Cipher suite
 #[derive(Debug, Clone, Copy)]
 pub enum CipherSuite {
-    TLS_RSA_WITH_AES_128_CBC_SHA,
-    TLS_RSA_WITH_AES_256_CBC_SHA,
-    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-    TLS_AES_128_GCM_SHA256,
-    TLS_AES_256_GCM_SHA384,
+    TlsRsaWithAes128CbcSha,
+    TlsRsaWithAes256CbcSha,
+    TlsEcdheRsaWithAes128GcmSha256,
+    TlsEcdheRsaWithAes256GcmSha384,
+    TlsAes128GcmSha256,
+    TlsAes256GcmSha384,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,9 +147,9 @@ impl Default for TlsConfig {
             version: TlsVersion::Tls12,
             verify_cert: false, // Disabled for pentesting
             cipher_suites: vec![
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-                CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA,
+                CipherSuite::TlsEcdheRsaWithAes256GcmSha384,
+                CipherSuite::TlsEcdheRsaWithAes128GcmSha256,
+                CipherSuite::TlsRsaWithAes128CbcSha,
             ],
             timeout: Duration::from_secs(10),
             debug: false,
@@ -166,18 +166,18 @@ impl TlsConfig {
         self.version = version;
         self.cipher_suites = match version {
             TlsVersion::Tls13 => vec![
-                CipherSuite::TLS_AES_128_GCM_SHA256,
-                CipherSuite::TLS_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+                CipherSuite::TlsAes128GcmSha256,
+                CipherSuite::TlsAes256GcmSha384,
+                CipherSuite::TlsEcdheRsaWithAes256GcmSha384,
+                CipherSuite::TlsEcdheRsaWithAes128GcmSha256,
             ],
             TlsVersion::Tls12 => vec![
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-                CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-                CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA,
+                CipherSuite::TlsEcdheRsaWithAes256GcmSha384,
+                CipherSuite::TlsEcdheRsaWithAes128GcmSha256,
+                CipherSuite::TlsRsaWithAes128CbcSha,
             ],
             TlsVersion::Tls11 | TlsVersion::Tls10 => {
-                vec![CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA]
+                vec![CipherSuite::TlsRsaWithAes128CbcSha]
             }
         };
         self
@@ -668,8 +668,9 @@ impl TlsStream {
 
         if self.config.version == TlsVersion::Tls13 {
             let hash_alg = match negotiated {
-                CipherSuite::TLS_AES_256_GCM_SHA384
-                | CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => Tls13HashAlgorithm::Sha384,
+                CipherSuite::TlsAes256GcmSha384 | CipherSuite::TlsEcdheRsaWithAes256GcmSha384 => {
+                    Tls13HashAlgorithm::Sha384
+                }
                 _ => Tls13HashAlgorithm::Sha256,
             };
 
@@ -2907,83 +2908,83 @@ fn build_ec_point_formats_extension() -> Vec<u8> {
 /// Get cipher suite ID
 fn cipher_suite_id(cipher: CipherSuite) -> u16 {
     match cipher {
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA => 0x002F,
-        CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA => 0x0035,
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => 0xC02F,
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => 0xC030,
-        CipherSuite::TLS_AES_128_GCM_SHA256 => 0x1301,
-        CipherSuite::TLS_AES_256_GCM_SHA384 => 0x1302,
+        CipherSuite::TlsRsaWithAes128CbcSha => 0x002F,
+        CipherSuite::TlsRsaWithAes256CbcSha => 0x0035,
+        CipherSuite::TlsEcdheRsaWithAes128GcmSha256 => 0xC02F,
+        CipherSuite::TlsEcdheRsaWithAes256GcmSha384 => 0xC030,
+        CipherSuite::TlsAes128GcmSha256 => 0x1301,
+        CipherSuite::TlsAes256GcmSha384 => 0x1302,
     }
 }
 
 /// Parse cipher suite from ID
 fn cipher_suite_from_id(id: u16) -> Result<CipherSuite, String> {
     match id {
-        0x002F => Ok(CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA),
-        0x0035 => Ok(CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA),
-        0xC02F => Ok(CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
-        0xC030 => Ok(CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384),
-        0x1301 => Ok(CipherSuite::TLS_AES_128_GCM_SHA256),
-        0x1302 => Ok(CipherSuite::TLS_AES_256_GCM_SHA384),
+        0x002F => Ok(CipherSuite::TlsRsaWithAes128CbcSha),
+        0x0035 => Ok(CipherSuite::TlsRsaWithAes256CbcSha),
+        0xC02F => Ok(CipherSuite::TlsEcdheRsaWithAes128GcmSha256),
+        0xC030 => Ok(CipherSuite::TlsEcdheRsaWithAes256GcmSha384),
+        0x1301 => Ok(CipherSuite::TlsAes128GcmSha256),
+        0x1302 => Ok(CipherSuite::TlsAes256GcmSha384),
         _ => Err(format!("Unsupported cipher suite: 0x{:04X}", id)),
     }
 }
 
 fn cipher_suite_mac_algorithm(cipher: CipherSuite) -> Result<MacAlgorithm, String> {
     match cipher {
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA => Ok(MacAlgorithm::Sha1),
-        CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA => Ok(MacAlgorithm::Sha1),
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => Ok(MacAlgorithm::Sha256),
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => Ok(MacAlgorithm::Sha256),
-        CipherSuite::TLS_AES_128_GCM_SHA256 => Ok(MacAlgorithm::Sha256),
-        CipherSuite::TLS_AES_256_GCM_SHA384 => Ok(MacAlgorithm::Sha256),
+        CipherSuite::TlsRsaWithAes128CbcSha => Ok(MacAlgorithm::Sha1),
+        CipherSuite::TlsRsaWithAes256CbcSha => Ok(MacAlgorithm::Sha1),
+        CipherSuite::TlsEcdheRsaWithAes128GcmSha256 => Ok(MacAlgorithm::Sha256),
+        CipherSuite::TlsEcdheRsaWithAes256GcmSha384 => Ok(MacAlgorithm::Sha256),
+        CipherSuite::TlsAes128GcmSha256 => Ok(MacAlgorithm::Sha256),
+        CipherSuite::TlsAes256GcmSha384 => Ok(MacAlgorithm::Sha256),
     }
 }
 
 fn cipher_suite_is_supported(cipher: CipherSuite) -> bool {
     matches!(
         cipher,
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA
-            | CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-            | CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-            | CipherSuite::TLS_AES_128_GCM_SHA256
-            | CipherSuite::TLS_AES_256_GCM_SHA384
+        CipherSuite::TlsRsaWithAes128CbcSha
+            | CipherSuite::TlsEcdheRsaWithAes128GcmSha256
+            | CipherSuite::TlsEcdheRsaWithAes256GcmSha384
+            | CipherSuite::TlsAes128GcmSha256
+            | CipherSuite::TlsAes256GcmSha384
     )
 }
 
 fn cipher_suite_is_gcm(cipher: CipherSuite) -> bool {
     matches!(
         cipher,
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-            | CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-            | CipherSuite::TLS_AES_128_GCM_SHA256
-            | CipherSuite::TLS_AES_256_GCM_SHA384
+        CipherSuite::TlsEcdheRsaWithAes128GcmSha256
+            | CipherSuite::TlsEcdheRsaWithAes256GcmSha384
+            | CipherSuite::TlsAes128GcmSha256
+            | CipherSuite::TlsAes256GcmSha384
     )
 }
 
 fn cipher_suite_is_cbc(cipher: CipherSuite) -> bool {
     matches!(
         cipher,
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA | CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA
+        CipherSuite::TlsRsaWithAes128CbcSha | CipherSuite::TlsRsaWithAes256CbcSha
     )
 }
 
 fn cipher_suite_key_exchange(cipher: CipherSuite) -> KeyExchange {
     match cipher {
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA | CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA => {
+        CipherSuite::TlsRsaWithAes128CbcSha | CipherSuite::TlsRsaWithAes256CbcSha => {
             KeyExchange::Rsa
         }
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-        | CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-        | CipherSuite::TLS_AES_128_GCM_SHA256
-        | CipherSuite::TLS_AES_256_GCM_SHA384 => KeyExchange::Ecdhe,
+        CipherSuite::TlsEcdheRsaWithAes128GcmSha256
+        | CipherSuite::TlsEcdheRsaWithAes256GcmSha384
+        | CipherSuite::TlsAes128GcmSha256
+        | CipherSuite::TlsAes256GcmSha384 => KeyExchange::Ecdhe,
     }
 }
 
 fn cipher_suite_is_tls13(cipher: CipherSuite) -> bool {
     matches!(
         cipher,
-        CipherSuite::TLS_AES_128_GCM_SHA256 | CipherSuite::TLS_AES_256_GCM_SHA384
+        CipherSuite::TlsAes128GcmSha256 | CipherSuite::TlsAes256GcmSha384
     )
 }
 
@@ -3062,24 +3063,24 @@ fn scalar_is_less_than_order(scalar: &[u8; 32]) -> bool {
 /// Returns: (mac_key_size, enc_key_size, iv_size)
 fn cipher_suite_key_sizes(cipher: CipherSuite) -> (usize, usize, usize) {
     match cipher {
-        // TLS_RSA_WITH_AES_128_CBC_SHA: HMAC-SHA1 (20 bytes) + AES-128 (16 bytes) + IV (16 bytes)
-        CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA => (20, 16, 16),
-        // TLS_RSA_WITH_AES_256_CBC_SHA: HMAC-SHA1 (20 bytes) + AES-256 (32 bytes) + IV (16 bytes)
-        CipherSuite::TLS_RSA_WITH_AES_256_CBC_SHA => (20, 32, 16),
-        // TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: No MAC (GCM mode) + AES-128 (16 bytes) + fixed IV (4 bytes)
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 => (0, 16, 4),
-        // TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384: No MAC (GCM mode) + AES-256 (32 bytes) + fixed IV (4 bytes)
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => (0, 32, 4),
+        // TlsRsaWithAes128CbcSha: HMAC-SHA1 (20 bytes) + AES-128 (16 bytes) + IV (16 bytes)
+        CipherSuite::TlsRsaWithAes128CbcSha => (20, 16, 16),
+        // TlsRsaWithAes256CbcSha: HMAC-SHA1 (20 bytes) + AES-256 (32 bytes) + IV (16 bytes)
+        CipherSuite::TlsRsaWithAes256CbcSha => (20, 32, 16),
+        // TlsEcdheRsaWithAes128GcmSha256: No MAC (GCM mode) + AES-128 (16 bytes) + fixed IV (4 bytes)
+        CipherSuite::TlsEcdheRsaWithAes128GcmSha256 => (0, 16, 4),
+        // TlsEcdheRsaWithAes256GcmSha384: No MAC (GCM mode) + AES-256 (32 bytes) + fixed IV (4 bytes)
+        CipherSuite::TlsEcdheRsaWithAes256GcmSha384 => (0, 32, 4),
         // TLS 1.3 AES-GCM suites use 16-byte key or 32-byte key with 12-byte IV
-        CipherSuite::TLS_AES_128_GCM_SHA256 => (0, 16, 12),
-        CipherSuite::TLS_AES_256_GCM_SHA384 => (0, 32, 12),
+        CipherSuite::TlsAes128GcmSha256 => (0, 16, 12),
+        CipherSuite::TlsAes256GcmSha384 => (0, 32, 12),
     }
 }
 
 fn cipher_suite_prf_algorithm(cipher: CipherSuite) -> Tls12PrfAlgorithm {
     match cipher {
-        CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 => Tls12PrfAlgorithm::Sha384,
-        CipherSuite::TLS_AES_256_GCM_SHA384 => Tls12PrfAlgorithm::Sha384,
+        CipherSuite::TlsEcdheRsaWithAes256GcmSha384 => Tls12PrfAlgorithm::Sha384,
+        CipherSuite::TlsAes256GcmSha384 => Tls12PrfAlgorithm::Sha384,
         _ => Tls12PrfAlgorithm::Sha256,
     }
 }
@@ -3170,12 +3171,9 @@ mod tests {
 
     #[test]
     fn test_cipher_suite_id() {
+        assert_eq!(cipher_suite_id(CipherSuite::TlsRsaWithAes128CbcSha), 0x002F);
         assert_eq!(
-            cipher_suite_id(CipherSuite::TLS_RSA_WITH_AES_128_CBC_SHA),
-            0x002F
-        );
-        assert_eq!(
-            cipher_suite_id(CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256),
+            cipher_suite_id(CipherSuite::TlsEcdheRsaWithAes128GcmSha256),
             0xC02F
         );
     }

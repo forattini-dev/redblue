@@ -50,6 +50,14 @@ pub enum SessionStatus {
     Dead,
 }
 
+impl Drop for AgentServer {
+    fn drop(&mut self) {
+        if let Some(server) = &self.http_server {
+            server.stop();
+        }
+    }
+}
+
 impl AgentServer {
     pub fn new(config: AgentServerConfig) -> Self {
         let db = if let Some(path) = &config.db_path {

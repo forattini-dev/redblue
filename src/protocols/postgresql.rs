@@ -104,7 +104,7 @@ impl PgClient {
         let mut msg = Vec::new();
 
         // Protocol version 3.0 (major=3, minor=0)
-        let protocol_version: i32 = (3 << 16) | 0;
+        let protocol_version: i32 = 3 << 16;
 
         // Calculate message length
         let params = format!("user\0{}\0database\0{}\0\0", user, database);

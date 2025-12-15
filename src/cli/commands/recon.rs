@@ -4,22 +4,18 @@ use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::network::scanner::PortScanner;
 use crate::modules::recon::asn::AsnClient;
 use crate::modules::recon::breach::BreachClient;
-use crate::modules::recon::dnsdumpster::{DnsDumpsterClient, DnsDumpsterResult};
+use crate::modules::recon::dnsdumpster::DnsDumpsterClient;
 use crate::modules::recon::dorks::{DorksSearchResult, DorksSearcher};
 use crate::modules::recon::harvester::Harvester;
 use crate::modules::recon::massdns::common_subdomains;
 use crate::modules::recon::massdns::MassDnsScanner;
 use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
-use crate::modules::recon::secrets::{SecretSeverity, SecretsScanner, WebSecretFinding};
-use crate::modules::recon::social::{SocialMapper, SocialMappingResult, SocialProfile};
-use crate::modules::recon::subdomain::{
-    load_wordlist_from_file, EnumerationSource, SubdomainEnumerator,
-};
+use crate::modules::recon::secrets::{SecretSeverity, SecretsScanner};
+use crate::modules::recon::social::{SocialMapper, SocialMappingResult};
+use crate::modules::recon::subdomain::{load_wordlist_from_file, SubdomainEnumerator};
 use crate::modules::recon::urlharvest::UrlHarvester;
 use crate::modules::recon::vuln::osv::{Ecosystem, OsvClient};
-use crate::modules::recon::vuln::{
-    calculate_risk_score, generate_cpe, ExploitDbClient, KevClient, NvdClient, VulnCollection,
-};
+use crate::modules::recon::vuln::{calculate_risk_score, generate_cpe, NvdClient};
 use crate::modules::web::fingerprinter::WebFingerprinter;
 use crate::protocols::dns::{DnsClient, DnsRdata, DnsRecordType};
 use crate::protocols::rdap::{RdapClient, RdapDomainResponse, RdapIpResponse};
@@ -2909,7 +2905,7 @@ fn parse_whois_timestamp(date_str: Option<&str>) -> Option<u32> {
         // Attempt to parse common formats like YYYY-MM-DD
         if s.len() >= 10 {
             if let Ok(ts) = chrono::NaiveDateTime::parse_from_str(&s[..10], "%Y-%m-%d") {
-                return Some(ts.timestamp() as u32);
+                return Some(ts.and_utc().timestamp() as u32);
             }
         }
         // Add more formats as needed

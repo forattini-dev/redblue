@@ -283,7 +283,7 @@ impl UrlHarvester {
 
         // Find closing " (handling escaped quotes)
         let mut escaped = false;
-        for (i, ch) in content.chars().enumerate() {
+        for (i, ch) in content.char_indices() {
             if escaped {
                 escaped = false;
                 continue;

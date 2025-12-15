@@ -10,12 +10,9 @@ use crate::config;
 use crate::intelligence::{
     banner_analysis, os_probes, os_signatures, service_detection, timing_analysis,
 };
-use crate::modules::network::scanner::{
-    AdvancedScanResult, AdvancedScanner, PortScanner, ScanType, TimingTemplate,
-};
+use crate::modules::network::scanner::{AdvancedScanner, PortScanner, ScanType, TimingTemplate};
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 pub struct ScanCommand;

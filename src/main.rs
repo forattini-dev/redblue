@@ -1,7 +1,3 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use redblue::{cli, config, utils::logger};
 
 use cli::{commands, output::Output, parser};
@@ -177,7 +173,7 @@ fn maybe_create_rbdb(ctx: &cli::CliContext) -> Result<(), std::io::Error> {
 
     SessionFile::create(target, &ctx.raw)
         .map(|_| ())
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+        .map_err(|err| std::io::Error::other(err))
 }
 
 fn extract_target_identifier(target: &str) -> Option<String> {
@@ -192,10 +188,13 @@ fn extract_target_identifier(target: &str) -> Option<String> {
         trimmed
     };
 
-    let without_user = without_scheme.split('@').last().unwrap_or(without_scheme);
+    let without_user = without_scheme
+        .split('@')
+        .next_back()
+        .unwrap_or(without_scheme);
     let base = without_user
         .trim_start_matches('/')
-        .split(|c| c == '/' || c == '?' || c == '#')
+        .split(['/', '?', '#'])
         .next()
         .unwrap_or(without_user);
     let host_str = if base.starts_with('[') && base.ends_with(']') {

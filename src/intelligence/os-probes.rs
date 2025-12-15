@@ -15,15 +15,13 @@
 ///
 /// Reference: https://nmap.org/book/osdetect-methods.html
 use crate::intelligence::os_signatures::{
-    DeviceType, IpIdPattern, MssMatch, OsSignature, OsSignatureDb, TcpOptionsPattern, TtlMatch,
-    WindowMatch,
+    IpIdPattern, MssMatch, OsSignature, OsSignatureDb, TtlMatch, WindowMatch,
 };
-use crate::intelligence::tcp_fingerprint::{IpIdBehavior, TcpFingerprint, TcpOption};
+use crate::intelligence::tcp_fingerprint::{IpIdBehavior, TcpOption};
 use crate::protocols::raw::{
-    get_source_ip, internet_checksum, Ipv4Header, PortState, TcpHeader, UdpHeader, IPPROTO_TCP,
-    IPPROTO_UDP, TCP_ACK, TCP_FIN, TCP_PSH, TCP_RST, TCP_SYN, TCP_URG,
+    get_source_ip, internet_checksum, Ipv4Header, TcpHeader, IPPROTO_TCP, TCP_ACK, TCP_FIN,
+    TCP_PSH, TCP_SYN, TCP_URG,
 };
-use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
@@ -670,7 +668,7 @@ impl OsProber {
         // Wait for ICMP response (will show as connection refused error)
         let mut buf = [0u8; 1500];
         match socket.recv_from(&mut buf) {
-            Ok((len, _)) => {
+            Ok((_len, _)) => {
                 // Got UDP response (rare, but possible for some services)
                 ProbeResponse {
                     probe_id: probe_id.to_string(),

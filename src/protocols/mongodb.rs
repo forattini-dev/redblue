@@ -246,8 +246,8 @@ fn build_info_bson() -> Vec<u8> {
     let mut doc = Vec::new();
 
     // Document length (placeholder)
-    let doc_len = 4 + 1 + 9 + 1 + 4 + 1; // length + type + "buildInfo\0" + type + value + terminator
-    doc.extend_from_slice(&(doc_len as i32).to_le_bytes());
+    let doc_len: i32 = 4 + 1 + 9 + 1 + 4 + 1; // length + type + "buildInfo\0" + type + value + terminator
+    doc.extend_from_slice(&doc_len.to_le_bytes());
 
     // Element: int32 "buildInfo" = 1
     doc.push(0x10); // int32 type
@@ -265,8 +265,8 @@ fn list_databases_bson() -> Vec<u8> {
     // Simple BSON document: { listDatabases: 1 }
     let mut doc = Vec::new();
 
-    let doc_len = 4 + 1 + 13 + 1 + 4 + 1;
-    doc.extend_from_slice(&(doc_len as i32).to_le_bytes());
+    let doc_len: i32 = 4 + 1 + 13 + 1 + 4 + 1;
+    doc.extend_from_slice(&doc_len.to_le_bytes());
 
     doc.push(0x10); // int32 type
     doc.extend_from_slice(b"listDatabases\x00");

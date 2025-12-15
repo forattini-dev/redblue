@@ -74,15 +74,6 @@ impl Oid {
         components.ok().map(|c| Self { components: c })
     }
 
-    /// Convert to dotted string
-    pub fn to_string(&self) -> String {
-        self.components
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join(".")
-    }
-
     /// Convert to ASN.1 value
     pub fn to_asn1(&self) -> Asn1Value {
         Asn1Value::ObjectIdentifier(self.components.clone())
@@ -99,7 +90,13 @@ impl Oid {
 
 impl std::fmt::Display for Oid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        let s = self
+            .components
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(".");
+        write!(f, "{}", s)
     }
 }
 

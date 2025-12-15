@@ -163,7 +163,7 @@ impl CrtShClient {
         let mut depth = 0;
         let mut obj_start = None;
 
-        for (i, c) in json.chars().enumerate() {
+        for (i, c) in json.char_indices() {
             match c {
                 '[' if depth == 0 => depth = 1,
                 '{' if depth >= 1 => {
