@@ -136,7 +136,10 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
         apply_config_defaults(&mut ctx, config);
     }
 
-    println!("DEBUG: parsed args -> domain: {:?}, resource: {:?}, verb: {:?}, target: {:?}", ctx.domain, ctx.resource, ctx.verb, ctx.target);
+    println!(
+        "DEBUG: parsed args -> domain: {:?}, resource: {:?}, verb: {:?}, target: {:?}",
+        ctx.domain, ctx.resource, ctx.verb, ctx.target
+    );
 
     Ok(ctx)
 }

@@ -46,7 +46,7 @@ pub enum SqliteType {
 impl SqliteReader {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, SqliteError> {
         let mut file = File::open(path)?;
-        
+
         // Read header (100 bytes)
         let mut header = [0u8; 100];
         if file.read(&mut header)? != 100 {
@@ -60,7 +60,11 @@ impl SqliteReader {
 
         // Page size at offset 16 (BE)
         let page_size_be = u16::from_be_bytes([header[16], header[17]]);
-        let page_size = if page_size_be == 1 { 65536 } else { page_size_be as u32 };
+        let page_size = if page_size_be == 1 {
+            65536
+        } else {
+            page_size_be as u32
+        };
 
         Ok(Self { file, page_size })
     }
@@ -79,7 +83,9 @@ impl SqliteReader {
     fn read_varint(data: &[u8], pos: &mut usize) -> u64 {
         let mut result = 0u64;
         for i in 0..8 {
-            if *pos >= data.len() { return result; }
+            if *pos >= data.len() {
+                return result;
+            }
             let byte = data[*pos];
             *pos += 1;
             result = (result << 7) | ((byte & 0x7F) as u64);
@@ -100,11 +106,11 @@ impl SqliteReader {
     fn parse_record(data: &[u8]) -> Result<Vec<SqliteValue>, SqliteError> {
         let mut pos = 0;
         let _header_len = Self::read_varint(data, &mut pos);
-        
+
         // Read serial types until we reach the end of header
         // Wait, header_len includes the size varint itself.
         // Let's verify: "The header begins with a single varint which determines the total number of bytes in the header. The varint value is the size of the header in bytes including the size varint itself."
-        
+
         let header_start = 0;
         // We already read header_len varint. We need to know how many bytes it took.
         // Let's restart to be precise.
@@ -140,7 +146,7 @@ impl SqliteReader {
                 if pos + len > data.len() {
                     return Err(SqliteError::InvalidFormat); // Truncated
                 }
-                let d = data[pos..pos+len].to_vec();
+                let d = data[pos..pos + len].to_vec();
                 pos += len;
                 d
             } else {
@@ -166,70 +172,84 @@ impl SqliteReader {
         while let Some(page_id) = queue.pop() {
             let raw_page = self.read_page(page_id)?;
             let page = &raw_page;
-            
+
             // Header offset: 0 unless it's page 1, then 100
             let header_offset = if page_id == 1 { 100 } else { 0 };
-            
-            if page.len() < header_offset + 8 { continue; }
-            
+
+            if page.len() < header_offset + 8 {
+                continue;
+            }
+
             let page_type = page[header_offset];
-            let cell_count = u16::from_be_bytes([page[header_offset + 3], page[header_offset + 4]]) as usize;
-            
+            let cell_count =
+                u16::from_be_bytes([page[header_offset + 3], page[header_offset + 4]]) as usize;
+
             let cell_arr_start = header_offset + 8 + if page_id == 1 { 0 } else { 0 }; // Page 1 header logic is tricky, usually handled by offset
 
             // Logic for Leaf Table (0x0D) and Interior Table (0x05)
             match page_type {
-                0x0D => { // Leaf Table
+                0x0D => {
+                    // Leaf Table
                     for i in 0..cell_count {
                         let ptr_offset = cell_arr_start + (i * 2);
-                        let cell_ptr = u16::from_be_bytes([page[ptr_offset], page[ptr_offset + 1]]) as usize;
-                        if cell_ptr >= page.len() { continue; }
-                        
+                        let cell_ptr =
+                            u16::from_be_bytes([page[ptr_offset], page[ptr_offset + 1]]) as usize;
+                        if cell_ptr >= page.len() {
+                            continue;
+                        }
+
                         // Parse cell
                         let mut pos = cell_ptr;
                         let _payload_len = Self::read_varint(page, &mut pos);
                         let _row_id = Self::read_varint(page, &mut pos);
-                        
+
                         // remaining is payload
-                        // Note: If payload is large, it spills to overflow pages. 
+                        // Note: If payload is large, it spills to overflow pages.
                         // Simplified: We assume payload fits or we just read what's there (might be truncated).
                         // Chrome logins are small, usually fit.
-                        
+
                         // To handle overflow properly requires reading (payload_len) bytes.
                         // For now let's pass the slice from pos to end, parse_record handles header length.
-                        
+
                         if pos < page.len() {
                             if let Ok(record) = Self::parse_record(&page[pos..]) {
                                 records.push(record);
                             }
                         }
                     }
-                },
-                0x05 => { // Interior Table
+                }
+                0x05 => {
+                    // Interior Table
                     // Iterate cells to find child pages
                     for i in 0..cell_count {
                         let ptr_offset = cell_arr_start + (i * 2);
-                        let cell_ptr = u16::from_be_bytes([page[ptr_offset], page[ptr_offset + 1]]) as usize;
-                        
+                        let cell_ptr =
+                            u16::from_be_bytes([page[ptr_offset], page[ptr_offset + 1]]) as usize;
+
                         let mut pos = cell_ptr;
                         let left_child = u32::from_be_bytes([
-                            page[pos], page[pos+1], page[pos+2], page[pos+3]
+                            page[pos],
+                            page[pos + 1],
+                            page[pos + 2],
+                            page[pos + 3],
                         ]);
                         queue.push(left_child);
-                        
+
                         // Key (rowid) follows, but we don't need it for full scan
                     }
                     // Right-most child
                     let right_child = u32::from_be_bytes([
-                         page[header_offset + 8], page[header_offset + 9], 
-                         page[header_offset + 10], page[header_offset + 11]
+                        page[header_offset + 8],
+                        page[header_offset + 9],
+                        page[header_offset + 10],
+                        page[header_offset + 11],
                     ]);
                     queue.push(right_child);
-                },
+                }
                 _ => {} // Ignore index pages etc
             }
         }
-        
+
         Ok(records)
     }
 
@@ -238,7 +258,7 @@ impl SqliteReader {
         // Scan sqlite_schema (page 1)
         // Note: sqlite_schema is a table rooted at page 1.
         let rows = self.scan_table(1)?;
-        
+
         for row in rows {
             // Schema: type, name, tbl_name, rootpage, sql
             if row.len() >= 4 {
@@ -261,7 +281,7 @@ impl SqliteReader {
                 }
             }
         }
-        
+
         Err(SqliteError::TableNotFound(name.to_string()))
     }
 

@@ -75,22 +75,22 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-linux-x86_64
 
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-macos-x86_64
 
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-macos-aarch64
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary_name: rb.exe
+            binary_name: redblue.exe
             asset_name: rb-windows-x86_64.exe
 
     steps:

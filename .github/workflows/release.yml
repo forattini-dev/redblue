@@ -54,46 +54,46 @@ jobs:
           # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-linux-x86_64
 
           # Linux ARM64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-linux-aarch64
             cross: true
 
           # Linux ARMv7 (Raspberry Pi 3 32-bit / RPi 2)
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-linux-armv7
             cross: true
 
           # Linux ARM64 Musl (Android / Static Universal)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-linux-aarch64-static
             cross: true
 
           # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-macos-x86_64
 
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary_name: rb
+            binary_name: redblue
             asset_name: rb-macos-aarch64
 
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary_name: rb.exe
+            binary_name: redblue.exe
             asset_name: rb-windows-x86_64.exe
 
     steps:

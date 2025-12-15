@@ -1,8 +1,8 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
-use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
 use crate::modules::collection::secrets::git_scanner::GitScanner;
+use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
 use std::fs;
 use std::process::Command as ProcessCommand;
 
@@ -36,7 +36,8 @@ impl Command for CodeCommand {
             Flag::new("output", "Output format: text or json")
                 .with_short('o')
                 .with_default("text"),
-            Flag::new("history", "Scan git history (full log) for remote repos").with_default("true"),
+            Flag::new("history", "Scan git history (full log) for remote repos")
+                .with_default("true"),
         ]
     }
 
@@ -80,8 +81,7 @@ impl Command for CodeCommand {
 impl CodeCommand {
     fn scan(&self, ctx: &CliContext) -> Result<(), String> {
         let target = ctx.target.as_ref().ok_or_else(|| {
-            "Missing target path. Syntax: rb code secrets scan <path>"
-                .to_string()
+            "Missing target path. Syntax: rb code secrets scan <path>".to_string()
         })?;
 
         Output::header("Secret Scanner (Gitleaks)");
@@ -125,7 +125,7 @@ impl CodeCommand {
         let temp_path = temp_dir.to_string_lossy().to_string();
 
         Output::info(&format!("Cloning {} to temporary directory...", url));
-        
+
         let status = ProcessCommand::new("git")
             .arg("clone")
             .arg(url)
@@ -148,7 +148,10 @@ impl CodeCommand {
 
         // Cleanup
         if let Err(e) = fs::remove_dir_all(&temp_path) {
-            Output::error(&format!("Failed to clean up temporary directory {}: {}", temp_path, e));
+            Output::error(&format!(
+                "Failed to clean up temporary directory {}: {}",
+                temp_path, e
+            ));
         } else {
             Output::info("Temporary directory cleaned up");
         }
