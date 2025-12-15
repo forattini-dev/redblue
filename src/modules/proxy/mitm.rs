@@ -770,9 +770,9 @@ impl MitmProxy {
         config: &MitmConfig,
         cert_cache: &CertCache,
     ) -> ProxyResult<()> {
-        use openssl::ssl::{SslAcceptor, SslConnector, SslMethod, SslFiletype, SslVerifyMode};
-        use openssl::x509::X509;
-        use openssl::pkey::PKey;
+        use boring::ssl::{SslAcceptor, SslConnector, SslMethod, SslFiletype, SslVerifyMode};
+        use boring::x509::X509;
+        use boring::pkey::PKey;
 
         // Get/generate certificate for this hostname
         let (cert_pem, key_pem) = cert_cache.get_cert(hostname)?;

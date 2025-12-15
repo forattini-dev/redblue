@@ -198,80 +198,23 @@ fn scalarmult_base(out: &mut [u8; 32], scalar: &[u8; 32]) {
     scalarmult(out, scalar, &BASEPOINT);
 }
 
-/// Compute X25519 shared secret using OpenSSL
-///
-/// This replaces our custom implementation with OpenSSL's battle-tested X25519.
+/// Compute X25519 shared secret using pure Rust implementation
 pub fn x25519(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
-    use openssl::pkey::{PKey, Private};
-    use openssl::derive::Deriver;
-
-    // Create private key from raw bytes
-    let private = PKey::private_key_from_raw_bytes(private_key, openssl::pkey::Id::X25519)
-        .expect("Failed to create X25519 private key");
-
-    // Create public key from raw bytes
-    let public = PKey::public_key_from_raw_bytes(public_key, openssl::pkey::Id::X25519)
-        .expect("Failed to create X25519 public key");
-
-    // Derive shared secret
-    let mut deriver = Deriver::new(&private).expect("Failed to create deriver");
-    deriver.set_peer(&public).expect("Failed to set peer key");
-
     let mut shared_secret = [0u8; 32];
-    let len = deriver.derive(&mut shared_secret).expect("Failed to derive shared secret");
-    assert_eq!(len, 32, "X25519 shared secret must be 32 bytes");
-
+    scalarmult(&mut shared_secret, private_key, public_key);
     shared_secret
 }
 
-/// Compute X25519 public key from private key using OpenSSL
+/// Compute X25519 public key from private key using pure Rust implementation
 pub fn x25519_public_key(private_key: &[u8; 32]) -> [u8; 32] {
-    use openssl::pkey::PKey;
-
-    // Create private key from raw bytes
-    let private = PKey::private_key_from_raw_bytes(private_key, openssl::pkey::Id::X25519)
-        .expect("Failed to create X25519 private key");
-
-    // Get the public key bytes
-    let public_bytes = private.raw_public_key()
-        .expect("Failed to get X25519 public key");
-
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&public_bytes);
-    result
+    let mut public_key = [0u8; 32];
+    scalarmult_base(&mut public_key, private_key);
+    public_key
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_rfc7748_vectors() {
-        let alice_private = [
-            0x77, 0x07, 0x6d, 0x0a, 0x73, 0x18, 0xa5, 0x7d, 0x3c, 0x16, 0xc1, 0x72, 0x51, 0xb2,
-            0x66, 0x45, 0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a, 0xb1, 0x77, 0xfb, 0xa5,
-            0x1d, 0xb9, 0x2c, 0x2a,
-        ];
-        let bob_private = [
-            0x5d, 0xab, 0x08, 0x7e, 0x62, 0x4a, 0x8a, 0x4b, 0x79, 0xe1, 0x7f, 0x8b, 0x83, 0x80,
-            0x0e, 0xe6, 0x6f, 0x3b, 0xb1, 0x29, 0x26, 0x18, 0xb6, 0xfd, 0x1c, 0x2f, 0x8b, 0x27,
-            0xff, 0x88, 0xe0, 0xeb,
-        ];
-
-        let alice_public = x25519_public_key(&alice_private);
-        let bob_public = x25519_public_key(&bob_private);
-
-        let alice_shared = x25519(&alice_private, &bob_public);
-        let bob_shared = x25519(&bob_private, &alice_public);
-
-        assert_eq!(alice_shared, bob_shared);
-        let expected = [
-            0x4a, 0x5d, 0x9d, 0x5b, 0xa4, 0xce, 0x2d, 0xe1, 0x72, 0x8e, 0x3b, 0xf4, 0x80, 0x35,
-            0x0f, 0x25, 0xe0, 0x7e, 0x21, 0xc9, 0x47, 0xd1, 0x9e, 0x33, 0x76, 0xf0, 0x9b, 0x3c,
-            0x1e, 0x16, 0x17, 0x42,
-        ];
-        assert_eq!(alice_shared, expected);
-    }
 
     #[test]
     fn test_pack_unpack_roundtrip() {

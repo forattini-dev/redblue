@@ -15,9 +15,31 @@
 
 use std::collections::HashMap;
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
+
+/// Helper for serializing Duration as seconds
+mod duration_serde {
+    use serde::{Serializer, Deserializer, Deserialize};
+    use std::time::Duration;
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(duration.as_secs())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let secs = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(secs))
+    }
+}
 
 /// Script category for filtering and safety
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ScriptCategory {
     /// Vulnerability detection (CVE checks, misconfigurations)
     Vuln,
@@ -118,7 +140,7 @@ impl std::fmt::Display for ScriptCategory {
 }
 
 /// Script metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptMetadata {
     /// Unique script identifier (e.g., "http-vuln-cve2021-44228")
     pub id: String,
@@ -163,7 +185,7 @@ impl Default for ScriptMetadata {
 }
 
 /// Script execution context
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptContext {
     /// Target host
     pub host: String,
@@ -172,6 +194,7 @@ pub struct ScriptContext {
     /// Protocol detected/assumed
     pub protocol: String,
     /// Timeout for operations
+    #[serde(with = "duration_serde")]
     pub timeout: Duration,
     /// Previously gathered data (banner, headers, etc.)
     pub data: HashMap<String, String>,
@@ -219,7 +242,7 @@ impl ScriptContext {
 }
 
 /// Script execution result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptResult {
     /// Script ID
     pub script_id: String,
@@ -234,6 +257,7 @@ pub struct ScriptResult {
     /// Extracted data (for use by other scripts)
     pub extracted: HashMap<String, String>,
     /// Execution time
+    #[serde(with = "duration_serde")]
     pub duration: Duration,
 }
 
@@ -293,7 +317,7 @@ impl ScriptResult {
 }
 
 /// Script execution status
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScriptStatus {
     /// Script hasn't run yet
     NotRun,
@@ -326,7 +350,7 @@ impl std::fmt::Display for ScriptStatus {
 }
 
 /// A finding from a script
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
     /// Finding type
     pub finding_type: FindingType,
@@ -395,7 +419,7 @@ impl Finding {
 }
 
 /// Finding type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FindingType {
     /// Vulnerability found
     Vulnerability,
@@ -428,7 +452,7 @@ impl std::fmt::Display for FindingType {
 }
 
 /// Finding severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum FindingSeverity {
     Info,
     Low,
@@ -462,7 +486,7 @@ impl std::fmt::Display for FindingSeverity {
 }
 
 /// Script argument definition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptArg {
     /// Argument name
     pub name: String,

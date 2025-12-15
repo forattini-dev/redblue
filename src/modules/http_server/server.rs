@@ -3,20 +3,24 @@
 //! Multi-threaded HTTP server for static file serving.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::embedded::EmbeddedFiles;
 use super::mime::MimeType;
 
+/// Route handler type
+pub type RouteHandler = Box<dyn Fn(&HttpRequest) -> HttpResponse + Send + Sync>;
+
 /// HTTP server configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpServerConfig {
     /// Listen address
     pub listen_addr: SocketAddr,
@@ -36,6 +40,25 @@ pub struct HttpServerConfig {
     pub serve_embedded: bool,
     /// Serve self-binary at /rb
     pub serve_self: bool,
+    /// Dynamic routes
+    pub routes: HashMap<String, Arc<RouteHandler>>,
+}
+
+impl fmt::Debug for HttpServerConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpServerConfig")
+            .field("listen_addr", &self.listen_addr)
+            .field("root_dir", &self.root_dir)
+            .field("dir_listing", &self.dir_listing)
+            .field("cors", &self.cors)
+            .field("timeout", &self.timeout)
+            .field("log_requests", &self.log_requests)
+            .field("workers", &self.workers)
+            .field("serve_embedded", &self.serve_embedded)
+            .field("serve_self", &self.serve_self)
+            .field("routes", &format!("{} routes", self.routes.len()))
+            .finish()
+    }
 }
 
 impl Default for HttpServerConfig {
@@ -50,6 +73,7 @@ impl Default for HttpServerConfig {
             workers: 4,
             serve_embedded: true,
             serve_self: true,
+            routes: HashMap::new(),
         }
     }
 }
@@ -141,6 +165,15 @@ impl HttpServerConfig {
         self.workers = n.max(1);
         self
     }
+
+    /// Add a dynamic route handler
+    pub fn add_route<F>(mut self, path: &str, handler: F) -> Self
+    where
+        F: Fn(&HttpRequest) -> HttpResponse + Send + Sync + 'static,
+    {
+        self.routes.insert(path.to_string(), Arc::new(Box::new(handler)));
+        self
+    }
 }
 
 /// Server statistics
@@ -160,10 +193,12 @@ impl ServerStats {
 }
 
 /// HTTP Server
+#[derive(Clone)]
 pub struct HttpServer {
-    config: HttpServerConfig,
+    pub config: HttpServerConfig,
     stats: Arc<ServerStats>,
     running: Arc<AtomicBool>,
+    bound_addr: Arc<Mutex<Option<SocketAddr>>>,
 }
 
 impl HttpServer {
@@ -173,6 +208,7 @@ impl HttpServer {
             config,
             stats: Arc::new(ServerStats::new()),
             running: Arc::new(AtomicBool::new(false)),
+            bound_addr: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -191,21 +227,35 @@ impl HttpServer {
         &self.stats
     }
 
+    /// Get the bound address (useful if port 0 was used)
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        *self.bound_addr.lock().unwrap()
+    }
+
     /// Run the server
     pub fn run(&self) -> io::Result<()> {
         let listener = TcpListener::bind(self.config.listen_addr)?;
         listener.set_nonblocking(true)?;
+        
+        // Update bound address
+        if let Ok(addr) = listener.local_addr() {
+            *self.bound_addr.lock().unwrap() = Some(addr);
+        }
 
         self.running.store(true, Ordering::Relaxed);
 
         if self.config.log_requests {
+            let addr = self.local_addr().unwrap_or(self.config.listen_addr);
             eprintln!(
                 "[HTTP] Server listening on http://{}",
-                self.config.listen_addr
+                addr
             );
             eprintln!("[HTTP] Serving files from {:?}", self.config.root_dir);
             if self.config.cors {
                 eprintln!("[HTTP] CORS enabled (Access-Control-Allow-Origin: *)");
+            }
+            if !self.config.routes.is_empty() {
+                eprintln!("[HTTP] Active routes: {:?}", self.config.routes.keys().collect::<Vec<_>>());
             }
         }
 
@@ -253,7 +303,13 @@ fn handle_connection(
     stats.requests_total.fetch_add(1, Ordering::Relaxed);
 
     // Parse request
-    let request = parse_request(&mut stream)?;
+    let request = match parse_request(&mut stream) {
+        Ok(req) => req,
+        Err(e) => {
+            // If we can't even parse headers, likely garbage or SSL handshake attempt on plain HTTP
+            return Err(e);
+        }
+    };
 
     if config.log_requests {
         eprintln!(
@@ -271,7 +327,24 @@ fn handle_connection(
         return Ok(());
     }
 
-    // Only handle GET and HEAD
+    // Check dynamic routes first
+    if let Some(handler) = config.routes.get(&request.path) {
+        let response = handler(&request);
+        
+        let bytes = send_response(
+            &mut stream,
+            response.status_code,
+            response.headers.get("Content-Type").map(|s| s.as_str()).unwrap_or("text/plain"),
+            &response.body,
+            config,
+            request.method == "HEAD",
+        )?;
+        stats.bytes_sent.fetch_add(bytes as u64, Ordering::Relaxed);
+        stats.requests_ok.fetch_add(1, Ordering::Relaxed);
+        return Ok(());
+    }
+
+    // Only handle GET and HEAD for static files
     if request.method != "GET" && request.method != "HEAD" {
         send_error(&mut stream, 405, "Method Not Allowed", config)?;
         return Ok(());
@@ -378,11 +451,36 @@ fn serve_file(
 }
 
 /// HTTP request
-struct HttpRequest {
-    method: String,
-    path: String,
-    version: String,
-    headers: HashMap<String, String>,
+#[derive(Debug, Clone)]
+pub struct HttpRequest {
+    pub method: String,
+    pub path: String,
+    pub version: String,
+    pub headers: HashMap<String, String>,
+    pub body: Vec<u8>,
+}
+
+/// HTTP response
+#[derive(Debug, Clone)]
+pub struct HttpResponse {
+    pub status_code: u16,
+    pub headers: HashMap<String, String>,
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    pub fn new(status_code: u16, body: Vec<u8>) -> Self {
+        Self {
+            status_code,
+            headers: HashMap::new(),
+            body,
+        }
+    }
+
+    pub fn with_header(mut self, key: &str, value: &str) -> Self {
+        self.headers.insert(key.to_string(), value.to_string());
+        self
+    }
 }
 
 /// Parse HTTP request
@@ -422,11 +520,23 @@ fn parse_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
         }
     }
 
+    // Read body if content-length matches
+    let mut body = Vec::new();
+    if let Some(len_str) = headers.get("content-length") {
+        if let Ok(len) = len_str.parse::<usize>() {
+            if len > 0 {
+                body.resize(len, 0);
+                reader.read_exact(&mut body)?;
+            }
+        }
+    }
+
     Ok(HttpRequest {
         method,
         path,
         version,
         headers,
+        body,
     })
 }
 
@@ -455,11 +565,11 @@ fn send_response(
     };
 
     let mut response = format!(
-        "HTTP/1.1 {} {}\r\n\
-         Content-Type: {}\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\
-         Server: redblue\r\n",
+        "HTTP/1.1 {} {}\n\
+         Content-Type: {}\n\
+         Content-Length: {}\n\
+         Connection: close\n\
+         Server: redblue\n",
         status, status_text, content_type, body.len()
     );
 
@@ -494,8 +604,7 @@ fn send_error(
         EmbeddedFiles::not_found_html().to_string()
     } else {
         format!(
-            "<!DOCTYPE html><html><head><title>{} {}</title></head>\
-             <body><h1>{} {}</h1></body></html>",
+            "<!DOCTYPE html><html><head><title>{} {}</title></head>\n             <body><h1>{} {}</h1></body></html>",
             status, message, status, message
         )
     };
@@ -591,7 +700,7 @@ fn generate_directory_listing(dir: &Path, url_path: &str) -> io::Result<String> 
         };
 
         let href = format!(
-            "{}{}{}",
+            "{}{} {}",
             url_path.trim_end_matches('/'),
             if url_path.ends_with('/') { "" } else { "/" },
             &name
@@ -613,7 +722,7 @@ fn generate_directory_listing(dir: &Path, url_path: &str) -> io::Result<String> 
         let class = if is_dir { "dir" } else { "file" };
 
         entries.push_str(&format!(
-            "            <tr><td><a href=\"{}\" class=\"{}\">{}</a></td><td class=\"size\">{}</td><td class=\"date\">{}</td></tr>\n",
+            "            <tr><td><a href=\"{}\" class=\"{} \">{}</a></td><td class=\"size\">{}</td><td class=\"date\">{}</td></tr>\n",
             href, class, display_name, size, modified
         ));
     }

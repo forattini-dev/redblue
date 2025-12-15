@@ -1,7 +1,11 @@
-/// Username OSINT command - Search username across platforms
+/// Username OSINT command - Search username across 1000+ platforms
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::recon::username::UsernameSearcher;
+use crate::modules::recon::osint::{
+    UsernameEnumerator, OsintConfig, PlatformCategory,
+    platforms::get_all_platforms,
+};
+use std::time::Duration;
 
 pub struct ReconUsernameCommand;
 
@@ -15,7 +19,7 @@ impl Command for ReconUsernameCommand {
     }
 
     fn description(&self) -> &str {
-        "Search username across 100+ platforms (WhatsMyName-style)"
+        "Search username across 1000+ platforms (sherlock/maigret-style)"
     }
 
     fn routes(&self) -> Vec<Route> {
@@ -95,55 +99,102 @@ impl ReconUsernameCommand {
     }
 
     fn search_with_username(&self, ctx: &CliContext, username: &str) -> Result<(), String> {
-        let category = ctx.get_flag("category");
+        let category_filter = ctx.get_flag("category");
         let threads: usize = ctx
             .get_flag("threads")
             .and_then(|s| s.parse().ok())
-            .unwrap_or(20);
+            .unwrap_or(50);
         let timeout: u64 = ctx
             .get_flag("timeout")
             .and_then(|s| s.parse().ok())
-            .unwrap_or(5000);
+            .unwrap_or(10000);
         let max_sites: usize = ctx
             .get_flag("max-sites")
             .and_then(|s| s.parse().ok())
-            .unwrap_or(100);
+            .unwrap_or(0); // 0 = no limit
+
+        // Build category list
+        let categories = if let Some(cat) = &category_filter {
+            Self::parse_category(cat)
+        } else {
+            // All categories by default
+            vec![
+                PlatformCategory::Social,
+                PlatformCategory::Development,
+                PlatformCategory::Gaming,
+                PlatformCategory::Business,
+                PlatformCategory::Creative,
+                PlatformCategory::Photography,
+                PlatformCategory::Video,
+                PlatformCategory::Music,
+                PlatformCategory::News,
+                PlatformCategory::Forum,
+                PlatformCategory::Dating,
+                PlatformCategory::Finance,
+                PlatformCategory::Crypto,
+                PlatformCategory::Shopping,
+                PlatformCategory::Adult,
+                PlatformCategory::Other,
+            ]
+        };
+
+        // Build config
+        let mut config = OsintConfig {
+            timeout: Duration::from_millis(timeout),
+            threads,
+            delay: Duration::from_millis(50),
+            user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36".to_string(),
+            categories: categories.clone(),
+            skip_platforms: Vec::new(),
+            extract_metadata: false,
+            follow_redirects: true,
+        };
+
+        // Get total platforms for this category set
+        let all_platforms = get_all_platforms();
+        let mut platform_count = all_platforms.iter()
+            .filter(|p| categories.contains(&p.category))
+            .count();
+
+        // Apply max_sites limit
+        if max_sites > 0 && max_sites < platform_count {
+            platform_count = max_sites;
+        }
 
         Output::header(&format!("Username Search: {}", username));
 
-        if let Some(cat) = &category {
+        if let Some(cat) = &category_filter {
             Output::item("Category Filter", cat);
         }
+        Output::item("Platforms", &format!("{}", platform_count));
+        Output::item("Threads", &format!("{}", threads));
 
-        Output::spinner_start(&format!("Searching {} across platforms", username));
+        Output::spinner_start(&format!("Searching {} across {} platforms", username, platform_count));
 
-        let searcher = UsernameSearcher::new()
-            .with_threads(threads)
-            .with_timeout(timeout)
-            .with_max_sites(max_sites);
-
-        let result = if let Some(cat) = category {
-            searcher.search_categories(username, &[cat.as_str()])
-        } else {
-            searcher.search(username)
-        };
+        let enumerator = UsernameEnumerator::new(config);
+        let result = enumerator.enumerate(username);
 
         Output::spinner_done();
 
         // Check for JSON output
         let format = ctx.get_output_format();
         if format == crate::cli::format::OutputFormat::Json {
-            let found: Vec<_> = result.results.iter().filter(|r| r.found).collect();
+            let found: Vec<_> = result.by_category.values()
+                .flat_map(|v| v.iter())
+                .filter(|r| r.exists)
+                .collect();
             println!("{{");
-            println!("  \"username\": \"{}\",", result.username);
-            println!("  \"total_sites\": {},", result.total_sites);
+            println!("  \"username\": \"{}\",", username);
+            println!("  \"total_checked\": {},", result.total_checked);
             println!("  \"found_count\": {},", result.found_count);
+            println!("  \"error_count\": {},", result.error_count);
+            println!("  \"duration_ms\": {},", result.duration.as_millis());
             println!("  \"profiles\": [");
             for (i, profile) in found.iter().enumerate() {
                 println!("    {{");
-                println!("      \"platform\": \"{}\",", profile.site_name);
-                println!("      \"category\": \"{}\",", profile.category);
-                println!("      \"url\": \"{}\"", profile.url);
+                println!("      \"platform\": \"{}\",", profile.platform);
+                println!("      \"category\": \"{:?}\",", profile.category);
+                println!("      \"url\": \"{}\"", profile.url.as_ref().unwrap_or(&String::new()));
                 if i < found.len() - 1 {
                     println!("    }},");
                 } else {
@@ -157,9 +208,11 @@ impl ReconUsernameCommand {
 
         // Display results
         println!();
-        Output::item("Username", &result.username);
-        Output::item("Sites Checked", &format!("{}", result.total_sites));
+        Output::item("Username", username);
+        Output::item("Platforms Checked", &format!("{}", result.total_checked));
         Output::item("Profiles Found", &format!("{}", result.found_count));
+        Output::item("Errors", &format!("{}", result.error_count));
+        Output::item("Duration", &format!("{:.2}s", result.duration.as_secs_f64()));
         println!();
 
         if result.found_count == 0 {
@@ -167,33 +220,54 @@ impl ReconUsernameCommand {
             return Ok(());
         }
 
-        // Group by category
-        let mut categories: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
-        for profile in result.results.iter().filter(|r| r.found) {
-            categories
-                .entry(profile.category.clone())
-                .or_default()
-                .push(profile);
-        }
+        // Display by category
+        let mut sorted_categories: Vec<_> = result.by_category.iter().collect();
+        sorted_categories.sort_by_key(|(cat, _)| format!("{:?}", cat));
 
-        for (category, profiles) in &categories {
-            Output::subheader(&format!("{} ({})", Self::capitalize(category), profiles.len()));
-            for profile in profiles {
+        for (category, profiles) in sorted_categories {
+            let found: Vec<_> = profiles.iter().filter(|p| p.exists).collect();
+            if found.is_empty() {
+                continue;
+            }
+
+            Output::subheader(&format!("{:?} ({})", category, found.len()));
+            for profile in found {
+                let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
                 println!(
                     "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
-                    profile.site_name, profile.url
+                    profile.platform, url
                 );
             }
             println!();
         }
 
         Output::success(&format!(
-            "Found {} profiles across {} categories",
+            "Found {} profiles in {:.2}s",
             result.found_count,
-            categories.len()
+            result.duration.as_secs_f64()
         ));
 
         Ok(())
+    }
+
+    fn parse_category(cat: &str) -> Vec<PlatformCategory> {
+        match cat.to_lowercase().as_str() {
+            "social" => vec![PlatformCategory::Social],
+            "coding" | "development" | "dev" => vec![PlatformCategory::Development],
+            "gaming" | "games" => vec![PlatformCategory::Gaming],
+            "business" | "professional" => vec![PlatformCategory::Business],
+            "creative" | "art" => vec![PlatformCategory::Creative],
+            "photo" | "photography" => vec![PlatformCategory::Photography],
+            "video" => vec![PlatformCategory::Video],
+            "music" => vec![PlatformCategory::Music],
+            "news" => vec![PlatformCategory::News],
+            "forum" => vec![PlatformCategory::Forum],
+            "dating" => vec![PlatformCategory::Dating],
+            "finance" => vec![PlatformCategory::Finance],
+            "crypto" => vec![PlatformCategory::Crypto],
+            "shopping" => vec![PlatformCategory::Shopping],
+            _ => vec![PlatformCategory::Other],
+        }
     }
 
     fn check(&self, ctx: &CliContext) -> Result<(), String> {
@@ -205,35 +279,80 @@ impl ReconUsernameCommand {
             "Missing --platforms flag.\nUsage: rb recon username check <username> --platforms github,twitter,linkedin",
         )?;
 
-        let platforms: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
+        let platform_names: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
 
         Output::header(&format!("Username Check: {}", username));
-        Output::item("Platforms", &platforms.join(", "));
+        Output::item("Platforms", &platform_names.join(", "));
 
-        Output::spinner_start(&format!("Checking {} on {} platforms", username, platforms.len()));
+        Output::spinner_start(&format!("Checking {} on {} platforms", username, platform_names.len()));
 
-        // Use the check_platform function for quick checks
-        let mut found_count = 0;
-        let mut results = Vec::new();
+        // Filter platforms by name from the full list
+        let all_platforms = get_all_platforms();
+        let filtered: Vec<_> = all_platforms.into_iter()
+            .filter(|p| platform_names.iter().any(|name|
+                p.name.eq_ignore_ascii_case(name) ||
+                p.name.to_lowercase().contains(&name.to_lowercase())
+            ))
+            .collect();
 
-        for platform in &platforms {
-            if let Some(profile) = crate::modules::recon::social::check_platform(platform, username) {
-                results.push((platform.to_string(), profile.found, profile.url));
-                if profile.found {
-                    found_count += 1;
-                }
-            }
-        }
+        // Build config for quick check
+        let config = OsintConfig {
+            timeout: Duration::from_secs(10),
+            threads: filtered.len().min(20),
+            delay: Duration::from_millis(0),
+            user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36".to_string(),
+            categories: vec![
+                PlatformCategory::Social,
+                PlatformCategory::Development,
+                PlatformCategory::Gaming,
+                PlatformCategory::Business,
+                PlatformCategory::Creative,
+                PlatformCategory::Photography,
+                PlatformCategory::Video,
+                PlatformCategory::Music,
+                PlatformCategory::News,
+                PlatformCategory::Forum,
+                PlatformCategory::Dating,
+                PlatformCategory::Finance,
+                PlatformCategory::Crypto,
+                PlatformCategory::Shopping,
+                PlatformCategory::Adult,
+                PlatformCategory::Other,
+            ],
+            skip_platforms: Vec::new(),
+            extract_metadata: false,
+            follow_redirects: true,
+        };
+
+        let enumerator = UsernameEnumerator::new(config);
+        let result = enumerator.enumerate(username);
 
         Output::spinner_done();
 
+        // Display results
         println!();
         Output::subheader("Results");
-        for (platform, found, url) in &results {
-            if *found {
-                println!("  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m", platform, url);
-            } else {
-                println!("  \x1b[31m✗\x1b[0m {} - not found", platform);
+
+        let mut found_count = 0;
+        for profiles in result.by_category.values() {
+            for profile in profiles {
+                // Only show if it matches one of the requested platforms
+                if !platform_names.iter().any(|name|
+                    profile.platform.eq_ignore_ascii_case(name) ||
+                    profile.platform.to_lowercase().contains(&name.to_lowercase())
+                ) {
+                    continue;
+                }
+
+                if profile.exists {
+                    found_count += 1;
+                    let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                    println!("  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m", profile.platform, url);
+                } else if profile.error.is_some() {
+                    println!("  \x1b[33m?\x1b[0m {} - error: {}", profile.platform, profile.error.as_ref().unwrap());
+                } else {
+                    println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
+                }
             }
         }
 
@@ -241,17 +360,9 @@ impl ReconUsernameCommand {
         Output::success(&format!(
             "Found {}/{} profiles",
             found_count,
-            platforms.len()
+            platform_names.len()
         ));
 
         Ok(())
-    }
-
-    fn capitalize(s: &str) -> String {
-        let mut chars = s.chars();
-        match chars.next() {
-            None => String::new(),
-            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-        }
     }
 }

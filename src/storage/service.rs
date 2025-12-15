@@ -375,6 +375,30 @@ impl StorageService {
         QueryManager::open(path_buf)
     }
 
+    /// Resolve the standard database path for a target
+    pub fn db_path(target: &str) -> PathBuf {
+        // Use PersistenceManager logic but avoid creating instance if possible,
+        // or just create a temporary one to resolve path.
+        // Since PersistenceManager::new might fail if config is invalid, we handle error.
+        // But better is to replicate simple path logic or expose static method in PersistenceManager.
+        // Let's assume standard location: current_dir/target.rdb or ~/.redblue/target.rdb
+        // Actually, PersistenceManager has logic for this.
+        // Let's rely on PersistenceManager::resolve_db_path if it exists or implement it.
+        // Checking src/storage/client/mod.rs ...
+        // It seems PersistenceManager::new handles it.
+        
+        // For CLI tools, we usually just use target.rdb in current dir or specific logic.
+        // Let's implement a safe default here matching TuiApp logic:
+        // 1. If target ends with .rdb, use it
+        // 2. Else use target.rdb
+        
+        if target.ends_with(".rdb") {
+            PathBuf::from(target)
+        } else {
+            PathBuf::from(format!("{}.rdb", target))
+        }
+    }
+
     fn inspect_segments(path: &Path) -> io::Result<Vec<SegmentKind>> {
         let mut file = File::open(path)?;
         let header = FileHeader::read(&mut file).map_err(decode_err_to_io)?;

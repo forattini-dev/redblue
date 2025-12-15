@@ -28,6 +28,7 @@ pub mod osv;
 pub mod kev;
 pub mod risk;
 pub mod exploitdb;
+pub mod correlator;
 
 pub use cpe::{CpeMapping, TechCategory, find_cpe, generate_cpe, get_all_cpe_mappings};
 pub use types::{Vulnerability, Severity, ExploitRef, VulnSource, DetectedTech, VulnCollection};
@@ -36,3 +37,4 @@ pub use nvd::NvdClient;
 pub use osv::OsvClient;
 pub use kev::KevClient;
 pub use exploitdb::ExploitDbClient;
+pub use correlator::{VulnCorrelator, CorrelatorConfig, CorrelationReport, TechCorrelation, correlate_techs};

@@ -7,7 +7,7 @@ use super::framing::{flags, Frame, FrameType};
 use super::hpack::{Header, HpackDecoder, HpackEncoder};
 use super::stream::{Stream, StreamEvent, StreamId, StreamManager, StreamState};
 use super::{ALPN_H2, CONNECTION_PREFACE, DEFAULT_MAX_FRAME_SIZE, DEFAULT_WINDOW_SIZE};
-use openssl::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
+use boring::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};

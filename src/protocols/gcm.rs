@@ -2,7 +2,7 @@
 ///
 /// This replaces our custom AES-GCM implementation with OpenSSL's battle-tested implementation.
 /// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
-use openssl::symm::{Cipher, Crypter, Mode};
+use boring::symm::{Cipher, Crypter, Mode};
 
 /// AES-128-GCM encryption using OpenSSL
 ///

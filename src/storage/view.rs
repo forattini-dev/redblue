@@ -13,6 +13,11 @@ use crate::storage::segments::proxy::ProxySegmentView;
 use crate::storage::segments::subdomains::SubdomainSegmentView;
 use crate::storage::segments::tls::TlsSegmentView;
 use crate::storage::segments::whois::WhoisSegmentView;
+use crate::storage::segments::mitre::MitreSegmentView;
+use crate::storage::segments::iocs::IocSegmentView;
+use crate::storage::segments::vuln::VulnSegmentView;
+use crate::storage::segments::sessions::SessionSegmentView; // Import
+use crate::storage::segments::playbooks::PlaybookSegmentView; // Import
 
 pub struct RedDbView {
     subdomains: Option<SubdomainSegmentView>,
@@ -23,6 +28,11 @@ pub struct RedDbView {
     whois: Option<WhoisSegmentView>,
     hosts: Option<HostSegmentView>,
     proxy: Option<ProxySegmentView>,
+    mitre: Option<MitreSegmentView>,
+    iocs: Option<IocSegmentView>,
+    vulns: Option<VulnSegmentView>,
+    sessions: Option<SessionSegmentView>, // New field
+    playbooks: Option<PlaybookSegmentView>, // New field
 }
 
 impl RedDbView {
@@ -61,6 +71,11 @@ impl RedDbView {
         let mut whois = None;
         let mut hosts_view = None;
         let mut proxy_view = None;
+        let mut mitre_view = None;
+        let mut iocs_view = None;
+        let mut vulns_view = None;
+        let mut sessions_view = None; // New
+        let mut playbooks_view = None; // New
 
         for entry in directory {
             let start = entry.offset as usize;
@@ -78,46 +93,73 @@ impl RedDbView {
                     "segment out of bounds",
                 ));
             }
+            let segment_data = Arc::clone(&data); // Access the segment data
+
             match entry.kind {
                 SegmentKind::Subdomains => {
-                    let view = SubdomainSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = SubdomainSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     subdomains = Some(view);
                 }
                 SegmentKind::Ports => {
-                    let view = PortSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = PortSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     ports = Some(view);
                 }
                 SegmentKind::Dns => {
-                    let view = DnsSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = DnsSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     dns = Some(view);
                 }
                 SegmentKind::Http => {
-                    let view = HttpSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = HttpSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     http = Some(view);
                 }
                 SegmentKind::Tls => {
-                    let view = TlsSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = TlsSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     tls = Some(view);
                 }
                 SegmentKind::Host => {
-                    let view = HostSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = HostSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     hosts_view = Some(view);
                 }
                 SegmentKind::Whois => {
-                    let view = WhoisSegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = WhoisSegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     whois = Some(view);
                 }
                 SegmentKind::Proxy => {
-                    let view = ProxySegmentView::from_arc(Arc::clone(&data), start, seg_len)
+                    let view = ProxySegmentView::from_arc(segment_data, start, seg_len)
                         .map_err(decode_err_to_io)?;
                     proxy_view = Some(view);
+                }
+                SegmentKind::Mitre => {
+                    let view = MitreSegmentView::from_arc(segment_data, start, seg_len)
+                        .map_err(decode_err_to_io)?;
+                    mitre_view = Some(view);
+                }
+                SegmentKind::Ioc => {
+                    let view = IocSegmentView::from_arc(segment_data, start, seg_len)
+                        .map_err(decode_err_to_io)?;
+                    iocs_view = Some(view);
+                }
+                SegmentKind::Vuln => {
+                    let view = VulnSegmentView::from_arc(segment_data, start, seg_len)
+                        .map_err(decode_err_to_io)?;
+                    vulns_view = Some(view);
+                }
+                SegmentKind::Sessions => {
+                    // TODO: Implement SessionSegmentView
+                    eprintln!("Warning: SessionSegmentView not implemented for RedDbView.");
+                    sessions_view = None;
+                }
+                SegmentKind::Playbooks => {
+                    // TODO: Implement PlaybookSegmentView
+                    eprintln!("Warning: PlaybookSegmentView not implemented for RedDbView.");
+                    playbooks_view = None;
                 }
             }
         }
@@ -131,6 +173,11 @@ impl RedDbView {
             whois,
             hosts: hosts_view,
             proxy: proxy_view,
+            mitre: mitre_view,
+            iocs: iocs_view,
+            vulns: vulns_view,
+            sessions: sessions_view, // New
+            playbooks: playbooks_view, // New
         })
     }
 
@@ -165,6 +212,26 @@ impl RedDbView {
     pub fn proxy(&self) -> Option<&ProxySegmentView> {
         self.proxy.as_ref()
     }
+
+    pub fn mitre(&self) -> Option<&MitreSegmentView> {
+        self.mitre.as_ref()
+    }
+
+    pub fn iocs(&self) -> Option<&IocSegmentView> {
+        self.iocs.as_ref()
+    }
+
+    pub fn vulns(&self) -> Option<&VulnSegmentView> {
+        self.vulns.as_ref()
+    }
+    
+    pub fn sessions(&self) -> Option<&SessionSegmentView> {
+        self.sessions.as_ref()
+    }
+
+    pub fn playbooks(&self) -> Option<&PlaybookSegmentView> {
+        self.playbooks.as_ref()
+    }
 }
 
 fn decode_err_to_io(err: DecodeError) -> io::Error {
@@ -195,6 +262,8 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         (guard, path)
     }
+
+    // ==================== Open Tests ====================
 
     #[test]
     fn test_open_nonexistent_file() {

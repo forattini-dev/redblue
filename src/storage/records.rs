@@ -24,6 +24,20 @@ pub enum RecordType {
     KeyValue(Vec<u8>, Vec<u8>),
     /// Host fingerprint/intel data
     HostIntel(HostIntelRecord),
+    /// Service fingerprint with CPE
+    Fingerprint(FingerprintRecord),
+    /// Vulnerability with risk score
+    Vulnerability(VulnerabilityRecord),
+    /// Exploit execution attempt
+    ExploitAttempt(ExploitAttemptRecord),
+    /// Interactive session state
+    Session(SessionRecord),
+    /// Playbook execution history
+    PlaybookRun(PlaybookRunRecord),
+    /// MITRE ATT&CK Technique detection
+    MitreAttack(MitreAttackRecord),
+    /// Indicator of Compromise
+    Ioc(IocRecord),
 }
 
 /// Port scan result - 20 bytes for IPv4 payloads.
@@ -247,6 +261,409 @@ pub struct HostIntelRecord {
     pub confidence: f32,
     pub last_seen: u32,
     pub services: Vec<ServiceIntelRecord>,
+}
+
+// ==================== Pentest Workflow Records ====================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Info = 0,
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    Critical = 4,
+}
+
+/// Fingerprint record from service detection
+#[derive(Debug, Clone)]
+pub struct FingerprintRecord {
+    pub host: String,
+    pub port: u16,
+    pub technology: String,       // e.g., "nginx"
+    pub version: Option<String>,  // e.g., "1.21.0"
+    pub cpe: Option<String>,      // e.g., "cpe:2.3:a:nginx:nginx:1.21.0"
+    pub confidence: u8,           // 0-100
+    pub source: String,           // banner/header/probe
+    pub detected_at: u32,
+}
+
+/// Vulnerability record from CVE correlation
+#[derive(Debug, Clone)]
+pub struct VulnerabilityRecord {
+    pub cve_id: String,           // e.g., "CVE-2021-44228"
+    pub technology: String,       // e.g., "log4j"
+    pub version: Option<String>,  // e.g., "2.14.0"
+    pub cvss: f32,                // e.g., 10.0
+    pub risk_score: u8,           // 0-100
+    pub severity: Severity,       // Critical/High/Medium/Low
+    pub description: String,
+    pub references: Vec<String>,  // URLs
+    pub exploit_available: bool,
+    pub in_kev: bool,             // CISA Known Exploited
+    pub discovered_at: u32,       // timestamp
+    pub source: String,           // nvd/osv/kev/exploitdb
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExploitStatus {
+    Pending = 0,
+    Running = 1,
+    Success = 2,
+    Failed = 3,
+}
+
+/// Exploit attempt record
+#[derive(Debug, Clone)]
+pub struct ExploitAttemptRecord {
+    pub target: String,
+    pub cve_id: Option<String>,
+    pub exploit_name: String,
+    pub status: ExploitStatus,
+    pub output: Option<String>,
+    pub attempted_at: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStatus {
+    Active = 0,
+    Closed = 1,
+    Dead = 2,
+}
+
+/// Session record for active shells
+#[derive(Debug, Clone)]
+pub struct SessionRecord {
+    pub id: String,               // uuid
+    pub target: String,
+    pub shell_type: String,       // tcp/http/dns/icmp
+    pub local_port: u16,
+    pub remote_ip: String,
+    pub status: SessionStatus,
+    pub created_at: u32,
+    pub last_activity: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybookStatus {
+    Running = 0,
+    Completed = 1,
+    Failed = 2,
+}
+
+#[derive(Debug, Clone)]
+pub struct StepResult {
+    pub name: String,
+    pub status: String, // "success", "failed", "skipped"
+    pub output: Option<String>,
+}
+
+/// Playbook execution record
+#[derive(Debug, Clone)]
+pub struct PlaybookRunRecord {
+    pub playbook_name: String,
+    pub target: String,
+    pub status: PlaybookStatus,
+    pub current_phase: u8,
+    pub started_at: u32,
+    pub completed_at: Option<u32>,
+    pub results: Vec<StepResult>,
+}
+
+// ==================== Threat Intelligence Records ====================
+
+#[derive(Debug, Clone)]
+pub struct MitreAttackRecord {
+    pub technique_id: String,     // e.g., "T1059.001"
+    pub technique_name: String,   // e.g., "PowerShell"
+    pub tactic: String,           // e.g., "Execution"
+    pub target: String,           // e.g., "example.com"
+    pub source_finding: String,   // e.g., "port_scan:5985"
+    pub cve_id: Option<String>,   // e.g., "CVE-2021-44228"
+    pub confidence: u8,           // 0-100
+    pub score: u8,                // 0-100 (for Navigator)
+    pub detected_at: u32,         // Unix timestamp
+    pub evidence: String,         // Detail string
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IocType {
+    IPv4 = 0,
+    IPv6 = 1,
+    Domain = 2,
+    URL = 3,
+    Email = 4,
+    HashMD5 = 5,
+    HashSHA1 = 6,
+    HashSHA256 = 7,
+    Certificate = 8,
+    JA3 = 9,
+}
+
+#[derive(Debug, Clone)]
+pub struct IocRecord {
+    pub ioc_type: IocType,
+    pub value: String,            // e.g., "192.168.1.1"
+    pub target: String,           // e.g., "example.com"
+    pub confidence: u8,           // 0-100
+    pub source: String,           // e.g., "port_scan", "dns_lookup"
+    pub mitre_techniques: Vec<String>, // List of T-codes
+    pub tags: Vec<String>,        // e.g., ["phishing", "apt29"]
+    pub first_seen: u32,
+    pub last_seen: u32,
+    pub stix_id: Option<String>,
+}
+
+// ==================== Port Health Records ====================
+
+/// Port state change type
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortStateChange {
+    /// Port is still open (no change)
+    StillOpen,
+    /// Port is still closed (no change)
+    StillClosed,
+    /// Port was closed, now open
+    Opened,
+    /// Port was open, now closed
+    Closed,
+    /// First time seeing this port
+    New,
+}
+
+impl PortStateChange {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PortStateChange::StillOpen => "still_open",
+            PortStateChange::StillClosed => "still_closed",
+            PortStateChange::Opened => "opened",
+            PortStateChange::Closed => "closed",
+            PortStateChange::New => "new",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "still_open" => PortStateChange::StillOpen,
+            "still_closed" => PortStateChange::StillClosed,
+            "opened" => PortStateChange::Opened,
+            "closed" => PortStateChange::Closed,
+            "new" => PortStateChange::New,
+            _ => PortStateChange::New,
+        }
+    }
+
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            PortStateChange::StillOpen => 0,
+            PortStateChange::StillClosed => 1,
+            PortStateChange::Opened => 2,
+            PortStateChange::Closed => 3,
+            PortStateChange::New => 4,
+        }
+    }
+
+    pub fn from_byte(b: u8) -> Self {
+        match b {
+            0 => PortStateChange::StillOpen,
+            1 => PortStateChange::StillClosed,
+            2 => PortStateChange::Opened,
+            3 => PortStateChange::Closed,
+            _ => PortStateChange::New,
+        }
+    }
+}
+
+/// Port health check record - tracks port state changes over time
+#[derive(Debug, Clone)]
+pub struct PortHealthRecord {
+    /// Target host IP or hostname
+    pub host: String,
+    /// Port number
+    pub port: u16,
+    /// Current state (open/closed)
+    pub is_open: bool,
+    /// State change type from last check
+    pub change: PortStateChange,
+    /// Response time in milliseconds (0 if closed)
+    pub response_time_ms: u32,
+    /// Service detected (if any)
+    pub service: Option<String>,
+    /// Previous check timestamp
+    pub previous_check: u32,
+    /// Current check timestamp
+    pub checked_at: u32,
+    /// Number of consecutive checks with same state
+    pub consecutive_same_state: u16,
+}
+
+impl PortHealthRecord {
+    pub fn new(host: String, port: u16, is_open: bool) -> Self {
+        Self {
+            host,
+            port,
+            is_open,
+            change: PortStateChange::New,
+            response_time_ms: 0,
+            service: None,
+            previous_check: 0,
+            checked_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as u32,
+            consecutive_same_state: 1,
+        }
+    }
+
+    /// Convert to bytes for storage
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        // Host (length-prefixed)
+        let host_bytes = self.host.as_bytes();
+        bytes.extend_from_slice(&(host_bytes.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(host_bytes);
+
+        // Port
+        bytes.extend_from_slice(&self.port.to_le_bytes());
+
+        // is_open
+        bytes.push(self.is_open as u8);
+
+        // change
+        bytes.push(self.change.to_byte());
+
+        // response_time_ms
+        bytes.extend_from_slice(&self.response_time_ms.to_le_bytes());
+
+        // Service (length-prefixed, 0 if None)
+        if let Some(ref service) = self.service {
+            let service_bytes = service.as_bytes();
+            bytes.extend_from_slice(&(service_bytes.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(service_bytes);
+        } else {
+            bytes.extend_from_slice(&0u16.to_le_bytes());
+        }
+
+        // previous_check
+        bytes.extend_from_slice(&self.previous_check.to_le_bytes());
+
+        // checked_at
+        bytes.extend_from_slice(&self.checked_at.to_le_bytes());
+
+        // consecutive_same_state
+        bytes.extend_from_slice(&self.consecutive_same_state.to_le_bytes());
+
+        bytes
+    }
+
+    /// Create from bytes
+    pub fn from_bytes(data: &[u8]) -> Option<Self> {
+        if data.len() < 20 {
+            return None;
+        }
+
+        let mut offset = 0;
+
+        // Host
+        let host_len = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
+        offset += 2;
+        if offset + host_len > data.len() {
+            return None;
+        }
+        let host = String::from_utf8(data[offset..offset + host_len].to_vec()).ok()?;
+        offset += host_len;
+
+        // Port
+        if offset + 2 > data.len() {
+            return None;
+        }
+        let port = u16::from_le_bytes([data[offset], data[offset + 1]]);
+        offset += 2;
+
+        // is_open
+        if offset >= data.len() {
+            return None;
+        }
+        let is_open = data[offset] != 0;
+        offset += 1;
+
+        // change
+        if offset >= data.len() {
+            return None;
+        }
+        let change = PortStateChange::from_byte(data[offset]);
+        offset += 1;
+
+        // response_time_ms
+        if offset + 4 > data.len() {
+            return None;
+        }
+        let response_time_ms = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]);
+        offset += 4;
+
+        // Service
+        if offset + 2 > data.len() {
+            return None;
+        }
+        let service_len = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
+        offset += 2;
+        let service = if service_len > 0 {
+            if offset + service_len > data.len() {
+                return None;
+            }
+            Some(String::from_utf8(data[offset..offset + service_len].to_vec()).ok()?)
+        } else {
+            None
+        };
+        offset += service_len;
+
+        // previous_check
+        if offset + 4 > data.len() {
+            return None;
+        }
+        let previous_check = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]);
+        offset += 4;
+
+        // checked_at
+        if offset + 4 > data.len() {
+            return None;
+        }
+        let checked_at = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]);
+        offset += 4;
+
+        // consecutive_same_state
+        if offset + 2 > data.len() {
+            return None;
+        }
+        let consecutive_same_state = u16::from_le_bytes([data[offset], data[offset + 1]]);
+
+        Some(Self {
+            host,
+            port,
+            is_open,
+            change,
+            response_time_ms,
+            service,
+            previous_check,
+            checked_at,
+            consecutive_same_state,
+        })
+    }
 }
 
 // ==================== Proxy Records ====================
@@ -675,6 +1092,507 @@ impl HostIntelRecord {
             confidence,
             last_seen,
             services,
+        })
+    }
+}
+
+// ==================== Pentest Workflow Serialization ====================
+
+impl FingerprintRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.host);
+        buf.extend_from_slice(&self.port.to_le_bytes());
+        write_string(&mut buf, &self.technology);
+        write_optional_string(&mut buf, &self.version);
+        write_optional_string(&mut buf, &self.cpe);
+        buf.push(self.confidence);
+        write_string(&mut buf, &self.source);
+        buf.extend_from_slice(&self.detected_at.to_le_bytes());
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            return Err(DecodeError("empty fingerprint record"));
+        }
+        let mut pos = 0;
+        let host = read_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 2 {
+            return Err(DecodeError("truncated port"));
+        }
+        let port = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
+        pos += 2;
+
+        let technology = read_string(bytes, &mut pos)?;
+        let version = read_optional_string(bytes, &mut pos)?;
+        let cpe = read_optional_string(bytes, &mut pos)?;
+        
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated confidence"));
+        }
+        let confidence = bytes[pos];
+        pos += 1;
+
+        let source = read_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated timestamp"));
+        }
+        let detected_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+
+        Ok(Self {
+            host,
+            port,
+            technology,
+            version,
+            cpe,
+            confidence,
+            source,
+            detected_at,
+        })
+    }
+}
+
+impl VulnerabilityRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.cve_id);
+        write_string(&mut buf, &self.technology);
+        write_optional_string(&mut buf, &self.version);
+        buf.extend_from_slice(&self.cvss.to_bits().to_le_bytes());
+        buf.push(self.risk_score);
+        buf.push(self.severity as u8);
+        write_string(&mut buf, &self.description);
+        
+        write_varu32(&mut buf, self.references.len() as u32);
+        for ref_url in &self.references {
+            write_string(&mut buf, ref_url);
+        }
+
+        buf.push(if self.exploit_available { 1 } else { 0 });
+        buf.push(if self.in_kev { 1 } else { 0 });
+        buf.extend_from_slice(&self.discovered_at.to_le_bytes());
+        write_string(&mut buf, &self.source);
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut pos = 0;
+        let cve_id = read_string(bytes, &mut pos)?;
+        let technology = read_string(bytes, &mut pos)?;
+        let version = read_optional_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated cvss"));
+        }
+        let cvss_bits = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let cvss = f32::from_bits(cvss_bits);
+        pos += 4;
+
+        if bytes.len() < pos + 2 {
+            return Err(DecodeError("truncated risk/severity"));
+        }
+        let risk_score = bytes[pos];
+        pos += 1;
+        let severity = match bytes[pos] {
+            0 => Severity::Info,
+            1 => Severity::Low,
+            2 => Severity::Medium,
+            3 => Severity::High,
+            4 => Severity::Critical,
+            _ => Severity::Info,
+        };
+        pos += 1;
+
+        let description = read_string(bytes, &mut pos)?;
+
+        let ref_count = read_varu32(bytes, &mut pos)? as usize;
+        let mut references = Vec::with_capacity(ref_count);
+        for _ in 0..ref_count {
+            references.push(read_string(bytes, &mut pos)?);
+        }
+
+        if bytes.len() < pos + 2 {
+            return Err(DecodeError("truncated flags"));
+        }
+        let exploit_available = bytes[pos] != 0;
+        pos += 1;
+        let in_kev = bytes[pos] != 0;
+        pos += 1;
+
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated timestamp"));
+        }
+        let discovered_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+
+        let source = read_string(bytes, &mut pos)?;
+
+        Ok(Self {
+            cve_id,
+            technology,
+            version,
+            cvss,
+            risk_score,
+            severity,
+            description,
+            references,
+            exploit_available,
+            in_kev,
+            discovered_at,
+            source,
+        })
+    }
+}
+
+impl ExploitAttemptRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.target);
+        write_optional_string(&mut buf, &self.cve_id);
+        write_string(&mut buf, &self.exploit_name);
+        buf.push(self.status as u8);
+        write_optional_string(&mut buf, &self.output);
+        buf.extend_from_slice(&self.attempted_at.to_le_bytes());
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut pos = 0;
+        let target = read_string(bytes, &mut pos)?;
+        let cve_id = read_optional_string(bytes, &mut pos)?;
+        let exploit_name = read_string(bytes, &mut pos)?;
+        
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated status"));
+        }
+        let status = match bytes[pos] {
+            0 => ExploitStatus::Pending,
+            1 => ExploitStatus::Running,
+            2 => ExploitStatus::Success,
+            3 => ExploitStatus::Failed,
+            _ => ExploitStatus::Failed,
+        };
+        pos += 1;
+
+        let output = read_optional_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated timestamp"));
+        }
+        let attempted_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+
+        Ok(Self {
+            target,
+            cve_id,
+            exploit_name,
+            status,
+            output,
+            attempted_at,
+        })
+    }
+}
+
+impl SessionRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.id);
+        write_string(&mut buf, &self.target);
+        write_string(&mut buf, &self.shell_type);
+        buf.extend_from_slice(&self.local_port.to_le_bytes());
+        write_string(&mut buf, &self.remote_ip);
+        buf.push(self.status as u8);
+        buf.extend_from_slice(&self.created_at.to_le_bytes());
+        buf.extend_from_slice(&self.last_activity.to_le_bytes());
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut pos = 0;
+        let id = read_string(bytes, &mut pos)?;
+        let target = read_string(bytes, &mut pos)?;
+        let shell_type = read_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 2 {
+            return Err(DecodeError("truncated port"));
+        }
+        let local_port = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
+        pos += 2;
+
+        let remote_ip = read_string(bytes, &mut pos)?;
+        
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated status"));
+        }
+        let status = match bytes[pos] {
+            0 => SessionStatus::Active,
+            1 => SessionStatus::Closed,
+            2 => SessionStatus::Dead,
+            _ => SessionStatus::Closed,
+        };
+        pos += 1;
+
+        if bytes.len() < pos + 8 {
+            return Err(DecodeError("truncated timestamps"));
+        }
+        let created_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+        let last_activity = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+
+        Ok(Self {
+            id,
+            target,
+            shell_type,
+            local_port,
+            remote_ip,
+            status,
+            created_at,
+            last_activity,
+        })
+    }
+}
+
+impl PlaybookRunRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.playbook_name);
+        write_string(&mut buf, &self.target);
+        buf.push(self.status as u8);
+        buf.push(self.current_phase);
+        buf.extend_from_slice(&self.started_at.to_le_bytes());
+        
+        match self.completed_at {
+            Some(ts) => {
+                buf.push(1);
+                buf.extend_from_slice(&ts.to_le_bytes());
+            }
+            None => buf.push(0),
+        }
+
+        write_varu32(&mut buf, self.results.len() as u32);
+        for res in &self.results {
+            write_string(&mut buf, &res.name);
+            write_string(&mut buf, &res.status);
+            write_optional_string(&mut buf, &res.output);
+        }
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut pos = 0;
+        let playbook_name = read_string(bytes, &mut pos)?;
+        let target = read_string(bytes, &mut pos)?;
+        
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated status"));
+        }
+        let status = match bytes[pos] {
+            0 => PlaybookStatus::Running,
+            1 => PlaybookStatus::Completed,
+            2 => PlaybookStatus::Failed,
+            _ => PlaybookStatus::Failed,
+        };
+        pos += 1;
+
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated phase"));
+        }
+        let current_phase = bytes[pos];
+        pos += 1;
+
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated start time"));
+        }
+        let started_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated completed flag"));
+        }
+        let has_completed = bytes[pos] != 0;
+        pos += 1;
+        
+        let completed_at = if has_completed {
+            if bytes.len() < pos + 4 {
+                return Err(DecodeError("truncated completed time"));
+            }
+            let ts = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+            pos += 4;
+            Some(ts)
+        } else {
+            None
+        };
+
+        let result_count = read_varu32(bytes, &mut pos)? as usize;
+        let mut results = Vec::with_capacity(result_count);
+        for _ in 0..result_count {
+            let name = read_string(bytes, &mut pos)?;
+            let status = read_string(bytes, &mut pos)?;
+            let output = read_optional_string(bytes, &mut pos)?;
+            results.push(StepResult { name, status, output });
+        }
+
+        Ok(Self {
+            playbook_name,
+            target,
+            status,
+            current_phase,
+            started_at,
+            completed_at,
+            results,
+        })
+    }
+}
+
+// ==================== Threat Intelligence Serialization ====================
+
+impl MitreAttackRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        write_string(&mut buf, &self.technique_id);
+        write_string(&mut buf, &self.technique_name);
+        write_string(&mut buf, &self.tactic);
+        write_string(&mut buf, &self.target);
+        write_string(&mut buf, &self.source_finding);
+        write_optional_string(&mut buf, &self.cve_id);
+        buf.push(self.confidence);
+        buf.push(self.score);
+        buf.extend_from_slice(&self.detected_at.to_le_bytes());
+        write_string(&mut buf, &self.evidence);
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut pos = 0;
+        let technique_id = read_string(bytes, &mut pos)?;
+        let technique_name = read_string(bytes, &mut pos)?;
+        let tactic = read_string(bytes, &mut pos)?;
+        let target = read_string(bytes, &mut pos)?;
+        let source_finding = read_string(bytes, &mut pos)?;
+        let cve_id = read_optional_string(bytes, &mut pos)?;
+        
+        if bytes.len() < pos + 2 {
+            return Err(DecodeError("truncated confidence/score"));
+        }
+        let confidence = bytes[pos];
+        pos += 1;
+        let score = bytes[pos];
+        pos += 1;
+
+        if bytes.len() < pos + 4 {
+            return Err(DecodeError("truncated timestamp"));
+        }
+        let detected_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+
+        let evidence = read_string(bytes, &mut pos)?;
+
+        Ok(Self {
+            technique_id,
+            technique_name,
+            tactic,
+            target,
+            source_finding,
+            cve_id,
+            confidence,
+            score,
+            detected_at,
+            evidence,
+        })
+    }
+}
+
+impl IocRecord {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.push(self.ioc_type as u8);
+        write_string(&mut buf, &self.value);
+        write_string(&mut buf, &self.target);
+        buf.push(self.confidence);
+        write_string(&mut buf, &self.source);
+        
+        write_varu32(&mut buf, self.mitre_techniques.len() as u32);
+        for tech in &self.mitre_techniques {
+            write_string(&mut buf, tech);
+        }
+
+        write_varu32(&mut buf, self.tags.len() as u32);
+        for tag in &self.tags {
+            write_string(&mut buf, tag);
+        }
+
+        buf.extend_from_slice(&self.first_seen.to_le_bytes());
+        buf.extend_from_slice(&self.last_seen.to_le_bytes());
+        write_optional_string(&mut buf, &self.stix_id);
+        buf
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            return Err(DecodeError("empty ioc record"));
+        }
+        let mut pos = 0;
+        let ioc_type = match bytes[pos] {
+            0 => IocType::IPv4,
+            1 => IocType::IPv6,
+            2 => IocType::Domain,
+            3 => IocType::URL,
+            4 => IocType::Email,
+            5 => IocType::HashMD5,
+            6 => IocType::HashSHA1,
+            7 => IocType::HashSHA256,
+            8 => IocType::Certificate,
+            9 => IocType::JA3,
+            _ => IocType::Domain,
+        };
+        pos += 1;
+
+        let value = read_string(bytes, &mut pos)?;
+        let target = read_string(bytes, &mut pos)?;
+        
+        if pos >= bytes.len() {
+            return Err(DecodeError("truncated confidence"));
+        }
+        let confidence = bytes[pos];
+        pos += 1;
+
+        let source = read_string(bytes, &mut pos)?;
+
+        let tech_count = read_varu32(bytes, &mut pos)? as usize;
+        let mut mitre_techniques = Vec::with_capacity(tech_count);
+        for _ in 0..tech_count {
+            mitre_techniques.push(read_string(bytes, &mut pos)?);
+        }
+
+        let tag_count = read_varu32(bytes, &mut pos)? as usize;
+        let mut tags = Vec::with_capacity(tag_count);
+        for _ in 0..tag_count {
+            tags.push(read_string(bytes, &mut pos)?);
+        }
+
+        if bytes.len() < pos + 8 {
+            return Err(DecodeError("truncated timestamps"));
+        }
+        let first_seen = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+        let last_seen = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        pos += 4;
+
+        let stix_id = read_optional_string(bytes, &mut pos)?;
+
+        Ok(Self {
+            ioc_type,
+            value,
+            target,
+            confidence,
+            source,
+            mitre_techniques,
+            tags,
+            first_seen,
+            last_seen,
+            stix_id,
         })
     }
 }

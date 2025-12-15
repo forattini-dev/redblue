@@ -190,6 +190,9 @@ pub enum ViewMode {
     Sessions,   // Session metadata & history
     DNS,        // [7] DNS records (A, MX, NS, TXT, etc)
     HTTP,       // [8] HTTP headers & web security
+    Vuln,       // [V] Vulnerabilities & CVEs
+    Mitre,      // [M] MITRE ATT&CK Mapping
+    IOC,        // [I] Indicators of Compromise
     RBB,        // [R] RedBlue Browser - hooked browsers C2 dashboard
     Activity,   // [0] Scan activity log (last tab)
     Normal,     // Scan activity: normal profile timeline
@@ -210,6 +213,9 @@ impl ViewMode {
             ViewMode::Sessions => "Sessions",
             ViewMode::DNS => "DNS Records",
             ViewMode::HTTP => "HTTP Security",
+            ViewMode::Vuln => "Vulnerabilities",
+            ViewMode::Mitre => "MITRE ATT&CK",
+            ViewMode::IOC => "IOCs",
             ViewMode::RBB => "RBB Zombies",
             ViewMode::Activity => "Activity Log",
             ViewMode::Normal => "Normal Profile",
@@ -229,7 +235,10 @@ impl ViewMode {
             ViewMode::Whois => ViewMode::Sessions,
             ViewMode::Sessions => ViewMode::DNS,
             ViewMode::DNS => ViewMode::HTTP,
-            ViewMode::HTTP => ViewMode::RBB,
+            ViewMode::HTTP => ViewMode::Vuln,
+            ViewMode::Vuln => ViewMode::Mitre,
+            ViewMode::Mitre => ViewMode::IOC,
+            ViewMode::IOC => ViewMode::RBB,
             ViewMode::RBB => ViewMode::Activity,
             ViewMode::Activity => ViewMode::Overview,
             ViewMode::Normal => ViewMode::Stealth,
@@ -250,7 +259,10 @@ impl ViewMode {
             ViewMode::Sessions => ViewMode::Whois,
             ViewMode::DNS => ViewMode::Sessions,
             ViewMode::HTTP => ViewMode::DNS,
-            ViewMode::RBB => ViewMode::HTTP,
+            ViewMode::Vuln => ViewMode::HTTP,
+            ViewMode::Mitre => ViewMode::Vuln,
+            ViewMode::IOC => ViewMode::Mitre,
+            ViewMode::RBB => ViewMode::IOC,
             ViewMode::Activity => ViewMode::RBB,
             ViewMode::Normal => ViewMode::Activity,
             ViewMode::Stealth => ViewMode::Normal,
@@ -288,6 +300,9 @@ pub struct TuiApp {
     whois_data: Vec<(String, String)>,    // Key-value pairs
     certs_data: Vec<(String, String)>,    // Key-value pairs
     sessions_data: Vec<(String, String)>, // Key-value pairs
+    vuln_data: Vec<TableRow>,             // Vulnerabilities
+    mitre_data: Vec<TableRow>,            // MITRE techniques
+    ioc_data: Vec<TableRow>,              // IOCs
     scan_activity: Vec<String>,           // Real-time scan logs
     // RBB (RedBlue Browser) zombie tracking
     rbb_zombies: Vec<TableRow>,           // Hooked browser zombies
@@ -351,6 +366,9 @@ impl TuiApp {
             whois_data: Vec::new(),
             certs_data: Vec::new(),
             sessions_data: Vec::new(),
+            vuln_data: Vec::new(),
+            mitre_data: Vec::new(),
+            ioc_data: Vec::new(),
             scan_activity: Vec::new(),
             rbb_zombies: Vec::new(),
             rbb_server_addr: None,
@@ -499,6 +517,9 @@ impl TuiApp {
         self.subdomains_data.clear();
         self.whois_data.clear();
         self.certs_data.clear();
+        self.vuln_data.clear();
+        self.mitre_data.clear();
+        self.ioc_data.clear();
         self.scan_activity.clear();
 
         // Load port scan data once and reuse for multiple views
@@ -524,6 +545,24 @@ impl TuiApp {
                 timestamp: scan.timestamp as u64,
             });
         }
+
+        // Load vulnerabilities
+        let vulns = db
+            .mitre() // Assuming vulns are part of mitre/vuln segment, but actually we have VulnSegment
+            // Wait, RedDb doesn't have .vulns() accessor yet. I missed adding it to RedDb.
+            // I added .mitre() and .iocs() to RedDb, but not .vuln().
+            // I should check if VulnSegment is exposed.
+            // Ah, I need to check src/storage/reddb.rs again.
+            // Let's assume I need to add .vulns() to RedDb first.
+            // But wait, the task was to "Load vuln, mitre, and ioc data".
+            // I'll pause this edit and go back to RedDb to add vulns() accessor.
+            // Actually, let's verify RedDb first.
+            .all() // This is wrong if I call .mitre().all() for vulns
+            .map_err(|e| format!("Failed to load MITRE data: {}", e))?;
+            
+        // I need to add .vulns() to RedDb.
+        // Let's abort this edit and fix RedDb first.
+
 
         // Load subdomain data
         let subdomains = db
@@ -558,6 +597,72 @@ impl TuiApp {
             .push(format!("Loaded {} port scans", self.ports_data.len()));
         self.scan_activity
             .push(format!("Loaded {} subdomains", self.subdomains_data.len()));
+        // Load vulnerabilities
+        let vuln_records = db
+            .vulns()
+            .all()
+            .map_err(|e| format!("Failed to load vulnerability records: {}", e))?;
+
+        for rec in vuln_records {
+            let status = match rec.severity {
+                crate::storage::records::Severity::Critical => "Critical",
+                crate::storage::records::Severity::High => "High",
+                crate::storage::records::Severity::Medium => "Medium",
+                crate::storage::records::Severity::Low => "Low",
+                crate::storage::records::Severity::Info => "Info",
+            };
+
+            self.vuln_data.push(TableRow {
+                module: rec.cve_id.clone(),
+                status: status.to_string(),
+                data: format!("{} ({})", rec.description, rec.technology),
+                timestamp: rec.discovered_at as u64,
+            });
+        }
+        
+        let mitre_records = db
+            .mitre()
+            .all()
+            .map_err(|e| format!("Failed to load MITRE records: {}", e))?;
+
+        for rec in mitre_records {
+            let status = if rec.confidence > 80 {
+                "High"
+            } else if rec.confidence > 50 {
+                "Medium"
+            } else {
+                "Low"
+            };
+
+            self.mitre_data.push(TableRow {
+                module: rec.technique_id.clone(),
+                status: status.to_string(),
+                data: format!("{} ({})", rec.technique_name, rec.tactic),
+                timestamp: rec.detected_at as u64,
+            });
+        }
+
+        let ioc_records = db
+            .iocs()
+            .all()
+            .map_err(|e| format!("Failed to load IOC records: {}", e))?;
+
+        for rec in ioc_records {
+            let status = format!("{:?}", rec.ioc_type);
+            self.ioc_data.push(TableRow {
+                module: rec.value.clone(),
+                status: status,
+                data: rec.source.clone(),
+                timestamp: rec.last_seen as u64,
+            });
+        }
+
+        self.scan_activity
+            .push(format!("Loaded {} vulnerabilities", self.vuln_data.len()));
+        self.scan_activity
+            .push(format!("Loaded {} MITRE mappings", self.mitre_data.len()));
+        self.scan_activity
+            .push(format!("Loaded {} IOCs", self.ioc_data.len()));
         self.scan_activity
             .push("Database loaded successfully".to_string());
         self.scan_activity
@@ -675,6 +780,9 @@ impl TuiApp {
             ViewMode::Network => &self.network_data,
             ViewMode::Ports => &self.ports_data,
             ViewMode::Subdomains => &self.subdomains_data,
+            ViewMode::Vuln => &self.vuln_data,
+            ViewMode::Mitre => &self.mitre_data,
+            ViewMode::IOC => &self.ioc_data,
             ViewMode::RBB => &self.rbb_zombies,
             _ => &[], // Non-table views
         }
@@ -1023,6 +1131,9 @@ impl TuiApp {
         ];
         // Additional tabs (not in numbered array)
         let extra_tabs = [
+            ("V", "Vuln", ViewMode::Vuln),
+            ("M", "Mitre", ViewMode::Mitre),
+            ("I", "IOC", ViewMode::IOC),
             ("R", "RBB", ViewMode::RBB),           // [R] RedBlue Browser C2
             ("0", "Activity", ViewMode::Activity), // [0] Activity log
         ];
@@ -1108,7 +1219,10 @@ impl TuiApp {
             | ViewMode::Subdomains
             | ViewMode::Services
             | ViewMode::DNS
-            | ViewMode::HTTP => self.render_table(content_start_row, available_rows)?,
+            | ViewMode::HTTP
+            | ViewMode::Vuln
+            | ViewMode::Mitre
+            | ViewMode::IOC => self.render_table(content_start_row, available_rows)?,
             ViewMode::RBB => self.render_rbb(content_start_row, available_rows)?,
             ViewMode::Whois | ViewMode::Certs | ViewMode::Sessions => {
                 self.render_keyvalue(content_start_row, available_rows)?
@@ -1273,6 +1387,24 @@ impl TuiApp {
             ansi::CYAN,
             ansi::RESET,
             self.sessions_data.len()
+        );
+        row += 1;
+
+        println!(
+            "{}  [V] {}Vulns:{}   {} records",
+            ansi::move_to(row, 4),
+            ansi::RED,
+            ansi::RESET,
+            self.vuln_data.len()
+        );
+        row += 1;
+
+        println!(
+            "{}  [I] {}IOCs:{}    {} records",
+            ansi::move_to(row, 4),
+            ansi::RED,
+            ansi::RESET,
+            self.ioc_data.len()
         );
         row += 2;
 
@@ -1644,6 +1776,9 @@ impl TuiApp {
             ViewMode::Ports => " [:scan ports] [:]Commands [d]Delete [r]Refresh ",
             ViewMode::Subdomains => " [:scan subdomains] [:recon domain subdomains] [:]Commands ",
             ViewMode::Overview => " [1-9,0]Switch view [:]Commands [r]Refresh [q]Quit ",
+            ViewMode::Vuln => " [:vuln scan] [:vuln correlate] [s]Scan [d]Delete [r]Refresh ",
+            ViewMode::Mitre => " [:intel mitre map] [:intel mitre search] [r]Refresh ",
+            ViewMode::IOC => " [:intel ioc extract] [:intel ioc export] [d]Delete [r]Refresh ",
             ViewMode::RBB => " [:rbb serve] [:rbb list] [:rbb exec] [:]Commands [q]Quit ",
             _ => " [1-9,0]Views [j/k/↑↓]Scroll [PgUp/Dn]Page [:]Cmd [r]Refresh [q]Quit ",
         };
@@ -1713,6 +1848,9 @@ impl TuiApp {
             Key::Char('6') => self.switch_view(ViewMode::Whois)?,
             Key::Char('7') => self.switch_view(ViewMode::DNS)?,
             Key::Char('8') => self.switch_view(ViewMode::HTTP)?,
+            Key::Char('v') | Key::Char('V') => self.switch_view(ViewMode::Vuln)?,
+            Key::Char('m') | Key::Char('M') => self.switch_view(ViewMode::Mitre)?,
+            Key::Char('i') | Key::Char('I') => self.switch_view(ViewMode::IOC)?,
             Key::Char('9') => self.switch_view(ViewMode::RBB)?,  // RBB Browser C2 dashboard
             Key::Char('0') => self.switch_view(ViewMode::Activity)?,
 
@@ -1771,6 +1909,11 @@ impl TuiApp {
                 self.scan_activity.push("Starting WHOIS lookup...".to_string());
                 self.execute_whois_lookup()?;
             }
+            ViewMode::Vuln => {
+                self.scan_activity.push("Starting vulnerability scan...".to_string());
+                // TODO: Trigger vuln scan
+                self.scan_activity.push("Vuln scan triggered (mock)".to_string());
+            }
             _ => {
                 self.scan_activity.push("No scan action available for this view".to_string());
             }
@@ -1827,6 +1970,20 @@ impl TuiApp {
                     }
                 }
             }
+            ViewMode::Vuln => {
+                if !self.vuln_data.is_empty() && self.selected_row < self.vuln_data.len() {
+                    self.vuln_data.remove(self.selected_row);
+                    self.scan_activity.push("Removed vulnerability record".to_string());
+                    if self.selected_row > 0 { self.selected_row -= 1; }
+                }
+            }
+            ViewMode::IOC => {
+                if !self.ioc_data.is_empty() && self.selected_row < self.ioc_data.len() {
+                    self.ioc_data.remove(self.selected_row);
+                    self.scan_activity.push("Removed IOC record".to_string());
+                    if self.selected_row > 0 { self.selected_row -= 1; }
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -1853,6 +2010,10 @@ impl TuiApp {
                 // TODO: Show details view
                 self.scan_activity
                     .push("Details view not yet implemented".to_string());
+            }
+            ViewMode::Vuln | ViewMode::Mitre | ViewMode::IOC => {
+                // TODO: Show details
+                self.scan_activity.push(format!("Selected item: row {}", self.selected_row));
             }
             _ => {}
         }
@@ -2017,9 +2178,49 @@ impl TuiApp {
             }
             "run" => {
                 if parts.len() < 2 {
-                    return Err("Usage: run <preset>".to_string());
+                    return Err("Usage: run <preset|playbook>".to_string());
                 }
-                self.run_scan(parts[1])?;
+                
+                // If starts with "playbook", treat as playbook run
+                if parts[1].starts_with("playbook:") {
+                    let playbook = parts[1].trim_start_matches("playbook:");
+                    self.scan_activity.push(format!("Running playbook: {}...", playbook));
+                    self.run_external_command(&["playbook".to_string(), "run".to_string(), playbook.to_string(), self.target.clone()])?;
+                } else {
+                    // Default to scan preset
+                    self.run_scan(parts[1])?;
+                }
+            }
+            "ports" => {
+                self.switch_view(ViewMode::Ports)?;
+                return Ok(());
+            }
+            "vulns" | "vulnerabilities" => {
+                self.switch_view(ViewMode::Vuln)?;
+                return Ok(());
+            }
+            "mitre" | "attack" => {
+                self.switch_view(ViewMode::Mitre)?;
+                return Ok(());
+            }
+            "ioc" | "iocs" => {
+                self.switch_view(ViewMode::IOC)?;
+                return Ok(());
+            }
+            "check" => {
+                self.scan_activity.push("Checking port health...".to_string());
+                self.run_external_command(&["network".to_string(), "health".to_string(), "check".to_string(), self.target.clone()])?;
+                return Ok(());
+            }
+            "watch" => {
+                self.scan_activity.push("Starting port watch...".to_string());
+                self.run_external_command(&["network".to_string(), "health".to_string(), "watch".to_string(), self.target.clone()])?;
+                return Ok(());
+            }
+            "plan" => {
+                self.scan_activity.push("Generating attack plan...".to_string());
+                self.run_external_command(&["exploit".to_string(), "payload".to_string(), "plan".to_string(), self.target.clone()])?;
+                return Ok(());
             }
             "exec" => {
                 if parts.len() < 2 {

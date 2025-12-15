@@ -12,6 +12,7 @@ use crate::storage::records::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, SubdomainRecord,
     SubdomainSource, TlsScanRecord, WhoisRecord,
     ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    MitreAttackRecord, IocRecord, VulnerabilityRecord, SessionRecord, PlaybookRunRecord,
 };
 use crate::storage::segments::hosts::HostSegment;
 use crate::storage::segments::ports::PortSegment;
@@ -19,6 +20,11 @@ use crate::storage::segments::proxy::ProxySegment;
 use crate::storage::segments::subdomains::SubdomainSegment;
 use crate::storage::segments::tls::TlsSegment;
 use crate::storage::segments::whois::WhoisSegment;
+use crate::storage::segments::mitre::MitreSegment;
+use crate::storage::segments::iocs::IocSegment;
+use crate::storage::segments::vuln::VulnSegment;
+use crate::storage::segments::sessions::SessionSegment;
+use crate::storage::segments::playbooks::PlaybookSegment;
 use crate::storage::segments::{dns::DnsSegment, http::HttpSegment};
 
 /// Encryption state for the database
@@ -39,6 +45,11 @@ pub struct Database {
     http: HttpSegment,
     hosts: HostSegment,
     proxy: ProxySegment,
+    mitre: MitreSegment,
+    iocs: IocSegment,
+    vulns: VulnSegment,
+    sessions: SessionSegment,
+    playbooks: PlaybookSegment,
     dirty: bool,
     /// Encryption state - Some = encrypted database
     #[allow(dead_code)]
@@ -107,6 +118,11 @@ impl Database {
                 http: HttpSegment::new(),
                 hosts: HostSegment::new(),
                 proxy: ProxySegment::new(),
+                mitre: MitreSegment::new(),
+                iocs: IocSegment::new(),
+                vulns: VulnSegment::new(),
+                sessions: SessionSegment::new(),
+                playbooks: PlaybookSegment::new(),
                 dirty: false,
                 encryption: Some(EncryptionState {
                     encryptor,
@@ -134,6 +150,11 @@ impl Database {
                 http: HttpSegment::new(),
                 hosts: HostSegment::new(),
                 proxy: ProxySegment::new(),
+                mitre: MitreSegment::new(),
+                iocs: IocSegment::new(),
+                vulns: VulnSegment::new(),
+                sessions: SessionSegment::new(),
+                playbooks: PlaybookSegment::new(),
                 dirty: false,
                 encryption: Some(EncryptionState {
                     encryptor,
@@ -195,6 +216,11 @@ impl Database {
             http: HttpSegment::new(),
             hosts: HostSegment::new(),
             proxy: ProxySegment::new(),
+            mitre: MitreSegment::new(),
+            iocs: IocSegment::new(),
+            vulns: VulnSegment::new(),
+            sessions: SessionSegment::new(),
+            playbooks: PlaybookSegment::new(),
             dirty: false,
             encryption: Some(EncryptionState {
                 encryptor,
@@ -253,6 +279,26 @@ impl Database {
                     db.proxy =
                         ProxySegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
                 }
+                SegmentKind::Mitre => {
+                    db.mitre =
+                        MitreSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Ioc => {
+                    db.iocs =
+                        IocSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Vuln => {
+                    db.vulns =
+                        VulnSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Sessions => {
+                    db.sessions =
+                        SessionSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Playbooks => {
+                    db.playbooks =
+                        PlaybookSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                }
             }
         }
 
@@ -274,6 +320,11 @@ impl Database {
                 http: HttpSegment::new(),
                 hosts: HostSegment::new(),
                 proxy: ProxySegment::new(),
+                mitre: MitreSegment::new(),
+                iocs: IocSegment::new(),
+                vulns: VulnSegment::new(),
+                sessions: SessionSegment::new(),
+                playbooks: PlaybookSegment::new(),
                 dirty: false,
                 encryption: None,
             });
@@ -291,6 +342,11 @@ impl Database {
                 http: HttpSegment::new(),
                 hosts: HostSegment::new(),
                 proxy: ProxySegment::new(),
+                mitre: MitreSegment::new(),
+                iocs: IocSegment::new(),
+                vulns: VulnSegment::new(),
+                sessions: SessionSegment::new(),
+                playbooks: PlaybookSegment::new(),
                 dirty: false,
                 encryption: None,
             });
@@ -332,6 +388,11 @@ impl Database {
             http: HttpSegment::new(),
             hosts: HostSegment::new(),
             proxy: ProxySegment::new(),
+            mitre: MitreSegment::new(),
+            iocs: IocSegment::new(),
+            vulns: VulnSegment::new(),
+            sessions: SessionSegment::new(),
+            playbooks: PlaybookSegment::new(),
             dirty: false,
             encryption: None,
         };
@@ -373,6 +434,21 @@ impl Database {
                 SegmentKind::Proxy => {
                     db.proxy = ProxySegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
+                SegmentKind::Mitre => {
+                    db.mitre = MitreSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Ioc => {
+                    db.iocs = IocSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Vuln => {
+                    db.vulns = VulnSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Sessions => {
+                    db.sessions = SessionSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                }
+                SegmentKind::Playbooks => {
+                    db.playbooks = PlaybookSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                }
             }
         }
 
@@ -413,6 +489,11 @@ impl Database {
         segments.push((SegmentKind::Http, self.http.serialize()));
         segments.push((SegmentKind::Host, self.hosts.serialize()));
         segments.push((SegmentKind::Proxy, self.proxy.serialize()));
+        segments.push((SegmentKind::Mitre, self.mitre.serialize()));
+        segments.push((SegmentKind::Ioc, self.iocs.serialize()));
+        segments.push((SegmentKind::Vuln, self.vulns.serialize()));
+        segments.push((SegmentKind::Sessions, self.sessions.serialize()));
+        segments.push((SegmentKind::Playbooks, self.playbooks.serialize()));
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -698,6 +779,106 @@ impl Database {
             + self.proxy.websocket_count()
     }
 
+    // ==================== Threat Intelligence Methods ====================
+
+    pub fn insert_mitre_record(&mut self, record: MitreAttackRecord) {
+        self.mitre.push(record);
+        self.dirty = true;
+    }
+
+    pub fn mitre_records(&self) -> &Vec<MitreAttackRecord> {
+        self.mitre.get_all()
+    }
+
+    pub fn mitre_records_by_technique(&self, technique_id: &str) -> Vec<MitreAttackRecord> {
+        self.mitre.get_by_technique(technique_id)
+    }
+
+    pub fn insert_ioc_record(&mut self, record: IocRecord) {
+        self.iocs.push(record);
+        self.dirty = true;
+    }
+
+    pub fn ioc_records(&self) -> &Vec<IocRecord> {
+        self.iocs.get_all()
+    }
+
+    pub fn ioc_records_by_type(&self, ioc_type: crate::storage::records::IocType) -> Vec<IocRecord> {
+        self.iocs.get_by_type(ioc_type)
+    }
+
+    pub fn insert_vulnerability(&mut self, record: VulnerabilityRecord) {
+        self.vulns.push(record);
+        self.dirty = true;
+    }
+
+    pub fn vulnerability_records(&self) -> Vec<VulnerabilityRecord> {
+        // VulnSegment stores by tech index, need to gather all or expose all()
+        // VulnSegment currently doesn't have get_all(), let's check its implementation
+        // It has records: Vec<VulnerabilityRecord>, but not exposed publicly.
+        // I should update VulnSegment to expose records or implement iterator.
+        // For now, I'll assume I can access records via a new method or wait until I fix VulnSegment.
+        // But I can't modify VulnSegment here.
+        // Let's implement a workaround or note to fix VulnSegment.
+        // Actually, VulnSegment struct definition is in another file.
+        // I will assume I need to add `get_all` to VulnSegment first.
+        // But wait, I can't compile if method missing.
+        // Let's assume I will fix VulnSegment in next step.
+        // For now:
+        self.vulns.get_all()
+    }
+
+    pub fn vulnerability_records_by_tech(&self, tech: &str) -> Vec<VulnerabilityRecord> {
+        self.vulns.get_by_tech(tech)
+    }
+
+    // ==================== Session Methods ====================
+
+    pub fn insert_session(&mut self, record: SessionRecord) {
+        self.sessions.push(record);
+        self.dirty = true;
+    }
+
+    pub fn update_session(&mut self, record: SessionRecord) {
+        self.sessions.update(record);
+        self.dirty = true;
+    }
+
+    pub fn get_session(&self, id: &str) -> Option<SessionRecord> {
+        self.sessions.get_by_id(id)
+    }
+
+    pub fn sessions_for_target(&self, target: &str) -> Vec<SessionRecord> {
+        self.sessions.get_by_target(target)
+    }
+
+    pub fn active_sessions(&self) -> Vec<SessionRecord> {
+        self.sessions.get_active()
+    }
+
+    pub fn all_sessions(&self) -> Vec<SessionRecord> {
+        self.sessions.all_records()
+    }
+
+    // ==================== Playbook Methods ====================
+
+    pub fn insert_playbook_run(&mut self, record: PlaybookRunRecord) {
+        self.playbooks.push(record);
+        self.dirty = true;
+    }
+
+    pub fn playbook_runs(&self, playbook_name: &str) -> Vec<PlaybookRunRecord> {
+        self.playbooks.get_by_playbook(playbook_name)
+    }
+
+    pub fn playbook_runs_for_target(&self, target: &str) -> Vec<PlaybookRunRecord> {
+        self.playbooks.get_by_target(target)
+    }
+
+    pub fn all_playbook_runs(&self) -> Vec<PlaybookRunRecord> {
+        self.playbooks.all_records()
+    }
+
     fn segment_metadata(&self, kind: SegmentKind) -> Vec<(String, String)> {
         let mut pairs = Vec::with_capacity(4);
         pairs.push(("segment".to_string(), Self::segment_label(kind).to_string()));
@@ -713,6 +894,11 @@ impl Database {
             SegmentKind::Http => self.http.len(),
             SegmentKind::Host => self.hosts.len(),
             SegmentKind::Proxy => self.proxy_len(),
+            SegmentKind::Mitre => self.mitre.get_all().len(),
+            SegmentKind::Ioc => self.iocs.get_all().len(),
+            SegmentKind::Vuln => self.vulns.get_all().len(),
+            SegmentKind::Sessions => self.sessions.len(),
+            SegmentKind::Playbooks => self.playbooks.len(),
         };
         pairs.push(("record_count".to_string(), record_count.to_string()));
         pairs
@@ -728,6 +914,11 @@ impl Database {
             SegmentKind::Http => "http",
             SegmentKind::Host => "host",
             SegmentKind::Proxy => "proxy",
+            SegmentKind::Mitre => "mitre",
+            SegmentKind::Ioc => "ioc",
+            SegmentKind::Vuln => "vuln",
+            SegmentKind::Sessions => "sessions",
+            SegmentKind::Playbooks => "playbooks",
         }
     }
 }

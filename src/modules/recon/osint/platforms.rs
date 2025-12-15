@@ -20,6 +20,10 @@ pub enum PlatformCategory {
     Shopping,
     Dating,
     Finance,
+    Photography,
+    Forum,
+    Crypto,
+    Adult,
     Other,
 }
 
@@ -38,6 +42,10 @@ impl std::fmt::Display for PlatformCategory {
             Self::Shopping => write!(f, "Shopping"),
             Self::Dating => write!(f, "Dating"),
             Self::Finance => write!(f, "Finance"),
+            Self::Photography => write!(f, "Photography"),
+            Self::Forum => write!(f, "Forum"),
+            Self::Crypto => write!(f, "Crypto"),
+            Self::Adult => write!(f, "Adult"),
             Self::Other => write!(f, "Other"),
         }
     }

@@ -14,6 +14,7 @@ pub mod recon {
     pub mod dns;
     pub mod dnsdumpster;
     pub mod dorks;
+    pub mod fingerprint;  // Technology fingerprinting engine
     pub mod harvester;
     #[path = "ip-intel.rs"]
     pub mod ip_intel;
@@ -21,11 +22,14 @@ pub mod recon {
     pub mod osint;
     pub mod secrets;
     pub mod social;
+    pub mod sources;      // Passive subdomain sources
     pub mod subdomain;
     pub mod subdomain_bruteforce;
     pub mod urlharvest;
     pub mod username;
     pub mod vuln;
+    pub mod whois;        // WHOIS intelligence
+    pub mod mitre;        // MITRE ATT&CK intelligence
     pub mod email_correlation;
     pub mod antidetection;
     pub mod reporting;
@@ -61,6 +65,7 @@ pub mod collection {
     pub mod persistence;
     pub mod resume;
     pub mod sarif;
+    pub mod browser_creds;
 }
 
 // Cloud Security
@@ -102,3 +107,6 @@ pub mod service;
 
 // AV/EDR Evasion (obfuscation, sandbox detection, network jitter)
 pub mod evasion;
+
+// Threat Intelligence (MITRE mapping, IOC extraction, TAXII)
+pub mod intel;

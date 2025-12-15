@@ -1,4 +1,6 @@
 pub mod access; // ✅ Remote access - reverse shells & listeners
+pub mod agent;  // ✅ C2 Agent - server and client
+pub mod attack; // ✅ Attack workflow - plan, run, playbooks
 pub mod auth_test; // ✅ Credential testing
 pub mod bench;
 pub mod config; // ✅ Configuration management - database passwords, settings
@@ -7,6 +9,7 @@ pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
 pub mod cloud;
 pub mod crypto; // ✅ File encryption vault - AES-256-GCM
 pub mod code;
+pub mod collection; // ✅ Browser credentials collection
 pub mod search; // ✅ Global search across all stored data
 // pub mod database; // Database operations - TODO: APIs changed, needs update
 pub mod deps;
@@ -16,6 +19,7 @@ pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod dns_server; // ✅ DNS server with hijacking for MITM
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
 pub mod fuzz;
+pub mod health; // ✅ Port health monitoring (check, diff, watch)
 #[path = "http-server.rs"]
 pub mod http_server; // ✅ HTTP server for file serving and payload hosting
 pub mod init; // ✅ Config init command
@@ -30,7 +34,9 @@ pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
 pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod recon;
 #[path = "recon-username.rs"]
-pub mod recon_username; // ✅ Username OSINT - rb recon username <username>
+pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
+#[path = "recon-identity.rs"]
+pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email/breach
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
@@ -38,7 +44,14 @@ pub mod tls; // TLS security testing - audit, ciphers, vuln
 #[path = "tls-intel.rs"]
 pub mod tls_intel; // ✅ TLS intelligence gathering
 pub mod trace;
-pub mod vuln; // ✅ Vulnerability intelligence - CVE, KEV, Exploit-DB
+pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
+#[path = "intel-mitre.rs"]
+pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
+#[path = "intel-ioc.rs"]
+pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
+#[path = "intel-taxii.rs"]
+pub mod intel_taxii; // ✅ TAXII 2.1 client - rb intel taxii
+// pub mod vuln; // REMOVED - use intel vuln
 pub mod web; // ✅ Re-enabled with TLS routes!
 pub mod wordlist; // ✅ Wordlist management
 
@@ -62,9 +75,12 @@ impl CommandRegistry {
     fn new() -> Self {
         let mut commands: Vec<Box<dyn Command>> = vec![
             Box::new(access::AccessCommand), // ✅ Remote access - rb access shell create
+            Box::new(agent::AgentCommand),   // ✅ C2 Agent
+            Box::new(attack::AttackCommand), // ✅ Attack workflow - plan, run, playbooks
             Box::new(auth_test::AuthTestCommand), // ✅ Credential testing
             Box::new(scan::ScanCommand),
             Box::new(network::NetworkCommand), // ✅ Host ping & discovery
+            Box::new(health::HealthCommand),   // ✅ Port health monitoring (check, diff, watch)
             // Box::new(ping::PingCommand),  // Temporarily disabled
             Box::new(trace::TraceCommand),
             Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
@@ -72,10 +88,12 @@ impl CommandRegistry {
             Box::new(tls::TlsCommand), // TLS security testing
             Box::new(tls_intel::TlsIntelCommand), // ✅ TLS intelligence gathering
             Box::new(recon::ReconCommand),
-            Box::new(recon_username::ReconUsernameCommand), // ✅ rb recon username <username>
+            Box::new(recon_username::ReconUsernameCommand), // ✅ rb recon username <username> (legacy)
+            Box::new(recon_identity::ReconIdentityCommand), // ✅ rb recon identity username/email/breach
             Box::new(exploit::ExploitCommand), // ⚠️ Exploitation - privesc, lateral, persist, replicate
             Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
             Box::new(code::CodeCommand),
+            Box::new(collection::CollectCommand), // ✅ Browser collection
             Box::new(fuzz::FuzzCommand), // ✅ Web fuzzing engine
             Box::new(crypto::CryptoCommand),       // ✅ File encryption vault
             Box::new(deps::DepsCommand),
@@ -87,7 +105,10 @@ impl CommandRegistry {
             Box::new(wordlist::WordlistFileCommand), // ✅ Wordlist file operations
             Box::new(mcp::McpCommand),               // ✅ Local MCP server bridge
             Box::new(docs::DocsCommand),             // ✅ Documentation search
-            Box::new(vuln::VulnCommand),             // ✅ Vulnerability intelligence
+            Box::new(intel::IntelCommand),           // ✅ Intelligence domain - rb intel vuln *
+            Box::new(intel_mitre::IntelMitreCommand), // ✅ MITRE ATT&CK intelligence - rb intel mitre *
+            Box::new(intel_ioc::IntelIocCommand), // ✅ IOC extraction - rb intel ioc *
+            Box::new(intel_taxii::IntelTaxiiCommand), // ✅ TAXII 2.1 client - rb intel taxii *
             Box::new(proxy::HttpProxyCommand),       // ✅ HTTP CONNECT proxy
             Box::new(proxy::Socks5ProxyCommand),     // ✅ SOCKS5 proxy (RFC 1928)
             Box::new(proxy::TransparentProxyCommand), // ✅ Transparent proxy (iptables/nftables)
@@ -536,11 +557,13 @@ fn is_magic_scan_target(input: &str) -> bool {
         // Simple check: if it's not a known CLI domain
         let known_domains = [
             "access",
+            "attack", // ✅ Attack workflow - plan, run, playbooks
             "network",
             "dns",
             "web",
             "tls",
             "recon",
+            "intelligence", // ✅ Intelligence domain - vuln, mitre, ioc, taxii (alias: intel)
             "exploit",
             "nc", // netcat standalone command
             "code",
@@ -593,6 +616,7 @@ pub fn print_global_help() {
   web        Web assets and HTTP audits
   tls        TLS/SSL security testing and cipher enumeration
   recon      Asset intelligence and WHOIS insights
+  intel      Threat intelligence - vulnerabilities, MITRE ATT&CK, IOCs, TAXII feeds
   proxy      HTTP CONNECT and SOCKS5 proxy servers
   service    Service manager - install persistent services (systemd, launchd, Windows)
   code       Code security (secrets, dependencies)
@@ -616,6 +640,14 @@ pub fn print_global_help() {
 
   {dim}# WHOIS{reset}
   rb recon domain whois example.com
+
+  {dim}# Vulnerability intelligence{reset}
+  rb intel vuln search nginx 1.18.0
+  rb intel vuln cve CVE-2021-44228
+
+  {dim}# MITRE ATT&CK mapping{reset}
+  rb intel mitre map ports=22,80,443 tech=wordpress
+  rb intel mitre export output=layer.json ports=22,80,443
 
 {dim}NOTE:{reset} HTTPS endpoints are supported via TLS tooling (`rb web asset cert|tls-audit`). HTTP routes expect explicit `http://` targets.
 

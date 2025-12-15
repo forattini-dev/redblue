@@ -126,7 +126,7 @@ impl FlatIndex {
         }
 
         let query_slice = query.as_slice();
-        let dim = self.storage.dim();
+        let _dim = self.storage.dim();
 
         // Use max-heap to maintain k smallest distances
         let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::with_capacity(k + 1);

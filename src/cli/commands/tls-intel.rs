@@ -9,11 +9,11 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::modules::network::tls::{TlsConfig, TlsStream, TlsVersion};
-use openssl::nid::Nid;
-use openssl::pkey::{Id as PKeyId, PKeyRef, Public};
-use openssl::sha::sha256;
-use openssl::ssl::{SslConnector, SslMethod, SslRef, SslVerifyMode, SslVersion};
-use openssl::x509::{X509Ref, X509};
+use boring::nid::Nid;
+use boring::pkey::{Id as PKeyId, PKeyRef, Public};
+use boring::sha::sha256;
+use boring::ssl::{SslConnector, SslMethod, SslRef, SslVerifyMode, SslVersion};
+use boring::x509::{X509Ref, X509};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream};
 use std::str;
 use std::time::{Duration, Instant};
@@ -159,13 +159,14 @@ impl TlsIntelCommand {
         let ocsp_stapled = ssl.ocsp_status().is_some();
         let session_resumed = ssl.session_reused();
 
-        let (peer_tmp_key, peer_named_group) = match ssl.peer_tmp_key() {
-            Ok(key) => {
-                let (desc, group) = describe_tmp_key(key.as_ref());
-                (Some(desc), group)
-            }
-            Err(_) => (None, None),
-        };
+        // let (peer_tmp_key, peer_named_group) = match ssl.peer_tmp_key() {
+        //     Ok(key) => {
+        //         let (desc, group) = describe_tmp_key(key.as_ref());
+        //         (Some(desc), group)
+        //     }
+        //     Err(_) => (None, None),
+        // };
+        let (peer_tmp_key, peer_named_group) = (None, None);
 
         let peer_signature_algorithm = peer_cert.and_then(|cert| {
             let nid = cert.signature_algorithm().object().nid();

@@ -440,6 +440,7 @@ pub fn chacha20poly1305_decrypt(
     aad: &[u8],
     ciphertext_and_tag: &[u8],
 ) -> Result<Vec<u8>, String> {
+    println!("DEBUG: decrypt input len: {}", ciphertext_and_tag.len());
     if ciphertext_and_tag.len() < 16 {
         return Err("Ciphertext too short".to_string());
     }

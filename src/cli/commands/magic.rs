@@ -12,9 +12,9 @@ use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::http::HttpClient;
 use crate::protocols::whois::WhoisClient;
 use crate::storage::session::SessionFile;
-use openssl::nid::Nid;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
-use openssl::x509::X509;
+use boring::nid::Nid;
+use boring::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
+use boring::x509::X509;
 use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
@@ -834,7 +834,7 @@ impl MagicScan {
         Ok(PhaseResult::new(summary, details))
     }
 
-    fn extract_name(name: &openssl::x509::X509NameRef, nid: Nid) -> Option<String> {
+    fn extract_name(name: &boring::x509::X509NameRef, nid: Nid) -> Option<String> {
         name.entries_by_nid(nid)
             .next()
             .and_then(|entry| entry.data().as_utf8().ok())

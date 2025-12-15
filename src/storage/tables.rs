@@ -6,6 +6,7 @@ use crate::storage::records::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus, SubdomainRecord,
     SubdomainSource, TlsScanRecord, WhoisRecord,
     ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    SessionRecord, PlaybookRunRecord,
 };
 use crate::storage::store::Database;
 
@@ -303,6 +304,134 @@ impl<'a> ProxyTable<'a> {
 
     pub fn request_count(&self) -> io::Result<usize> {
         Ok(self.db.proxy_request_count())
+    }
+}
+
+pub struct MitreTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> MitreTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: crate::storage::records::MitreAttackRecord) -> io::Result<()> {
+        self.db.insert_mitre_record(record);
+        Ok(())
+    }
+
+    pub fn get_by_technique(&mut self, technique_id: &str) -> io::Result<Vec<crate::storage::records::MitreAttackRecord>> {
+        Ok(self.db.mitre_records_by_technique(technique_id))
+    }
+
+    pub fn all(&mut self) -> io::Result<Vec<crate::storage::records::MitreAttackRecord>> {
+        Ok(self.db.mitre_records().clone())
+    }
+}
+
+pub struct IocTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> IocTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: crate::storage::records::IocRecord) -> io::Result<()> {
+        self.db.insert_ioc_record(record);
+        Ok(())
+    }
+
+    pub fn get_by_type(&mut self, ioc_type: crate::storage::records::IocType) -> io::Result<Vec<crate::storage::records::IocRecord>> {
+        Ok(self.db.ioc_records_by_type(ioc_type))
+    }
+
+    pub fn all(&mut self) -> io::Result<Vec<crate::storage::records::IocRecord>> {
+        Ok(self.db.ioc_records().clone())
+    }
+}
+
+pub struct VulnTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> VulnTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: crate::storage::records::VulnerabilityRecord) -> io::Result<()> {
+        self.db.insert_vulnerability(record);
+        Ok(())
+    }
+
+    pub fn all(&mut self) -> io::Result<Vec<crate::storage::records::VulnerabilityRecord>> {
+        Ok(self.db.vulnerability_records())
+    }
+}
+
+pub struct SessionTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> SessionTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: SessionRecord) -> io::Result<()> {
+        self.db.insert_session(record);
+        Ok(())
+    }
+
+    pub fn update(&mut self, record: SessionRecord) -> io::Result<()> {
+        self.db.update_session(record);
+        Ok(())
+    }
+
+    pub fn get(&self, id: &str) -> io::Result<Option<SessionRecord>> {
+        Ok(self.db.get_session(id))
+    }
+
+    pub fn for_target(&self, target: &str) -> io::Result<Vec<SessionRecord>> {
+        Ok(self.db.sessions_for_target(target))
+    }
+
+    pub fn active(&self) -> io::Result<Vec<SessionRecord>> {
+        Ok(self.db.active_sessions())
+    }
+
+    pub fn all(&self) -> io::Result<Vec<SessionRecord>> {
+        Ok(self.db.all_sessions())
+    }
+}
+
+pub struct PlaybookTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> PlaybookTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: PlaybookRunRecord) -> io::Result<()> {
+        self.db.insert_playbook_run(record);
+        Ok(())
+    }
+
+    pub fn for_playbook(&self, name: &str) -> io::Result<Vec<PlaybookRunRecord>> {
+        Ok(self.db.playbook_runs(name))
+    }
+
+    pub fn for_target(&self, target: &str) -> io::Result<Vec<PlaybookRunRecord>> {
+        Ok(self.db.playbook_runs_for_target(target))
+    }
+
+    pub fn all(&self) -> io::Result<Vec<PlaybookRunRecord>> {
+        Ok(self.db.all_playbook_runs())
     }
 }
 

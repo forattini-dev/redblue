@@ -20,7 +20,7 @@
 //! ```
 
 use crate::ui::canvas::BrailleCanvas;
-use crate::ui::colors::{truecolor_fg, Color, ANSI_RESET};
+use crate::ui::colors::Color;
 use crate::ui::scale::Scale;
 use std::cmp::Ordering;
 use std::f32;
@@ -337,24 +337,24 @@ impl<'a> Chart<'a> {
 /// Trait for plotting shapes on a chart
 pub trait Plot<'a> {
     /// Add a line plot to the chart
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart;
+    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart<'a>;
 }
 
 /// Trait for plotting colored shapes on a chart
 pub trait ColorPlot<'a> {
     /// Add a colored line plot to the chart
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart;
+    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart<'a>;
 }
 
 impl<'a> Plot<'a> for Chart<'a> {
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart {
+    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart<'a> {
         self.shapes.push((shape, None));
         self
     }
 }
 
 impl<'a> ColorPlot<'a> for Chart<'a> {
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart {
+    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart<'a> {
         self.shapes.push((shape, Some(color)));
         self
     }

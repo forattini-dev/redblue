@@ -37,5 +37,6 @@ pub mod x509; // Rich X.509 certificate parser
 pub mod tls; // TLS handshake for certificate extraction
 pub mod tls12; // TLS 1.2 full implementation
 pub mod tls_cert; // TLS certificate display structures
+pub mod tls_impersonator; // TLS impersonation profiles
 #[path = "x509-parser.rs"]
 pub mod x509_parser; // X.509 certificate parser

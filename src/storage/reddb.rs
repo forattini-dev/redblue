@@ -5,11 +5,12 @@ use std::path::Path;
 use crate::storage::records::{
     DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource, TlsScanRecord,
     WhoisRecord, ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    MitreAttackRecord, IocRecord,
 };
 use crate::storage::store::Database;
 use crate::storage::tables::{
     DnsTable, HostIntelTable, HttpTable, PortScanTable, SubdomainTable, TlsScanTable, WhoisTable,
-    ProxyTable,
+    ProxyTable, MitreTable, IocTable, VulnTable, SessionTable, PlaybookTable,
 };
 
 pub struct RedDb {
@@ -68,6 +69,26 @@ impl RedDb {
 
     pub fn proxy(&mut self) -> ProxyTable {
         ProxyTable::new(&mut self.store)
+    }
+
+    pub fn mitre(&mut self) -> MitreTable {
+        MitreTable::new(&mut self.store)
+    }
+
+    pub fn iocs(&mut self) -> IocTable {
+        IocTable::new(&mut self.store)
+    }
+
+    pub fn vulns(&mut self) -> VulnTable {
+        VulnTable::new(&mut self.store)
+    }
+
+    pub fn sessions(&mut self) -> SessionTable {
+        SessionTable::new(&mut self.store)
+    }
+
+    pub fn playbooks(&mut self) -> PlaybookTable {
+        PlaybookTable::new(&mut self.store)
     }
 
     pub fn flush(&mut self) -> io::Result<()> {

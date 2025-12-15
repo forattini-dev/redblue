@@ -8,14 +8,16 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::modules::recon::fingerprint::FingerprintEngine;
 use crate::modules::recon::vuln::{
+    correlator::{CorrelatorConfig, CorrelationReport, VulnCorrelator},
     cpe::{generate_cpe, get_all_cpe_mappings, TechCategory},
     exploitdb::ExploitDbClient,
     kev::KevClient,
     nvd::NvdClient,
     osv::{Ecosystem, OsvClient},
     risk::{calculate_risk_score, RiskLevel},
-    types::{Severity, VulnCollection, Vulnerability},
+    types::{DetectedTech, Severity, VulnCollection, Vulnerability},
 };
 
 pub struct VulnCommand;
@@ -60,6 +62,21 @@ impl Command for VulnCommand {
                 summary: "List supported CPE mappings for technologies",
                 usage: "rb vuln intel cpe [--category <cat>] [--search <term>]",
             },
+            Route {
+                verb: "correlate",
+                summary: "Correlate detected technologies with vulnerabilities",
+                usage: "rb vuln intel correlate <url> [--sources all|nvd|osv|kev]",
+            },
+            Route {
+                verb: "scan",
+                summary: "Full vulnerability scan (fingerprint + correlate)",
+                usage: "rb vuln intel scan <url> [--deep] [--json]",
+            },
+            Route {
+                verb: "report",
+                summary: "Generate vulnerability report for target",
+                usage: "rb vuln intel report <url> [--format text|json|markdown]",
+            },
         ]
     }
 
@@ -77,6 +94,10 @@ impl Command for VulnCommand {
             Flag::new("stats", "Show statistics"),
             Flag::new("limit", "Maximum results to show").with_default("20"),
             Flag::new("api-key", "NVD API key for higher rate limits"),
+            Flag::new("deep", "Deep scan (all sources, slower)"),
+            Flag::new("json", "Output in JSON format"),
+            Flag::new("format", "Output format (text, json, markdown)").with_default("text"),
+            Flag::new("sources", "Vulnerability sources (nvd,osv,kev,exploitdb)").with_default("all"),
         ]
     }
 
@@ -91,6 +112,9 @@ impl Command for VulnCommand {
             ("List CPE mappings", "rb vuln intel cpe"),
             ("CPE by category", "rb vuln intel cpe --category webserver"),
             ("OSV package search", "rb vuln intel search lodash --source osv --ecosystem npm"),
+            ("Correlate URL techs", "rb vuln intel correlate https://example.com"),
+            ("Full vuln scan", "rb vuln intel scan https://target.com --deep"),
+            ("Generate report", "rb vuln intel report https://target.com --format markdown"),
         ]
     }
 
@@ -106,6 +130,9 @@ impl Command for VulnCommand {
             "kev" => self.check_kev(ctx),
             "exploit" => self.search_exploits(ctx),
             "cpe" => self.list_cpe(ctx),
+            "correlate" => self.correlate_techs(ctx),
+            "scan" => self.vuln_scan(ctx),
+            "report" => self.vuln_report(ctx),
             _ => {
                 print_help(self);
                 Err(format!("Unknown verb: {}", verb))
@@ -580,6 +607,468 @@ impl VulnCommand {
 
         println!();
     }
+
+    /// Correlate detected technologies with vulnerabilities
+    fn correlate_techs(&self, ctx: &CliContext) -> Result<(), String> {
+        let url = ctx.target.as_ref().ok_or("Missing URL")?;
+
+        Output::header(&format!("Vulnerability Correlation: {}", url));
+        println!();
+
+        // Parse URL to get host
+        let _host = extract_host(url)?;
+
+        // Step 1: Fingerprint the target
+        Output::spinner_start("Fingerprinting target...");
+        let techs = self.fingerprint_target(url)?;
+        Output::spinner_done();
+
+        if techs.is_empty() {
+            Output::warning("No technologies detected. Try using --deep for more thorough scanning.");
+            return Ok(());
+        }
+
+        Output::success(&format!("Detected {} technologies", techs.len()));
+        println!();
+
+        // Display detected technologies
+        Output::section("Detected Technologies");
+        for tech in &techs {
+            let version_str = tech.version.as_deref().unwrap_or("unknown");
+            let conf_str = format!("{:.0}%", tech.confidence * 100.0);
+            Output::item(&tech.name, &format!("{} (confidence: {})", version_str, conf_str));
+        }
+        println!();
+
+        // Step 2: Correlate with vulnerability sources
+        let sources = ctx.get_flag_or("sources", "all");
+        let config = self.build_correlator_config(&sources);
+
+        Output::spinner_start("Correlating with vulnerability databases...");
+        let mut correlator = VulnCorrelator::with_config(config);
+        let report = correlator.correlate(&techs);
+        Output::spinner_done();
+
+        // Display results
+        self.display_correlation_report(&report);
+
+        Ok(())
+    }
+
+    /// Full vulnerability scan (fingerprint + correlate)
+    fn vuln_scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let url = ctx.target.as_ref().ok_or("Missing URL")?;
+        let deep = ctx.has_flag("deep");
+        let json_output = ctx.has_flag("json");
+
+        Output::header(&format!("Vulnerability Scan: {}", url));
+        if deep {
+            Output::info("Deep scan mode enabled");
+        }
+        println!();
+
+        // Step 1: Fingerprint
+        Output::spinner_start("Phase 1: Fingerprinting target...");
+        let techs = self.fingerprint_target(url)?;
+        Output::spinner_done();
+
+        if techs.is_empty() {
+            Output::warning("No technologies detected.");
+            return Ok(());
+        }
+
+        Output::success(&format!("Phase 1 complete: {} technologies detected", techs.len()));
+
+        // Step 2: Correlate
+        let sources = if deep { "all" } else { "nvd,kev" };
+        let config = self.build_correlator_config(sources);
+
+        Output::spinner_start("Phase 2: Querying vulnerability databases...");
+        let mut correlator = VulnCorrelator::with_config(config);
+        let report = correlator.correlate(&techs);
+        Output::spinner_done();
+
+        Output::success(&format!(
+            "Phase 2 complete: {} vulnerabilities found across {} technologies",
+            report.summary.total_vulns,
+            report.tech_correlations.len()
+        ));
+        println!();
+
+        if json_output {
+            // Output JSON format
+            self.output_report_json(&report);
+        } else {
+            // Display summary
+            self.display_scan_summary(&report);
+
+            // Show top risks
+            let top_risks = report.top_risks(10);
+            if !top_risks.is_empty() {
+                Output::section(&format!("Top {} Risks", top_risks.len()));
+                for vuln in top_risks {
+                    self.display_vuln_summary(vuln);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Generate vulnerability report
+    fn vuln_report(&self, ctx: &CliContext) -> Result<(), String> {
+        let url = ctx.target.as_ref().ok_or("Missing URL")?;
+        let format = ctx.get_flag_or("format", "text");
+
+        Output::header(&format!("Vulnerability Report: {}", url));
+        println!();
+
+        // Step 1: Fingerprint
+        Output::spinner_start("Fingerprinting target...");
+        let techs = self.fingerprint_target(url)?;
+        Output::spinner_done();
+
+        if techs.is_empty() {
+            Output::warning("No technologies detected.");
+            return Ok(());
+        }
+
+        // Step 2: Full correlation
+        Output::spinner_start("Correlating vulnerabilities (all sources)...");
+        let config = self.build_correlator_config("all");
+        let mut correlator = VulnCorrelator::with_config(config);
+        let report = correlator.correlate(&techs);
+        Output::spinner_done();
+
+        match format.as_str() {
+            "json" => self.output_report_json(&report),
+            "markdown" | "md" => self.output_report_markdown(url, &techs, &report),
+            _ => self.output_report_text(url, &techs, &report),
+        }
+
+        Ok(())
+    }
+
+    /// Build correlator config from sources string
+    fn build_correlator_config(&self, sources: &str) -> CorrelatorConfig {
+        let mut config = CorrelatorConfig::default();
+
+        if sources == "all" {
+            return config;
+        }
+
+        // Parse comma-separated sources
+        let enabled: Vec<&str> = sources.split(',').map(|s| s.trim()).collect();
+
+        config.use_nvd = enabled.iter().any(|&s| s == "nvd");
+        config.use_osv = enabled.iter().any(|&s| s == "osv");
+        config.use_kev = enabled.iter().any(|&s| s == "kev");
+        config.use_exploitdb = enabled.iter().any(|&s| s == "exploitdb");
+
+        config
+    }
+
+    /// Display correlation report
+    fn display_correlation_report(&self, report: &CorrelationReport) {
+        let summary = &report.summary;
+
+        Output::section("Correlation Summary");
+        Output::item("Technologies Scanned", &summary.techs_scanned.to_string());
+        Output::item("With Vulnerabilities", &summary.techs_vulnerable.to_string());
+        Output::item("Total Vulnerabilities", &summary.total_vulns.to_string());
+        Output::item("Critical", &summary.critical_count.to_string());
+        Output::item("High", &summary.high_count.to_string());
+        Output::item("Medium", &summary.medium_count.to_string());
+        Output::item("In CISA KEV", &summary.kev_count.to_string());
+        Output::item("With Exploits", &summary.exploitable_count.to_string());
+        println!();
+
+        // Show per-technology breakdown
+        if !report.tech_correlations.is_empty() {
+            Output::section("Per-Technology Breakdown");
+            for corr in &report.tech_correlations {
+                let tech_str = if let Some(ref ver) = corr.tech.version {
+                    format!("{} {}", corr.tech.name, ver)
+                } else {
+                    corr.tech.name.clone()
+                };
+
+                if corr.vulnerabilities.is_empty() {
+                    Output::item(&tech_str, "No vulnerabilities found");
+                } else {
+                    let critical = corr.vulnerabilities.iter()
+                        .filter(|v| matches!(v.severity, Severity::Critical))
+                        .count();
+                    let high = corr.vulnerabilities.iter()
+                        .filter(|v| matches!(v.severity, Severity::High))
+                        .count();
+
+                    Output::item(
+                        &tech_str,
+                        &format!(
+                            "{} vulns ({} critical, {} high)",
+                            corr.vulnerabilities.len(),
+                            critical,
+                            high
+                        ),
+                    );
+                }
+            }
+            println!();
+        }
+
+        // Show top risks
+        let top = report.top_risks(5);
+        if !top.is_empty() {
+            Output::section("Top 5 Risks");
+            for vuln in top {
+                self.display_vuln_summary(vuln);
+            }
+        }
+    }
+
+    /// Display scan summary
+    fn display_scan_summary(&self, report: &CorrelationReport) {
+        let summary = &report.summary;
+
+        Output::section("Scan Summary");
+
+        // Risk breakdown
+        let critical_color = if summary.critical_count > 0 { "\x1b[91m" } else { "" };
+        let high_color = if summary.high_count > 0 { "\x1b[93m" } else { "" };
+        let reset = "\x1b[0m";
+
+        println!(
+            "  {}CRITICAL: {}{}  {}HIGH: {}{}  MEDIUM: {}  LOW: {}",
+            critical_color, summary.critical_count, reset,
+            high_color, summary.high_count, reset,
+            summary.medium_count,
+            summary.low_count
+        );
+
+        if summary.kev_count > 0 {
+            Output::warning(&format!("{} vulnerabilities in CISA KEV (actively exploited)", summary.kev_count));
+        }
+
+        if summary.exploitable_count > 0 {
+            Output::warning(&format!("{} vulnerabilities have public exploits", summary.exploitable_count));
+        }
+
+        println!();
+    }
+
+    /// Output report as JSON
+    fn output_report_json(&self, report: &CorrelationReport) {
+        let summary = &report.summary;
+
+        println!("{{");
+        println!("  \"total_technologies\": {},", summary.techs_scanned);
+        println!("  \"technologies_with_vulns\": {},", summary.techs_vulnerable);
+        println!("  \"total_vulnerabilities\": {},", summary.total_vulns);
+        println!("  \"critical\": {},", summary.critical_count);
+        println!("  \"high\": {},", summary.high_count);
+        println!("  \"medium\": {},", summary.medium_count);
+        println!("  \"low\": {},", summary.low_count);
+        println!("  \"kev_count\": {},", summary.kev_count);
+        println!("  \"exploit_count\": {},", summary.exploitable_count);
+
+        println!("  \"top_risks\": [");
+        let top = report.top_risks(10);
+        for (i, vuln) in top.iter().enumerate() {
+            let comma = if i < top.len() - 1 { "," } else { "" };
+            println!(
+                "    {{\"id\": \"{}\", \"risk_score\": {}, \"severity\": \"{:?}\", \"kev\": {}, \"title\": \"{}\"}}{}",
+                vuln.id,
+                vuln.risk_score.unwrap_or(0),
+                vuln.severity,
+                vuln.cisa_kev,
+                vuln.title.replace('"', "\\\""),
+                comma
+            );
+        }
+        println!("  ]");
+        println!("}}");
+    }
+
+    /// Output report as Markdown
+    fn output_report_markdown(
+        &self,
+        url: &str,
+        techs: &[DetectedTech],
+        report: &CorrelationReport,
+    ) {
+        let summary = &report.summary;
+
+        println!("# Vulnerability Report");
+        println!();
+        println!("**Target:** {}", url);
+        println!("**Generated:** {}", chrono_now());
+        println!();
+
+        println!("## Executive Summary");
+        println!();
+        println!("| Metric | Count |");
+        println!("|--------|-------|");
+        println!("| Technologies Detected | {} |", techs.len());
+        println!("| Total Vulnerabilities | {} |", summary.total_vulns);
+        println!("| Critical | {} |", summary.critical_count);
+        println!("| High | {} |", summary.high_count);
+        println!("| Medium | {} |", summary.medium_count);
+        println!("| CISA KEV | {} |", summary.kev_count);
+        println!("| Public Exploits | {} |", summary.exploitable_count);
+        println!();
+
+        println!("## Detected Technologies");
+        println!();
+        for tech in techs {
+            let version = tech.version.as_deref().unwrap_or("unknown");
+            println!("- **{}** {}", tech.name, version);
+        }
+        println!();
+
+        println!("## Top Risks");
+        println!();
+        let top = report.top_risks(10);
+        for vuln in top {
+            let kev_badge = if vuln.cisa_kev { " 🔴 **KEV**" } else { "" };
+            let exp_badge = if vuln.has_exploit() { " ⚠️ **Exploit**" } else { "" };
+            println!(
+                "### {} (Risk: {}/100){}{}",
+                vuln.id,
+                vuln.risk_score.unwrap_or(0),
+                kev_badge,
+                exp_badge
+            );
+            println!();
+            println!("**Severity:** {:?}  ", vuln.severity);
+            if let Some(cvss) = vuln.cvss_v3 {
+                println!("**CVSS v3:** {:.1}  ", cvss);
+            }
+            println!();
+            println!("{}", vuln.description);
+            println!();
+        }
+    }
+
+    /// Output report as text
+    fn output_report_text(
+        &self,
+        url: &str,
+        techs: &[DetectedTech],
+        report: &CorrelationReport,
+    ) {
+        let summary = &report.summary;
+
+        Output::header("VULNERABILITY REPORT");
+        println!();
+        Output::item("Target", url);
+        Output::item("Generated", &chrono_now());
+        println!();
+
+        Output::section("Executive Summary");
+        Output::item("Technologies Detected", &techs.len().to_string());
+        Output::item("Total Vulnerabilities", &summary.total_vulns.to_string());
+        Output::item("Critical", &summary.critical_count.to_string());
+        Output::item("High", &summary.high_count.to_string());
+        Output::item("Medium", &summary.medium_count.to_string());
+        Output::item("In CISA KEV", &summary.kev_count.to_string());
+        Output::item("With Exploits", &summary.exploitable_count.to_string());
+        println!();
+
+        Output::section("Detected Technologies");
+        for tech in techs {
+            let version = tech.version.as_deref().unwrap_or("unknown");
+            Output::item(&tech.name, version);
+        }
+        println!();
+
+        Output::section("Top Risks");
+        let top = report.top_risks(10);
+        for vuln in top {
+            self.display_vuln_summary(vuln);
+        }
+    }
+
+    /// Fingerprint a target URL using HTTP client and fingerprint engine
+    fn fingerprint_target(&self, url: &str) -> Result<Vec<DetectedTech>, String> {
+        use crate::protocols::http::HttpClient;
+        use std::collections::HashMap;
+
+        // Make HTTP request to get headers
+        let client = HttpClient::new();
+        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+
+        // Extract headers into a HashMap
+        let mut headers: HashMap<String, String> = HashMap::new();
+        for (key, value) in &response.headers {
+            headers.insert(key.clone(), value.clone());
+        }
+
+        // Create fingerprint engine and extract from HTTP headers
+        let mut engine = FingerprintEngine::new();
+        engine.extract_from_http_headers(&headers);
+
+        // Also extract from HTML body if present
+        if !response.body.is_empty() {
+            let body_str = String::from_utf8_lossy(&response.body);
+            engine.extract_from_html(&body_str);
+        }
+
+        Ok(engine.into_results())
+    }
+}
+
+/// Extract host from URL
+fn extract_host(url: &str) -> Result<String, String> {
+    let url = url.trim();
+
+    // Remove protocol
+    let without_proto = if let Some(pos) = url.find("://") {
+        &url[pos + 3..]
+    } else {
+        url
+    };
+
+    // Remove path
+    let host = if let Some(pos) = without_proto.find('/') {
+        &without_proto[..pos]
+    } else {
+        without_proto
+    };
+
+    // Remove port
+    let host = if let Some(pos) = host.find(':') {
+        &host[..pos]
+    } else {
+        host
+    };
+
+    if host.is_empty() {
+        return Err("Invalid URL: could not extract host".to_string());
+    }
+
+    Ok(host.to_string())
+}
+
+/// Get current timestamp
+fn chrono_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+
+    let secs = duration.as_secs();
+    let days = secs / 86400;
+    let years_since_1970 = days / 365;
+    let year = 1970 + years_since_1970;
+
+    // Rough month/day calculation
+    let remaining_days = days % 365;
+    let month = (remaining_days / 30) + 1;
+    let day = (remaining_days % 30) + 1;
+
+    format!("{}-{:02}-{:02}", year, month.min(12), day.min(31))
 }
 
 /// Parse ecosystem string to Ecosystem enum

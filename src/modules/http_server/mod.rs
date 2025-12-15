@@ -32,6 +32,6 @@ mod server;
 mod mime;
 mod embedded;
 
-pub use server::{HttpServer, HttpServerConfig};
+pub use server::{HttpServer, HttpServerConfig, HttpRequest, HttpResponse};
 pub use mime::MimeType;
 pub use embedded::EmbeddedFiles;

@@ -4,7 +4,6 @@ use crate::cli::CliContext;
 use crate::modules::auth::iterator::CredentialIterator;
 use crate::modules::auth::http_auth::HttpAuthTester;
 use crate::wordlists::Loader;
-use std::io::BufRead;
 
 pub struct AuthTestCommand;
 

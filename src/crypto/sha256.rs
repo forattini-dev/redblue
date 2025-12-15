@@ -2,8 +2,8 @@
 ///
 /// This replaces our custom SHA-256 implementation with OpenSSL's battle-tested implementation.
 /// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
-use openssl::hash::{hash, MessageDigest};
-use openssl::sha;
+use boring::hash::{hash, MessageDigest};
+use boring::sha;
 
 /// Compute SHA-256 hash of data (one-shot)
 ///

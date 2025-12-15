@@ -58,14 +58,14 @@ impl CertificateAuthority {
         key_algorithm: KeyAlgorithm,
         validity_days: u32,
     ) -> Result<Self, CertError> {
-        use openssl::pkey::PKey;
-        use openssl::rsa::Rsa;
-        use openssl::ec::{EcKey, EcGroup};
-        use openssl::nid::Nid;
-        use openssl::x509::{X509Builder, X509NameBuilder};
-        use openssl::x509::extension::{BasicConstraints, KeyUsage, SubjectKeyIdentifier};
-        use openssl::bn::BigNum;
-        use openssl::hash::MessageDigest;
+        use boring::pkey::PKey;
+        use boring::rsa::Rsa;
+        use boring::ec::{EcKey, EcGroup};
+        use boring::nid::Nid;
+        use boring::x509::{X509Builder, X509NameBuilder};
+        use boring::x509::extension::{BasicConstraints, KeyUsage, SubjectKeyIdentifier};
+        use boring::bn::BigNum;
+        use boring::hash::MessageDigest;
 
         // Generate key pair
         let pkey = match key_algorithm {
@@ -155,9 +155,9 @@ impl CertificateAuthority {
             .map_err(|e| CertError::InvalidFormat(format!("Set pubkey failed: {}", e)))?;
 
         // Validity
-        let not_before = openssl::asn1::Asn1Time::days_from_now(0)
+        let not_before = boring::asn1::Asn1Time::days_from_now(0)
             .map_err(|e| CertError::InvalidFormat(format!("Not before failed: {}", e)))?;
-        let not_after = openssl::asn1::Asn1Time::days_from_now(validity_days)
+        let not_after = boring::asn1::Asn1Time::days_from_now(validity_days)
             .map_err(|e| CertError::InvalidFormat(format!("Not after failed: {}", e)))?;
 
         builder.set_not_before(&not_before)
@@ -217,8 +217,8 @@ impl CertificateAuthority {
 
     /// Load existing CA from PEM files
     pub fn load(cert_pem: &str, key_pem: &str) -> Result<Self, CertError> {
-        use openssl::pkey::PKey;
-        use openssl::x509::X509;
+        use boring::pkey::PKey;
+        use boring::x509::X509;
 
         let x509 = X509::from_pem(cert_pem.as_bytes())
             .map_err(|e| CertError::InvalidFormat(format!("Parse cert failed: {}", e)))?;
@@ -267,14 +267,14 @@ impl CertificateAuthority {
         dns_names: &[&str],
         ip_addresses: &[IpAddr],
     ) -> Result<(Certificate, Vec<u8>), CertError> {
-        use openssl::pkey::PKey;
-        use openssl::rsa::Rsa;
-        use openssl::ec::{EcKey, EcGroup};
-        use openssl::nid::Nid;
-        use openssl::x509::{X509Builder, X509NameBuilder, X509};
-        use openssl::x509::extension::{BasicConstraints, KeyUsage, ExtendedKeyUsage, SubjectAlternativeName};
-        use openssl::bn::BigNum;
-        use openssl::hash::MessageDigest;
+        use boring::pkey::PKey;
+        use boring::rsa::Rsa;
+        use boring::ec::{EcKey, EcGroup};
+        use boring::nid::Nid;
+        use boring::x509::{X509Builder, X509NameBuilder, X509};
+        use boring::x509::extension::{BasicConstraints, KeyUsage, ExtendedKeyUsage, SubjectAlternativeName};
+        use boring::bn::BigNum;
+        use boring::hash::MessageDigest;
 
         // Load CA private key
         let ca_pkey = PKey::private_key_from_der(&self.private_key)
@@ -349,9 +349,9 @@ impl CertificateAuthority {
             .map_err(|e| CertError::InvalidFormat(format!("Set pubkey failed: {}", e)))?;
 
         // Validity (1 year)
-        let not_before = openssl::asn1::Asn1Time::days_from_now(0)
+        let not_before = boring::asn1::Asn1Time::days_from_now(0)
             .map_err(|e| CertError::InvalidFormat(format!("Not before failed: {}", e)))?;
-        let not_after = openssl::asn1::Asn1Time::days_from_now(365)
+        let not_after = boring::asn1::Asn1Time::days_from_now(365)
             .map_err(|e| CertError::InvalidFormat(format!("Not after failed: {}", e)))?;
 
         builder.set_not_before(&not_before)
@@ -423,8 +423,8 @@ impl CertificateAuthority {
 
     /// Load CA from PEM-encoded certificate and key
     pub fn from_pem(cert_pem: &str, key_pem: &str) -> Result<Self, CertError> {
-        use openssl::pkey::PKey;
-        use openssl::x509::X509;
+        use boring::pkey::PKey;
+        use boring::x509::X509;
 
         // Parse certificate
         let x509 = X509::from_pem(cert_pem.as_bytes())
@@ -446,7 +446,7 @@ impl CertificateAuthority {
             let ec = pkey.ec_key().unwrap();
             let group = ec.group();
             let nid = group.curve_name();
-            if nid == Some(openssl::nid::Nid::SECP384R1) {
+            if nid == Some(boring::nid::Nid::SECP384R1) {
                 KeyAlgorithm::EcdsaP384
             } else {
                 KeyAlgorithm::EcdsaP256

@@ -4,6 +4,7 @@ pub mod broker; // NEW: Multi-client chat server (ncat --broker)
 pub mod discovery;
 pub mod extras; // NEW: Rate limiting, logging, file transfer optimization
 pub mod fingerprint;
+pub mod health; // Port health monitoring (check, diff, watch)
 pub mod netcat;
 pub mod ping;
 pub mod proxy; // NEW: Proxy support (SOCKS4/5, HTTP CONNECT)

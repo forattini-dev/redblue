@@ -325,7 +325,7 @@ pub fn query_all_sources(
     use std::time::Instant;
 
     let results = Arc::new(Mutex::new(AggregatedResults::new()));
-    let mut handles = vec![];
+    let handles: Vec<thread::JoinHandle<()>> = vec![];
 
     for source in sources.iter() {
         // Filter by category
@@ -390,7 +390,9 @@ pub fn query_all_sources(
     }
 
     Arc::try_unwrap(results)
-        .unwrap_or_else(|arc| (*arc.lock().unwrap()).clone())
+        .ok()
+        .and_then(|mutex| mutex.into_inner().ok())
+        .unwrap_or_else(AggregatedResults::new)
 }
 
 impl Clone for AggregatedResults {

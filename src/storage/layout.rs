@@ -23,6 +23,11 @@ pub enum SegmentKind {
     Http = 6,
     Host = 7,
     Proxy = 8,
+    Mitre = 9,
+    Ioc = 10,
+    Vuln = 11,
+    Sessions = 12,
+    Playbooks = 13,
 }
 
 impl SegmentKind {
@@ -36,6 +41,11 @@ impl SegmentKind {
             6 => Ok(SegmentKind::Http),
             7 => Ok(SegmentKind::Host),
             8 => Ok(SegmentKind::Proxy),
+            9 => Ok(SegmentKind::Mitre),
+            10 => Ok(SegmentKind::Ioc),
+            11 => Ok(SegmentKind::Vuln),
+            12 => Ok(SegmentKind::Sessions),
+            13 => Ok(SegmentKind::Playbooks),
             _ => Err(DecodeError("unknown segment kind")),
         }
     }

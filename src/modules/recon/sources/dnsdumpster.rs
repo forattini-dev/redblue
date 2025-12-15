@@ -151,7 +151,7 @@ impl SubdomainSource for DnsDumpsterSource {
         // For now, we'll attempt the request and handle potential failures gracefully
         let response = self
             .http
-            .post("https://dnsdumpster.com/", post_body.as_bytes(), "application/x-www-form-urlencoded")
+            .post_raw("https://dnsdumpster.com/", post_body.as_bytes(), "application/x-www-form-urlencoded")
             .map_err(|e| SourceError::NetworkError(e))?;
 
         if response.status_code == 403 || response.status_code == 400 {

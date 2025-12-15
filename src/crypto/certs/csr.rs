@@ -321,13 +321,13 @@ impl CsrBuilder {
 
     /// Build CSR using OpenSSL
     pub fn build(self, key_pem: &str) -> Result<String, CertError> {
-        use openssl::pkey::PKey;
-        use openssl::x509::X509ReqBuilder;
-        use openssl::x509::X509NameBuilder;
-        use openssl::x509::extension::SubjectAlternativeName;
-        use openssl::nid::Nid;
-        use openssl::hash::MessageDigest;
-        use openssl::stack::Stack;
+        use boring::pkey::PKey;
+        use boring::x509::X509ReqBuilder;
+        use boring::x509::X509NameBuilder;
+        use boring::x509::extension::SubjectAlternativeName;
+        use boring::nid::Nid;
+        use boring::hash::MessageDigest;
+        use boring::stack::Stack;
 
         // Load private key
         let pkey = PKey::private_key_from_pem(key_pem.as_bytes())
@@ -415,9 +415,9 @@ mod tests {
     #[test]
     fn test_csr_builder() {
         // Generate a key first
-        use openssl::pkey::PKey;
-        use openssl::ec::{EcKey, EcGroup};
-        use openssl::nid::Nid;
+        use boring::pkey::PKey;
+        use boring::ec::{EcKey, EcGroup};
+        use boring::nid::Nid;
 
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
         let ec = EcKey::generate(&group).unwrap();
