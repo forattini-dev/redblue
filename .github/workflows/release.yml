@@ -64,6 +64,20 @@ jobs:
             asset_name: rb-linux-aarch64
             cross: true
 
+          # Linux ARMv7 (Raspberry Pi 3 32-bit / RPi 2)
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            binary_name: rb
+            asset_name: rb-linux-armv7
+            cross: true
+
+          # Linux ARM64 Musl (Android / Static Universal)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            binary_name: rb
+            asset_name: rb-linux-aarch64-static
+            cross: true
+
           # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -91,12 +105,42 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go ninja-build
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install go ninja
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install nasm ninja
+
+      - name: Install cross-compilation tools
         if: matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+            echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          fi
+
+          if [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
+            sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+            echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+            echo "CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+            echo "CXX_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-g++" >> $GITHUB_ENV
+            echo "AR_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-ar" >> $GITHUB_ENV
+          fi
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -114,9 +158,14 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
 
-      - name: Strip binary (Linux ARM64)
+      - name: Strip binary (Cross Linux)
         if: matrix.cross
-        run: aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
+        run: |
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
+          elif [[ "${{ matrix.target }}" == "armv7-unknown-linux-gnueabihf" ]]; then
+            arm-linux-gnueabihf-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
+          fi
 
       - name: Strip binary (macOS)
         if: runner.os == 'macOS'
@@ -127,6 +176,25 @@ jobs:
         run: |
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
           shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256 || certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
+
+
+      - name: Verify Self (Smoke Test)
+        if: "!matrix.cross && runner.os != 'Windows'"
+        shell: bash
+        run: |
+          # Extract hash from the generated .sha256 file (first field)
+          HASH=$(cat ${{ matrix.asset_name }}.sha256 | awk '{print $1}')
+          echo "Verifying ${{ matrix.asset_name }} with hash $HASH..."
+          
+          # Run the binary to verify itself
+          ./${{ matrix.asset_name }} crypto hash verify ${{ matrix.asset_name }} $HASH
+
+      - name: Evasion Build Info
+        if: "!matrix.cross && runner.os != 'Windows'"
+        shell: bash
+        run: |
+          echo "### Build Mutation Info"
+          ./${{ matrix.asset_name }} evasion build info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -190,6 +258,15 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
+          
+          # Aggregate checksums
+          cd release
+          echo "### SHA256 Checksums" > CHECKSUMS.txt
+          for f in *.sha256; do
+            cat "$f" >> CHECKSUMS.txt
+          done
+          cd ..
+          
           # Include embeddings
           if [ -f artifacts/embeddings/embeddings.json ]; then
             cp artifacts/embeddings/embeddings.json release/

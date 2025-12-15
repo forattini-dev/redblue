@@ -1,4 +1,4 @@
-.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs
+.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install
 
 # Paths
 LOCAL_BIN := $(HOME)/.local/bin
@@ -16,6 +16,7 @@ help:
 	@echo "  make clean      - Clean build artifacts"
 	@echo "  make run        - Run debug version (use ARGS='...')"
 	@echo "  make install    - Install to ~/.cargo/bin"
+	@echo "  make deps       - Check/Install build dependencies (Go, Ninja)"
 	@echo "  make fmt        - Format code"
 	@echo "  make lint       - Run clippy"
 	@echo "  make check      - Quick compile check"
@@ -105,6 +106,31 @@ major:
 # Build static binary (if musl is available)
 static:
 	cargo build --release --target x86_64-unknown-linux-musl
+
+
+# ============================================================================
+# Dependencies (BoringSSL/Chrome-Impersonation)
+# ============================================================================
+
+# Check build dependencies
+deps:
+	@echo "Checking build dependencies for BoringSSL..."
+	@which go >/dev/null || { echo "❌ Go not found. Required for BoringSSL."; echo "  Run 'make deps-install' or install manually."; exit 1; }
+	@which ninja >/dev/null || { echo "❌ Ninja not found. Required for BoringSSL."; echo "  Run 'make deps-install' or install manually."; exit 1; }
+	@echo "✅ All dependencies found (Go, Ninja). Ready to build!"
+
+# Install build dependencies (Linux/macOS)
+deps-install:
+	@echo "Detected OS: $$(uname -s)"
+	@if [ "$$(uname -s)" = "Linux" ]; then \
+		echo "Installing dependencies (Linux)..."; \
+		sudo apt-get update && sudo apt-get install -y golang-go ninja-build; \
+	elif [ "$$(uname -s)" = "Darwin" ]; then \
+		echo "Installing dependencies (macOS)..."; \
+		brew install go ninja; \
+	else \
+		echo "Unsupported OS: $$(uname -s). Please install Go and Ninja manually."; \
+	fi
 
 # ============================================================================
 # Documentation & Embeddings

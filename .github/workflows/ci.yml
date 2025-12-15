@@ -20,6 +20,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install dependencies (BoringSSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go ninja-build
+
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -45,6 +50,11 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies (BoringSSL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go ninja-build
 
       - name: Cache cargo
         uses: actions/cache@v3
