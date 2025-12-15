@@ -5,10 +5,11 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::hmac::hmac_sha256;
-use crate::crypto::sha256::sha256;
+use crate::crypto::sha256::{sha256, Sha256};
 use crate::crypto::{aes256_gcm_decrypt, aes256_gcm_encrypt};
 use std::fs;
 use std::io::{self, Read, Write};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Magic bytes for encrypted vault files
@@ -44,6 +45,11 @@ impl Command for CryptoCommand {
     fn routes(&self) -> Vec<Route> {
         vec![
             Route {
+                verb: "hash",
+                summary: "Hash utilities (verify checksums)",
+                usage: "rb crypto hash verify <file> <expected_hash>",
+            },
+            Route {
                 verb: "encrypt",
                 summary: "Encrypt a file with password",
                 usage: "rb crypto vault encrypt <file> [-o output] [--password PASS]",
@@ -76,6 +82,10 @@ impl Command for CryptoCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             (
+                "Verify file checksum",
+                "rb crypto hash verify ./bin/rb <sha256_hash>",
+            ),
+            (
                 "Encrypt a file (password prompt)",
                 "rb crypto vault encrypt secrets.txt",
             ),
@@ -102,6 +112,7 @@ impl Command for CryptoCommand {
         })?;
 
         match verb.as_str() {
+            "hash" => self.hash_ops(ctx),
             "encrypt" => self.encrypt_file(ctx),
             "decrypt" => self.decrypt_file(ctx),
             "info" => self.show_info(ctx),
@@ -358,6 +369,67 @@ impl CryptoCommand {
         Ok(())
     }
 
+    fn hash_ops(&self, ctx: &CliContext) -> Result<(), String> {
+        let resource = ctx.resource.as_deref().unwrap_or("");
+        
+        match resource {
+            "verify" => self.verify_checksum(ctx),
+            _ => {
+                Err(format!("Unknown hash operation '{}'. Try: rb crypto hash verify <file> <hash>", resource))
+            }
+        }
+    }
+
+    fn verify_checksum(&self, ctx: &CliContext) -> Result<(), String> {
+        let file_path = ctx.target.as_ref().ok_or("Missing file path. Usage: rb crypto hash verify <file> <hash>")?;
+        
+        // The hash should be the first argument
+        let expected_hash = ctx.args.get(0).ok_or("Missing expected hash. Usage: rb crypto hash verify <file> <hash>")?;
+        
+        let path = Path::new(file_path);
+        if !path.exists() {
+            return Err(format!("File not found: {}", file_path));
+        }
+
+        Output::header("Checksum Verification");
+        Output::item("File", file_path);
+        Output::item("Expected", expected_hash);
+        println!();
+
+        Output::spinner_start("Calculating SHA-256");
+        
+        let mut file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 8192];
+
+        loop {
+            let n = file.read(&mut buffer).map_err(|e| format!("Read failed: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        
+        let digest = hasher.finalize();
+        let actual_hash = hex_encode(&digest);
+        
+        Output::spinner_done();
+        
+        println!();
+        if actual_hash.eq_ignore_ascii_case(expected_hash) {
+            Output::success("✓ Checksum MATCHED");
+            Output::item("Actual", &actual_hash);
+        } else {
+            Output::error("✗ Checksum MISMATCH");
+            Output::item("Actual", &actual_hash);
+            Output::item("Expect", expected_hash);
+            // Return error code logic? For CLI usually returning Err string is enough to exit non-zero
+            return Err("Checksum verification failed".to_string());
+        }
+
+        Ok(())
+    }
+
     fn get_password(&self, ctx: &CliContext, confirm: bool) -> Result<String, String> {
         // Check if password provided via flag
         if let Some(pass) = ctx.get_flag("password") {
@@ -386,6 +458,15 @@ impl CryptoCommand {
 
         Ok(password)
     }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        use std::fmt::Write;
+        write!(&mut s, "{:02x}", b).unwrap();
+    }
+    s
 }
 
 /// Read password from terminal without echoing
