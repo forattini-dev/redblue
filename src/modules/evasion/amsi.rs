@@ -94,7 +94,9 @@ impl AmsiBypass {
         AmsiBypassResult {
             success: false,
             method: self.method,
-            error: Some("Patch execution disabled for safety - use generated shellcode".to_string()),
+            error: Some(
+                "Patch execution disabled for safety - use generated shellcode".to_string(),
+            ),
         }
     }
 
@@ -310,7 +312,7 @@ pub fn amsi_provider_clsids() -> Vec<&'static str> {
     vec![
         "{2781761E-28E0-4109-99FE-B9D127C57AFE}", // Windows Defender
         "{A7C452EF-8E9F-42EB-9F2B-245613CA0DC9}", // Microsoft Security Essentials
-        // Other AV products register their own CLSIDs
+                                                  // Other AV products register their own CLSIDs
     ]
 }
 

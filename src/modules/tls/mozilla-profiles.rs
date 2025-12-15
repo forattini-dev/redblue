@@ -9,7 +9,6 @@
 ///
 /// This module helps administrators verify their server configuration
 /// matches Mozilla's security recommendations.
-
 use std::collections::HashSet;
 
 /// Mozilla TLS profile
@@ -45,9 +44,7 @@ impl MozillaProfile {
             MozillaProfile::Intermediate => {
                 "TLS 1.2+ with strong ciphers. Recommended for most production servers."
             }
-            MozillaProfile::Old => {
-                "TLS 1.0+ for legacy compatibility. Only use if required."
-            }
+            MozillaProfile::Old => "TLS 1.0+ for legacy compatibility. Only use if required.",
         }
     }
 
@@ -80,7 +77,11 @@ impl MozillaProfile {
                 CipherSuiteSpec::new(0xC02F, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", true),
                 CipherSuiteSpec::new(0xC030, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", true),
                 CipherSuiteSpec::new(0xCCA8, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", true),
-                CipherSuiteSpec::new(0xCCA9, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", true),
+                CipherSuiteSpec::new(
+                    0xCCA9,
+                    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+                    true,
+                ),
                 // TLS 1.2 DHE ciphers (with strong DH)
                 CipherSuiteSpec::new(0x009E, "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256", false),
                 CipherSuiteSpec::new(0x009F, "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", false),
@@ -145,9 +146,9 @@ impl MozillaProfile {
     /// Required HSTS max-age (in seconds)
     pub fn min_hsts_age(&self) -> u32 {
         match self {
-            MozillaProfile::Modern => 63072000,      // 2 years
+            MozillaProfile::Modern => 63072000,       // 2 years
             MozillaProfile::Intermediate => 63072000, // 2 years
-            MozillaProfile::Old => 15768000,         // 6 months
+            MozillaProfile::Old => 15768000,          // 6 months
         }
     }
 
@@ -329,10 +330,7 @@ impl MozillaComplianceChecker {
                             severity: ComplianceSeverity::Critical,
                             category: IssueCategory::Protocol,
                             title: format!("{} enabled", version),
-                            description: format!(
-                                "Modern profile forbids {} support",
-                                version
-                            ),
+                            description: format!("Modern profile forbids {} support", version),
                             remediation: format!("Disable {} on the server", version),
                         });
                         *score -= 20;
@@ -459,7 +457,9 @@ impl MozillaComplianceChecker {
 
         // Check if any recommended ciphers are supported
         let supported_codes: HashSet<u16> = supported_ciphers.iter().map(|(c, _)| *c).collect();
-        let has_recommended = recommended_codes.iter().any(|c| supported_codes.contains(c));
+        let has_recommended = recommended_codes
+            .iter()
+            .any(|c| supported_codes.contains(c));
 
         if !has_recommended && !supported_ciphers.is_empty() {
             issues.push(ComplianceIssue {
@@ -546,7 +546,10 @@ impl MozillaComplianceChecker {
             issues.push(ComplianceIssue {
                 severity: ComplianceSeverity::Warning,
                 category: IssueCategory::Certificate,
-                title: format!("Certificate expires in {} days", cert_info.days_until_expiry),
+                title: format!(
+                    "Certificate expires in {} days",
+                    cert_info.days_until_expiry
+                ),
                 description: "Certificate will expire soon".to_string(),
                 remediation: "Renew the certificate before expiration".to_string(),
             });
@@ -589,13 +592,13 @@ impl MozillaComplianceChecker {
                 );
             }
             MozillaProfile::Intermediate => {
-                recommendations
-                    .push("Consider upgrading to Modern profile if legacy support not needed".to_string());
+                recommendations.push(
+                    "Consider upgrading to Modern profile if legacy support not needed".to_string(),
+                );
             }
             MozillaProfile::Old => {
-                recommendations.push(
-                    "Plan migration to Intermediate profile to improve security".to_string(),
-                );
+                recommendations
+                    .push("Plan migration to Intermediate profile to improve security".to_string());
             }
         }
 
@@ -660,7 +663,10 @@ mod tests {
 
     #[test]
     fn test_cipher_pattern_matching() {
-        assert!(matches_cipher_pattern("TLS_RSA_WITH_AES_128_CBC_SHA", "TLS_RSA_*"));
+        assert!(matches_cipher_pattern(
+            "TLS_RSA_WITH_AES_128_CBC_SHA",
+            "TLS_RSA_*"
+        ));
         assert!(matches_cipher_pattern(
             "TLS_ECDHE_RSA_WITH_RC4_128_SHA",
             "*_RC4_*"
@@ -674,8 +680,9 @@ mod tests {
     #[test]
     fn test_recommended_ciphers() {
         let modern = MozillaProfile::Modern.recommended_ciphers();
-        assert!(modern.iter().all(|c| c.name.starts_with("TLS_AES")
-            || c.name.starts_with("TLS_CHACHA")));
+        assert!(modern
+            .iter()
+            .all(|c| c.name.starts_with("TLS_AES") || c.name.starts_with("TLS_CHACHA")));
 
         let intermediate = MozillaProfile::Intermediate.recommended_ciphers();
         assert!(intermediate.len() > modern.len());

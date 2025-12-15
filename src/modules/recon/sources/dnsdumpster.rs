@@ -4,7 +4,6 @@
 /// Free, no API key required, but requires CSRF token handling.
 ///
 /// URL: https://dnsdumpster.com/
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -28,7 +27,11 @@ impl DnsDumpsterSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -50,9 +53,12 @@ impl DnsDumpsterSource {
                     let content_lower = content.to_lowercase();
 
                     // Check if it looks like a subdomain
-                    if (content_lower.ends_with(&format!(".{}", domain_lower)) || content_lower == domain_lower)
+                    if (content_lower.ends_with(&format!(".{}", domain_lower))
+                        || content_lower == domain_lower)
                         && !content_lower.contains(' ')
-                        && content_lower.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-')
+                        && content_lower
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '.' || c == '-')
                         && seen.insert(content_lower.clone())
                     {
                         records.push(SubdomainRecord {
@@ -141,7 +147,8 @@ impl SubdomainSource for DnsDumpsterSource {
 
         let html = String::from_utf8_lossy(&initial_response.body);
 
-        let csrf_token = self.extract_csrf_token(&html)
+        let csrf_token = self
+            .extract_csrf_token(&html)
             .ok_or_else(|| SourceError::ParseError("Could not extract CSRF token".into()))?;
 
         // Now make the POST request
@@ -151,7 +158,11 @@ impl SubdomainSource for DnsDumpsterSource {
         // For now, we'll attempt the request and handle potential failures gracefully
         let response = self
             .http
-            .post_raw("https://dnsdumpster.com/", post_body.as_bytes(), "application/x-www-form-urlencoded")
+            .post_raw(
+                "https://dnsdumpster.com/",
+                post_body.as_bytes(),
+                "application/x-www-form-urlencoded",
+            )
             .map_err(|e| SourceError::NetworkError(e))?;
 
         if response.status_code == 403 || response.status_code == 400 {

@@ -98,8 +98,12 @@ impl Tls13HashAlgorithm {
         hkdf_label.push(context.len() as u8);
         hkdf_label.extend_from_slice(context);
 
-        eprintln!("TLS13 HKDF-Expand-Label: label={:?}, full_label={:?}, info_len={}",
-            String::from_utf8_lossy(label), String::from_utf8_lossy(&full_label), hkdf_label.len());
+        eprintln!(
+            "TLS13 HKDF-Expand-Label: label={:?}, full_label={:?}, info_len={}",
+            String::from_utf8_lossy(label),
+            String::from_utf8_lossy(&full_label),
+            hkdf_label.len()
+        );
 
         Ok(self.hkdf_expand(secret, &hkdf_label, length))
     }

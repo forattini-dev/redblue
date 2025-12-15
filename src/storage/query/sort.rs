@@ -134,10 +134,18 @@ fn compare_values(a: &Value, b: &Value) -> Ordering {
         (Value::Blob(a), Value::Blob(b)) => a.cmp(b),
         (Value::Uuid(a), Value::Uuid(b)) => a.cmp(b),
         // Cross-type numeric comparisons
-        (Value::Integer(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
-        (Value::Float(a), Value::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
-        (Value::UnsignedInteger(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
-        (Value::Float(a), Value::UnsignedInteger(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
+        (Value::Integer(a), Value::Float(b)) => {
+            (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
+        }
+        (Value::Float(a), Value::Integer(b)) => {
+            a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
+        }
+        (Value::UnsignedInteger(a), Value::Float(b)) => {
+            (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal)
+        }
+        (Value::Float(a), Value::UnsignedInteger(b)) => {
+            a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
+        }
         (Value::Integer(a), Value::UnsignedInteger(b)) => (*a as i128).cmp(&(*b as i128)),
         (Value::UnsignedInteger(a), Value::Integer(b)) => (*a as i128).cmp(&(*b as i128)),
         // Incompatible types: use type tag for stable ordering
@@ -189,12 +197,7 @@ impl OrderBy {
     /// Compare two rows according to all sort keys
     ///
     /// The `get_value` closure takes a row and column name, returning the value.
-    pub fn compare<R>(
-        &self,
-        a: &R,
-        b: &R,
-        get_value: impl Fn(&R, &str) -> Value,
-    ) -> Ordering {
+    pub fn compare<R>(&self, a: &R, b: &R, get_value: impl Fn(&R, &str) -> Value) -> Ordering {
         for key in &self.keys {
             let val_a = get_value(a, &key.column);
             let val_b = get_value(b, &key.column);
@@ -207,11 +210,7 @@ impl OrderBy {
     }
 
     /// Sort a slice of rows in place
-    pub fn sort_rows<R>(
-        &self,
-        rows: &mut [R],
-        get_value: impl Fn(&R, &str) -> Value,
-    ) {
+    pub fn sort_rows<R>(&self, rows: &mut [R], get_value: impl Fn(&R, &str) -> Value) {
         if self.is_empty() {
             return;
         }
@@ -270,7 +269,10 @@ impl QueryLimits {
     }
 
     /// Apply limits to an iterator
-    pub fn apply_iter<T: 'static, I: Iterator<Item = T> + 'static>(&self, iter: I) -> Box<dyn Iterator<Item = T>> {
+    pub fn apply_iter<T: 'static, I: Iterator<Item = T> + 'static>(
+        &self,
+        iter: I,
+    ) -> Box<dyn Iterator<Item = T>> {
         let iter = iter.skip(self.offset);
         match self.limit {
             Some(limit) => Box::new(iter.take(limit)),
@@ -457,10 +459,10 @@ mod tests {
         order.sort_rows(&mut rows, get_value);
 
         // Engineering first (alphabetically), then by salary descending
-        assert_eq!(rows[0].0, "Bob");      // Eng, 120k
-        assert_eq!(rows[1].0, "Diana");    // Eng, 110k
-        assert_eq!(rows[2].0, "Alice");    // Eng, 100k
-        assert_eq!(rows[3].0, "Charlie");  // Sales, 90k
+        assert_eq!(rows[0].0, "Bob"); // Eng, 120k
+        assert_eq!(rows[1].0, "Diana"); // Eng, 110k
+        assert_eq!(rows[2].0, "Alice"); // Eng, 100k
+        assert_eq!(rows[3].0, "Charlie"); // Sales, 90k
     }
 
     #[test]
@@ -489,8 +491,8 @@ mod tests {
         let limits = QueryLimits::none().offset(5).limit(10);
 
         assert_eq!(limits.range(100), 5..15);
-        assert_eq!(limits.range(8), 5..8);   // Limit by total
-        assert_eq!(limits.range(3), 3..3);   // Offset beyond total
+        assert_eq!(limits.range(8), 5..8); // Limit by total
+        assert_eq!(limits.range(3), 3..3); // Offset beyond total
     }
 
     #[test]
@@ -564,7 +566,7 @@ mod tests {
         // Later timestamp should come first in desc order
         assert_eq!(
             key.compare(&Value::Timestamp(1000), &Value::Timestamp(500)),
-            Ordering::Less  // 1000 is "smaller" in desc = comes first
+            Ordering::Less // 1000 is "smaller" in desc = comes first
         );
     }
 }

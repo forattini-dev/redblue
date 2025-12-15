@@ -524,7 +524,9 @@ impl SecureVault {
 
         // Zero the intermediate buffer
         for byte in &mut encrypted_value {
-            unsafe { std::ptr::write_volatile(byte, 0); }
+            unsafe {
+                std::ptr::write_volatile(byte, 0);
+            }
         }
         std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 
@@ -640,7 +642,9 @@ impl SecureVault {
         self.decoys.clear();
         self.master_key = 0;
         for byte in &mut self.salt {
-            unsafe { std::ptr::write_volatile(byte, 0); }
+            unsafe {
+                std::ptr::write_volatile(byte, 0);
+            }
         }
         std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
     }
@@ -709,7 +713,9 @@ impl Drop for VaultEntry {
     fn drop(&mut self) {
         // Securely zero the value
         for byte in &mut self.value {
-            unsafe { std::ptr::write_volatile(byte, 0); }
+            unsafe {
+                std::ptr::write_volatile(byte, 0);
+            }
         }
         std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
     }

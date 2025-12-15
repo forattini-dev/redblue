@@ -2,7 +2,6 @@
 ///
 /// DEFLATE streams pack data at the bit level, reading LSB first within each byte.
 /// This reader provides efficient bit-level access with buffering.
-
 use std::io::Read;
 
 const BUFFER_SIZE: usize = 16 * 1024; // 16KB buffer
@@ -92,9 +91,7 @@ impl<R: Read> BitReader<R> {
         let bits = match available {
             1 => bytes[0] as u32,
             2 => u16::from_le_bytes([bytes[0], bytes[1]]) as u32,
-            3 => {
-                (bytes[0] as u32) | ((bytes[1] as u32) << 8) | ((bytes[2] as u32) << 16)
-            }
+            3 => (bytes[0] as u32) | ((bytes[1] as u32) << 8) | ((bytes[2] as u32) << 16),
             _ => u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
         };
 

@@ -25,22 +25,22 @@
 //! - Turso `core/storage/page_cache.rs` - SIEVE eviction algorithm
 //! - Turso `core/storage/btree.rs` - B-tree page layout
 
-pub mod page;
-pub mod pager;
-pub mod page_cache;
-pub mod freelist;
-pub mod crc32;
 pub mod btree;
+pub mod crc32;
 pub mod database;
+pub mod freelist;
+pub mod page;
+pub mod page_cache;
+pub mod pager;
 
 #[path = "encrypted-pager.rs"]
 pub mod encrypted_pager;
 
-pub use page::{Page, PageType, PageHeader, PAGE_SIZE, HEADER_SIZE};
-pub use pager::{Pager, PagerConfig};
-pub use page_cache::PageCache;
-pub use freelist::FreeList;
-pub use crc32::crc32;
 pub use btree::{BTree, BTreeCursor, BTreeError};
+pub use crc32::crc32;
 pub use database::{Database, DatabaseConfig, DatabaseError};
 pub use encrypted_pager::{EncryptedPager, EncryptedPagerConfig, EncryptedPagerError};
+pub use freelist::FreeList;
+pub use page::{Page, PageHeader, PageType, HEADER_SIZE, PAGE_SIZE};
+pub use page_cache::PageCache;
+pub use pager::{Pager, PagerConfig};

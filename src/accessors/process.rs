@@ -1,7 +1,7 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -47,8 +47,8 @@ impl ProcessAccessor {
                     }
                 }
                 AccessorResult::success(json!(processes))
-            },
-            Err(e) => AccessorResult::error(&format!("Failed to read /proc: {}", e))
+            }
+            Err(e) => AccessorResult::error(&format!("Failed to read /proc: {}", e)),
         }
     }
 
@@ -72,7 +72,7 @@ impl ProcessAccessor {
 
         // Find the last closing parenthesis to handle names with parens
         let r_paren_idx = stat_content.rfind(')')?;
-        let after_paren = &stat_content[r_paren_idx+2..]; // skip ") "
+        let after_paren = &stat_content[r_paren_idx + 2..]; // skip ") "
         let stat_fields: Vec<&str> = after_paren.split_whitespace().collect();
 
         if stat_fields.len() < 2 {
@@ -84,7 +84,7 @@ impl ProcessAccessor {
 
         // Name is between first ( and last )
         let l_paren_idx = stat_content.find('(')?;
-        let name = stat_content[l_paren_idx+1..r_paren_idx].to_string();
+        let name = stat_content[l_paren_idx + 1..r_paren_idx].to_string();
 
         // Read cmdline
         let cmdline_path = path.join("cmdline");
@@ -98,7 +98,8 @@ impl ProcessAccessor {
         // Read status for UID
         let status_path = path.join("status");
         let uid = if let Ok(status) = fs::read_to_string(status_path) {
-            status.lines()
+            status
+                .lines()
                 .find(|l| l.starts_with("Uid:"))
                 .and_then(|l| l.split_whitespace().nth(1))
                 .and_then(|s| s.parse::<u32>().ok())
@@ -123,8 +124,9 @@ impl ProcessAccessor {
             return result;
         }
 
-        let processes: Vec<ProcessInfo> = serde_json::from_value(result.data.unwrap()).unwrap_or_default();
-        
+        let processes: Vec<ProcessInfo> =
+            serde_json::from_value(result.data.unwrap()).unwrap_or_default();
+
         // Build map of children
         let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
         let mut roots = Vec::new();
@@ -150,9 +152,14 @@ impl ProcessAccessor {
         AccessorResult::success(tree)
     }
 
-    fn recursive_build_tree(&self, pids: &[u32], children: &HashMap<u32, Vec<u32>>, info_map: &HashMap<u32, ProcessInfo>) -> Value {
+    fn recursive_build_tree(
+        &self,
+        pids: &[u32],
+        children: &HashMap<u32, Vec<u32>>,
+        info_map: &HashMap<u32, ProcessInfo>,
+    ) -> Value {
         let mut nodes = Vec::new();
-        
+
         for pid in pids {
             if let Some(info) = info_map.get(pid) {
                 let mut node = json!({
@@ -168,7 +175,7 @@ impl ProcessAccessor {
                 nodes.push(node);
             }
         }
-        
+
         Value::Array(nodes)
     }
 }
@@ -182,10 +189,7 @@ impl Accessor for ProcessAccessor {
         AccessorInfo {
             name: "Process Accessor".to_string(),
             description: "Interact with system processes".to_string(),
-            methods: vec![
-                "list".to_string(),
-                "tree".to_string(),
-            ],
+            methods: vec!["list".to_string(), "tree".to_string()],
         }
     }
 

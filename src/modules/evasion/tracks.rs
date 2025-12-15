@@ -117,16 +117,10 @@ pub struct ClearResult {
 /// Clear a single history file
 pub fn clear_file(path: &PathBuf) -> ClearResult {
     // Get file size before clearing
-    let bytes_cleared = fs::metadata(path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let bytes_cleared = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
     // Try to truncate the file (preserve it but empty contents)
-    match fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(path)
-    {
+    match fs::OpenOptions::new().write(true).truncate(true).open(path) {
         Ok(_) => ClearResult {
             file: path.clone(),
             success: true,
@@ -182,11 +176,7 @@ pub fn secure_clear_file(path: &PathBuf) -> ClearResult {
     }
 
     // Finally truncate
-    match fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(path)
-    {
+    match fs::OpenOptions::new().write(true).truncate(true).open(path) {
         Ok(_) => ClearResult {
             file: path.clone(),
             success: true,
@@ -389,7 +379,7 @@ impl ClearStats {
             history_files: history.count(),
             history_bytes,
             session_files,
-            log_files: 0,  // Would need root to check
+            log_files: 0, // Would need root to check
             recent_files: 0,
         }
     }

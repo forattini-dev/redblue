@@ -598,30 +598,51 @@ mod tests {
 
     #[test]
     fn test_detect_http() {
-        assert_eq!(DetectedProtocol::detect(b"GET / HTTP/1.1"), DetectedProtocol::Http);
-        assert_eq!(DetectedProtocol::detect(b"POST /api"), DetectedProtocol::Http);
-        assert_eq!(DetectedProtocol::detect(b"CONNECT host:443"), DetectedProtocol::Http);
+        assert_eq!(
+            DetectedProtocol::detect(b"GET / HTTP/1.1"),
+            DetectedProtocol::Http
+        );
+        assert_eq!(
+            DetectedProtocol::detect(b"POST /api"),
+            DetectedProtocol::Http
+        );
+        assert_eq!(
+            DetectedProtocol::detect(b"CONNECT host:443"),
+            DetectedProtocol::Http
+        );
     }
 
     #[test]
     fn test_detect_tls() {
         // TLS handshake starts with 0x16
-        assert_eq!(DetectedProtocol::detect(&[0x16, 0x03, 0x01]), DetectedProtocol::Tls);
+        assert_eq!(
+            DetectedProtocol::detect(&[0x16, 0x03, 0x01]),
+            DetectedProtocol::Tls
+        );
     }
 
     #[test]
     fn test_detect_socks5() {
-        assert_eq!(DetectedProtocol::detect(&[0x05, 0x01, 0x00]), DetectedProtocol::Socks5);
+        assert_eq!(
+            DetectedProtocol::detect(&[0x05, 0x01, 0x00]),
+            DetectedProtocol::Socks5
+        );
     }
 
     #[test]
     fn test_detect_ssh() {
-        assert_eq!(DetectedProtocol::detect(b"SSH-2.0-OpenSSH"), DetectedProtocol::Ssh);
+        assert_eq!(
+            DetectedProtocol::detect(b"SSH-2.0-OpenSSH"),
+            DetectedProtocol::Ssh
+        );
     }
 
     #[test]
     fn test_detect_unknown() {
-        assert_eq!(DetectedProtocol::detect(&[0x00, 0x00, 0x00]), DetectedProtocol::Unknown);
+        assert_eq!(
+            DetectedProtocol::detect(&[0x00, 0x00, 0x00]),
+            DetectedProtocol::Unknown
+        );
         assert_eq!(DetectedProtocol::detect(&[]), DetectedProtocol::Unknown);
     }
 

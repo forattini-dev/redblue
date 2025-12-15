@@ -57,10 +57,7 @@ impl CpeMapping {
 
     /// Generate CPE 2.3 string for matching (wildcards)
     pub fn to_cpe_match(&self) -> String {
-        format!(
-            "cpe:2.3:a:{}:{}:*:*:*:*:*:*:*:*",
-            self.vendor, self.product
-        )
+        format!("cpe:2.3:a:{}:{}:*:*:*:*:*:*:*:*", self.vendor, self.product)
     }
 }
 
@@ -132,7 +129,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::WebServer,
         aliases: &["uvicorn"],
     },
-
     // ============================================
     // PROXIES & LOAD BALANCERS
     // ============================================
@@ -171,7 +167,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::Proxy,
         aliases: &["squid"],
     },
-
     // ============================================
     // PROGRAMMING RUNTIMES
     // ============================================
@@ -224,7 +219,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::Runtime,
         aliases: &["go", "golang"],
     },
-
     // ============================================
     // WEB FRAMEWORKS
     // ============================================
@@ -298,7 +292,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::Framework,
         aliases: &["nuxt", "nuxtjs", "nuxt.js"],
     },
-
     // ============================================
     // CMS (Content Management Systems)
     // ============================================
@@ -372,7 +365,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::Cms,
         aliases: &["prestashop"],
     },
-
     // ============================================
     // JAVASCRIPT LIBRARIES
     // ============================================
@@ -432,7 +424,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::JsLibrary,
         aliases: &["bootstrap"],
     },
-
     // ============================================
     // DATABASES
     // ============================================
@@ -506,7 +497,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::Database,
         aliases: &["couchdb"],
     },
-
     // ============================================
     // OPERATING SYSTEMS
     // ============================================
@@ -545,7 +535,6 @@ pub static CPE_DICTIONARY: &[CpeMapping] = &[
         category: TechCategory::OperatingSystem,
         aliases: &["windows server", "win server"],
     },
-
     // ============================================
     // OTHER / INFRASTRUCTURE
     // ============================================
@@ -627,7 +616,10 @@ pub fn find_cpe(tech_name: &str) -> Option<&'static CpeMapping> {
 
     CPE_DICTIONARY.iter().find(|mapping| {
         mapping.tech_name == name_lower
-            || mapping.aliases.iter().any(|alias| alias.to_lowercase() == name_lower)
+            || mapping
+                .aliases
+                .iter()
+                .any(|alias| alias.to_lowercase() == name_lower)
     })
 }
 
@@ -644,7 +636,8 @@ pub fn find_cpe_by_vendor_product(vendor: &str, product: &str) -> Option<&'stati
 
 /// Get all CPE mappings for a category
 pub fn get_by_category(category: TechCategory) -> Vec<&'static CpeMapping> {
-    CPE_DICTIONARY.iter()
+    CPE_DICTIONARY
+        .iter()
         .filter(|mapping| mapping.category == category)
         .collect()
 }

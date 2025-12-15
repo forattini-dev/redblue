@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 
-use super::mapper::{MappedTechnique, MappingResult, Confidence};
+use super::mapper::{Confidence, MappedTechnique, MappingResult};
 
 /// Navigator layer (v4.4 format)
 #[derive(Debug)]
@@ -151,18 +151,25 @@ impl NavigatorLayer {
             techniques: Vec::new(),
             gradient: GradientConfig::default(),
             legend_items: vec![
-                LegendItem { label: "High Confidence".to_string(), color: "#ff0000".to_string() },
-                LegendItem { label: "Medium Confidence".to_string(), color: "#ff9900".to_string() },
-                LegendItem { label: "Low Confidence".to_string(), color: "#ffff00".to_string() },
+                LegendItem {
+                    label: "High Confidence".to_string(),
+                    color: "#ff0000".to_string(),
+                },
+                LegendItem {
+                    label: "Medium Confidence".to_string(),
+                    color: "#ff9900".to_string(),
+                },
+                LegendItem {
+                    label: "Low Confidence".to_string(),
+                    color: "#ffff00".to_string(),
+                },
             ],
             show_subtechniques: true,
             filters: LayerFilters::default(),
-            metadata: vec![
-                MetadataItem {
-                    name: "generator".to_string(),
-                    value: "redblue".to_string(),
-                },
-            ],
+            metadata: vec![MetadataItem {
+                name: "generator".to_string(),
+                value: "redblue".to_string(),
+            }],
         }
     }
 
@@ -210,7 +217,8 @@ impl NavigatorLayer {
         // Convert to annotations
         for (technique_id, (score, comments)) in technique_scores {
             // Find the tactic for this technique
-            let tactic = result.techniques
+            let tactic = result
+                .techniques
                 .iter()
                 .find(|t| t.technique_id == technique_id)
                 .map(|t| tactic_to_slug(&t.tactic));
@@ -242,7 +250,10 @@ impl NavigatorLayer {
         json.push_str(&format!("    \"layer\": \"{}\"\n", self.version));
         json.push_str("  },\n");
         json.push_str(&format!("  \"domain\": \"{}\",\n", self.domain));
-        json.push_str(&format!("  \"description\": \"{}\",\n", escape_json(&self.description)));
+        json.push_str(&format!(
+            "  \"description\": \"{}\",\n",
+            escape_json(&self.description)
+        ));
 
         // Filters
         json.push_str("  \"filters\": {\n");
@@ -253,7 +264,10 @@ impl NavigatorLayer {
             json.push_str("      \"PRE\", \"Containers\", \"Office 365\", \"SaaS\",\n");
             json.push_str("      \"Google Workspace\", \"IaaS\", \"Azure AD\"\n");
         } else {
-            let platforms: Vec<String> = self.filters.platforms.iter()
+            let platforms: Vec<String> = self
+                .filters
+                .platforms
+                .iter()
                 .map(|p| format!("      \"{}\"", p))
                 .collect();
             json.push_str(&platforms.join(",\n"));
@@ -281,57 +295,80 @@ impl NavigatorLayer {
 
         // Techniques
         json.push_str("  \"techniques\": [\n");
-        let tech_strings: Vec<String> = self.techniques.iter().map(|t| {
-            let mut tech_json = String::new();
-            tech_json.push_str("    {\n");
-            tech_json.push_str(&format!("      \"techniqueID\": \"{}\",\n", t.technique_id));
+        let tech_strings: Vec<String> = self
+            .techniques
+            .iter()
+            .map(|t| {
+                let mut tech_json = String::new();
+                tech_json.push_str("    {\n");
+                tech_json.push_str(&format!("      \"techniqueID\": \"{}\",\n", t.technique_id));
 
-            if let Some(ref tactic) = t.tactic {
-                tech_json.push_str(&format!("      \"tactic\": \"{}\",\n", tactic));
-            }
+                if let Some(ref tactic) = t.tactic {
+                    tech_json.push_str(&format!("      \"tactic\": \"{}\",\n", tactic));
+                }
 
-            if let Some(score) = t.score {
-                tech_json.push_str(&format!("      \"score\": {},\n", score));
-            }
+                if let Some(score) = t.score {
+                    tech_json.push_str(&format!("      \"score\": {},\n", score));
+                }
 
-            if let Some(ref color) = t.color {
-                tech_json.push_str(&format!("      \"color\": \"{}\",\n", color));
-            }
+                if let Some(ref color) = t.color {
+                    tech_json.push_str(&format!("      \"color\": \"{}\",\n", color));
+                }
 
-            if let Some(ref comment) = t.comment {
-                tech_json.push_str(&format!("      \"comment\": \"{}\",\n", escape_json(comment)));
-            }
+                if let Some(ref comment) = t.comment {
+                    tech_json.push_str(&format!(
+                        "      \"comment\": \"{}\",\n",
+                        escape_json(comment)
+                    ));
+                }
 
-            tech_json.push_str(&format!("      \"enabled\": {}\n", t.enabled));
-            tech_json.push_str("    }");
-            tech_json
-        }).collect();
+                tech_json.push_str(&format!("      \"enabled\": {}\n", t.enabled));
+                tech_json.push_str("    }");
+                tech_json
+            })
+            .collect();
         json.push_str(&tech_strings.join(",\n"));
         json.push_str("\n  ],\n");
 
         // Gradient
         json.push_str("  \"gradient\": {\n");
-        json.push_str(&format!("    \"colors\": [\"{}\", \"{}\"],\n",
-            self.gradient.min_color, self.gradient.max_color));
+        json.push_str(&format!(
+            "    \"colors\": [\"{}\", \"{}\"],\n",
+            self.gradient.min_color, self.gradient.max_color
+        ));
         json.push_str(&format!("    \"minValue\": {},\n", self.gradient.min_value));
         json.push_str(&format!("    \"maxValue\": {}\n", self.gradient.max_value));
         json.push_str("  },\n");
 
         // Legend items
         json.push_str("  \"legendItems\": [\n");
-        let legend_strings: Vec<String> = self.legend_items.iter().map(|l| {
-            format!("    {{ \"label\": \"{}\", \"color\": \"{}\" }}",
-                escape_json(&l.label), l.color)
-        }).collect();
+        let legend_strings: Vec<String> = self
+            .legend_items
+            .iter()
+            .map(|l| {
+                format!(
+                    "    {{ \"label\": \"{}\", \"color\": \"{}\" }}",
+                    escape_json(&l.label),
+                    l.color
+                )
+            })
+            .collect();
         json.push_str(&legend_strings.join(",\n"));
         json.push_str("\n  ],\n");
 
         // Metadata
         json.push_str("  \"metadata\": [\n");
-        let meta_strings: Vec<String> = self.metadata.iter().map(|m| {
-            format!("    {{ \"name\": \"{}\", \"value\": \"{}\" }}",
-                escape_json(&m.name), escape_json(&m.value))
-        }).collect();
+        let meta_strings: Vec<String> = self
+            .metadata
+            .iter()
+            .map(|m| {
+                format!(
+                    "    {{ \"name\": \"{}\", \"value\": \"{}\" }}",
+                    escape_json(&m.name),
+                    escape_json(&m.value)
+                )
+            })
+            .collect();
         json.push_str(&meta_strings.join(",\n"));
         json.push_str("\n  ],\n");
 
@@ -348,8 +385,7 @@ impl NavigatorLayer {
     /// Export to a file
     pub fn to_file(&self, path: &str) -> Result<(), String> {
         let json = self.to_json();
-        std::fs::write(path, json)
-            .map_err(|e| format!("Failed to write layer file: {}", e))
+        std::fs::write(path, json).map_err(|e| format!("Failed to write layer file: {}", e))
     }
 }
 
@@ -384,18 +420,23 @@ pub fn create_layer_from_techniques(
     // Group by technique ID
     let mut grouped: HashMap<String, Vec<&MappedTechnique>> = HashMap::new();
     for tech in techniques {
-        grouped.entry(tech.technique_id.clone()).or_default().push(tech);
+        grouped
+            .entry(tech.technique_id.clone())
+            .or_default()
+            .push(tech);
     }
 
     for (technique_id, techs) in grouped {
         // Calculate aggregate score (max confidence)
-        let max_confidence = techs.iter()
+        let max_confidence = techs
+            .iter()
             .map(|t| t.confidence.score())
             .max()
             .unwrap_or(0);
 
         // Combine comments
-        let comments: Vec<String> = techs.iter()
+        let comments: Vec<String> = techs
+            .iter()
             .map(|t| format!("{} ({})", t.reason, t.original_value))
             .collect();
 
@@ -482,17 +523,15 @@ mod tests {
 
     #[test]
     fn test_create_layer_from_techniques() {
-        let techniques = vec![
-            MappedTechnique {
-                technique_id: "T1021.004".to_string(),
-                name: "Remote Services: SSH".to_string(),
-                reason: "SSH enables lateral movement".to_string(),
-                tactic: "Lateral Movement".to_string(),
-                confidence: Confidence::High,
-                source: super::super::mapper::MappingSource::Port,
-                original_value: "port/22".to_string(),
-            },
-        ];
+        let techniques = vec![MappedTechnique {
+            technique_id: "T1021.004".to_string(),
+            name: "Remote Services: SSH".to_string(),
+            reason: "SSH enables lateral movement".to_string(),
+            tactic: "Lateral Movement".to_string(),
+            confidence: Confidence::High,
+            source: super::super::mapper::MappingSource::Port,
+            original_value: "port/22".to_string(),
+        }];
 
         let layer = create_layer_from_techniques(&techniques, "Test", "example.com");
 

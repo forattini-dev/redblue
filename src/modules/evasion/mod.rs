@@ -23,14 +23,14 @@ pub mod obfuscate;
 pub mod sandbox;
 
 // Advanced evasion modules
-pub mod amsi;         // AMSI bypass (Windows)
-pub mod antidebug;    // Anti-debugging techniques
-pub mod api_hash;     // API hashing for dynamic resolution
+pub mod amsi; // AMSI bypass (Windows)
+pub mod antidebug; // Anti-debugging techniques
+pub mod api_hash; // API hashing for dynamic resolution
 pub mod control_flow; // Control flow obfuscation
-pub mod inject;       // Process injection
-pub mod memory;       // Memory encryption
-pub mod strings;      // Compile-time string encryption
-pub mod tracks;       // Track covering (history clearing)
+pub mod inject; // Process injection
+pub mod memory; // Memory encryption
+pub mod strings; // Compile-time string encryption
+pub mod tracks; // Track covering (history clearing)
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

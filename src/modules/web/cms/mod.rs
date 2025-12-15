@@ -1,3 +1,7 @@
+pub mod auth;
+pub mod detect;
+pub mod drupal;
+pub mod joomla;
 /// CMS Security Testing Module
 ///
 /// Replaces: wpscan, droopescan, joomscan, cmseek
@@ -10,18 +14,13 @@
 /// - Vulnerability database
 /// - WAF evasion techniques
 /// - Authentication testing
-
 pub mod types;
-pub mod detect;
-pub mod wordpress;
-pub mod drupal;
-pub mod joomla;
 pub mod vulndb;
 pub mod waf;
-pub mod auth;
+pub mod wordpress;
 
-pub use types::*;
 pub use detect::CmsDetector;
+pub use types::*;
 pub use vulndb::VulnDatabase;
 pub use waf::WafEvasion;
 
@@ -151,12 +150,9 @@ impl CmsScanner {
 
         // Step 3: Vulnerability lookup
         if let Some(ref version) = result.version {
-            result.vulnerabilities = self.vuln_db.lookup(
-                result.cms_type,
-                version,
-                &result.plugins,
-                &result.themes,
-            );
+            result.vulnerabilities =
+                self.vuln_db
+                    .lookup(result.cms_type, version, &result.plugins, &result.themes);
         }
 
         // Step 4: Calculate risk score

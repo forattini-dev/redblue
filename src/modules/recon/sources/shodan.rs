@@ -4,7 +4,6 @@
 /// Requires API key (free tier: 100 queries/month).
 ///
 /// API: https://api.shodan.io/dns/domain/{domain}?key=API_KEY
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -35,7 +34,11 @@ impl ShodanSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();

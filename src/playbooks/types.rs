@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 /// Playbook Type Definitions
 ///
 /// Intelligent security playbooks for Red Team operations.
@@ -23,17 +24,15 @@
 ///
 /// Users see: "Establish Reverse Shell"
 /// Internal tag: T1059.004 (Unix Shell)
-
 use std::collections::HashMap;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::scripts::{ScriptCategory, ScriptContext, ScriptResult, Finding, FindingSeverity};
+use crate::scripts::{Finding, FindingSeverity, ScriptCategory, ScriptContext, ScriptResult};
 
 /// Helper for serializing Duration as seconds
 mod duration_serde {
-    use serde::{Serializer, Deserializer, Deserialize};
+    use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -742,7 +741,8 @@ impl PlaybookContext {
     }
 
     pub fn store_data(&mut self, key: &str, value: &str) {
-        self.gathered_data.insert(key.to_string(), value.to_string());
+        self.gathered_data
+            .insert(key.to_string(), value.to_string());
     }
 
     pub fn get_data(&self, key: &str) -> Option<&str> {
@@ -902,16 +902,16 @@ mod tests {
                 PlaybookStep::new(1, PlaybookPhase::Recon, "Port Scan")
                     .with_description("Scan for open ports")
                     .with_command("rb network ports scan <target>")
-                    .with_success("Open ports identified")
+                    .with_success("Open ports identified"),
             )
             .add_evidence(
                 ExpectedEvidence::new("Open SSH port")
                     .at("Port 22")
-                    .with_indicator("SSH service banner")
+                    .with_indicator("SSH service banner"),
             )
             .add_failed_control(
                 FailedControl::new("Perimeter Firewall", "SSH often allowed for admin access")
-                    .with_fix("Implement IP allowlisting for SSH access")
+                    .with_fix("Implement IP allowlisting for SSH access"),
             );
 
         assert_eq!(playbook.metadata.id, "test-playbook");
@@ -931,8 +931,7 @@ mod tests {
     #[test]
     fn test_step_dependencies() {
         let step1 = PlaybookStep::new(1, PlaybookPhase::Recon, "Recon");
-        let step2 = PlaybookStep::new(2, PlaybookPhase::InitialAccess, "Access")
-            .depends(1);
+        let step2 = PlaybookStep::new(2, PlaybookPhase::InitialAccess, "Access").depends(1);
 
         assert!(step1.depends_on.is_empty());
         assert_eq!(step2.depends_on, vec![1]);

@@ -6,7 +6,6 @@
 /// - IEEE 802.3: CRC32 checksum
 ///
 /// Zero external dependencies - all implementations use only Rust std.
-
 mod bitread;
 mod codebook;
 mod deflate;

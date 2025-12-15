@@ -9,10 +9,7 @@ pub fn systemd_service(config: &ServiceConfig, rb_path: &str) -> String {
     let (exec_cmd, exec_args) = config.service_type.to_command(rb_path);
     let exec_start = format!("{} {}", exec_cmd, exec_args.join(" "));
 
-    let description = config
-        .description
-        .as_deref()
-        .unwrap_or("redblue service");
+    let description = config.description.as_deref().unwrap_or("redblue service");
 
     let restart = if config.restart_on_failure {
         "Restart=on-failure\nRestartSec=5"
@@ -66,10 +63,7 @@ pub fn launchd_plist(config: &ServiceConfig, rb_path: &str) -> String {
 
     let label = format!("io.redblue.{}", config.name);
 
-    let description = config
-        .description
-        .as_deref()
-        .unwrap_or("redblue service");
+    let description = config.description.as_deref().unwrap_or("redblue service");
 
     let keep_alive = if config.restart_on_failure {
         "<key>KeepAlive</key>\n\t<true/>"

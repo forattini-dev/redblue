@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::modules::proxy::{Address, ConnectionId, ConnectionIdGenerator, FlowStats, Protocol};
-use crate::{debug, info, error};
+use crate::{debug, error, info};
 
 /// Default UDP association timeout (5 minutes)
 const UDP_ASSOCIATION_TIMEOUT: Duration = Duration::from_secs(300);
@@ -80,7 +80,10 @@ impl UdpRelayPacket {
                 }
                 let ip = Ipv4Addr::new(buf[4], buf[5], buf[6], buf[7]);
                 let port = u16::from_be_bytes([buf[8], buf[9]]);
-                (Address::Socket(SocketAddr::V4(SocketAddrV4::new(ip, port))), 10)
+                (
+                    Address::Socket(SocketAddr::V4(SocketAddrV4::new(ip, port))),
+                    10,
+                )
             }
             0x03 => {
                 // Domain
@@ -107,7 +110,10 @@ impl UdpRelayPacket {
                 ip_bytes.copy_from_slice(&buf[4..20]);
                 let ip = Ipv6Addr::from(ip_bytes);
                 let port = u16::from_be_bytes([buf[20], buf[21]]);
-                (Address::Socket(SocketAddr::V6(SocketAddrV6::new(ip, port, 0, 0))), 22)
+                (
+                    Address::Socket(SocketAddr::V6(SocketAddrV6::new(ip, port, 0, 0))),
+                    22,
+                )
             }
             _ => {
                 return Err(io::Error::new(
@@ -299,10 +305,7 @@ impl UdpRelayServer {
 
         debug!(
             "[{}] UDP {} -> {}: {} bytes",
-            assoc.id,
-            src_addr,
-            target_addr,
-            sent
+            assoc.id, src_addr, target_addr, sent
         );
 
         Ok(())
@@ -322,9 +325,7 @@ impl UdpRelayServer {
                 self.flow_stats.connection_closed();
                 info!(
                     "[{}] UDP association expired: {} sent, {} received",
-                    assoc.id,
-                    assoc.bytes_sent,
-                    assoc.bytes_received
+                    assoc.id, assoc.bytes_sent, assoc.bytes_received
                 );
             }
         }
@@ -411,14 +412,18 @@ mod tests {
             0x00, // FRAG
             0x03, // ATYP (Domain)
             11,   // Domain length
-            b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm', 0x01, 0xBB, // Port (443)
+            b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm', 0x01,
+            0xBB, // Port (443)
             0x48, 0x69, // "Hi"
         ];
 
         let packet = UdpRelayPacket::parse(&buf).unwrap();
 
         assert_eq!(packet.fragment, 0);
-        assert_eq!(packet.address, Address::Domain("example.com".to_string(), 443));
+        assert_eq!(
+            packet.address,
+            Address::Domain("example.com".to_string(), 443)
+        );
         assert_eq!(packet.data, b"Hi");
     }
 

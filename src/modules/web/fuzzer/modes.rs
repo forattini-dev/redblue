@@ -97,7 +97,11 @@ pub struct PayloadGenerator {
 }
 
 impl PayloadGenerator {
-    pub fn new(mode: AttackMode, wordlists: Vec<Vec<String>>, positions: Vec<FuzzPosition>) -> Self {
+    pub fn new(
+        mode: AttackMode,
+        wordlists: Vec<Vec<String>>,
+        positions: Vec<FuzzPosition>,
+    ) -> Self {
         Self {
             mode,
             wordlists,

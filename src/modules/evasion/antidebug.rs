@@ -287,7 +287,8 @@ impl AntiDebug {
 
         // Check for anomalous timing variance
         if timings.len() >= 2 {
-            let avg: u128 = timings.iter().map(|t| t.as_nanos()).sum::<u128>() / timings.len() as u128;
+            let avg: u128 =
+                timings.iter().map(|t| t.as_nanos()).sum::<u128>() / timings.len() as u128;
             let variance: u128 = timings
                 .iter()
                 .map(|t| {
@@ -328,13 +329,23 @@ impl AntiDebug {
             // Try to ptrace ourselves (fails if already being traced)
             // This is a classic anti-debug technique
             unsafe {
-                let result = libc::ptrace(libc::PTRACE_TRACEME, 0, std::ptr::null_mut::<libc::c_void>(), std::ptr::null_mut::<libc::c_void>());
+                let result = libc::ptrace(
+                    libc::PTRACE_TRACEME,
+                    0,
+                    std::ptr::null_mut::<libc::c_void>(),
+                    std::ptr::null_mut::<libc::c_void>(),
+                );
                 if result == -1 {
                     // Already being traced
                     return true;
                 }
                 // Detach if successful
-                libc::ptrace(libc::PTRACE_DETACH, 0, std::ptr::null_mut::<libc::c_void>(), std::ptr::null_mut::<libc::c_void>());
+                libc::ptrace(
+                    libc::PTRACE_DETACH,
+                    0,
+                    std::ptr::null_mut::<libc::c_void>(),
+                    std::ptr::null_mut::<libc::c_void>(),
+                );
             }
         }
 

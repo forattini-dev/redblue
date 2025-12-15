@@ -36,9 +36,9 @@ pub use chacha20::{
 pub use hkdf::{derive_secret, hkdf, hkdf_expand, hkdf_expand_label, hkdf_extract};
 pub use hmac::Hmac;
 pub use md5::md5;
-pub use sha1::sha1;
 pub use prf::prf_tls12;
 pub use rsa::{extract_public_key_from_cert, RsaPublicKey};
+pub use sha1::sha1;
 pub use sha256::sha256;
 pub use sha384::{sha384, Sha384};
 pub use tls13_hash::Tls13HashAlgorithm;

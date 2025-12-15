@@ -315,8 +315,8 @@ impl WebCrawler {
         // Record to HAR if enabled
         if let Some(ref recorder) = self.har_recorder {
             use crate::protocols::har::{
-                HarCache, HarContent, HarEntry, HarHeader, HarRequest, HarResponse, HarTimings,
-                iso8601_now, parse_query_string,
+                iso8601_now, parse_query_string, HarCache, HarContent, HarEntry, HarHeader,
+                HarRequest, HarResponse, HarTimings,
             };
 
             let content_type = head
@@ -448,7 +448,11 @@ impl WebCrawler {
     }
 
     /// Extract data using DOM parser for better accuracy
-    fn extract_with_dom(&self, html: &str, base_url: &str) -> (Vec<String>, Vec<Form>, Vec<Asset>, PageMeta) {
+    fn extract_with_dom(
+        &self,
+        html: &str,
+        base_url: &str,
+    ) -> (Vec<String>, Vec<Form>, Vec<Asset>, PageMeta) {
         let doc = Document::parse_with_base(html, base_url);
 
         // Extract links using DOM

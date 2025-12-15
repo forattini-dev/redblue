@@ -7,16 +7,15 @@
 /// - Detection method support (status code, response body, redirect)
 /// - Rate limiting
 /// - Metadata extraction
-
 use super::{
-    OsintConfig, ProfileResult, ProfileMetadata, EnumerationSummary,
-    platforms::{Platform, PlatformCategory, DetectionMethod, get_all_platforms},
+    platforms::{get_all_platforms, DetectionMethod, Platform, PlatformCategory},
+    EnumerationSummary, OsintConfig, ProfileMetadata, ProfileResult,
 };
 use crate::protocols::http::HttpClient;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
 
 /// Username Enumerator - checks username existence across platforms
 pub struct UsernameEnumerator {
@@ -35,14 +34,18 @@ impl UsernameEnumerator {
             })
             .filter(|p| {
                 // Filter out skipped platforms
-                !config.skip_platforms.iter()
+                !config
+                    .skip_platforms
+                    .iter()
                     .any(|s| s.eq_ignore_ascii_case(p.name))
             })
             .collect();
 
         // Sort by category for organized output
         platforms.sort_by(|a, b| {
-            a.category.to_string().cmp(&b.category.to_string())
+            a.category
+                .to_string()
+                .cmp(&b.category.to_string())
                 .then(a.name.cmp(b.name))
         });
 
@@ -62,10 +65,11 @@ impl UsernameEnumerator {
         let start = Instant::now();
         let results = Arc::new(Mutex::new(EnumerationSummary::new()));
         let work_queue = Arc::new(Mutex::new(
-            self.platforms.iter()
+            self.platforms
+                .iter()
                 .filter(|p| p.is_valid_username(username))
                 .cloned()
-                .collect::<VecDeque<Platform>>()
+                .collect::<VecDeque<Platform>>(),
         ));
 
         // Spawn worker threads
@@ -149,9 +153,7 @@ impl UsernameEnumerator {
             Ok(resp) => {
                 // Check based on detection method
                 let exists = match &platform.detection {
-                    DetectionMethod::StatusCode { found, not_found } => {
-                        resp.status_code == *found
-                    }
+                    DetectionMethod::StatusCode { found, not_found } => resp.status_code == *found,
                     DetectionMethod::ResponseContains { found, not_found } => {
                         let body = String::from_utf8_lossy(&resp.body);
                         body.contains(found)
@@ -160,15 +162,14 @@ impl UsernameEnumerator {
                         let body = String::from_utf8_lossy(&resp.body);
                         !body.contains(text)
                     }
-                    DetectionMethod::RedirectTo { pattern } => {
-                        resp.headers.iter()
-                            .any(|(k, v)| k.eq_ignore_ascii_case("location") && v.contains(pattern))
-                    }
+                    DetectionMethod::RedirectTo { pattern } => resp
+                        .headers
+                        .iter()
+                        .any(|(k, v)| k.eq_ignore_ascii_case("location") && v.contains(pattern)),
                     DetectionMethod::JsonField { path, expected } => {
                         let body = String::from_utf8_lossy(&resp.body);
                         // Simplified JSON check
-                        body.contains(&format!("\"{}\":", path))
-                            && body.contains(expected)
+                        body.contains(&format!("\"{}\":", path)) && body.contains(expected)
                     }
                     DetectionMethod::Regex { pattern } => {
                         // Simplified regex check (no regex crate)
@@ -178,11 +179,8 @@ impl UsernameEnumerator {
                 };
 
                 if exists {
-                    let mut result = ProfileResult::found(
-                        platform.name,
-                        platform.category,
-                        &url,
-                    ).with_duration(duration);
+                    let mut result = ProfileResult::found(platform.name, platform.category, &url)
+                        .with_duration(duration);
 
                     // Extract metadata if enabled
                     if config.extract_metadata {
@@ -197,8 +195,7 @@ impl UsernameEnumerator {
                 }
             }
             Err(e) => {
-                ProfileResult::error(platform.name, platform.category, &e)
-                    .with_duration(duration)
+                ProfileResult::error(platform.name, platform.category, &e).with_duration(duration)
             }
         }
     }
@@ -215,7 +212,9 @@ impl UsernameEnumerator {
                 if let Some(name) = Self::extract_meta_content(&body_str, "property", "og:title") {
                     metadata.display_name = Some(name);
                 }
-                if let Some(bio) = Self::extract_meta_content(&body_str, "property", "og:description") {
+                if let Some(bio) =
+                    Self::extract_meta_content(&body_str, "property", "og:description")
+                {
                     metadata.bio = Some(bio);
                 }
                 if let Some(img) = Self::extract_meta_content(&body_str, "property", "og:image") {
@@ -226,12 +225,16 @@ impl UsernameEnumerator {
                 if let Some(name) = Self::extract_meta_content(&body_str, "property", "og:title") {
                     metadata.display_name = Some(name);
                 }
-                if let Some(bio) = Self::extract_meta_content(&body_str, "property", "og:description") {
+                if let Some(bio) =
+                    Self::extract_meta_content(&body_str, "property", "og:description")
+                {
                     metadata.bio = Some(bio);
                 }
             }
             "Instagram" => {
-                if let Some(bio) = Self::extract_meta_content(&body_str, "property", "og:description") {
+                if let Some(bio) =
+                    Self::extract_meta_content(&body_str, "property", "og:description")
+                {
                     metadata.bio = Some(bio);
                 }
             }
@@ -240,7 +243,9 @@ impl UsernameEnumerator {
                 if let Some(name) = Self::extract_meta_content(&body_str, "property", "og:title") {
                     metadata.display_name = Some(name);
                 }
-                if let Some(bio) = Self::extract_meta_content(&body_str, "property", "og:description") {
+                if let Some(bio) =
+                    Self::extract_meta_content(&body_str, "property", "og:description")
+                {
                     metadata.bio = Some(bio);
                 }
                 if let Some(img) = Self::extract_meta_content(&body_str, "property", "og:image") {
@@ -302,10 +307,7 @@ fn html_decode(s: &str) -> String {
 }
 
 /// Quick check of a single platform
-pub fn check_single_platform(
-    platform_name: &str,
-    username: &str,
-) -> Option<ProfileResult> {
+pub fn check_single_platform(platform_name: &str, username: &str) -> Option<ProfileResult> {
     let platform = super::platforms::get_platform_by_name(platform_name)?;
 
     let config = OsintConfig::default();
@@ -313,7 +315,9 @@ pub fn check_single_platform(
     http.set_timeout(config.timeout);
     http.set_user_agent(&config.user_agent);
 
-    Some(UsernameEnumerator::check_platform(&http, &platform, username, &config))
+    Some(UsernameEnumerator::check_platform(
+        &http, &platform, username, &config,
+    ))
 }
 
 /// List all available platforms

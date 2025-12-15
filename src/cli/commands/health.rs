@@ -2,10 +2,11 @@
 ///
 /// Re-scans stored ports to detect state changes over time.
 /// Commands: check, diff, watch
-
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
-use crate::modules::network::health::{PortCheckResult, PortDiff, PortHealthChecker, PortWatcher, WatchConfig};
+use crate::modules::network::health::{
+    PortCheckResult, PortDiff, PortHealthChecker, PortWatcher, WatchConfig,
+};
 use crate::storage::records::PortStateChange;
 use std::time::Duration;
 
@@ -68,10 +69,22 @@ impl Command for HealthCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("Check common ports", "rb network health check 192.168.1.1"),
-            ("Check specific ports", "rb network health check example.com --ports 22,80,443,8080"),
-            ("Fast check with short timeout", "rb network health check 10.0.0.1 --timeout 500"),
-            ("Watch ports continuously", "rb network health watch 192.168.1.1 --interval 30"),
-            ("Watch with limited iterations", "rb network health watch server.local --count 10"),
+            (
+                "Check specific ports",
+                "rb network health check example.com --ports 22,80,443,8080",
+            ),
+            (
+                "Fast check with short timeout",
+                "rb network health check 10.0.0.1 --timeout 500",
+            ),
+            (
+                "Watch ports continuously",
+                "rb network health watch 192.168.1.1 --interval 30",
+            ),
+            (
+                "Watch with limited iterations",
+                "rb network health watch server.local --count 10",
+            ),
         ]
     }
 
@@ -114,7 +127,11 @@ impl HealthCommand {
 
         Validator::validate_host(target)?;
 
-        let ports_str = ctx.flags.get("ports").map(|s| s.as_str()).unwrap_or("22,80,443,8080,8443");
+        let ports_str = ctx
+            .flags
+            .get("ports")
+            .map(|s| s.as_str())
+            .unwrap_or("22,80,443,8080,8443");
         let ports = Self::parse_ports(ports_str);
 
         if ports.is_empty() {
@@ -223,7 +240,11 @@ impl HealthCommand {
 
         Validator::validate_host(target)?;
 
-        let ports_str = ctx.flags.get("ports").map(|s| s.as_str()).unwrap_or("22,80,443,8080,8443");
+        let ports_str = ctx
+            .flags
+            .get("ports")
+            .map(|s| s.as_str())
+            .unwrap_or("22,80,443,8080,8443");
         let ports = Self::parse_ports(ports_str);
 
         if ports.is_empty() {
@@ -254,7 +275,11 @@ impl HealthCommand {
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap_or(0);
 
-        let max_iterations = if max_count == 0 { None } else { Some(max_count) };
+        let max_iterations = if max_count == 0 {
+            None
+        } else {
+            Some(max_count)
+        };
 
         Output::header(&format!("Port Health Watch: {}", target));
         Output::info(&format!(
@@ -291,7 +316,12 @@ impl HealthCommand {
     }
 
     /// Display watch iteration results
-    fn display_watch_iteration(&self, results: &[PortCheckResult], diff: &PortDiff, iteration: u32) {
+    fn display_watch_iteration(
+        &self,
+        results: &[PortCheckResult],
+        diff: &PortDiff,
+        iteration: u32,
+    ) {
         let open_count = results.iter().filter(|r| r.is_open).count();
         let timestamp = chrono_lite_timestamp();
 

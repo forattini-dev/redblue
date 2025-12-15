@@ -207,9 +207,12 @@ impl ProxySegment {
         }
         // Sort by connection_id
         self.connections.sort_by_key(|c| c.connection_id);
-        self.requests.sort_by_key(|r| (r.connection_id, r.request_seq));
-        self.responses.sort_by_key(|r| (r.connection_id, r.request_seq));
-        self.websockets.sort_by_key(|w| (w.connection_id, w.frame_seq));
+        self.requests
+            .sort_by_key(|r| (r.connection_id, r.request_seq));
+        self.responses
+            .sort_by_key(|r| (r.connection_id, r.request_seq));
+        self.websockets
+            .sort_by_key(|w| (w.connection_id, w.frame_seq));
 
         // Rebuild index
         self.conn_index.clear();
@@ -226,7 +229,10 @@ impl ProxySegment {
             .map(|&idx| &self.connections[idx])
     }
 
-    pub fn get_requests_for_connection(&mut self, connection_id: u64) -> Vec<&ProxyHttpRequestRecord> {
+    pub fn get_requests_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> Vec<&ProxyHttpRequestRecord> {
         self.ensure_sorted();
         self.requests
             .iter()
@@ -234,7 +240,10 @@ impl ProxySegment {
             .collect()
     }
 
-    pub fn get_responses_for_connection(&mut self, connection_id: u64) -> Vec<&ProxyHttpResponseRecord> {
+    pub fn get_responses_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> Vec<&ProxyHttpResponseRecord> {
         self.ensure_sorted();
         self.responses
             .iter()
@@ -242,7 +251,10 @@ impl ProxySegment {
             .collect()
     }
 
-    pub fn get_websockets_for_connection(&mut self, connection_id: u64) -> Vec<&ProxyWebSocketRecord> {
+    pub fn get_websockets_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> Vec<&ProxyWebSocketRecord> {
         self.ensure_sorted();
         self.websockets
             .iter()
@@ -365,7 +377,8 @@ impl ProxySegment {
         let directory_bytes = &bytes[offset..dir_end];
         offset = dir_end;
 
-        let directory = ConnectionDirEntry::read_all(directory_bytes, header.connection_count as usize)?;
+        let directory =
+            ConnectionDirEntry::read_all(directory_bytes, header.connection_count as usize)?;
 
         // Read connection payload
         let conn_payload_end = offset
@@ -423,13 +436,16 @@ impl ProxySegment {
         }
 
         // Decode requests
-        let requests = decode_records::<ProxyHttpRequestRecord>(request_payload, header.request_count)?;
+        let requests =
+            decode_records::<ProxyHttpRequestRecord>(request_payload, header.request_count)?;
 
         // Decode responses
-        let responses = decode_records::<ProxyHttpResponseRecord>(response_payload, header.response_count)?;
+        let responses =
+            decode_records::<ProxyHttpResponseRecord>(response_payload, header.response_count)?;
 
         // Decode websockets
-        let websockets = decode_records::<ProxyWebSocketRecord>(websocket_payload, header.websocket_count)?;
+        let websockets =
+            decode_records::<ProxyWebSocketRecord>(websocket_payload, header.websocket_count)?;
 
         Ok(Self {
             connections,
@@ -479,7 +495,8 @@ impl ProxySegmentView {
             return Err(DecodeError("connection directory out of bounds"));
         }
         let directory_bytes = &data[segment_offset + offset..segment_offset + dir_end];
-        let mut directory = ConnectionDirEntry::read_all(directory_bytes, header.connection_count as usize)?;
+        let mut directory =
+            ConnectionDirEntry::read_all(directory_bytes, header.connection_count as usize)?;
         directory.sort_by_key(|e| e.connection_id);
         offset = dir_end;
 
@@ -505,8 +522,14 @@ impl ProxySegmentView {
         })
     }
 
-    pub fn get_connection(&self, connection_id: u64) -> Result<Option<ProxyConnectionRecord>, DecodeError> {
-        match self.directory.binary_search_by_key(&connection_id, |e| e.connection_id) {
+    pub fn get_connection(
+        &self,
+        connection_id: u64,
+    ) -> Result<Option<ProxyConnectionRecord>, DecodeError> {
+        match self
+            .directory
+            .binary_search_by_key(&connection_id, |e| e.connection_id)
+        {
             Ok(idx) => {
                 let entry = &self.directory[idx];
                 let start = self.conn_payload_offset + entry.payload_offset as usize;
@@ -590,7 +613,10 @@ impl FromBytes for ProxyWebSocketRecord {
     }
 }
 
-fn decode_records<T: FromBytes>(payload: &[u8], expected_count: u32) -> Result<Vec<T>, DecodeError> {
+fn decode_records<T: FromBytes>(
+    payload: &[u8],
+    expected_count: u32,
+) -> Result<Vec<T>, DecodeError> {
     if payload.is_empty() && expected_count == 0 {
         return Ok(Vec::new());
     }

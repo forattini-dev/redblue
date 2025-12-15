@@ -56,7 +56,7 @@ impl VulnSegmentHeader {
 pub struct VulnSegment {
     records: Vec<VulnerabilityRecord>,
     // Index: Technology -> indices in records vec
-    index: HashMap<String, Vec<usize>>, 
+    index: HashMap<String, Vec<usize>>,
 }
 
 impl VulnSegment {
@@ -66,7 +66,10 @@ impl VulnSegment {
 
     pub fn push(&mut self, record: VulnerabilityRecord) {
         let idx = self.records.len();
-        self.index.entry(record.technology.clone()).or_default().push(idx);
+        self.index
+            .entry(record.technology.clone())
+            .or_default()
+            .push(idx);
         self.records.push(record);
     }
 
@@ -93,7 +96,7 @@ impl VulnSegment {
         for tech in techs {
             let indices = &self.index[tech];
             let start_offset = payload.len() as u64;
-            
+
             let mut block = Vec::new();
             for &idx in indices {
                 let rec_bytes = self.records[idx].to_bytes();
@@ -127,7 +130,7 @@ impl VulnSegment {
             return Err(DecodeError("segment too small"));
         }
         let header = VulnSegmentHeader::read(bytes)?;
-        
+
         let dir_start = VulnSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
         let payload_start = dir_end;
@@ -146,30 +149,30 @@ impl VulnSegment {
         let mut dir_pos = 0;
         for _ in 0..header.tech_count {
             let tech = read_string(dir_bytes, &mut dir_pos)?.to_string();
-            
-            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos+4].try_into().unwrap());
+
+            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos + 4].try_into().unwrap());
             dir_pos += 4;
-            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
-            let len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
 
             let mut tech_indices = Vec::with_capacity(count as usize);
-            
+
             let block_start = offset as usize;
             let block = &payload_bytes;
             let mut block_pos = block_start;
-            
+
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut block_pos)? as usize;
-                let rec_bytes = &block[block_pos..block_pos+rec_len];
+                let rec_bytes = &block[block_pos..block_pos + rec_len];
                 let record = VulnerabilityRecord::from_bytes(rec_bytes)?;
                 block_pos += rec_len;
-                
+
                 records.push(record);
                 tech_indices.push(records.len() - 1);
             }
-            
+
             index.insert(tech, tech_indices);
         }
 
@@ -185,9 +188,9 @@ pub struct VulnSegmentView {
 
 impl VulnSegmentView {
     pub fn from_arc(data: Arc<Vec<u8>>, offset: usize, len: usize) -> Result<Self, DecodeError> {
-        let slice = &data[offset..offset+len];
+        let slice = &data[offset..offset + len];
         let header = VulnSegmentHeader::read(slice)?;
-        
+
         let dir_start = offset + VulnSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
         let payload_start = dir_end;
@@ -195,19 +198,23 @@ impl VulnSegmentView {
         let dir_bytes = &data[dir_start..dir_end];
         let mut directory = HashMap::with_capacity(header.tech_count as usize);
         let mut pos = 0;
-        
+
         for _ in 0..header.tech_count {
             let tech = read_string(dir_bytes, &mut pos)?.to_string();
-            let count = u32::from_le_bytes(dir_bytes[pos..pos+4].try_into().unwrap());
+            let count = u32::from_le_bytes(dir_bytes[pos..pos + 4].try_into().unwrap());
             pos += 4;
-            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
-            let p_len = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_len = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
             directory.insert(tech, (p_offset, p_len, count));
         }
 
-        Ok(Self { data, directory, payload_start })
+        Ok(Self {
+            data,
+            directory,
+            payload_start,
+        })
     }
 
     pub fn get_by_tech(&self, tech: &str) -> Result<Vec<VulnerabilityRecord>, DecodeError> {
@@ -215,12 +222,12 @@ impl VulnSegmentView {
             let abs_start = self.payload_start + offset as usize;
             let abs_end = abs_start + len as usize;
             let block = &self.data[abs_start..abs_end];
-            
+
             let mut pos = 0;
             let mut results = Vec::with_capacity(count as usize);
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut pos)? as usize;
-                let rec = VulnerabilityRecord::from_bytes(&block[pos..pos+rec_len])?;
+                let rec = VulnerabilityRecord::from_bytes(&block[pos..pos + rec_len])?;
                 pos += rec_len;
                 results.push(rec);
             }

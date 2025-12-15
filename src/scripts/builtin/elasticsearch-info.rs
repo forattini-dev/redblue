@@ -2,7 +2,6 @@
 ///
 /// Detects Elasticsearch services and identifies security issues
 /// including unauthenticated access and data exposure.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -63,7 +62,10 @@ impl Script for ElasticsearchInfoScript {
         // Elasticsearch detected
         result.add_finding(
             Finding::new(FindingType::Discovery, "Elasticsearch Service Detected")
-                .with_description(&format!("Elasticsearch service running on port {}", ctx.port))
+                .with_description(&format!(
+                    "Elasticsearch service running on port {}",
+                    ctx.port
+                ))
                 .with_severity(FindingSeverity::Info),
         );
 
@@ -81,16 +83,19 @@ impl Script for ElasticsearchInfoScript {
         match auth_enabled.to_lowercase().as_str() {
             "false" | "disabled" | "no" | "0" => {
                 result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "Elasticsearch No Authentication")
-                        .with_description(
-                            "Elasticsearch is accessible without authentication. \
-                             This allows anyone to read, modify, or delete all data."
-                        )
-                        .with_severity(FindingSeverity::Critical)
-                        .with_remediation(
-                            "Enable X-Pack security or configure authentication. \
-                             Set xpack.security.enabled: true in elasticsearch.yml"
-                        ),
+                    Finding::new(
+                        FindingType::Vulnerability,
+                        "Elasticsearch No Authentication",
+                    )
+                    .with_description(
+                        "Elasticsearch is accessible without authentication. \
+                             This allows anyone to read, modify, or delete all data.",
+                    )
+                    .with_severity(FindingSeverity::Critical)
+                    .with_remediation(
+                        "Enable X-Pack security or configure authentication. \
+                             Set xpack.security.enabled: true in elasticsearch.yml",
+                    ),
                 );
             }
             "true" | "enabled" | "yes" | "1" | "xpack" => {
@@ -127,17 +132,31 @@ impl Script for ElasticsearchInfoScript {
 
         // Check for sensitive data indicators
         let sensitive_indices = [
-            "users", "customers", "passwords", "credentials", "secrets",
-            "tokens", "sessions", "payment", "credit", "ssn", "pii",
+            "users",
+            "customers",
+            "passwords",
+            "credentials",
+            "secrets",
+            "tokens",
+            "sessions",
+            "payment",
+            "credit",
+            "ssn",
+            "pii",
         ];
 
         for idx in sensitive_indices {
             if data_lower.contains(idx) {
                 result.add_finding(
                     Finding::new(FindingType::InfoLeak, "Potentially Sensitive Index Found")
-                        .with_description(&format!("Index matching '{}' found - may contain sensitive data", idx))
+                        .with_description(&format!(
+                            "Index matching '{}' found - may contain sensitive data",
+                            idx
+                        ))
                         .with_severity(FindingSeverity::High)
-                        .with_remediation("Review index contents and restrict access appropriately"),
+                        .with_remediation(
+                            "Review index contents and restrict access appropriately",
+                        ),
                 );
                 break;
             }
@@ -149,7 +168,7 @@ impl Script for ElasticsearchInfoScript {
                 Finding::new(FindingType::Vulnerability, "Dynamic Scripting Enabled")
                     .with_description(
                         "Dynamic scripting is enabled, which may allow remote code execution \
-                         in older Elasticsearch versions."
+                         in older Elasticsearch versions.",
                     )
                     .with_severity(FindingSeverity::Critical)
                     .with_remediation("Disable dynamic scripting or upgrade to Elasticsearch 5.0+"),
@@ -174,20 +193,26 @@ impl Script for ElasticsearchInfoScript {
 
         if is_external {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Elasticsearch Exposed to Internet")
-                    .with_description(
-                        "Elasticsearch is exposed to the internet. \
-                         This service should not be directly accessible from the internet."
-                    )
-                    .with_severity(FindingSeverity::Critical)
-                    .with_remediation(
-                        "Place Elasticsearch behind a firewall. \
-                         Use VPN or reverse proxy for external access."
-                    ),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Elasticsearch Exposed to Internet",
+                )
+                .with_description(
+                    "Elasticsearch is exposed to the internet. \
+                         This service should not be directly accessible from the internet.",
+                )
+                .with_severity(FindingSeverity::Critical)
+                .with_remediation(
+                    "Place Elasticsearch behind a firewall. \
+                         Use VPN or reverse proxy for external access.",
+                ),
             );
         }
 
-        result.add_output(&format!("Elasticsearch analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "Elasticsearch analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -216,10 +241,7 @@ impl ElasticsearchInfoScript {
     }
 
     fn check_version_vulns(&self, version: &str, result: &mut ScriptResult) {
-        let parts: Vec<u32> = version
-            .split('.')
-            .filter_map(|p| p.parse().ok())
-            .collect();
+        let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
 
         if parts.is_empty() {
             return;
@@ -235,10 +257,12 @@ impl ElasticsearchInfoScript {
                     .with_cve("CVE-2015-1427")
                     .with_description(
                         "Elasticsearch 1.3.x-1.4.x is vulnerable to remote code execution \
-                         via Groovy scripting sandbox bypass."
+                         via Groovy scripting sandbox bypass.",
                     )
                     .with_severity(FindingSeverity::Critical)
-                    .with_remediation("Upgrade to Elasticsearch 1.4.3+ or disable dynamic scripting"),
+                    .with_remediation(
+                        "Upgrade to Elasticsearch 1.4.3+ or disable dynamic scripting",
+                    ),
             );
         }
 
@@ -249,7 +273,7 @@ impl ElasticsearchInfoScript {
                     .with_cve("CVE-2014-3120")
                     .with_description(
                         "Elasticsearch < 1.2.0 is vulnerable to remote code execution \
-                         via MVEL scripting."
+                         via MVEL scripting.",
                     )
                     .with_severity(FindingSeverity::Critical)
                     .with_remediation("Upgrade to Elasticsearch 1.2.0 or later"),
@@ -259,13 +283,16 @@ impl ElasticsearchInfoScript {
         // End of life versions
         if major < 7 {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "End-of-Life Elasticsearch Version")
-                    .with_description(&format!(
-                        "Elasticsearch {} is end-of-life and no longer receives security updates",
-                        version
-                    ))
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Upgrade to Elasticsearch 7.x or 8.x"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "End-of-Life Elasticsearch Version",
+                )
+                .with_description(&format!(
+                    "Elasticsearch {} is end-of-life and no longer receives security updates",
+                    version
+                ))
+                .with_severity(FindingSeverity::High)
+                .with_remediation("Upgrade to Elasticsearch 7.x or 8.x"),
             );
         }
     }
@@ -289,7 +316,10 @@ mod tests {
         ctx.set_data("elasticsearch_cluster", "test-cluster");
 
         let result = script.run(&ctx).unwrap();
-        let has_no_auth = result.findings.iter().any(|f| f.title.contains("No Authentication"));
+        let has_no_auth = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("No Authentication"));
         assert!(has_no_auth);
     }
 }

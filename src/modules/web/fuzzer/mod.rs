@@ -11,19 +11,18 @@
 /// - Rate limiting and delay controls
 ///
 /// NO external dependencies - pure Rust implementation
-
 use crate::protocols::http::HttpClient;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub mod modes;
 pub mod filters;
+pub mod modes;
 pub mod wordlist;
 
+pub use filters::{FilterAction, ResponseFilter};
 pub use modes::{AttackMode, FuzzPosition};
-pub use filters::{ResponseFilter, FilterAction};
 pub use wordlist::WordlistManager;
 
 /// The FUZZ keyword used as placeholder in URLs, headers, body, etc.
@@ -213,7 +212,14 @@ impl WebFuzzer {
 
         // Check URL
         if target.url.contains(FUZZ_KEYWORD) {
-            if target.url.contains('?') && target.url.split('?').nth(1).map(|q| q.contains(FUZZ_KEYWORD)).unwrap_or(false) {
+            if target.url.contains('?')
+                && target
+                    .url
+                    .split('?')
+                    .nth(1)
+                    .map(|q| q.contains(FUZZ_KEYWORD))
+                    .unwrap_or(false)
+            {
                 positions.push(FuzzPosition::QueryParam);
             } else {
                 positions.push(FuzzPosition::UrlPath);
@@ -250,7 +256,9 @@ impl WebFuzzer {
         let random_payload = format!("rb_calibrate_{}", std::process::id());
         let calibration_url = target.url.replace("FUZZ", &random_payload);
 
-        let response = self.http.get(&calibration_url)
+        let response = self
+            .http
+            .get(&calibration_url)
             .map_err(|e| format!("Calibration request failed: {}", e))?;
 
         let body = String::from_utf8_lossy(&response.body);
@@ -264,10 +272,14 @@ impl WebFuzzer {
             lines: body.lines().count(),
             duration: Duration::ZERO,
             filtered: false,
-            redirect: response.headers.iter()
+            redirect: response
+                .headers
+                .iter()
                 .find(|(k, _)| k.to_lowercase() == "location")
                 .map(|(_, v)| v.clone()),
-            content_type: response.headers.iter()
+            content_type: response
+                .headers
+                .iter()
                 .find(|(k, _)| k.to_lowercase() == "content-type")
                 .map(|(_, v)| v.clone()),
         });
@@ -276,7 +288,11 @@ impl WebFuzzer {
     }
 
     /// Run fuzzing with given wordlist
-    pub fn fuzz(&mut self, target: &FuzzTarget, wordlist: &[String]) -> Result<Vec<FuzzResult>, String> {
+    pub fn fuzz(
+        &mut self,
+        target: &FuzzTarget,
+        wordlist: &[String],
+    ) -> Result<Vec<FuzzResult>, String> {
         // Auto-calibrate if enabled
         if self.config.auto_calibrate && self.baseline.is_none() {
             self.calibrate(target)?;
@@ -302,10 +318,7 @@ impl WebFuzzer {
 
         // Split into chunks for threading
         let chunk_size = (queue.len() + self.config.threads - 1) / self.config.threads;
-        let chunks: Vec<Vec<String>> = queue
-            .chunks(chunk_size)
-            .map(|c| c.to_vec())
-            .collect();
+        let chunks: Vec<Vec<String>> = queue.chunks(chunk_size).map(|c| c.to_vec()).collect();
 
         let mut handles = vec![];
 
@@ -334,7 +347,9 @@ impl WebFuzzer {
                     let response = match target.method {
                         HttpMethod::GET | HttpMethod::HEAD => http.get(&url),
                         HttpMethod::POST => {
-                            let body = target.body.as_ref()
+                            let body = target
+                                .body
+                                .as_ref()
                                 .map(|b| b.replace("FUZZ", &payload))
                                 .unwrap_or_default();
                             http.post(&url, body.into_bytes())
@@ -356,10 +371,14 @@ impl WebFuzzer {
                                 lines: body_str.lines().count(),
                                 duration,
                                 filtered: false,
-                                redirect: resp.headers.iter()
+                                redirect: resp
+                                    .headers
+                                    .iter()
                                     .find(|(k, _)| k.to_lowercase() == "location")
                                     .map(|(_, v)| v.clone()),
-                                content_type: resp.headers.iter()
+                                content_type: resp
+                                    .headers
+                                    .iter()
                                     .find(|(k, _)| k.to_lowercase() == "content-type")
                                     .map(|(_, v)| v.clone()),
                             };
@@ -413,7 +432,11 @@ impl WebFuzzer {
     }
 
     /// Check if result should be filtered out
-    fn should_filter(result: &FuzzResult, filters: &[ResponseFilter], baseline: &Option<FuzzResult>) -> bool {
+    fn should_filter(
+        result: &FuzzResult,
+        filters: &[ResponseFilter],
+        baseline: &Option<FuzzResult>,
+    ) -> bool {
         // Check explicit filters
         for filter in filters {
             match filter.matches(result) {
@@ -589,10 +612,7 @@ impl DirectoryFuzzer {
 
         // Split into chunks for threading
         let chunk_size = (total_words + self.threads - 1) / self.threads;
-        let chunks: Vec<Vec<String>> = words
-            .chunks(chunk_size)
-            .map(|c| c.to_vec())
-            .collect();
+        let chunks: Vec<Vec<String>> = words.chunks(chunk_size).map(|c| c.to_vec()).collect();
 
         let mut handles = vec![];
 

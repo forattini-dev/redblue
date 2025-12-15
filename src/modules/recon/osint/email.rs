@@ -8,8 +8,7 @@
 /// - Service registration check (via password reset)
 /// - Social profile discovery
 /// - Email format analysis
-
-use super::{EmailResult, ProfileResult, OsintConfig};
+use super::{EmailResult, OsintConfig, ProfileResult};
 use crate::protocols::http::HttpClient;
 use std::time::Duration;
 
@@ -148,11 +147,26 @@ impl EmailIntel {
     /// Check if email is potentially disposable
     pub fn is_disposable(&self, email: &str) -> bool {
         let disposable_domains = [
-            "mailinator.com", "guerrillamail.com", "tempmail.com", "10minutemail.com",
-            "temp-mail.org", "throwaway.email", "sharklasers.com", "getairmail.com",
-            "getnada.com", "mohmal.com", "fakeinbox.com", "dispostable.com",
-            "yopmail.com", "trashmail.com", "mailnesia.com", "tempr.email",
-            "discard.email", "maildrop.cc", "mailsac.com", "inboxkitten.com",
+            "mailinator.com",
+            "guerrillamail.com",
+            "tempmail.com",
+            "10minutemail.com",
+            "temp-mail.org",
+            "throwaway.email",
+            "sharklasers.com",
+            "getairmail.com",
+            "getnada.com",
+            "mohmal.com",
+            "fakeinbox.com",
+            "dispostable.com",
+            "yopmail.com",
+            "trashmail.com",
+            "mailnesia.com",
+            "tempr.email",
+            "discard.email",
+            "maildrop.cc",
+            "mailsac.com",
+            "inboxkitten.com",
         ];
 
         if let Some(domain) = email.split('@').nth(1) {
@@ -184,14 +198,20 @@ impl EmailIntel {
             },
             ServiceCheck {
                 name: "LinkedIn",
-                url: format!("https://www.linkedin.com/checkpoint/rp/request-password-reset-submit?email={}", email),
+                url: format!(
+                    "https://www.linkedin.com/checkpoint/rp/request-password-reset-submit?email={}",
+                    email
+                ),
                 method: "GET",
                 data: None,
                 success_indicator: CheckIndicator::ResponseContains("check your email"),
             },
             ServiceCheck {
                 name: "Spotify",
-                url: format!("https://accounts.spotify.com/password-reset?email={}", email),
+                url: format!(
+                    "https://accounts.spotify.com/password-reset?email={}",
+                    email
+                ),
                 method: "GET",
                 data: None,
                 success_indicator: CheckIndicator::ResponseNotContains("wasn't found"),
@@ -212,7 +232,10 @@ impl EmailIntel {
             },
             ServiceCheck {
                 name: "Pinterest",
-                url: format!("https://www.pinterest.com/password/reset/?username_or_email={}", email),
+                url: format!(
+                    "https://www.pinterest.com/password/reset/?username_or_email={}",
+                    email
+                ),
                 method: "GET",
                 data: None,
                 success_indicator: CheckIndicator::StatusCode(200),
@@ -254,7 +277,10 @@ impl EmailIntel {
             },
             ServiceCheck {
                 name: "Twitch",
-                url: format!("https://passport.twitch.tv/usernames/{}", email.split('@').next().unwrap_or("")),
+                url: format!(
+                    "https://passport.twitch.tv/usernames/{}",
+                    email.split('@').next().unwrap_or("")
+                ),
                 method: "GET",
                 data: None,
                 success_indicator: CheckIndicator::StatusCode(200),
@@ -275,7 +301,10 @@ impl EmailIntel {
             },
             ServiceCheck {
                 name: "WordPress",
-                url: format!("https://wordpress.com/wp-login.php?action=lostpassword&user_login={}", email),
+                url: format!(
+                    "https://wordpress.com/wp-login.php?action=lostpassword&user_login={}",
+                    email
+                ),
                 method: "GET",
                 data: None,
                 success_indicator: CheckIndicator::ResponseContains("check your email"),
@@ -305,32 +334,32 @@ impl EmailIntel {
         let response = match service.method {
             "GET" => self.http.get(&service.url),
             "POST" => {
-                let data = service.data.as_ref().map(|s| s.as_bytes().to_vec()).unwrap_or_default();
+                let data = service
+                    .data
+                    .as_ref()
+                    .map(|s| s.as_bytes().to_vec())
+                    .unwrap_or_default();
                 self.http.post(&service.url, data)
             }
             _ => return Err("Invalid method".to_string()),
         };
 
         match response {
-            Ok(resp) => {
-                match &service.success_indicator {
-                    CheckIndicator::StatusCode(code) => {
-                        Ok(resp.status_code == *code)
-                    }
-                    CheckIndicator::ResponseContains(text) => {
-                        let body = String::from_utf8_lossy(&resp.body);
-                        Ok(body.to_lowercase().contains(&text.to_lowercase()))
-                    }
-                    CheckIndicator::ResponseNotContains(text) => {
-                        let body = String::from_utf8_lossy(&resp.body);
-                        Ok(!body.to_lowercase().contains(&text.to_lowercase()))
-                    }
-                    CheckIndicator::JsonContains(key, value) => {
-                        let body = String::from_utf8_lossy(&resp.body);
-                        Ok(body.contains(&format!("\"{}\"", key)) && body.contains(value))
-                    }
+            Ok(resp) => match &service.success_indicator {
+                CheckIndicator::StatusCode(code) => Ok(resp.status_code == *code),
+                CheckIndicator::ResponseContains(text) => {
+                    let body = String::from_utf8_lossy(&resp.body);
+                    Ok(body.to_lowercase().contains(&text.to_lowercase()))
                 }
-            }
+                CheckIndicator::ResponseNotContains(text) => {
+                    let body = String::from_utf8_lossy(&resp.body);
+                    Ok(!body.to_lowercase().contains(&text.to_lowercase()))
+                }
+                CheckIndicator::JsonContains(key, value) => {
+                    let body = String::from_utf8_lossy(&resp.body);
+                    Ok(body.contains(&format!("\"{}\"", key)) && body.contains(value))
+                }
+            },
             Err(_) => Ok(false),
         }
     }
@@ -359,9 +388,11 @@ impl EmailIntel {
         let url = format!("https://www.gravatar.com/{}", hash);
 
         match self.http.get(&format!("{}.json", url)) {
-            Ok(resp) if resp.status_code == 200 => {
-                Some(ProfileResult::found("Gravatar", super::PlatformCategory::Business, &url))
-            }
+            Ok(resp) if resp.status_code == 200 => Some(ProfileResult::found(
+                "Gravatar",
+                super::PlatformCategory::Business,
+                &url,
+            )),
             _ => None,
         }
     }
@@ -383,7 +414,11 @@ impl EmailIntel {
                     if let Some(end) = after.find('"') {
                         let username = &after[..end];
                         let profile_url = format!("https://github.com/{}", username);
-                        return Some(ProfileResult::found("GitHub", super::PlatformCategory::Development, &profile_url));
+                        return Some(ProfileResult::found(
+                            "GitHub",
+                            super::PlatformCategory::Development,
+                            &profile_url,
+                        ));
                     }
                 }
                 None
@@ -396,29 +431,22 @@ impl EmailIntel {
     fn md5_hash(&self, input: &str) -> String {
         // MD5 constants
         let s: [u32; 64] = [
-            7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-            5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-            4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+            7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20,
+            5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
             6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
         ];
 
         let k: [u32; 64] = [
-            0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
-            0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
-            0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
-            0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
-            0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
-            0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
-            0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
-            0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
-            0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
-            0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
-            0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
-            0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
-            0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
-            0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
-            0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
-            0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+            0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613,
+            0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193,
+            0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d,
+            0x02441453, 0xd8a1e681, 0xe7d3fbc8, 0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+            0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122,
+            0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
+            0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665, 0xf4292244,
+            0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+            0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb,
+            0xeb86d391,
         ];
 
         // Initial hash values
@@ -570,9 +598,18 @@ mod tests {
     fn test_provider_detection() {
         let intel = EmailIntel::default();
 
-        assert_eq!(intel.detect_provider("user@gmail.com"), Some("Google".to_string()));
-        assert_eq!(intel.detect_provider("user@outlook.com"), Some("Microsoft".to_string()));
-        assert_eq!(intel.detect_provider("user@protonmail.com"), Some("ProtonMail".to_string()));
+        assert_eq!(
+            intel.detect_provider("user@gmail.com"),
+            Some("Google".to_string())
+        );
+        assert_eq!(
+            intel.detect_provider("user@outlook.com"),
+            Some("Microsoft".to_string())
+        );
+        assert_eq!(
+            intel.detect_provider("user@protonmail.com"),
+            Some("ProtonMail".to_string())
+        );
     }
 
     #[test]

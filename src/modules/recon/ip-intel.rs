@@ -4,8 +4,18 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// IPv4 Bogon Ranges (RFC reserved ranges that should not appear on the public internet)
 const IPV4_BOGONS: &[(&str, &str, u32, u32)] = &[
-    ("0.0.0.0/8", "This Network (RFC 1122)", 0x00000000, 0x00FFFFFF),
-    ("10.0.0.0/8", "Private-Use (RFC 1918)", 0x0A000000, 0x0AFFFFFF),
+    (
+        "0.0.0.0/8",
+        "This Network (RFC 1122)",
+        0x00000000,
+        0x00FFFFFF,
+    ),
+    (
+        "10.0.0.0/8",
+        "Private-Use (RFC 1918)",
+        0x0A000000,
+        0x0AFFFFFF,
+    ),
     (
         "100.64.0.0/10",
         "Carrier-Grade NAT (RFC 6598)",
@@ -13,7 +23,12 @@ const IPV4_BOGONS: &[(&str, &str, u32, u32)] = &[
         0x647FFFFF,
     ),
     ("127.0.0.0/8", "Loopback (RFC 1122)", 0x7F000000, 0x7FFFFFFF),
-    ("169.254.0.0/16", "Link-Local (RFC 3927)", 0xA9FE0000, 0xA9FEFFFF),
+    (
+        "169.254.0.0/16",
+        "Link-Local (RFC 3927)",
+        0xA9FE0000,
+        0xA9FEFFFF,
+    ),
     (
         "172.16.0.0/12",
         "Private-Use (RFC 1918)",
@@ -56,7 +71,12 @@ const IPV4_BOGONS: &[(&str, &str, u32, u32)] = &[
         0xCB007100,
         0xCB0071FF,
     ),
-    ("224.0.0.0/4", "Multicast (RFC 5771)", 0xE0000000, 0xEFFFFFFF),
+    (
+        "224.0.0.0/4",
+        "Multicast (RFC 5771)",
+        0xE0000000,
+        0xEFFFFFFF,
+    ),
     ("240.0.0.0/4", "Reserved (RFC 1112)", 0xF0000000, 0xFFFFFFFF),
 ];
 
@@ -267,11 +287,7 @@ impl IpIntel {
         }
 
         // Discard (100::/64)
-        if segments[0] == 0x0100
-            && segments[1] == 0
-            && segments[2] == 0
-            && segments[3] == 0
-        {
+        if segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0 {
             return (true, Some("100::/64 - Discard-Only (RFC 6666)".to_string()));
         }
 
@@ -367,7 +383,10 @@ impl IpIntel {
 
     /// Get all bogon ranges (for display purposes)
     pub fn get_ipv4_bogon_ranges() -> Vec<(&'static str, &'static str)> {
-        IPV4_BOGONS.iter().map(|(cidr, desc, _, _)| (*cidr, *desc)).collect()
+        IPV4_BOGONS
+            .iter()
+            .map(|(cidr, desc, _, _)| (*cidr, *desc))
+            .collect()
     }
 
     /// Get all IPv6 bogon ranges (for display purposes)

@@ -13,14 +13,12 @@ static DB: OnceLock<AttackDatabase> = OnceLock::new();
 
 /// Get the singleton ATT&CK database instance
 pub fn db() -> &'static AttackDatabase {
-    DB.get_or_init(|| {
-        AttackDatabase::load().expect("Failed to load embedded ATT&CK database")
-    })
+    DB.get_or_init(|| AttackDatabase::load().expect("Failed to load embedded ATT&CK database"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttackTechnique {
-    pub id: String,          // STIX ID
+    pub id: String,           // STIX ID
     pub technique_id: String, // T1059.001
     pub name: String,
     pub description: String,
@@ -37,8 +35,8 @@ pub struct AttackTechnique {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreatGroup {
-    pub id: String,          // STIX ID
-    pub group_id: String,     // G0016
+    pub id: String,       // STIX ID
+    pub group_id: String, // G0016
     pub name: String,
     pub description: String,
     pub aliases: Vec<String>,
@@ -69,8 +67,10 @@ pub struct AttackDatabase {
 
 impl AttackDatabase {
     fn load() -> Result<Self, String> {
-        let json_bytes = decompress(ATTACK_DATA_GZ).map_err(|e| format!("Decompression failed: {:?}", e))?;
-        let bundle: StixBundle = serde_json::from_slice(&json_bytes).map_err(|e| format!("JSON parse failed: {}", e))?;
+        let json_bytes =
+            decompress(ATTACK_DATA_GZ).map_err(|e| format!("Decompression failed: {:?}", e))?;
+        let bundle: StixBundle =
+            serde_json::from_slice(&json_bytes).map_err(|e| format!("JSON parse failed: {}", e))?;
 
         let mut techniques = HashMap::new();
         let mut groups = HashMap::new();
@@ -80,11 +80,21 @@ impl AttackDatabase {
         for object in bundle.objects {
             match object {
                 StixObject::AttackPattern(ap) => {
-                    if let Some(ext_id) = ap.external_references.iter().find(|r| r.source_name == "mitre-attack").and_then(|r| r.external_id.clone()) {
+                    if let Some(ext_id) = ap
+                        .external_references
+                        .iter()
+                        .find(|r| r.source_name == "mitre-attack")
+                        .and_then(|r| r.external_id.clone())
+                    {
                         let is_subtechnique = ap.x_mitre_is_subtechnique.unwrap_or(false);
-                        let tactics = ap.kill_chain_phases.unwrap_or_default().into_iter().map(|p| p.phase_name).collect();
+                        let tactics = ap
+                            .kill_chain_phases
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|p| p.phase_name)
+                            .collect();
                         let platforms = ap.x_mitre_platforms.unwrap_or_default();
-                        
+
                         let technique = AttackTechnique {
                             id: ap.id,
                             technique_id: ext_id.clone(),
@@ -94,7 +104,11 @@ impl AttackDatabase {
                             platforms,
                             is_subtechnique,
                             parent_technique: None, // Filled in pass 2 if needed (or via relationships)
-                            url: ap.external_references.iter().find(|r| r.source_name == "mitre-attack").and_then(|r| r.url.clone()),
+                            url: ap
+                                .external_references
+                                .iter()
+                                .find(|r| r.source_name == "mitre-attack")
+                                .and_then(|r| r.url.clone()),
                             deprecated: ap.x_mitre_deprecated.unwrap_or(false),
                             revoked: ap.revoked.unwrap_or(false),
                             data_sources: ap.x_mitre_data_sources.unwrap_or_default(),
@@ -104,7 +118,12 @@ impl AttackDatabase {
                     }
                 }
                 StixObject::IntrusionSet(is) => {
-                    if let Some(ext_id) = is.external_references.iter().find(|r| r.source_name == "mitre-attack").and_then(|r| r.external_id.clone()) {
+                    if let Some(ext_id) = is
+                        .external_references
+                        .iter()
+                        .find(|r| r.source_name == "mitre-attack")
+                        .and_then(|r| r.external_id.clone())
+                    {
                         let group = ThreatGroup {
                             id: is.id,
                             group_id: ext_id.clone(),
@@ -182,7 +201,9 @@ impl AttackDatabase {
     }
 
     pub fn get_technique_by_name(&self, name: &str) -> Option<&AttackTechnique> {
-        self.technique_by_name.get(&name.to_lowercase()).and_then(|id| self.techniques.get(id))
+        self.technique_by_name
+            .get(&name.to_lowercase())
+            .and_then(|id| self.techniques.get(id))
     }
 
     pub fn get_group(&self, id: &str) -> Option<&ThreatGroup> {
@@ -190,22 +211,30 @@ impl AttackDatabase {
     }
 
     pub fn get_group_by_name(&self, name: &str) -> Option<&ThreatGroup> {
-        self.group_by_name.get(&name.to_lowercase()).and_then(|id| self.groups.get(id))
+        self.group_by_name
+            .get(&name.to_lowercase())
+            .and_then(|id| self.groups.get(id))
     }
-    
+
     pub fn search_techniques(&self, query: &str) -> Vec<&AttackTechnique> {
         let q = query.to_lowercase();
-        self.techniques.values()
-            .filter(|t| t.name.to_lowercase().contains(&q) || t.technique_id.to_lowercase().contains(&q))
+        self.techniques
+            .values()
+            .filter(|t| {
+                t.name.to_lowercase().contains(&q) || t.technique_id.to_lowercase().contains(&q)
+            })
             .collect()
     }
 
     pub fn search_groups(&self, query: &str) -> Vec<&ThreatGroup> {
         let q = query.to_lowercase();
-        self.groups.values()
-            .filter(|g| g.name.to_lowercase().contains(&q) || 
-                        g.group_id.to_lowercase().contains(&q) ||
-                        g.aliases.iter().any(|a| a.to_lowercase().contains(&q)))
+        self.groups
+            .values()
+            .filter(|g| {
+                g.name.to_lowercase().contains(&q)
+                    || g.group_id.to_lowercase().contains(&q)
+                    || g.aliases.iter().any(|a| a.to_lowercase().contains(&q))
+            })
             .collect()
     }
 }
@@ -283,14 +312,23 @@ mod tests {
         let database = db();
 
         // Should have loaded techniques
-        assert!(!database.techniques.is_empty(), "Should have techniques loaded");
+        assert!(
+            !database.techniques.is_empty(),
+            "Should have techniques loaded"
+        );
 
         // Should have loaded groups
         assert!(!database.groups.is_empty(), "Should have groups loaded");
 
         // Should have name indexes
-        assert!(!database.technique_by_name.is_empty(), "Should have technique name index");
-        assert!(!database.group_by_name.is_empty(), "Should have group name index");
+        assert!(
+            !database.technique_by_name.is_empty(),
+            "Should have technique name index"
+        );
+        assert!(
+            !database.group_by_name.is_empty(),
+            "Should have group name index"
+        );
     }
 
     #[test]
@@ -303,7 +341,9 @@ mod tests {
 
         let t = technique.unwrap();
         assert_eq!(t.technique_id, "T1059");
-        assert!(t.name.to_lowercase().contains("command") || t.name.to_lowercase().contains("script"));
+        assert!(
+            t.name.to_lowercase().contains("command") || t.name.to_lowercase().contains("script")
+        );
         assert!(!t.tactics.is_empty(), "T1059 should have tactics");
     }
 
@@ -317,7 +357,10 @@ mod tests {
 
         let t = technique.unwrap();
         assert_eq!(t.technique_id, "T1059.001");
-        assert!(t.is_subtechnique, "T1059.001 should be marked as subtechnique");
+        assert!(
+            t.is_subtechnique,
+            "T1059.001 should be marked as subtechnique"
+        );
         assert!(t.name.to_lowercase().contains("powershell"));
     }
 
@@ -327,12 +370,18 @@ mod tests {
 
         // Search by name (case-insensitive)
         let technique = database.get_technique_by_name("powershell");
-        assert!(technique.is_some(), "Should find PowerShell technique by name");
+        assert!(
+            technique.is_some(),
+            "Should find PowerShell technique by name"
+        );
 
         let t = technique.unwrap();
         // PowerShell could be T1086 (deprecated) or T1059.001 (current subtechnique)
-        assert!(t.technique_id == "T1059.001" || t.technique_id == "T1086",
-                "PowerShell technique should be T1059.001 or T1086, got {}", t.technique_id);
+        assert!(
+            t.technique_id == "T1059.001" || t.technique_id == "T1086",
+            "PowerShell technique should be T1059.001 or T1086, got {}",
+            t.technique_id
+        );
         assert!(t.name.to_lowercase().contains("powershell"));
     }
 
@@ -345,8 +394,10 @@ mod tests {
         let t2 = database.get_technique_by_name("POWERSHELL");
         let t3 = database.get_technique_by_name("powershell");
 
-        assert!(t1.is_some() && t2.is_some() && t3.is_some(),
-                "Should find PowerShell in all case variations");
+        assert!(
+            t1.is_some() && t2.is_some() && t3.is_some(),
+            "Should find PowerShell in all case variations"
+        );
 
         // All lookups should return the same technique
         let id1 = &t1.unwrap().technique_id;
@@ -365,7 +416,10 @@ mod tests {
         assert!(technique.is_none(), "T9999 should not exist");
 
         let technique2 = database.get_technique_by_name("nonexistent_technique_xyz");
-        assert!(technique2.is_none(), "Nonexistent technique should return None");
+        assert!(
+            technique2.is_none(),
+            "Nonexistent technique should return None"
+        );
     }
 
     #[test]
@@ -406,8 +460,10 @@ mod tests {
         // This may or may not exist depending on the ATT&CK version
         // If it exists, verify it's APT29
         if let Some(g) = group {
-            assert!(g.aliases.iter().any(|a| a.to_lowercase().contains("cozy"))
-                    || g.name.to_lowercase().contains("cozy"));
+            assert!(
+                g.aliases.iter().any(|a| a.to_lowercase().contains("cozy"))
+                    || g.name.to_lowercase().contains("cozy")
+            );
         }
     }
 
@@ -464,7 +520,10 @@ mod tests {
         // Get any technique and verify required fields
         if let Some((_, technique)) = database.techniques.iter().next() {
             assert!(!technique.id.is_empty(), "STIX ID should not be empty");
-            assert!(!technique.technique_id.is_empty(), "Technique ID should not be empty");
+            assert!(
+                !technique.technique_id.is_empty(),
+                "Technique ID should not be empty"
+            );
             assert!(!technique.name.is_empty(), "Name should not be empty");
             // description may be empty for some techniques
         }
@@ -494,9 +553,12 @@ mod tests {
                 if technique.parent_technique.is_some() {
                     let parent_id = technique.parent_technique.as_ref().unwrap();
                     // Parent should exist
-                    assert!(database.techniques.contains_key(parent_id),
-                            "Parent {} should exist for subtechnique {}",
-                            parent_id, technique.technique_id);
+                    assert!(
+                        database.techniques.contains_key(parent_id),
+                        "Parent {} should exist for subtechnique {}",
+                        parent_id,
+                        technique.technique_id
+                    );
                 }
                 break; // Just check one for efficiency
             }
@@ -512,9 +574,12 @@ mod tests {
             if !group.associated_techniques.is_empty() {
                 // Verify associated techniques exist
                 for tech_id in &group.associated_techniques {
-                    assert!(database.techniques.contains_key(tech_id),
-                            "Associated technique {} should exist for group {}",
-                            tech_id, group.group_id);
+                    assert!(
+                        database.techniques.contains_key(tech_id),
+                        "Associated technique {} should exist for group {}",
+                        tech_id,
+                        group.group_id
+                    );
                 }
                 break; // Just check one for efficiency
             }
@@ -537,16 +602,23 @@ mod tests {
         let database = db();
 
         // Most active techniques should have at least one tactic
-        let active_techniques: Vec<_> = database.techniques.values()
+        let active_techniques: Vec<_> = database
+            .techniques
+            .values()
             .filter(|t| !t.deprecated && !t.revoked)
             .collect();
 
-        let with_tactics = active_techniques.iter()
+        let with_tactics = active_techniques
+            .iter()
             .filter(|t| !t.tactics.is_empty())
             .count();
 
         // At least 80% should have tactics
         let ratio = with_tactics as f64 / active_techniques.len() as f64;
-        assert!(ratio > 0.8, "At least 80% of active techniques should have tactics, got {}%", ratio * 100.0);
+        assert!(
+            ratio > 0.8,
+            "At least 80% of active techniques should have tactics, got {}%",
+            ratio * 100.0
+        );
     }
 }

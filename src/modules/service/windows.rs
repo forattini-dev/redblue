@@ -2,9 +2,7 @@
 //!
 //! Implements service installation via Registry Run keys and Scheduled Tasks.
 
-use super::{
-    dirs, find_rb_binary, InstalledService, ServiceConfig, ServiceManager, ServiceStatus,
-};
+use super::{dirs, find_rb_binary, InstalledService, ServiceConfig, ServiceManager, ServiceStatus};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -40,7 +38,9 @@ impl WindowsServiceManager {
     /// Install via Registry Run key
     fn install_registry(&self, config: &ServiceConfig) -> Result<InstalledService, String> {
         let rb_path = find_rb_binary()?;
-        let (cmd, args) = config.service_type.to_command(rb_path.to_str().unwrap_or("rb"));
+        let (cmd, args) = config
+            .service_type
+            .to_command(rb_path.to_str().unwrap_or("rb"));
         let full_command = format!("\"{}\" {}", cmd, args.join(" "));
 
         // Use reg add command
@@ -89,7 +89,9 @@ impl WindowsServiceManager {
     /// Install via Scheduled Task
     fn install_scheduled_task(&self, config: &ServiceConfig) -> Result<InstalledService, String> {
         let rb_path = find_rb_binary()?;
-        let (cmd, args) = config.service_type.to_command(rb_path.to_str().unwrap_or("rb"));
+        let (cmd, args) = config
+            .service_type
+            .to_command(rb_path.to_str().unwrap_or("rb"));
 
         // Create scheduled task using schtasks
         let task_name = format!("redblue\\{}", config.name);
@@ -274,7 +276,9 @@ impl ServiceManager for WindowsServiceManager {
                     Err(String::from_utf8_lossy(&output.stderr).to_string())
                 }
             }
-            _ => Err("Registry-based services cannot be stopped (kill process manually)".to_string()),
+            _ => {
+                Err("Registry-based services cannot be stopped (kill process manually)".to_string())
+            }
         }
     }
 

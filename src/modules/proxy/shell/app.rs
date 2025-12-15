@@ -8,12 +8,12 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::state::{HttpExchange, ShellState, ShellViewMode, RequestFilter, DetailTab};
+use super::input::{key_to_action, Action, InputReader, Key, RawMode};
+use super::interceptor::{ShellEvent, ShellInterceptor};
+use super::state::{DetailTab, HttpExchange, RequestFilter, ShellState, ShellViewMode};
 use super::ui::ShellUI;
-use super::input::{InputReader, RawMode, Key, Action, key_to_action};
-use super::interceptor::{ShellInterceptor, ShellEvent};
-use crate::modules::proxy::mitm::{MitmConfig, MitmProxy};
 use crate::crypto::certs::ca::CertificateAuthority;
+use crate::modules::proxy::mitm::{MitmConfig, MitmProxy};
 
 /// MITM Shell application
 pub struct MitmShell {
@@ -95,7 +95,8 @@ impl MitmShell {
 
             // Render at fixed interval
             if last_render.elapsed() >= render_interval {
-                self.ui.render(&mut self.state, &self.proxy_addr.to_string())?;
+                self.ui
+                    .render(&mut self.state, &self.proxy_addr.to_string())?;
                 last_render = Instant::now();
             }
 
@@ -135,14 +136,7 @@ impl MitmShell {
                 body,
             } => {
                 let exchange = HttpExchange::from_request(
-                    id,
-                    &source_ip,
-                    &method,
-                    &host,
-                    &path,
-                    &version,
-                    headers,
-                    body,
+                    id, &source_ip, &method, &host, &path, &version, headers, body,
                 );
                 self.state.add_exchange(exchange);
             }
@@ -154,7 +148,14 @@ impl MitmShell {
                 body,
                 duration_ms,
             } => {
-                self.state.update_response(id, status_code, &status_text, headers, body, duration_ms);
+                self.state.update_response(
+                    id,
+                    status_code,
+                    &status_text,
+                    headers,
+                    body,
+                    duration_ms,
+                );
             }
             ShellEvent::RequestDropped { id } => {
                 if let Some(ex) = self.state.exchanges.iter_mut().find(|e| e.id == id) {
@@ -245,33 +246,31 @@ impl MitmShell {
                 self.state.view_mode = ShellViewMode::Search;
                 self.state.search_buffer.clear();
             }
-            Action::TextInput(c) => {
-                match self.state.view_mode {
-                    ShellViewMode::Command => self.state.command_buffer.push(c),
-                    ShellViewMode::Search => self.state.search_buffer.push(c),
-                    _ => {}
+            Action::TextInput(c) => match self.state.view_mode {
+                ShellViewMode::Command => self.state.command_buffer.push(c),
+                ShellViewMode::Search => self.state.search_buffer.push(c),
+                _ => {}
+            },
+            Action::TextBackspace => match self.state.view_mode {
+                ShellViewMode::Command => {
+                    self.state.command_buffer.pop();
                 }
-            }
-            Action::TextBackspace => {
-                match self.state.view_mode {
-                    ShellViewMode::Command => { self.state.command_buffer.pop(); }
-                    ShellViewMode::Search => { self.state.search_buffer.pop(); }
-                    _ => {}
+                ShellViewMode::Search => {
+                    self.state.search_buffer.pop();
                 }
-            }
-            Action::TextSubmit => {
-                match self.state.view_mode {
-                    ShellViewMode::Command => {
-                        self.execute_command();
-                        self.state.view_mode = ShellViewMode::List;
-                    }
-                    ShellViewMode::Search => {
-                        self.execute_search();
-                        self.state.view_mode = ShellViewMode::List;
-                    }
-                    _ => {}
+                _ => {}
+            },
+            Action::TextSubmit => match self.state.view_mode {
+                ShellViewMode::Command => {
+                    self.execute_command();
+                    self.state.view_mode = ShellViewMode::List;
                 }
-            }
+                ShellViewMode::Search => {
+                    self.execute_search();
+                    self.state.view_mode = ShellViewMode::List;
+                }
+                _ => {}
+            },
             Action::TextCancel => {
                 self.state.view_mode = ShellViewMode::List;
                 self.state.command_buffer.clear();

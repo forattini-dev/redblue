@@ -4,7 +4,6 @@
 /// Free, no API key required, massive dataset.
 ///
 /// API: https://index.commoncrawl.org/CC-MAIN-2024-*-index?url=*.example.com&output=json
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -56,7 +55,11 @@ impl CommonCrawlSource {
         Ok("CC-MAIN-2024-10".to_string())
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();

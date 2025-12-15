@@ -2,7 +2,6 @@
 ///
 /// TCP/IP fingerprints for routers, switches, firewalls, load balancers,
 /// and other network infrastructure devices.
-
 use super::types::*;
 
 /// Add all network device signatures to the database
@@ -55,7 +54,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Cisco IOS XE 16.x
         SignatureBuilder::new(5001, "Cisco IOS XE 16.x")
             .vendor("Cisco")
@@ -73,7 +71,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Cisco IOS 15.x
         SignatureBuilder::new(5002, "Cisco IOS 15.x")
             .vendor("Cisco")
@@ -91,7 +88,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Cisco IOS 12.x
         SignatureBuilder::new(5003, "Cisco IOS 12.x")
             .vendor("Cisco")
@@ -109,7 +105,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // Cisco NX-OS 10.x
         SignatureBuilder::new(5010, "Cisco NX-OS 10.x")
             .vendor("Cisco")
@@ -127,7 +122,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Cisco NX-OS 9.x
         SignatureBuilder::new(5011, "Cisco NX-OS 9.x")
             .vendor("Cisco")
@@ -145,7 +139,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Cisco NX-OS 7.x
         SignatureBuilder::new(5012, "Cisco NX-OS 7.x")
             .vendor("Cisco")
@@ -163,7 +156,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Cisco ASA 9.x
         SignatureBuilder::new(5020, "Cisco ASA 9.x")
             .vendor("Cisco")
@@ -181,7 +173,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Cisco ASA 8.x
         SignatureBuilder::new(5021, "Cisco ASA 8.x")
             .vendor("Cisco")
@@ -199,7 +190,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Cisco Firepower (FTD)
         SignatureBuilder::new(5030, "Cisco Firepower Threat Defense")
             .vendor("Cisco")
@@ -216,7 +206,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Cisco WLC (Wireless LAN Controller)
         SignatureBuilder::new(5040, "Cisco WLC")
             .vendor("Cisco")
@@ -233,7 +222,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Cisco Small Business
         SignatureBuilder::new(5050, "Cisco Small Business Router")
             .vendor("Cisco")
@@ -250,7 +238,6 @@ fn cisco_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.80)
             .build(),
-
         // Cisco Meraki
         SignatureBuilder::new(5060, "Cisco Meraki")
             .vendor("Cisco Meraki")
@@ -289,7 +276,6 @@ fn juniper_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Juniper Junos 22.x
         SignatureBuilder::new(5101, "Juniper Junos 22.x")
             .vendor("Juniper")
@@ -307,7 +293,6 @@ fn juniper_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Juniper Junos 21.x
         SignatureBuilder::new(5102, "Juniper Junos 21.x")
             .vendor("Juniper")
@@ -325,7 +310,6 @@ fn juniper_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Juniper Junos 20.x
         SignatureBuilder::new(5103, "Juniper Junos 20.x")
             .vendor("Juniper")
@@ -343,7 +327,6 @@ fn juniper_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Juniper ScreenOS (legacy)
         SignatureBuilder::new(5110, "Juniper ScreenOS")
             .vendor("Juniper")
@@ -360,7 +343,6 @@ fn juniper_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.80)
             .build(),
-
         // Juniper SRX Series
         SignatureBuilder::new(5120, "Juniper SRX Firewall")
             .vendor("Juniper")
@@ -399,7 +381,6 @@ fn fortinet_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // FortiOS 6.x
         SignatureBuilder::new(5201, "FortiGate FortiOS 6.x")
             .vendor("Fortinet")
@@ -417,7 +398,6 @@ fn fortinet_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // FortiOS 5.x
         SignatureBuilder::new(5202, "FortiGate FortiOS 5.x")
             .vendor("Fortinet")
@@ -435,7 +415,6 @@ fn fortinet_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // FortiSwitch
         SignatureBuilder::new(5210, "FortiSwitch")
             .vendor("Fortinet")
@@ -452,7 +431,6 @@ fn fortinet_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // FortiAP
         SignatureBuilder::new(5220, "FortiAP")
             .vendor("Fortinet")
@@ -491,7 +469,6 @@ fn palo_alto_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // PAN-OS 10.x
         SignatureBuilder::new(5301, "Palo Alto PAN-OS 10.x")
             .vendor("Palo Alto Networks")
@@ -509,7 +486,6 @@ fn palo_alto_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // PAN-OS 9.x
         SignatureBuilder::new(5302, "Palo Alto PAN-OS 9.x")
             .vendor("Palo Alto Networks")
@@ -527,7 +503,6 @@ fn palo_alto_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Prisma Access
         SignatureBuilder::new(5310, "Palo Alto Prisma Access")
             .vendor("Palo Alto Networks")
@@ -566,7 +541,6 @@ fn checkpoint_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Check Point R80.x
         SignatureBuilder::new(5401, "Check Point R80.x")
             .vendor("Check Point")
@@ -584,7 +558,6 @@ fn checkpoint_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Check Point R77.x
         SignatureBuilder::new(5402, "Check Point R77.x")
             .vendor("Check Point")
@@ -624,7 +597,6 @@ fn f5_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // F5 BIG-IP TMOS 16.x
         SignatureBuilder::new(5501, "F5 BIG-IP TMOS 16.x")
             .vendor("F5")
@@ -642,7 +614,6 @@ fn f5_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // F5 BIG-IP TMOS 15.x
         SignatureBuilder::new(5502, "F5 BIG-IP TMOS 15.x")
             .vendor("F5")
@@ -660,7 +631,6 @@ fn f5_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // F5 BIG-IP TMOS 14.x
         SignatureBuilder::new(5503, "F5 BIG-IP TMOS 14.x")
             .vendor("F5")
@@ -678,7 +648,6 @@ fn f5_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // F5 NGINX Plus
         SignatureBuilder::new(5510, "F5 NGINX Plus")
             .vendor("F5")
@@ -717,7 +686,6 @@ fn arista_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Arista CloudEOS
         SignatureBuilder::new(5601, "Arista CloudEOS")
             .vendor("Arista")
@@ -756,7 +724,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // MikroTik RouterOS 6.x
         SignatureBuilder::new(5701, "MikroTik RouterOS 6.x")
             .vendor("MikroTik")
@@ -774,7 +741,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Ubiquiti EdgeOS
         SignatureBuilder::new(5710, "Ubiquiti EdgeOS")
             .vendor("Ubiquiti")
@@ -791,7 +757,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Ubiquiti UniFi OS
         SignatureBuilder::new(5711, "Ubiquiti UniFi OS")
             .vendor("Ubiquiti")
@@ -808,7 +773,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // SonicWall SonicOS
         SignatureBuilder::new(5720, "SonicWall SonicOS")
             .vendor("SonicWall")
@@ -825,7 +789,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Sophos XG Firewall
         SignatureBuilder::new(5730, "Sophos XG Firewall")
             .vendor("Sophos")
@@ -842,7 +805,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // WatchGuard Fireware
         SignatureBuilder::new(5740, "WatchGuard Fireware")
             .vendor("WatchGuard")
@@ -859,7 +821,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Citrix ADC (NetScaler)
         SignatureBuilder::new(5750, "Citrix ADC")
             .vendor("Citrix")
@@ -876,7 +837,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // A10 ACOS
         SignatureBuilder::new(5760, "A10 ACOS")
             .vendor("A10 Networks")
@@ -893,7 +853,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // HPE Aruba OS
         SignatureBuilder::new(5770, "HPE Aruba OS")
             .vendor("HPE Aruba")
@@ -910,7 +869,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Ruckus SmartZone
         SignatureBuilder::new(5780, "Ruckus SmartZone")
             .vendor("Ruckus")
@@ -927,7 +885,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // TP-Link Router
         SignatureBuilder::new(5790, "TP-Link Router")
             .vendor("TP-Link")
@@ -944,7 +901,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.78)
             .build(),
-
         // ASUS Router
         SignatureBuilder::new(5791, "ASUS Router")
             .vendor("ASUS")
@@ -961,7 +917,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.80)
             .build(),
-
         // NETGEAR Router
         SignatureBuilder::new(5792, "NETGEAR Router")
             .vendor("NETGEAR")
@@ -978,7 +933,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.75)
             .build(),
-
         // Synology DSM
         SignatureBuilder::new(5800, "Synology DSM")
             .vendor("Synology")
@@ -995,7 +949,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // QNAP QTS
         SignatureBuilder::new(5801, "QNAP QTS")
             .vendor("QNAP")
@@ -1012,7 +965,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // VMware ESXi
         SignatureBuilder::new(5810, "VMware ESXi")
             .vendor("VMware")
@@ -1029,7 +981,6 @@ fn other_network_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Proxmox VE
         SignatureBuilder::new(5820, "Proxmox VE")
             .vendor("Proxmox")
@@ -1056,7 +1007,11 @@ mod tests {
     #[test]
     fn test_network_signatures_count() {
         let sigs = signatures();
-        assert!(sigs.len() >= 50, "Expected at least 50 network device signatures, got {}", sigs.len());
+        assert!(
+            sigs.len() >= 50,
+            "Expected at least 50 network device signatures, got {}",
+            sigs.len()
+        );
     }
 
     #[test]
@@ -1072,7 +1027,8 @@ mod tests {
     #[test]
     fn test_cisco_ios_ttl_255() {
         let sigs = cisco_signatures();
-        let ios_sigs: Vec<_> = sigs.iter()
+        let ios_sigs: Vec<_> = sigs
+            .iter()
             .filter(|s| s.os_family == "IOS" || s.os_family == "ASA")
             .collect();
 
@@ -1090,10 +1046,22 @@ mod tests {
     fn test_device_types() {
         let sigs = signatures();
 
-        let router_count = sigs.iter().filter(|s| s.device_type == DeviceType::Router).count();
-        let firewall_count = sigs.iter().filter(|s| s.device_type == DeviceType::Firewall).count();
-        let switch_count = sigs.iter().filter(|s| s.device_type == DeviceType::Switch).count();
-        let lb_count = sigs.iter().filter(|s| s.device_type == DeviceType::LoadBalancer).count();
+        let router_count = sigs
+            .iter()
+            .filter(|s| s.device_type == DeviceType::Router)
+            .count();
+        let firewall_count = sigs
+            .iter()
+            .filter(|s| s.device_type == DeviceType::Firewall)
+            .count();
+        let switch_count = sigs
+            .iter()
+            .filter(|s| s.device_type == DeviceType::Switch)
+            .count();
+        let lb_count = sigs
+            .iter()
+            .filter(|s| s.device_type == DeviceType::LoadBalancer)
+            .count();
 
         assert!(router_count > 5, "Expected more router signatures");
         assert!(firewall_count > 5, "Expected more firewall signatures");

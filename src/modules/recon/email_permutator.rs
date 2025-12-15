@@ -17,7 +17,7 @@ impl EmailPermutator {
         permutations.insert(format!("{}_{}@{}", f, l, d));
         permutations.insert(format!("{}@{}", f, d));
         permutations.insert(format!("{}@{}", l, d));
-        
+
         // Initials
         if let Some(f_char) = f.chars().next() {
             permutations.insert(format!("{}{}@{}", f_char, l, d));
@@ -29,7 +29,13 @@ impl EmailPermutator {
 
         // More complex (less common, but still used)
         permutations.insert(format!("{}-{}@{}", f, l, d));
-        permutations.insert(format!("{}.{}.{}@{}", f.chars().next().unwrap_or(' '), l.chars().next().unwrap_or(' '), l, d)); // f.l.last@domain
+        permutations.insert(format!(
+            "{}.{}.{}@{}",
+            f.chars().next().unwrap_or(' '),
+            l.chars().next().unwrap_or(' '),
+            l,
+            d
+        )); // f.l.last@domain
 
         permutations.into_iter().collect()
     }
@@ -44,7 +50,7 @@ impl EmailPermutator {
             let mut permutations = HashSet::new();
             let name = parts[0].to_lowercase();
             let d = domain.to_lowercase();
-            
+
             permutations.insert(format!("{}@{}", name, d));
             permutations.insert(format!("{}1@{}", name, d)); // name1@domain
 

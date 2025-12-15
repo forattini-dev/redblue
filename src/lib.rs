@@ -1,3 +1,5 @@
+pub mod accessors; // System accessors for agent
+pub mod agent; // C2 Agent and Server
 pub mod cli;
 pub mod compression; // Native gzip/DEFLATE decompression (RFC 1952/1951)
 pub mod config;
@@ -8,8 +10,6 @@ pub mod intelligence;
 pub mod mcp;
 pub mod modules;
 pub mod playbooks; // Red Team playbooks with internal MITRE mapping
-pub mod accessors; // System accessors for agent
-pub mod agent;     // C2 Agent and Server
 pub mod protocols;
 pub mod scripts; // Zero-dependency scripting engine for security checks
 pub mod storage;

@@ -242,52 +242,57 @@ impl Predicate {
         match (&self.op, &self.value) {
             (FilterOp::Eq, PredicateValue::Single(v)) => column_value == v,
             (FilterOp::Ne, PredicateValue::Single(v)) => column_value != v,
-            (FilterOp::Lt, PredicateValue::Single(v)) => compare_values(column_value, v) == Some(std::cmp::Ordering::Less),
-            (FilterOp::Le, PredicateValue::Single(v)) => {
-                matches!(compare_values(column_value, v), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal))
+            (FilterOp::Lt, PredicateValue::Single(v)) => {
+                compare_values(column_value, v) == Some(std::cmp::Ordering::Less)
             }
-            (FilterOp::Gt, PredicateValue::Single(v)) => compare_values(column_value, v) == Some(std::cmp::Ordering::Greater),
+            (FilterOp::Le, PredicateValue::Single(v)) => {
+                matches!(
+                    compare_values(column_value, v),
+                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                )
+            }
+            (FilterOp::Gt, PredicateValue::Single(v)) => {
+                compare_values(column_value, v) == Some(std::cmp::Ordering::Greater)
+            }
             (FilterOp::Ge, PredicateValue::Single(v)) => {
-                matches!(compare_values(column_value, v), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal))
+                matches!(
+                    compare_values(column_value, v),
+                    Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                )
             }
             (FilterOp::Between, PredicateValue::Range(low, high)) => {
-                matches!(compare_values(column_value, low), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal))
-                    && matches!(compare_values(column_value, high), Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal))
+                matches!(
+                    compare_values(column_value, low),
+                    Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+                ) && matches!(
+                    compare_values(column_value, high),
+                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                )
             }
             (FilterOp::In, PredicateValue::List(values)) => values.contains(column_value),
             (FilterOp::NotIn, PredicateValue::List(values)) => !values.contains(column_value),
-            (FilterOp::Like, PredicateValue::Pattern(pattern)) => {
-                match column_value {
-                    Value::Text(s) => match_like_pattern(s, pattern),
-                    _ => false,
-                }
-            }
-            (FilterOp::NotLike, PredicateValue::Pattern(pattern)) => {
-                match column_value {
-                    Value::Text(s) => !match_like_pattern(s, pattern),
-                    _ => true,
-                }
-            }
+            (FilterOp::Like, PredicateValue::Pattern(pattern)) => match column_value {
+                Value::Text(s) => match_like_pattern(s, pattern),
+                _ => false,
+            },
+            (FilterOp::NotLike, PredicateValue::Pattern(pattern)) => match column_value {
+                Value::Text(s) => !match_like_pattern(s, pattern),
+                _ => true,
+            },
             (FilterOp::IsNull, PredicateValue::None) => matches!(column_value, Value::Null),
             (FilterOp::IsNotNull, PredicateValue::None) => !matches!(column_value, Value::Null),
-            (FilterOp::Contains, PredicateValue::Single(v)) => {
-                match (column_value, v) {
-                    (Value::Text(haystack), Value::Text(needle)) => haystack.contains(needle.as_str()),
-                    _ => false,
-                }
-            }
-            (FilterOp::StartsWith, PredicateValue::Pattern(prefix)) => {
-                match column_value {
-                    Value::Text(s) => s.starts_with(prefix),
-                    _ => false,
-                }
-            }
-            (FilterOp::EndsWith, PredicateValue::Pattern(suffix)) => {
-                match column_value {
-                    Value::Text(s) => s.ends_with(suffix),
-                    _ => false,
-                }
-            }
+            (FilterOp::Contains, PredicateValue::Single(v)) => match (column_value, v) {
+                (Value::Text(haystack), Value::Text(needle)) => haystack.contains(needle.as_str()),
+                _ => false,
+            },
+            (FilterOp::StartsWith, PredicateValue::Pattern(prefix)) => match column_value {
+                Value::Text(s) => s.starts_with(prefix),
+                _ => false,
+            },
+            (FilterOp::EndsWith, PredicateValue::Pattern(suffix)) => match column_value {
+                Value::Text(s) => s.ends_with(suffix),
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -618,10 +623,13 @@ mod tests {
 
     #[test]
     fn test_predicate_in() {
-        let pred = Predicate::in_list("name", vec![
-            Value::Text("Alice".to_string()),
-            Value::Text("Bob".to_string()),
-        ]);
+        let pred = Predicate::in_list(
+            "name",
+            vec![
+                Value::Text("Alice".to_string()),
+                Value::Text("Bob".to_string()),
+            ],
+        );
         assert!(pred.evaluate(&Value::Text("Alice".to_string())));
         assert!(pred.evaluate(&Value::Text("Bob".to_string())));
         assert!(!pred.evaluate(&Value::Text("Charlie".to_string())));
@@ -629,9 +637,7 @@ mod tests {
 
     #[test]
     fn test_predicate_not_in() {
-        let pred = Predicate::not_in("name", vec![
-            Value::Text("Alice".to_string()),
-        ]);
+        let pred = Predicate::not_in("name", vec![Value::Text("Alice".to_string())]);
         assert!(!pred.evaluate(&Value::Text("Alice".to_string())));
         assert!(pred.evaluate(&Value::Text("Bob".to_string())));
     }
@@ -726,7 +732,7 @@ mod tests {
 
         let filter = Filter::or(vec![
             Filter::eq("name", Value::Text("Bob".to_string())), // Fails
-            Filter::gt("age", Value::Integer(20)), // Passes
+            Filter::gt("age", Value::Integer(20)),              // Passes
         ]);
         assert!(filter.evaluate(&row));
 

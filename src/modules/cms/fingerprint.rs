@@ -1,5 +1,5 @@
-use crate::protocols::http::{HttpClient, HttpRequest};
 use crate::crypto::sha256;
+use crate::protocols::http::{HttpClient, HttpRequest};
 use std::collections::HashMap;
 
 /// Helper function to convert a byte array to a hex string.
@@ -22,22 +22,37 @@ impl Fingerprinter {
         let mut known_hashes = HashMap::new();
         // Add some common favicon hashes (SHA256)
         // WordPress default favicon.ico (SHA256 hex)
-        known_hashes.insert("612502809d43d1a87e0766b5795493214a1a67a0772718107871b65e900994f8", "WordPress");
+        known_hashes.insert(
+            "612502809d43d1a87e0766b5795493214a1a67a0772718107871b65e900994f8",
+            "WordPress",
+        );
         // Joomla default favicon.ico (SHA256 hex)
-        known_hashes.insert("1f087e59600e1215b2e91122f8a846f481c4c1a403d1c1a967c7e5a8b8b8b8b8", "Joomla");
+        known_hashes.insert(
+            "1f087e59600e1215b2e91122f8a846f481c4c1a403d1c1a967c7e5a8b8b8b8b8",
+            "Joomla",
+        );
         // Drupal default favicon.ico (SHA256 hex)
-        known_hashes.insert("a2e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7", "Drupal");
+        known_hashes.insert(
+            "a2e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7c9f80a42e7",
+            "Drupal",
+        );
         // phpMyAdmin (SHA256 hex)
-        known_hashes.insert("8d447a1768c2a939463b27b59e21820a4b7f87217f04123d47c61c37d04a6018", "phpMyAdmin");
+        known_hashes.insert(
+            "8d447a1768c2a939463b27b59e21820a4b7f87217f04123d47c61c37d04a6018",
+            "phpMyAdmin",
+        );
 
-        Self { client: HttpClient::new(), known_hashes }
+        Self {
+            client: HttpClient::new(),
+            known_hashes,
+        }
     }
 
     /// Fetches favicon.ico and returns its SHA256 hash as a hex string.
     pub fn get_favicon_hash(&mut self, base_url: &str) -> Option<String> {
         let favicon_url = format!("{}/favicon.ico", base_url.trim_end_matches('/'));
         let req = HttpRequest::get(&favicon_url);
-        
+
         if let Ok(resp) = self.client.send(&req) {
             if resp.status_code == 200 && !resp.body.is_empty() {
                 let hash_bytes = sha256::sha256(&resp.body);
@@ -46,7 +61,7 @@ impl Fingerprinter {
         }
         None
     }
-    
+
     /// Identifies CMS based on favicon hash.
     pub fn identify_cms_by_favicon(&self, hash: &str) -> Option<&str> {
         self.known_hashes.get(hash).copied()

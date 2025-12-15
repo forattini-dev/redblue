@@ -9,7 +9,6 @@
 /// - Attribute parsing with quotes handling
 /// - Text and comment node support
 /// - Base URL resolution for relative links
-
 use std::collections::HashMap;
 use std::fmt;
 
@@ -284,12 +283,9 @@ impl Document {
 
     /// Find element by ID
     pub fn get_element_by_id(&self, id: &str) -> Option<&Element> {
-        self.elements.iter().find(|e| {
-            e.attributes
-                .get("id")
-                .map(|v| v == id)
-                .unwrap_or(false)
-        })
+        self.elements
+            .iter()
+            .find(|e| e.attributes.get("id").map(|v| v == id).unwrap_or(false))
     }
 
     /// Find elements by class name
@@ -517,7 +513,12 @@ impl<'a> HtmlParser<'a> {
             return Some(self.parse_end_tag());
         }
 
-        if self.starts_with("<") && self.peek_ahead(1).map(|c| c.is_alphabetic()).unwrap_or(false) {
+        if self.starts_with("<")
+            && self
+                .peek_ahead(1)
+                .map(|c| c.is_alphabetic())
+                .unwrap_or(false)
+        {
             return Some(self.parse_start_tag());
         }
 
@@ -975,11 +976,7 @@ impl Document {
     }
 
     pub fn select_by_id(&self, id: &str) -> Selection {
-        Selection::new(
-            self.get_element_by_id(id)
-                .into_iter()
-                .collect::<Vec<_>>(),
-        )
+        Selection::new(self.get_element_by_id(id).into_iter().collect::<Vec<_>>())
     }
 }
 
@@ -1109,10 +1106,7 @@ fn resolve_relative_url(base: &str, href: &str) -> String {
     };
 
     // Split into parts
-    let mut result_parts: Vec<&str> = base_path
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
+    let mut result_parts: Vec<&str> = base_path.split('/').filter(|s| !s.is_empty()).collect();
 
     for part in href.split('/') {
         match part {
@@ -1154,7 +1148,8 @@ mod tests {
 
     #[test]
     fn test_parse_attributes() {
-        let html = r#"<a href="https://example.com" class="link external" id="main-link">Click</a>"#;
+        let html =
+            r#"<a href="https://example.com" class="link external" id="main-link">Click</a>"#;
         let doc = Document::parse(html);
 
         let links = doc.get_elements_by_tag("a");

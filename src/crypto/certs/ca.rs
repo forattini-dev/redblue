@@ -6,14 +6,14 @@
 //! - Managing certificate serial numbers
 
 use super::x509::{
-    Certificate, TbsCertificate, AlgorithmIdentifier, Name, Validity,
-    SubjectPublicKeyInfo, Extension, CertError,
+    AlgorithmIdentifier, CertError, Certificate, Extension, Name, SubjectPublicKeyInfo,
+    TbsCertificate, Validity,
 };
 use crate::crypto::encoding::asn1::Asn1Value;
 use crate::crypto::encoding::oid::Oid;
 use crate::crypto::sha256::sha256;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Certificate Authority
 pub struct CertificateAuthority {
@@ -32,7 +32,10 @@ impl std::fmt::Debug for CertificateAuthority {
         f.debug_struct("CertificateAuthority")
             .field("cert", &self.cert)
             .field("key_algorithm", &self.key_algorithm)
-            .field("private_key", &format!("[{} bytes]", self.private_key.len()))
+            .field(
+                "private_key",
+                &format!("[{} bytes]", self.private_key.len()),
+            )
             .finish()
     }
 }
@@ -58,14 +61,14 @@ impl CertificateAuthority {
         key_algorithm: KeyAlgorithm,
         validity_days: u32,
     ) -> Result<Self, CertError> {
+        use boring::bn::BigNum;
+        use boring::ec::{EcGroup, EcKey};
+        use boring::hash::MessageDigest;
+        use boring::nid::Nid;
         use boring::pkey::PKey;
         use boring::rsa::Rsa;
-        use boring::ec::{EcKey, EcGroup};
-        use boring::nid::Nid;
-        use boring::x509::{X509Builder, X509NameBuilder};
         use boring::x509::extension::{BasicConstraints, KeyUsage, SubjectKeyIdentifier};
-        use boring::bn::BigNum;
-        use boring::hash::MessageDigest;
+        use boring::x509::{X509Builder, X509NameBuilder};
 
         // Generate key pair
         let pkey = match key_algorithm {
@@ -134,24 +137,30 @@ impl CertificateAuthority {
         let mut builder = X509Builder::new()
             .map_err(|e| CertError::InvalidFormat(format!("X509 builder failed: {}", e)))?;
 
-        builder.set_version(2) // X.509 v3
+        builder
+            .set_version(2) // X.509 v3
             .map_err(|e| CertError::InvalidFormat(format!("Set version failed: {}", e)))?;
 
         // Random serial number
         let serial = BigNum::from_u32(rand_u32())
             .map_err(|e| CertError::InvalidFormat(format!("BigNum failed: {}", e)))?;
-        let serial_asn1 = serial.to_asn1_integer()
+        let serial_asn1 = serial
+            .to_asn1_integer()
             .map_err(|e| CertError::InvalidFormat(format!("ASN1 integer failed: {}", e)))?;
-        builder.set_serial_number(&serial_asn1)
+        builder
+            .set_serial_number(&serial_asn1)
             .map_err(|e| CertError::InvalidFormat(format!("Set serial failed: {}", e)))?;
 
-        builder.set_subject_name(&x509_name)
+        builder
+            .set_subject_name(&x509_name)
             .map_err(|e| CertError::InvalidFormat(format!("Set subject failed: {}", e)))?;
 
-        builder.set_issuer_name(&x509_name) // Self-signed
+        builder
+            .set_issuer_name(&x509_name) // Self-signed
             .map_err(|e| CertError::InvalidFormat(format!("Set issuer failed: {}", e)))?;
 
-        builder.set_pubkey(&pkey)
+        builder
+            .set_pubkey(&pkey)
             .map_err(|e| CertError::InvalidFormat(format!("Set pubkey failed: {}", e)))?;
 
         // Validity
@@ -160,15 +169,21 @@ impl CertificateAuthority {
         let not_after = boring::asn1::Asn1Time::days_from_now(validity_days)
             .map_err(|e| CertError::InvalidFormat(format!("Not after failed: {}", e)))?;
 
-        builder.set_not_before(&not_before)
+        builder
+            .set_not_before(&not_before)
             .map_err(|e| CertError::InvalidFormat(format!("Set not before failed: {}", e)))?;
-        builder.set_not_after(&not_after)
+        builder
+            .set_not_after(&not_after)
             .map_err(|e| CertError::InvalidFormat(format!("Set not after failed: {}", e)))?;
 
         // Extensions for CA
-        let bc = BasicConstraints::new().critical().ca().build()
+        let bc = BasicConstraints::new()
+            .critical()
+            .ca()
+            .build()
             .map_err(|e| CertError::InvalidFormat(format!("BC extension failed: {}", e)))?;
-        builder.append_extension(bc)
+        builder
+            .append_extension(bc)
             .map_err(|e| CertError::InvalidFormat(format!("Append BC failed: {}", e)))?;
 
         let ku = KeyUsage::new()
@@ -177,14 +192,16 @@ impl CertificateAuthority {
             .crl_sign()
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("KU extension failed: {}", e)))?;
-        builder.append_extension(ku)
+        builder
+            .append_extension(ku)
             .map_err(|e| CertError::InvalidFormat(format!("Append KU failed: {}", e)))?;
 
         let ctx = builder.x509v3_context(None, None);
         let ski = SubjectKeyIdentifier::new()
             .build(&ctx)
             .map_err(|e| CertError::InvalidFormat(format!("SKI extension failed: {}", e)))?;
-        builder.append_extension(ski)
+        builder
+            .append_extension(ski)
             .map_err(|e| CertError::InvalidFormat(format!("Append SKI failed: {}", e)))?;
 
         // Sign
@@ -194,17 +211,20 @@ impl CertificateAuthority {
             KeyAlgorithm::EcdsaP384 => MessageDigest::sha384(),
         };
 
-        builder.sign(&pkey, digest)
+        builder
+            .sign(&pkey, digest)
             .map_err(|e| CertError::InvalidFormat(format!("Sign failed: {}", e)))?;
 
         let x509 = builder.build();
 
         // Convert to our types
-        let cert_der = x509.to_der()
+        let cert_der = x509
+            .to_der()
             .map_err(|e| CertError::InvalidFormat(format!("To DER failed: {}", e)))?;
         let cert = Certificate::from_der(&cert_der)?;
 
-        let private_key = pkey.private_key_to_der()
+        let private_key = pkey
+            .private_key_to_der()
             .map_err(|e| CertError::InvalidFormat(format!("Private key to DER failed: {}", e)))?;
 
         Ok(CertificateAuthority {
@@ -226,11 +246,13 @@ impl CertificateAuthority {
         let pkey = PKey::private_key_from_pem(key_pem.as_bytes())
             .map_err(|e| CertError::InvalidFormat(format!("Parse key failed: {}", e)))?;
 
-        let cert_der = x509.to_der()
+        let cert_der = x509
+            .to_der()
             .map_err(|e| CertError::InvalidFormat(format!("To DER failed: {}", e)))?;
         let cert = Certificate::from_der(&cert_der)?;
 
-        let private_key = pkey.private_key_to_der()
+        let private_key = pkey
+            .private_key_to_der()
             .map_err(|e| CertError::InvalidFormat(format!("Key to DER failed: {}", e)))?;
 
         // Detect key algorithm
@@ -267,14 +289,16 @@ impl CertificateAuthority {
         dns_names: &[&str],
         ip_addresses: &[IpAddr],
     ) -> Result<(Certificate, Vec<u8>), CertError> {
+        use boring::bn::BigNum;
+        use boring::ec::{EcGroup, EcKey};
+        use boring::hash::MessageDigest;
+        use boring::nid::Nid;
         use boring::pkey::PKey;
         use boring::rsa::Rsa;
-        use boring::ec::{EcKey, EcGroup};
-        use boring::nid::Nid;
+        use boring::x509::extension::{
+            BasicConstraints, ExtendedKeyUsage, KeyUsage, SubjectAlternativeName,
+        };
         use boring::x509::{X509Builder, X509NameBuilder, X509};
-        use boring::x509::extension::{BasicConstraints, KeyUsage, ExtendedKeyUsage, SubjectAlternativeName};
-        use boring::bn::BigNum;
-        use boring::hash::MessageDigest;
 
         // Load CA private key
         let ca_pkey = PKey::private_key_from_der(&self.private_key)
@@ -327,25 +351,31 @@ impl CertificateAuthority {
         let mut builder = X509Builder::new()
             .map_err(|e| CertError::InvalidFormat(format!("X509 builder failed: {}", e)))?;
 
-        builder.set_version(2) // X.509 v3
+        builder
+            .set_version(2) // X.509 v3
             .map_err(|e| CertError::InvalidFormat(format!("Set version failed: {}", e)))?;
 
         // Serial number
         let serial_num = self.serial_counter.fetch_add(1, Ordering::SeqCst);
         let serial = BigNum::from_u32(serial_num as u32)
             .map_err(|e| CertError::InvalidFormat(format!("BigNum failed: {}", e)))?;
-        let serial_asn1 = serial.to_asn1_integer()
+        let serial_asn1 = serial
+            .to_asn1_integer()
             .map_err(|e| CertError::InvalidFormat(format!("ASN1 integer failed: {}", e)))?;
-        builder.set_serial_number(&serial_asn1)
+        builder
+            .set_serial_number(&serial_asn1)
             .map_err(|e| CertError::InvalidFormat(format!("Set serial failed: {}", e)))?;
 
-        builder.set_subject_name(&subject_name)
+        builder
+            .set_subject_name(&subject_name)
             .map_err(|e| CertError::InvalidFormat(format!("Set subject failed: {}", e)))?;
 
-        builder.set_issuer_name(ca_cert.subject_name())
+        builder
+            .set_issuer_name(ca_cert.subject_name())
             .map_err(|e| CertError::InvalidFormat(format!("Set issuer failed: {}", e)))?;
 
-        builder.set_pubkey(&pkey)
+        builder
+            .set_pubkey(&pkey)
             .map_err(|e| CertError::InvalidFormat(format!("Set pubkey failed: {}", e)))?;
 
         // Validity (1 year)
@@ -354,15 +384,19 @@ impl CertificateAuthority {
         let not_after = boring::asn1::Asn1Time::days_from_now(365)
             .map_err(|e| CertError::InvalidFormat(format!("Not after failed: {}", e)))?;
 
-        builder.set_not_before(&not_before)
+        builder
+            .set_not_before(&not_before)
             .map_err(|e| CertError::InvalidFormat(format!("Set not before failed: {}", e)))?;
-        builder.set_not_after(&not_after)
+        builder
+            .set_not_after(&not_after)
             .map_err(|e| CertError::InvalidFormat(format!("Set not after failed: {}", e)))?;
 
         // Extensions
-        let bc = BasicConstraints::new().build()
+        let bc = BasicConstraints::new()
+            .build()
             .map_err(|e| CertError::InvalidFormat(format!("BC extension failed: {}", e)))?;
-        builder.append_extension(bc)
+        builder
+            .append_extension(bc)
             .map_err(|e| CertError::InvalidFormat(format!("Append BC failed: {}", e)))?;
 
         let ku = KeyUsage::new()
@@ -370,7 +404,8 @@ impl CertificateAuthority {
             .key_encipherment()
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("KU extension failed: {}", e)))?;
-        builder.append_extension(ku)
+        builder
+            .append_extension(ku)
             .map_err(|e| CertError::InvalidFormat(format!("Append KU failed: {}", e)))?;
 
         let eku = ExtendedKeyUsage::new()
@@ -378,7 +413,8 @@ impl CertificateAuthority {
             .client_auth()
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("EKU extension failed: {}", e)))?;
-        builder.append_extension(eku)
+        builder
+            .append_extension(eku)
             .map_err(|e| CertError::InvalidFormat(format!("Append EKU failed: {}", e)))?;
 
         // Subject Alternative Names
@@ -393,9 +429,11 @@ impl CertificateAuthority {
             san_builder.ip(&ip.to_string());
         }
 
-        let san = san_builder.build(&ctx)
+        let san = san_builder
+            .build(&ctx)
             .map_err(|e| CertError::InvalidFormat(format!("SAN extension failed: {}", e)))?;
-        builder.append_extension(san)
+        builder
+            .append_extension(san)
             .map_err(|e| CertError::InvalidFormat(format!("Append SAN failed: {}", e)))?;
 
         // Sign with CA key
@@ -405,17 +443,20 @@ impl CertificateAuthority {
             KeyAlgorithm::EcdsaP384 => MessageDigest::sha384(),
         };
 
-        builder.sign(&ca_pkey, digest)
+        builder
+            .sign(&ca_pkey, digest)
             .map_err(|e| CertError::InvalidFormat(format!("Sign failed: {}", e)))?;
 
         let x509 = builder.build();
 
         // Convert to our types
-        let cert_der = x509.to_der()
+        let cert_der = x509
+            .to_der()
             .map_err(|e| CertError::InvalidFormat(format!("To DER failed: {}", e)))?;
         let cert = Certificate::from_der(&cert_der)?;
 
-        let private_key_der = pkey.private_key_to_der()
+        let private_key_der = pkey
+            .private_key_to_der()
             .map_err(|e| CertError::InvalidFormat(format!("Key to DER failed: {}", e)))?;
 
         Ok((cert, private_key_der))
@@ -456,11 +497,13 @@ impl CertificateAuthority {
         };
 
         // Get private key DER
-        let private_key = pkey.private_key_to_der()
+        let private_key = pkey
+            .private_key_to_der()
             .map_err(|e| CertError::InvalidFormat(format!("Failed to encode key: {}", e)))?;
 
         // Parse X.509 into our Certificate structure
-        let cert_der = x509.to_der()
+        let cert_der = x509
+            .to_der()
             .map_err(|e| CertError::InvalidFormat(format!("Failed to encode cert: {}", e)))?;
 
         let cert = Certificate::from_der(&cert_der)?;
@@ -526,11 +569,8 @@ mod tests {
 
     #[test]
     fn test_ca_generation() {
-        let ca = CertificateAuthority::new(
-            "CN=Test CA, O=Test Org",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA generation should succeed");
+        let ca = CertificateAuthority::new("CN=Test CA, O=Test Org", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA generation should succeed");
 
         assert!(ca.cert.is_self_signed());
         assert!(ca.cert.is_ca());
@@ -540,13 +580,11 @@ mod tests {
 
     #[test]
     fn test_cert_generation() {
-        let ca = CertificateAuthority::new(
-            "CN=Test CA",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA generation should succeed");
+        let ca = CertificateAuthority::new("CN=Test CA", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA generation should succeed");
 
-        let (cert, _key) = ca.generate_cert("example.com")
+        let (cert, _key) = ca
+            .generate_cert("example.com")
             .expect("Cert generation should succeed");
 
         assert!(!cert.is_self_signed());
@@ -558,17 +596,16 @@ mod tests {
 
     #[test]
     fn test_cert_with_sans() {
-        let ca = CertificateAuthority::new(
-            "CN=Test CA",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA generation should succeed");
+        let ca = CertificateAuthority::new("CN=Test CA", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA generation should succeed");
 
-        let (cert, _key) = ca.generate_cert_with_sans(
-            "example.com",
-            &["example.com", "*.example.com", "api.example.com"],
-            &["192.168.1.1".parse().unwrap()],
-        ).expect("Cert generation should succeed");
+        let (cert, _key) = ca
+            .generate_cert_with_sans(
+                "example.com",
+                &["example.com", "*.example.com", "api.example.com"],
+                &["192.168.1.1".parse().unwrap()],
+            )
+            .expect("Cert generation should succeed");
 
         assert!(cert.is_valid_for_hostname("example.com"));
         assert!(cert.is_valid_for_hostname("www.example.com"));

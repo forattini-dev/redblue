@@ -32,7 +32,6 @@
 ///
 /// **Educational value:**
 /// See how a complete TLS security audit works end-to-end!
-
 use crate::modules::tls::{
     heartbleed::{HeartbleedResult, HeartbleedTester},
     ocsp::{OcspStatus, OcspValidator},
@@ -85,11 +84,11 @@ pub struct ProtocolTestResult {
 /// Overall security grade
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SecurityGrade {
-    F,  // Fail - Critical vulnerabilities (Heartbleed, NULL ciphers, etc.)
-    D,  // Poor - Serious vulnerabilities or very weak configuration
-    C,  // Fair - Supports TLS 1.0/1.1, has weak ciphers
-    B,  // Good - TLS 1.2+ but some weak ciphers or minor issues
-    A,  // Excellent - TLS 1.2+ only, strong ciphers, PFS, no vulnerabilities
+    F, // Fail - Critical vulnerabilities (Heartbleed, NULL ciphers, etc.)
+    D, // Poor - Serious vulnerabilities or very weak configuration
+    C, // Fair - Supports TLS 1.0/1.1, has weak ciphers
+    B, // Good - TLS 1.2+ but some weak ciphers or minor issues
+    A, // Excellent - TLS 1.2+ only, strong ciphers, PFS, no vulnerabilities
 }
 
 impl SecurityGrade {
@@ -140,7 +139,9 @@ impl ComprehensiveTlsAuditor {
     /// 5. OCSP revocation checking
     /// 6. Security grading based on findings
     pub fn audit(&self, host: &str, port: u16) -> Result<ComprehensiveTlsAudit, String> {
-        let timestamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
+        let timestamp = chrono::Utc::now()
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string();
 
         // Step 1: Enumerate protocols and ciphers
         let scanner = TlsScanner::with_timeout(self.timeout);
@@ -238,10 +239,7 @@ impl ComprehensiveTlsAuditor {
         // Check validity dates
         if TlsClient::is_expired(leaf) {
             valid = false;
-            issues.push(format!(
-                "Certificate expired on {}",
-                leaf.valid_until
-            ));
+            issues.push(format!("Certificate expired on {}", leaf.valid_until));
         }
 
         if TlsClient::is_not_yet_valid(leaf) {
@@ -315,9 +313,15 @@ impl ComprehensiveTlsAuditor {
                 // Add protocol-specific issues
                 if r.supported {
                     match r.version.as_str() {
-                        "SSLv2" => issues.push("CRITICAL: SSLv2 is obsolete (DROWN attack)".to_string()),
-                        "SSLv3" => issues.push("HIGH: SSLv3 vulnerable to POODLE attack".to_string()),
-                        "TLS 1.0" => issues.push("MEDIUM: TLS 1.0 is deprecated (BEAST attack)".to_string()),
+                        "SSLv2" => {
+                            issues.push("CRITICAL: SSLv2 is obsolete (DROWN attack)".to_string())
+                        }
+                        "SSLv3" => {
+                            issues.push("HIGH: SSLv3 vulnerable to POODLE attack".to_string())
+                        }
+                        "TLS 1.0" => {
+                            issues.push("MEDIUM: TLS 1.0 is deprecated (BEAST attack)".to_string())
+                        }
                         "TLS 1.1" => issues.push("LOW: TLS 1.1 is deprecated".to_string()),
                         _ => {}
                     }
@@ -414,7 +418,10 @@ impl ComprehensiveTlsAuditor {
         }
 
         // Count high severity issues
-        let high_count = issues.iter().filter(|i| i.severity == Severity::High).count();
+        let high_count = issues
+            .iter()
+            .filter(|i| i.severity == Severity::High)
+            .count();
 
         // Grading logic
         if supports_old_tls || high_count > 2 {

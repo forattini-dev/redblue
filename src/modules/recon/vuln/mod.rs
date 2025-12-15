@@ -21,20 +21,22 @@
 //! └─────────────────┘     └──────────────┘     └─────────────────┘
 //! ```
 
+pub mod correlator;
 pub mod cpe;
-pub mod types;
+pub mod exploitdb;
+pub mod kev;
 pub mod nvd;
 pub mod osv;
-pub mod kev;
 pub mod risk;
-pub mod exploitdb;
-pub mod correlator;
+pub mod types;
 
-pub use cpe::{CpeMapping, TechCategory, find_cpe, generate_cpe, get_all_cpe_mappings};
-pub use types::{Vulnerability, Severity, ExploitRef, VulnSource, DetectedTech, VulnCollection};
-pub use risk::{calculate_risk_score, RiskLevel};
+pub use correlator::{
+    correlate_techs, CorrelationReport, CorrelatorConfig, TechCorrelation, VulnCorrelator,
+};
+pub use cpe::{find_cpe, generate_cpe, get_all_cpe_mappings, CpeMapping, TechCategory};
+pub use exploitdb::ExploitDbClient;
+pub use kev::KevClient;
 pub use nvd::NvdClient;
 pub use osv::OsvClient;
-pub use kev::KevClient;
-pub use exploitdb::ExploitDbClient;
-pub use correlator::{VulnCorrelator, CorrelatorConfig, CorrelationReport, TechCorrelation, correlate_techs};
+pub use risk::{calculate_risk_score, RiskLevel};
+pub use types::{DetectedTech, ExploitRef, Severity, VulnCollection, VulnSource, Vulnerability};

@@ -1,3 +1,7 @@
+pub mod builtin;
+pub mod engine;
+pub mod expr;
+pub mod loader;
 /// redblue Scripting Engine
 ///
 /// A lightweight, zero-dependency scripting engine for security checks.
@@ -49,12 +53,7 @@
 ///     let result = script.run(&ctx)?;
 /// }
 /// ```
-
 pub mod types;
-pub mod expr;
-pub mod loader;
-pub mod engine;
-pub mod builtin;
 
 pub use types::*;
 
@@ -80,7 +79,11 @@ pub trait Script: Send + Sync {
 
         // Check protocol match
         if !meta.protocols.is_empty() && !ctx.protocol.is_empty() {
-            if !meta.protocols.iter().any(|p| p.eq_ignore_ascii_case(&ctx.protocol)) {
+            if !meta
+                .protocols
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&ctx.protocol))
+            {
                 return false;
             }
         }
@@ -246,10 +249,7 @@ impl ScriptFilter {
 
         // Check categories
         if !self.categories.is_empty() {
-            let has_category = self
-                .categories
-                .iter()
-                .any(|c| meta.categories.contains(c));
+            let has_category = self.categories.iter().any(|c| meta.categories.contains(c));
             if !has_category {
                 return false;
             }
@@ -283,10 +283,9 @@ impl ScriptFilter {
         if !self.patterns.is_empty() {
             let name_lower = meta.name.to_lowercase();
             let id_lower = meta.id.to_lowercase();
-            let matches_pattern = self
-                .patterns
-                .iter()
-                .any(|p| name_lower.contains(&p.to_lowercase()) || id_lower.contains(&p.to_lowercase()));
+            let matches_pattern = self.patterns.iter().any(|p| {
+                name_lower.contains(&p.to_lowercase()) || id_lower.contains(&p.to_lowercase())
+            });
             if !matches_pattern {
                 return false;
             }

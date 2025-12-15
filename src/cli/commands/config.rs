@@ -3,11 +3,11 @@
 // - rb config database clear-password: Remove stored password from keyring
 // - rb config database show: Show current database configuration
 
-use crate::cli::output::Output;
-use crate::cli::terminal::{read_password_with_confirm, confirm};
-use crate::cli::CliContext;
-use crate::storage::keyring::{save_to_keyring, clear_keyring, has_keyring_password};
 use super::{Command, Flag, Route};
+use crate::cli::output::Output;
+use crate::cli::terminal::{confirm, read_password_with_confirm};
+use crate::cli::CliContext;
+use crate::storage::keyring::{clear_keyring, has_keyring_password, save_to_keyring};
 
 pub struct ConfigDatabaseCommand;
 
@@ -45,10 +45,7 @@ impl Command for ConfigDatabaseCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![
-            Flag::new("force", "Skip confirmation prompts")
-                .with_short('f'),
-        ]
+        vec![Flag::new("force", "Skip confirmation prompts").with_short('f')]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -61,10 +58,7 @@ impl Command for ConfigDatabaseCommand {
                 "Clear stored password from keyring",
                 "rb config database clear-password",
             ),
-            (
-                "Show database configuration",
-                "rb config database show",
-            ),
+            ("Show database configuration", "rb config database show"),
         ]
     }
 
@@ -80,7 +74,10 @@ impl Command for ConfigDatabaseCommand {
             "show" => self.show(ctx),
             _ => {
                 super::print_help(self);
-                Err(format!("Unknown verb '{}'. Use: set-password, clear-password, show", verb))
+                Err(format!(
+                    "Unknown verb '{}'. Use: set-password, clear-password, show",
+                    verb
+                ))
             }
         }
     }
@@ -145,7 +142,9 @@ impl ConfigDatabaseCommand {
         let force = ctx.has_flag("force") || ctx.has_flag("f");
         if !force {
             Output::warning("This will remove the stored database password from your keyring.");
-            Output::warning("Existing encrypted databases will require --db-password flag to open.");
+            Output::warning(
+                "Existing encrypted databases will require --db-password flag to open.",
+            );
             println!();
 
             let proceed = confirm("Are you sure you want to clear the password?", false)
@@ -157,12 +156,14 @@ impl ConfigDatabaseCommand {
             }
         }
 
-        clear_keyring()
-            .map_err(|e| format!("Failed to clear keyring: {}", e))?;
+        clear_keyring().map_err(|e| format!("Failed to clear keyring: {}", e))?;
 
         println!();
         Output::success("Password cleared from keyring.");
-        println!("  {}Tip:{} To set a new password: rb config database set-password", "\x1b[36m", "\x1b[0m");
+        println!(
+            "  {}Tip:{} To set a new password: rb config database set-password",
+            "\x1b[36m", "\x1b[0m"
+        );
 
         Ok(())
     }
@@ -190,7 +191,9 @@ impl ConfigDatabaseCommand {
         println!("  Auto-name:          {}", auto_name);
 
         // Database directory
-        let db_dir = config.database.db_dir
+        let db_dir = config
+            .database
+            .db_dir
             .as_ref()
             .map(|d| d.to_string())
             .unwrap_or_else(|| "./ (current directory)".to_string());
@@ -213,13 +216,22 @@ impl ConfigDatabaseCommand {
         }
 
         println!();
-        println!("  {}Tip:{} Use --save flag on commands to persist results to database.", "\x1b[36m", "\x1b[0m");
-        println!("  {}Tip:{} Password priority: --db-password > REDBLUE_DB_KEY > keyring", "\x1b[36m", "\x1b[0m");
+        println!(
+            "  {}Tip:{} Use --save flag on commands to persist results to database.",
+            "\x1b[36m", "\x1b[0m"
+        );
+        println!(
+            "  {}Tip:{} Password priority: --db-password > REDBLUE_DB_KEY > keyring",
+            "\x1b[36m", "\x1b[0m"
+        );
 
         if !has_keyring {
             println!();
             Output::warning("No password configured. Databases will not be encrypted!");
-            println!("  {}Tip:{} Run: rb config database set-password", "\x1b[36m", "\x1b[0m");
+            println!(
+                "  {}Tip:{} Run: rb config database set-password",
+                "\x1b[36m", "\x1b[0m"
+            );
         }
 
         Ok(())

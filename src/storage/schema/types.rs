@@ -553,10 +553,7 @@ pub enum ValueError {
     /// Varint overflow
     VarintOverflow,
     /// Type mismatch
-    TypeMismatch {
-        expected: DataType,
-        found: DataType,
-    },
+    TypeMismatch { expected: DataType, found: DataType },
 }
 
 impl fmt::Display for ValueError {

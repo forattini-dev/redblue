@@ -30,15 +30,15 @@
 //! let results = index.search(&query, 2);
 //! ```
 
-pub mod types;
-pub mod distance;
 pub mod dense;
+pub mod distance;
 pub mod flat_index;
 pub mod ivf_index;
+pub mod types;
 
 // Re-export common types
-pub use types::{DenseVector, SparseVector, VectorId};
-pub use distance::{Distance, DistanceMetric};
 pub use dense::DenseVectorStorage;
+pub use distance::{Distance, DistanceMetric};
 pub use flat_index::FlatIndex;
 pub use ivf_index::IvfIndex;
+pub use types::{DenseVector, SparseVector, VectorId};

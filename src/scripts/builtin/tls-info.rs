@@ -2,7 +2,6 @@
 ///
 /// Analyzes TLS/SSL configuration and certificates.
 /// Identifies security issues and version information.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,13 @@ impl TlsInfoScript {
                 name: "TLS/SSL Information".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Analyzes TLS/SSL configuration and certificate information".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Safe, ScriptCategory::Default],
+                description: "Analyzes TLS/SSL configuration and certificate information"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["https".to_string(), "tls".to_string(), "ssl".to_string()],
                 ports: vec![443, 465, 636, 853, 993, 995, 8443],
                 license: "MIT".to_string(),
@@ -105,7 +109,8 @@ impl Script for TlsInfoScript {
             // Add remediation for old protocols
             if severity >= FindingSeverity::Medium {
                 let finding = result.findings.last_mut().unwrap();
-                finding.remediation = Some("Disable TLS 1.1 and older. Enable only TLS 1.2 and TLS 1.3".to_string());
+                finding.remediation =
+                    Some("Disable TLS 1.1 and older. Enable only TLS 1.2 and TLS 1.3".to_string());
             }
         }
 
@@ -140,7 +145,9 @@ impl Script for TlsInfoScript {
             }
 
             // Check for good ciphers
-            let has_aead = cipher_upper.contains("GCM") || cipher_upper.contains("CHACHA20") || cipher_upper.contains("CCM");
+            let has_aead = cipher_upper.contains("GCM")
+                || cipher_upper.contains("CHACHA20")
+                || cipher_upper.contains("CCM");
             let has_pfs = cipher_upper.contains("DHE") || cipher_upper.contains("ECDHE");
 
             if cipher_issues.is_empty() && has_aead && has_pfs {
@@ -152,10 +159,15 @@ impl Script for TlsInfoScript {
             } else {
                 for (issue, severity) in cipher_issues {
                     result.add_finding(
-                        Finding::new(FindingType::Misconfiguration, &format!("Weak Cipher: {}", issue))
-                            .with_description(&format!("Cipher suite: {}", cipher))
-                            .with_severity(severity)
-                            .with_remediation("Configure server to use only strong AEAD ciphers with PFS"),
+                        Finding::new(
+                            FindingType::Misconfiguration,
+                            &format!("Weak Cipher: {}", issue),
+                        )
+                        .with_description(&format!("Cipher suite: {}", cipher))
+                        .with_severity(severity)
+                        .with_remediation(
+                            "Configure server to use only strong AEAD ciphers with PFS",
+                        ),
                     );
                 }
 
@@ -189,16 +201,23 @@ impl Script for TlsInfoScript {
                 if issuer == subject {
                     result.add_finding(
                         Finding::new(FindingType::Misconfiguration, "Self-Signed Certificate")
-                            .with_description("Certificate is self-signed and will not be trusted by browsers")
+                            .with_description(
+                                "Certificate is self-signed and will not be trusted by browsers",
+                            )
                             .with_severity(FindingSeverity::Medium)
-                            .with_remediation("Obtain a certificate from a trusted Certificate Authority"),
+                            .with_remediation(
+                                "Obtain a certificate from a trusted Certificate Authority",
+                            ),
                     );
                 }
             }
 
             // Check for known test CAs
             let issuer_lower = issuer.to_lowercase();
-            if issuer_lower.contains("test") || issuer_lower.contains("fake") || issuer_lower.contains("example") {
+            if issuer_lower.contains("test")
+                || issuer_lower.contains("fake")
+                || issuer_lower.contains("example")
+            {
                 result.add_finding(
                     Finding::new(FindingType::Misconfiguration, "Test/Fake Certificate")
                         .with_description("Certificate appears to be from a test or fake CA")
@@ -255,7 +274,10 @@ impl Script for TlsInfoScript {
             }
         }
 
-        result.add_output(&format!("TLS analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "TLS analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -318,7 +340,10 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("tls_version"), Some(&"TLSv1.3".to_string()));
+        assert_eq!(
+            result.extracted.get("tls_version"),
+            Some(&"TLSv1.3".to_string())
+        );
     }
 
     #[test]
@@ -343,10 +368,7 @@ mod tests {
         ctx.set_data("cipher_suite", "TLS_RSA_WITH_RC4_128_SHA");
 
         let result = script.run(&ctx).unwrap();
-        let has_rc4_warning = result
-            .findings
-            .iter()
-            .any(|f| f.title.contains("RC4"));
+        let has_rc4_warning = result.findings.iter().any(|f| f.title.contains("RC4"));
         assert!(has_rc4_warning);
     }
 

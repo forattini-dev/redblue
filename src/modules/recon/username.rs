@@ -144,7 +144,11 @@ impl UsernameSearcher {
         let filtered_sites: Vec<SiteCheck> = self
             .sites
             .iter()
-            .filter(|s| categories.iter().any(|c| s.category.eq_ignore_ascii_case(c)))
+            .filter(|s| {
+                categories
+                    .iter()
+                    .any(|c| s.category.eq_ignore_ascii_case(c))
+            })
             .cloned()
             .collect();
 

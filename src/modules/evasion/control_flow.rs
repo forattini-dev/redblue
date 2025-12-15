@@ -316,7 +316,7 @@ impl InstructionSubstitution {
     pub fn xor_substitute(a: u32, b: u32) -> u32 {
         let method = black_box(a.wrapping_add(b)) % 3;
         match method {
-            0 => (a | b) & !(a & b), // (a | b) & ~(a & b)
+            0 => (a | b) & !(a & b),  // (a | b) & ~(a & b)
             1 => (a & !b) | (!a & b), // (a & ~b) | (~a & b)
             _ => a ^ b,
         }

@@ -23,7 +23,7 @@ impl Analyzer {
         let mut min_len = usize::MAX;
         let mut max_len = 0;
         let mut unique = HashSet::new();
-        
+
         // Charset detection
         let mut has_lower = false;
         let mut has_upper = false;
@@ -33,23 +33,40 @@ impl Analyzer {
         for w in words {
             let len = w.len();
             total_len += len;
-            if len < min_len { min_len = len; }
-            if len > max_len { max_len = len; }
+            if len < min_len {
+                min_len = len;
+            }
+            if len > max_len {
+                max_len = len;
+            }
             unique.insert(w);
-            
+
             for c in w.chars() {
-                if c.is_ascii_lowercase() { has_lower = true; }
-                else if c.is_ascii_uppercase() { has_upper = true; }
-                else if c.is_ascii_digit() { has_digit = true; }
-                else { has_symbol = true; }
+                if c.is_ascii_lowercase() {
+                    has_lower = true;
+                } else if c.is_ascii_uppercase() {
+                    has_upper = true;
+                } else if c.is_ascii_digit() {
+                    has_digit = true;
+                } else {
+                    has_symbol = true;
+                }
             }
         }
 
         let mut charset = Vec::new();
-        if has_lower { charset.push("lower"); }
-        if has_upper { charset.push("upper"); }
-        if has_digit { charset.push("digit"); }
-        if has_symbol { charset.push("symbol"); }
+        if has_lower {
+            charset.push("lower");
+        }
+        if has_upper {
+            charset.push("upper");
+        }
+        if has_digit {
+            charset.push("digit");
+        }
+        if has_symbol {
+            charset.push("symbol");
+        }
 
         WordlistStats {
             line_count,

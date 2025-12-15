@@ -1,4 +1,4 @@
-use std::io::{self, BufReader, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -23,13 +23,22 @@ impl SmtpClient {
     /// Verifies if an email address exists by interacting with the SMTP server.
     /// Does not actually send an email.
     pub fn verify_email(&self, email: &str) -> Result<bool, String> {
-        let stream = TcpStream::connect(&self.server_addr)
-            .map_err(|e| format!("Failed to connect to SMTP server {}: {}", self.server_addr, e))?;
-        stream.set_read_timeout(Some(self.timeout)).map_err(|e| e.to_string())?;
-        stream.set_write_timeout(Some(self.timeout)).map_err(|e| e.to_string())?;
+        let stream = TcpStream::connect(&self.server_addr).map_err(|e| {
+            format!(
+                "Failed to connect to SMTP server {}: {}",
+                self.server_addr, e
+            )
+        })?;
+        stream
+            .set_read_timeout(Some(self.timeout))
+            .map_err(|e| e.to_string())?;
+        stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|e| e.to_string())?;
 
         // Clone stream for separate read/write handles
-        let read_stream = stream.try_clone()
+        let read_stream = stream
+            .try_clone()
             .map_err(|e| format!("Failed to clone stream: {}", e))?;
         let mut writer = stream;
         let mut reader = BufReader::new(read_stream);
@@ -71,15 +80,25 @@ impl SmtpClient {
         Ok(exists)
     }
 
-    fn read_line(&self, reader: &mut BufReader<TcpStream>, line: &mut String) -> Result<(), String> {
+    fn read_line(
+        &self,
+        reader: &mut BufReader<TcpStream>,
+        line: &mut String,
+    ) -> Result<(), String> {
         line.clear();
-        reader.read_line(line).map_err(|e| format!("Failed to read from SMTP stream: {}", e))?;
+        reader
+            .read_line(line)
+            .map_err(|e| format!("Failed to read from SMTP stream: {}", e))?;
         Ok(())
     }
 
     fn write_line(&self, stream: &mut TcpStream, data: &[u8]) -> Result<(), String> {
-        stream.write_all(data).map_err(|e| format!("Failed to write to SMTP stream: {}", e))?;
-        stream.write_all(b"\r\n").map_err(|e| format!("Failed to write to SMTP stream: {}", e))?;
+        stream
+            .write_all(data)
+            .map_err(|e| format!("Failed to write to SMTP stream: {}", e))?;
+        stream
+            .write_all(b"\r\n")
+            .map_err(|e| format!("Failed to write to SMTP stream: {}", e))?;
         Ok(())
     }
 }

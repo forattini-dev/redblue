@@ -2,7 +2,6 @@
 ///
 /// Detects SNMP services and identifies security issues
 /// including default community strings.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,13 @@ impl SnmpInfoScript {
                 name: "SNMP Service Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects SNMP services and identifies configuration issues".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description: "Detects SNMP services and identifies configuration issues"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["snmp".to_string()],
                 ports: vec![161, 162],
                 license: "MIT".to_string(),
@@ -73,10 +77,12 @@ impl Script for SnmpInfoScript {
                         Finding::new(FindingType::Misconfiguration, "SNMPv1 in Use")
                             .with_description(
                                 "SNMPv1 has no encryption and uses cleartext community strings. \
-                                 This is insecure and should be upgraded."
+                                 This is insecure and should be upgraded.",
                             )
                             .with_severity(FindingSeverity::High)
-                            .with_remediation("Upgrade to SNMPv3 with authentication and encryption"),
+                            .with_remediation(
+                                "Upgrade to SNMPv3 with authentication and encryption",
+                            ),
                     );
                 }
                 "2" | "2c" | "v2c" => {
@@ -84,16 +90,20 @@ impl Script for SnmpInfoScript {
                         Finding::new(FindingType::Misconfiguration, "SNMPv2c in Use")
                             .with_description(
                                 "SNMPv2c uses cleartext community strings. \
-                                 Consider upgrading to SNMPv3."
+                                 Consider upgrading to SNMPv3.",
                             )
                             .with_severity(FindingSeverity::Medium)
-                            .with_remediation("Upgrade to SNMPv3 with authentication and encryption"),
+                            .with_remediation(
+                                "Upgrade to SNMPv3 with authentication and encryption",
+                            ),
                     );
                 }
                 "3" | "v3" => {
                     result.add_finding(
                         Finding::new(FindingType::Discovery, "SNMPv3 in Use")
-                            .with_description("SNMPv3 detected (supports authentication and encryption)")
+                            .with_description(
+                                "SNMPv3 detected (supports authentication and encryption)",
+                            )
                             .with_severity(FindingSeverity::Info),
                     );
                 }
@@ -103,7 +113,15 @@ impl Script for SnmpInfoScript {
 
         // Check for default community strings
         let community_lower = community.to_lowercase();
-        let default_communities = ["public", "private", "community", "snmp", "admin", "default", "test"];
+        let default_communities = [
+            "public",
+            "private",
+            "community",
+            "snmp",
+            "admin",
+            "default",
+            "test",
+        ];
 
         if default_communities.iter().any(|c| community_lower == *c) {
             result.add_finding(
@@ -160,7 +178,10 @@ impl Script for SnmpInfoScript {
             );
         }
 
-        result.add_output(&format!("SNMP analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "SNMP analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -183,7 +204,10 @@ mod tests {
         ctx.set_data("snmp_version", "2c");
 
         let result = script.run(&ctx).unwrap();
-        let has_default = result.findings.iter().any(|f| f.title.contains("Default SNMP Community"));
+        let has_default = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Default SNMP Community"));
         assert!(has_default);
     }
 }

@@ -8,10 +8,13 @@
 //! - Fewer probes = worse recall, faster search
 
 use super::dense::DenseVectorStorage;
-use super::distance::{Distance, l2_squared_distance, cosine_distance, dot_product, manhattan_distance, normalize_vector};
+use super::distance::{
+    cosine_distance, dot_product, l2_squared_distance, manhattan_distance, normalize_vector,
+    Distance,
+};
 use super::types::{DenseVector, SearchResult, VectorId};
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// IVF-Flat index for approximate k-NN search
 ///
@@ -58,7 +61,10 @@ impl PartialOrd for HeapEntry {
 impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order for max-heap
-        other.distance.partial_cmp(&self.distance).unwrap_or(Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -219,7 +225,11 @@ impl IvfIndex {
     }
 
     /// Update centroids based on assignments
-    fn update_centroids(&mut self, vectors: &[DenseVector], assignments: &[ClusterAssignment]) -> bool {
+    fn update_centroids(
+        &mut self,
+        vectors: &[DenseVector],
+        assignments: &[ClusterAssignment],
+    ) -> bool {
         let mut new_centroids: Vec<Vec<f32>> = vec![vec![0.0; self.dim]; self.centroids.len()];
         let mut counts = vec![0usize; self.centroids.len()];
 
@@ -361,7 +371,11 @@ impl IvfIndex {
             .map(|e| SearchResult::new(e.id, e.distance))
             .collect();
 
-        results.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(Ordering::Equal));
+        results.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
+        });
 
         results
     }
@@ -373,7 +387,10 @@ impl IvfIndex {
         k: usize,
         n_probes: usize,
     ) -> Vec<Vec<SearchResult>> {
-        queries.iter().map(|q| self.search(q, k, n_probes)).collect()
+        queries
+            .iter()
+            .map(|q| self.search(q, k, n_probes))
+            .collect()
     }
 
     /// Compute distance between two vectors

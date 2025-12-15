@@ -8,13 +8,17 @@ impl RuleEngine {
         while let Some(cmd) = chars.next() {
             match cmd {
                 ':' => { /* No-op */ }
-                'l' => { result = result.to_lowercase(); }
-                'u' => { result = result.to_uppercase(); }
+                'l' => {
+                    result = result.to_lowercase();
+                }
+                'u' => {
+                    result = result.to_uppercase();
+                }
                 'c' => {
                     // Capitalize (first char upper, rest lower? or just first char upper?)
                     // Hashcat 'c' is "Capitalize": lowercase all, then uppercase first.
                     // Wait, hashcat 'c' is "Capitalize". 'C' is "Lowercase first".
-                    // Let's implement standard Capitalize: Uppercase first, leave rest? 
+                    // Let's implement standard Capitalize: Uppercase first, leave rest?
                     // Or "Titlecase"?
                     // Hashcat: "c" -> Capitalize (First char to upper, rest unmodified? No, usually Title case involves lowercasing the rest).
                     // Hashcat wiki says: "c - Capitalize".
@@ -66,7 +70,7 @@ mod tests {
         assert_eq!(RuleEngine::apply("abc", "d"), "abcabc");
         assert_eq!(RuleEngine::apply("pass", "$1"), "pass1");
         assert_eq!(RuleEngine::apply("pass", "^!"), "!pass");
-        
+
         // Chained
         assert_eq!(RuleEngine::apply("pass", "$1^!"), "!pass1");
         assert_eq!(RuleEngine::apply("pass", "r$1"), "ssap1");

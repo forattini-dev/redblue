@@ -7,8 +7,12 @@ use crate::cli::{
     CliContext,
 };
 use crate::config;
-use crate::intelligence::{banner_analysis, os_probes, os_signatures, service_detection, timing_analysis};
-use crate::modules::network::scanner::{PortScanner, AdvancedScanner, ScanType, AdvancedScanResult, TimingTemplate};
+use crate::intelligence::{
+    banner_analysis, os_probes, os_signatures, service_detection, timing_analysis,
+};
+use crate::modules::network::scanner::{
+    AdvancedScanResult, AdvancedScanner, PortScanner, ScanType, TimingTemplate,
+};
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
@@ -160,10 +164,7 @@ impl Command for ScanCommand {
                 "SYN scan (requires root)",
                 "rb network ports syn-scan 192.168.1.1 --preset common",
             ),
-            (
-                "UDP scan",
-                "rb network ports udp-scan 192.168.1.1",
-            ),
+            ("UDP scan", "rb network ports udp-scan 192.168.1.1"),
             (
                 "FIN stealth scan",
                 "rb network ports stealth 192.168.1.1 --type fin",
@@ -212,7 +213,10 @@ impl Command for ScanCommand {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
                     "{}",
-                    Validator::suggest_command(verb, &["scan", "range", "syn-scan", "udp-scan", "stealth", "subnet"])
+                    Validator::suggest_command(
+                        verb,
+                        &["scan", "range", "syn-scan", "udp-scan", "stealth", "subnet"]
+                    )
                 );
                 Err("Invalid verb".to_string())
             }
@@ -321,11 +325,8 @@ impl ScanCommand {
             &target_str_owned,
             [("preset", preset), ("mode", "scan")],
         );
-        let mut pm = storage.persistence_with_config(
-            &target_str_owned,
-            persistence_config,
-            attributes,
-        )?;
+        let mut pm =
+            storage.persistence_with_config(&target_str_owned, persistence_config, attributes)?;
 
         // Save port scan results to database
         if pm.is_enabled() {
@@ -516,9 +517,7 @@ impl ScanCommand {
 
                                 println!(
                                     "  \x1b[32m{}\x1b[0m {} ({}%)",
-                                    marker,
-                                    os_match.signature.name,
-                                    confidence_pct
+                                    marker, os_match.signature.name, confidence_pct
                                 );
 
                                 // Show matching points for top match
@@ -544,7 +543,11 @@ impl ScanCommand {
                             if let Some(first_port) = open_ports.first() {
                                 let db = os_signatures::OsSignatureDb::new();
                                 let quick_matches = db.find_matches(
-                                    first_port.banner.as_ref().and_then(|_| Some(64)).unwrap_or(64),
+                                    first_port
+                                        .banner
+                                        .as_ref()
+                                        .and_then(|_| Some(64))
+                                        .unwrap_or(64),
                                     65535,
                                     Some(1460),
                                     Some(7),
@@ -563,7 +566,10 @@ impl ScanCommand {
                         }
                     }
                     Err(e) => {
-                        Output::warning(&format!("OS detection requires elevated privileges: {}", e));
+                        Output::warning(&format!(
+                            "OS detection requires elevated privileges: {}",
+                            e
+                        ));
                     }
                 }
             } else {
@@ -977,7 +983,9 @@ impl ScanCommand {
         let target = Validator::resolve_host(target_str)?;
 
         // Parse timing template first - it overrides other settings
-        let timing = ctx.get_flag("timing").and_then(|t| TimingTemplate::from_str(&t));
+        let timing = ctx
+            .get_flag("timing")
+            .and_then(|t| TimingTemplate::from_str(&t));
 
         // Get configuration - timing template overrides defaults
         let cfg = config::get();
@@ -1084,11 +1092,7 @@ impl ScanCommand {
         Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
 
         for result in interesting {
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("-");
+            let service = result.service.as_ref().map(|s| s.as_str()).unwrap_or("-");
 
             let rtt = result
                 .rtt_ms
@@ -1155,7 +1159,9 @@ impl ScanCommand {
         };
 
         // Parse timing template first - it overrides other settings
-        let timing = ctx.get_flag("timing").and_then(|t| TimingTemplate::from_str(&t));
+        let timing = ctx
+            .get_flag("timing")
+            .and_then(|t| TimingTemplate::from_str(&t));
 
         // Get configuration - timing template overrides defaults
         let cfg = config::get();
@@ -1266,17 +1272,16 @@ impl ScanCommand {
 
         if !open_filtered.is_empty() {
             println!();
-            Output::success(&format!("Potentially open ports ({}):", open_filtered.len()));
+            Output::success(&format!(
+                "Potentially open ports ({}):",
+                open_filtered.len()
+            ));
             println!();
 
             Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
 
             for result in &open_filtered {
-                let service = result
-                    .service
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("-");
+                let service = result.service.as_ref().map(|s| s.as_str()).unwrap_or("-");
 
                 let rtt = result
                     .rtt_ms

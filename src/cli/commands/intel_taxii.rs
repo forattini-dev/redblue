@@ -42,21 +42,38 @@ impl Command for IntelTaxiiCommand {
         vec![
             Flag::new("url", "TAXII discovery URL")
                 .with_default("https://cti-taxii.mitre.org/taxii/"),
-            Flag::new("root", "API Root")
-                .with_default("enterprise-attack"),
+            Flag::new("root", "API Root").with_default("enterprise-attack"),
             Flag::new("collection", "Collection ID to sync"),
-            Flag::new("type", "Filter by STIX object type (e.g., attack-pattern, intrusion-set)"),
-            Flag::new("after", "Only fetch objects added after this timestamp (ISO 8601)"),
+            Flag::new(
+                "type",
+                "Filter by STIX object type (e.g., attack-pattern, intrusion-set)",
+            ),
+            Flag::new(
+                "after",
+                "Only fetch objects added after this timestamp (ISO 8601)",
+            ),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("List default MITRE collections", "rb intel taxii collections"),
-            ("List from custom server", "rb intel taxii collections --url=https://limo.anomali.com/taxii/"),
+            (
+                "List default MITRE collections",
+                "rb intel taxii collections",
+            ),
+            (
+                "List from custom server",
+                "rb intel taxii collections --url=https://limo.anomali.com/taxii/",
+            ),
             ("Sync all objects (interactive)", "rb intel taxii sync"),
-            ("Sync techniques only", "rb intel taxii sync --collection=<ID> --type=attack-pattern"),
-            ("Sync groups from MITRE", "rb intel taxii sync --collection=<ID> --type=intrusion-set"),
+            (
+                "Sync techniques only",
+                "rb intel taxii sync --collection=<ID> --type=attack-pattern",
+            ),
+            (
+                "Sync groups from MITRE",
+                "rb intel taxii sync --collection=<ID> --type=intrusion-set",
+            ),
         ]
     }
 
@@ -87,7 +104,10 @@ impl IntelTaxiiCommand {
     fn list_collections(&self, ctx: &CliContext) -> Result<(), String> {
         Output::header("TAXII Collections");
         let client = self.create_client(ctx);
-        println!("URL: {}", ctx.get_flag_or("url", "https://cti-taxii.mitre.org/taxii/"));
+        println!(
+            "URL: {}",
+            ctx.get_flag_or("url", "https://cti-taxii.mitre.org/taxii/")
+        );
         println!();
 
         Output::spinner_start("Fetching collections...");
@@ -148,13 +168,13 @@ impl IntelTaxiiCommand {
         let obj_type = ctx.get_flag("type");
         let added_after = ctx.get_flag("after");
 
-        Output::spinner_start(&format!("Syncing objects from collection: {}", collection_id));
+        Output::spinner_start(&format!(
+            "Syncing objects from collection: {}",
+            collection_id
+        ));
 
-        let envelope = client.get_objects(
-            &collection_id,
-            obj_type.as_deref(),
-            added_after.as_deref(),
-        )?;
+        let envelope =
+            client.get_objects(&collection_id, obj_type.as_deref(), added_after.as_deref())?;
 
         Output::spinner_done();
         println!();
@@ -174,7 +194,8 @@ impl IntelTaxiiCommand {
         println!();
 
         // Count object types
-        let mut type_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut type_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for obj in &objects {
             if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
                 *type_counts.entry(t.to_string()).or_insert(0) += 1;
@@ -200,7 +221,8 @@ impl IntelTaxiiCommand {
 
         // Show some sample objects
         let show_limit = 5;
-        let techniques: Vec<_> = objects.iter()
+        let techniques: Vec<_> = objects
+            .iter()
             .filter(|o| o.get("type").and_then(|v| v.as_str()) == Some("attack-pattern"))
             .take(show_limit)
             .collect();
@@ -208,10 +230,18 @@ impl IntelTaxiiCommand {
         if !techniques.is_empty() {
             Output::section(&format!("Sample Techniques (first {})", techniques.len()));
             for tech in techniques {
-                let name = tech.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                let ext_refs = tech.get("external_references")
+                let name = tech
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown");
+                let ext_refs = tech
+                    .get("external_references")
                     .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.iter().find(|r| r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")))
+                    .and_then(|arr| {
+                        arr.iter().find(|r| {
+                            r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")
+                        })
+                    })
                     .and_then(|r| r.get("external_id"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("-");
@@ -220,7 +250,8 @@ impl IntelTaxiiCommand {
             println!();
         }
 
-        let groups: Vec<_> = objects.iter()
+        let groups: Vec<_> = objects
+            .iter()
             .filter(|o| o.get("type").and_then(|v| v.as_str()) == Some("intrusion-set"))
             .take(show_limit)
             .collect();
@@ -228,10 +259,18 @@ impl IntelTaxiiCommand {
         if !groups.is_empty() {
             Output::section(&format!("Sample Threat Groups (first {})", groups.len()));
             for grp in groups {
-                let name = grp.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                let ext_refs = grp.get("external_references")
+                let name = grp
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown");
+                let ext_refs = grp
+                    .get("external_references")
                     .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.iter().find(|r| r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")))
+                    .and_then(|arr| {
+                        arr.iter().find(|r| {
+                            r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")
+                        })
+                    })
                     .and_then(|r| r.get("external_id"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("-");

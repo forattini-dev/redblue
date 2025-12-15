@@ -1,5 +1,5 @@
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 pub struct RateLimiter {
     last_attempt: Instant,
@@ -17,7 +17,7 @@ impl RateLimiter {
             lockout_detected: false,
         }
     }
-    
+
     pub fn wait(&mut self) {
         let elapsed = self.last_attempt.elapsed();
         if elapsed < self.delay {
@@ -25,7 +25,7 @@ impl RateLimiter {
         }
         self.last_attempt = Instant::now();
     }
-    
+
     pub fn report_result(&mut self, status_code: u16) {
         if status_code == 429 || status_code == 403 {
             // Lockout or rate limit detected
@@ -35,7 +35,7 @@ impl RateLimiter {
         } else {
             // Reset logic if needed, or if we see success/normal fail
             if self.lockout_detected && status_code != 429 && status_code != 403 {
-                 // Maybe slowly decrease? Or keep it safe?
+                // Maybe slowly decrease? Or keep it safe?
             }
         }
     }

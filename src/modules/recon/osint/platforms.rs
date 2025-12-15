@@ -2,7 +2,6 @@
 ///
 /// Contains 200+ platform definitions with URL patterns and detection methods.
 /// Based on sherlock and maigret databases.
-
 use std::collections::HashMap;
 
 /// Platform categories
@@ -63,7 +62,10 @@ pub enum DetectionMethod {
     /// Check HTTP status code (200 = exists, 404 = not found)
     StatusCode { found: u16, not_found: u16 },
     /// Search for specific text in response body
-    ResponseContains { found: String, not_found: Option<String> },
+    ResponseContains {
+        found: String,
+        not_found: Option<String>,
+    },
     /// Check if response body doesn't contain text
     ResponseNotContains { text: String },
     /// Check for redirect to specific URL pattern

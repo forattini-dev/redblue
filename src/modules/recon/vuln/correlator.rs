@@ -21,16 +21,15 @@
 //! └─────────────────┘     └──────────────┘     └─────────────────┘
 //! ```
 
-use std::time::{Duration, Instant};
-use super::{
-    generate_cpe, find_cpe, calculate_risk_score, CpeMapping,
-    NvdClient, OsvClient, KevClient, ExploitDbClient,
-    DetectedTech, Vulnerability, VulnCollection, VulnSource, Severity,
-    TechCategory,
-};
-use super::osv::Ecosystem;
-use super::kev::KevEntry;
 use super::exploitdb::ExploitDbEntry;
+use super::kev::KevEntry;
+use super::osv::Ecosystem;
+use super::{
+    calculate_risk_score, find_cpe, generate_cpe, CpeMapping, DetectedTech, ExploitDbClient,
+    KevClient, NvdClient, OsvClient, Severity, TechCategory, VulnCollection, VulnSource,
+    Vulnerability,
+};
+use std::time::{Duration, Instant};
 
 /// Configuration for the correlation engine
 #[derive(Debug, Clone)]
@@ -115,19 +114,28 @@ impl TechCorrelation {
     /// Calculate statistics from vulnerabilities
     fn calculate_stats(&mut self) {
         self.cve_count = self.vulnerabilities.iter().filter(|v| v.is_cve()).count();
-        self.critical_count = self.vulnerabilities.iter()
-            .filter(|v| v.severity == Severity::Critical).count();
-        self.high_count = self.vulnerabilities.iter()
-            .filter(|v| v.severity == Severity::High).count();
-        self.exploitable_count = self.vulnerabilities.iter()
-            .filter(|v| v.has_exploit()).count();
-        self.kev_count = self.vulnerabilities.iter()
-            .filter(|v| v.cisa_kev).count();
+        self.critical_count = self
+            .vulnerabilities
+            .iter()
+            .filter(|v| v.severity == Severity::Critical)
+            .count();
+        self.high_count = self
+            .vulnerabilities
+            .iter()
+            .filter(|v| v.severity == Severity::High)
+            .count();
+        self.exploitable_count = self
+            .vulnerabilities
+            .iter()
+            .filter(|v| v.has_exploit())
+            .count();
+        self.kev_count = self.vulnerabilities.iter().filter(|v| v.cisa_kev).count();
     }
 
     /// Get highest risk score among vulnerabilities
     pub fn max_risk_score(&self) -> u8 {
-        self.vulnerabilities.iter()
+        self.vulnerabilities
+            .iter()
             .filter_map(|v| v.risk_score)
             .max()
             .unwrap_or(0)
@@ -135,7 +143,8 @@ impl TechCorrelation {
 
     /// Get highest severity
     pub fn max_severity(&self) -> Severity {
-        self.vulnerabilities.iter()
+        self.vulnerabilities
+            .iter()
             .map(|v| v.severity)
             .max()
             .unwrap_or(Severity::None)
@@ -214,7 +223,8 @@ impl CorrelationReport {
     /// Calculate summary statistics
     fn calculate_summary(&mut self) {
         self.summary.techs_scanned = self.tech_correlations.len() + self.clean_techs.len();
-        self.summary.techs_vulnerable = self.tech_correlations
+        self.summary.techs_vulnerable = self
+            .tech_correlations
             .iter()
             .filter(|t| !t.vulnerabilities.is_empty())
             .count();
@@ -257,9 +267,7 @@ impl CorrelationReport {
     /// Get top N vulnerabilities by risk score
     pub fn top_risks(&self, n: usize) -> Vec<&Vulnerability> {
         let mut vulns: Vec<_> = self.all_vulnerabilities.iter().collect();
-        vulns.sort_by(|a, b| {
-            b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0))
-        });
+        vulns.sort_by(|a, b| b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0)));
         vulns.into_iter().take(n).collect()
     }
 
@@ -353,7 +361,11 @@ impl VulnCorrelator {
     }
 
     /// Correlate a single technology
-    fn correlate_single(&mut self, tech: &DetectedTech, source_stats: &mut Vec<SourceStats>) -> TechCorrelation {
+    fn correlate_single(
+        &mut self,
+        tech: &DetectedTech,
+        source_stats: &mut Vec<SourceStats>,
+    ) -> TechCorrelation {
         let start = Instant::now();
         let mut correlation = TechCorrelation::new(tech.clone());
 
@@ -477,7 +489,8 @@ impl VulnCorrelator {
         }
 
         // Filter by severity
-        let mut vulns: Vec<Vulnerability> = collection.into_iter()
+        let mut vulns: Vec<Vulnerability> = collection
+            .into_iter()
             .filter(|v| v.severity >= self.config.min_severity)
             .collect();
 
@@ -487,9 +500,7 @@ impl VulnCorrelator {
         }
 
         // Sort by risk score
-        vulns.sort_by(|a, b| {
-            b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0))
-        });
+        vulns.sort_by(|a, b| b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0)));
 
         // Limit results
         vulns.truncate(self.config.max_vulns_per_tech);
@@ -518,7 +529,12 @@ impl VulnCorrelator {
     }
 
     /// Query NVD for vulnerabilities
-    fn query_nvd(&mut self, _name: &str, _version: Option<&str>, cpe: Option<&str>) -> Result<Vec<Vulnerability>, String> {
+    fn query_nvd(
+        &mut self,
+        _name: &str,
+        _version: Option<&str>,
+        cpe: Option<&str>,
+    ) -> Result<Vec<Vulnerability>, String> {
         // Prefer CPE query if available
         if let Some(cpe) = cpe {
             return self.nvd_client.query_by_cpe(cpe);
@@ -529,7 +545,12 @@ impl VulnCorrelator {
     }
 
     /// Query OSV for vulnerabilities
-    fn query_osv(&self, name: &str, version: Option<&str>, category: &TechCategory) -> Result<Vec<Vulnerability>, String> {
+    fn query_osv(
+        &self,
+        name: &str,
+        version: Option<&str>,
+        category: &TechCategory,
+    ) -> Result<Vec<Vulnerability>, String> {
         // Determine ecosystem from category or config
         let ecosystem = match category {
             TechCategory::JsLibrary => Some(Ecosystem::Npm),
@@ -547,7 +568,9 @@ impl VulnCorrelator {
                 // Try to detect from name
                 if name.to_lowercase().contains("django") || name.to_lowercase().contains("flask") {
                     Some(Ecosystem::PyPI)
-                } else if name.to_lowercase().contains("express") || name.to_lowercase().contains("react") {
+                } else if name.to_lowercase().contains("express")
+                    || name.to_lowercase().contains("react")
+                {
                     Some(Ecosystem::Npm)
                 } else {
                     None
@@ -570,7 +593,8 @@ impl VulnCorrelator {
         let entries = self.kev_client.get_by_product(name)?;
 
         // Convert KEV entries to Vulnerability records
-        let vulns: Vec<Vulnerability> = entries.into_iter()
+        let vulns: Vec<Vulnerability> = entries
+            .into_iter()
             .map(|entry| kev_entry_to_vuln(entry))
             .collect();
 
@@ -578,12 +602,17 @@ impl VulnCorrelator {
     }
 
     /// Query Exploit-DB
-    fn query_exploitdb(&self, name: &str, version: Option<&str>) -> Result<Vec<Vulnerability>, String> {
+    fn query_exploitdb(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<Vec<Vulnerability>, String> {
         // Search by product and version
         let entries = self.exploitdb_client.search_by_product(name, version)?;
 
         // Convert to vulnerabilities
-        let vulns: Vec<Vulnerability> = entries.into_iter()
+        let vulns: Vec<Vulnerability> = entries
+            .into_iter()
             .filter_map(|entry| {
                 // Only include if there's a CVE associated or create a placeholder
                 if !entry.cve_ids.is_empty() {
@@ -618,7 +647,8 @@ fn kev_entry_to_vuln(entry: KevEntry) -> Vulnerability {
 
     // Add reference about ransomware use
     if entry.known_ransomware_use {
-        vuln.references.push("Known to be used in ransomware campaigns".to_string());
+        vuln.references
+            .push("Known to be used in ransomware campaigns".to_string());
     }
 
     vuln

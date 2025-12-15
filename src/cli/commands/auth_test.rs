@@ -1,25 +1,29 @@
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
-use crate::modules::auth::iterator::CredentialIterator;
 use crate::modules::auth::http_auth::HttpAuthTester;
+use crate::modules::auth::iterator::CredentialIterator;
 use crate::wordlists::Loader;
 
 pub struct AuthTestCommand;
 
 impl Command for AuthTestCommand {
-    fn domain(&self) -> &str { "auth" }
-    fn resource(&self) -> &str { "test" }
-    fn description(&self) -> &str { "Test credentials against target" }
+    fn domain(&self) -> &str {
+        "auth"
+    }
+    fn resource(&self) -> &str {
+        "test"
+    }
+    fn description(&self) -> &str {
+        "Test credentials against target"
+    }
 
     fn routes(&self) -> Vec<Route> {
-        vec![
-            Route {
-                verb: "http",
-                summary: "Test HTTP Basic/Digest/Form auth",
-                usage: "rb auth test http <target> -u <users> -p <pass>",
-            }
-        ]
+        vec![Route {
+            verb: "http",
+            summary: "Test HTTP Basic/Digest/Form auth",
+            usage: "rb auth test http <target> -u <users> -p <pass>",
+        }]
     }
 
     fn flags(&self) -> Vec<Flag> {
@@ -32,9 +36,10 @@ impl Command for AuthTestCommand {
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
-        vec![
-            ("Test Basic Auth", "rb auth test http http://target.com/admin -u users.txt -p pass.txt"),
-        ]
+        vec![(
+            "Test Basic Auth",
+            "rb auth test http http://target.com/admin -u users.txt -p pass.txt",
+        )]
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
@@ -43,11 +48,9 @@ impl Command for AuthTestCommand {
         let users_file = ctx.get_flag("userlist").ok_or("Missing --userlist")?;
         let pass_file = ctx.get_flag("passlist").ok_or("Missing --passlist")?;
 
-        let users = Loader::load_lines(users_file)
-            .map_err(|e| e.to_string())?;
+        let users = Loader::load_lines(users_file).map_err(|e| e.to_string())?;
 
-        let passwords = Loader::load_lines(pass_file)
-            .map_err(|e| e.to_string())?;
+        let passwords = Loader::load_lines(pass_file).map_err(|e| e.to_string())?;
 
         let iter = CredentialIterator::new(users, passwords);
         let mut tester = HttpAuthTester::new();

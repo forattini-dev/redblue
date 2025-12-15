@@ -120,7 +120,10 @@ impl Command for CryptoCommand {
                 print_help(self);
                 Ok(())
             }
-            _ => Err(format!("Unknown verb '{}'. Use: rb crypto vault help", verb)),
+            _ => Err(format!(
+                "Unknown verb '{}'. Use: rb crypto vault help",
+                verb
+            )),
         }
     }
 }
@@ -133,8 +136,8 @@ impl CryptoCommand {
             .ok_or("Missing input file. Usage: rb crypto vault encrypt <file>")?;
 
         // Read input file
-        let plaintext = fs::read(input_path)
-            .map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
+        let plaintext =
+            fs::read(input_path).map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
 
         // Determine output path
         let output_path = ctx
@@ -219,8 +222,8 @@ impl CryptoCommand {
             .ok_or("Missing vault file. Usage: rb crypto vault decrypt <file.vault>")?;
 
         // Read vault file
-        let vault_data = fs::read(input_path)
-            .map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
+        let vault_data =
+            fs::read(input_path).map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
 
         // Validate minimum size (magic + version + salt + nonce + tag)
         let min_size = VAULT_MAGIC.len() + 1 + SALT_SIZE + NONCE_SIZE + TAG_SIZE;
@@ -325,8 +328,8 @@ impl CryptoCommand {
             .ok_or("Missing vault file. Usage: rb crypto vault info <file.vault>")?;
 
         // Read vault file
-        let vault_data = fs::read(input_path)
-            .map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
+        let vault_data =
+            fs::read(input_path).map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
 
         Output::header("Vault File Info");
         Output::item("File", input_path);
@@ -371,21 +374,28 @@ impl CryptoCommand {
 
     fn hash_ops(&self, ctx: &CliContext) -> Result<(), String> {
         let resource = ctx.resource.as_deref().unwrap_or("");
-        
+
         match resource {
             "verify" => self.verify_checksum(ctx),
-            _ => {
-                Err(format!("Unknown hash operation '{}'. Try: rb crypto hash verify <file> <hash>", resource))
-            }
+            _ => Err(format!(
+                "Unknown hash operation '{}'. Try: rb crypto hash verify <file> <hash>",
+                resource
+            )),
         }
     }
 
     fn verify_checksum(&self, ctx: &CliContext) -> Result<(), String> {
-        let file_path = ctx.target.as_ref().ok_or("Missing file path. Usage: rb crypto hash verify <file> <hash>")?;
-        
+        let file_path = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing file path. Usage: rb crypto hash verify <file> <hash>")?;
+
         // The hash should be the first argument
-        let expected_hash = ctx.args.get(0).ok_or("Missing expected hash. Usage: rb crypto hash verify <file> <hash>")?;
-        
+        let expected_hash = ctx
+            .args
+            .get(0)
+            .ok_or("Missing expected hash. Usage: rb crypto hash verify <file> <hash>")?;
+
         let path = Path::new(file_path);
         if !path.exists() {
             return Err(format!("File not found: {}", file_path));
@@ -397,24 +407,26 @@ impl CryptoCommand {
         println!();
 
         Output::spinner_start("Calculating SHA-256");
-        
+
         let mut file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 8192];
 
         loop {
-            let n = file.read(&mut buffer).map_err(|e| format!("Read failed: {}", e))?;
+            let n = file
+                .read(&mut buffer)
+                .map_err(|e| format!("Read failed: {}", e))?;
             if n == 0 {
                 break;
             }
             hasher.update(&buffer[..n]);
         }
-        
+
         let digest = hasher.finalize();
         let actual_hash = hex_encode(&digest);
-        
+
         Output::spinner_done();
-        
+
         println!();
         if actual_hash.eq_ignore_ascii_case(expected_hash) {
             Output::success("✓ Checksum MATCHED");

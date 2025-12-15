@@ -5,11 +5,10 @@
 /// - Port state classification
 /// - Packet structure for various scan types
 /// - Service detection accuracy
-
 use std::net::Ipv4Addr;
 
 // Import the redblue library
-use redblue::modules::network::scanner::{TimingTemplate, ScanType, AdvancedScanner};
+use redblue::modules::network::scanner::{AdvancedScanner, ScanType, TimingTemplate};
 use redblue::protocols::raw::PortState;
 
 /// Test timing template configurations
@@ -19,8 +18,16 @@ mod timing_templates {
     #[test]
     fn test_paranoid_timing() {
         let tmpl = TimingTemplate::Paranoid;
-        assert_eq!(tmpl.timeout_ms(), 300000, "Paranoid should have 5 minute timeout");
-        assert_eq!(tmpl.delay_ms(), 300000, "Paranoid should have 5 minute delay");
+        assert_eq!(
+            tmpl.timeout_ms(),
+            300000,
+            "Paranoid should have 5 minute timeout"
+        );
+        assert_eq!(
+            tmpl.delay_ms(),
+            300000,
+            "Paranoid should have 5 minute delay"
+        );
         assert_eq!(tmpl.parallelism(), 1, "Paranoid should use 1 thread");
         assert_eq!(tmpl.retries(), 10, "Paranoid should have max retries");
     }
@@ -28,7 +35,11 @@ mod timing_templates {
     #[test]
     fn test_sneaky_timing() {
         let tmpl = TimingTemplate::Sneaky;
-        assert_eq!(tmpl.timeout_ms(), 15000, "Sneaky should have 15 second timeout");
+        assert_eq!(
+            tmpl.timeout_ms(),
+            15000,
+            "Sneaky should have 15 second timeout"
+        );
         assert_eq!(tmpl.delay_ms(), 15000, "Sneaky should have 15 second delay");
         assert_eq!(tmpl.parallelism(), 1, "Sneaky should use 1 thread");
     }
@@ -36,7 +47,11 @@ mod timing_templates {
     #[test]
     fn test_polite_timing() {
         let tmpl = TimingTemplate::Polite;
-        assert_eq!(tmpl.timeout_ms(), 2000, "Polite should have 2 second timeout");
+        assert_eq!(
+            tmpl.timeout_ms(),
+            2000,
+            "Polite should have 2 second timeout"
+        );
         assert_eq!(tmpl.delay_ms(), 400, "Polite should have 400ms delay");
         assert_eq!(tmpl.parallelism(), 10, "Polite should use 10 threads");
     }
@@ -44,7 +59,11 @@ mod timing_templates {
     #[test]
     fn test_normal_timing() {
         let tmpl = TimingTemplate::Normal;
-        assert_eq!(tmpl.timeout_ms(), 1000, "Normal should have 1 second timeout");
+        assert_eq!(
+            tmpl.timeout_ms(),
+            1000,
+            "Normal should have 1 second timeout"
+        );
         assert_eq!(tmpl.delay_ms(), 0, "Normal should have no delay");
         assert_eq!(tmpl.parallelism(), 100, "Normal should use 100 threads");
     }
@@ -52,7 +71,11 @@ mod timing_templates {
     #[test]
     fn test_aggressive_timing() {
         let tmpl = TimingTemplate::Aggressive;
-        assert_eq!(tmpl.timeout_ms(), 500, "Aggressive should have 500ms timeout");
+        assert_eq!(
+            tmpl.timeout_ms(),
+            500,
+            "Aggressive should have 500ms timeout"
+        );
         assert_eq!(tmpl.delay_ms(), 0, "Aggressive should have no delay");
         assert_eq!(tmpl.parallelism(), 500, "Aggressive should use 500 threads");
     }
@@ -67,24 +90,51 @@ mod timing_templates {
 
     #[test]
     fn test_timing_from_str() {
-        assert_eq!(TimingTemplate::from_str("T0"), Some(TimingTemplate::Paranoid));
-        assert_eq!(TimingTemplate::from_str("t0"), Some(TimingTemplate::Paranoid));
-        assert_eq!(TimingTemplate::from_str("paranoid"), Some(TimingTemplate::Paranoid));
+        assert_eq!(
+            TimingTemplate::from_str("T0"),
+            Some(TimingTemplate::Paranoid)
+        );
+        assert_eq!(
+            TimingTemplate::from_str("t0"),
+            Some(TimingTemplate::Paranoid)
+        );
+        assert_eq!(
+            TimingTemplate::from_str("paranoid"),
+            Some(TimingTemplate::Paranoid)
+        );
 
         assert_eq!(TimingTemplate::from_str("T1"), Some(TimingTemplate::Sneaky));
-        assert_eq!(TimingTemplate::from_str("sneaky"), Some(TimingTemplate::Sneaky));
+        assert_eq!(
+            TimingTemplate::from_str("sneaky"),
+            Some(TimingTemplate::Sneaky)
+        );
 
         assert_eq!(TimingTemplate::from_str("T2"), Some(TimingTemplate::Polite));
-        assert_eq!(TimingTemplate::from_str("polite"), Some(TimingTemplate::Polite));
+        assert_eq!(
+            TimingTemplate::from_str("polite"),
+            Some(TimingTemplate::Polite)
+        );
 
         assert_eq!(TimingTemplate::from_str("T3"), Some(TimingTemplate::Normal));
-        assert_eq!(TimingTemplate::from_str("normal"), Some(TimingTemplate::Normal));
+        assert_eq!(
+            TimingTemplate::from_str("normal"),
+            Some(TimingTemplate::Normal)
+        );
 
-        assert_eq!(TimingTemplate::from_str("T4"), Some(TimingTemplate::Aggressive));
-        assert_eq!(TimingTemplate::from_str("aggressive"), Some(TimingTemplate::Aggressive));
+        assert_eq!(
+            TimingTemplate::from_str("T4"),
+            Some(TimingTemplate::Aggressive)
+        );
+        assert_eq!(
+            TimingTemplate::from_str("aggressive"),
+            Some(TimingTemplate::Aggressive)
+        );
 
         assert_eq!(TimingTemplate::from_str("T5"), Some(TimingTemplate::Insane));
-        assert_eq!(TimingTemplate::from_str("insane"), Some(TimingTemplate::Insane));
+        assert_eq!(
+            TimingTemplate::from_str("insane"),
+            Some(TimingTemplate::Insane)
+        );
 
         assert_eq!(TimingTemplate::from_str("invalid"), None);
         assert_eq!(TimingTemplate::from_str("T6"), None);
@@ -154,8 +204,7 @@ mod scanner_builder {
     #[test]
     fn test_scanner_with_timing() {
         let target: IpAddr = "127.0.0.1".parse().unwrap();
-        let scanner = AdvancedScanner::new(target)
-            .with_timing(TimingTemplate::Aggressive);
+        let scanner = AdvancedScanner::new(target).with_timing(TimingTemplate::Aggressive);
 
         // Scanner should apply timing template settings
         // The internal state verification would need accessor methods
@@ -219,6 +268,9 @@ mod common_ports {
     #[test]
     fn test_common_udp_ports_count() {
         let ports = AdvancedScanner::get_common_udp_ports();
-        assert!(ports.len() >= 20, "Should have at least 20 common UDP ports");
+        assert!(
+            ports.len() >= 20,
+            "Should have at least 20 common UDP ports"
+        );
     }
 }

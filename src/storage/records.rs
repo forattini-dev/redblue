@@ -279,29 +279,29 @@ pub enum Severity {
 pub struct FingerprintRecord {
     pub host: String,
     pub port: u16,
-    pub technology: String,       // e.g., "nginx"
-    pub version: Option<String>,  // e.g., "1.21.0"
-    pub cpe: Option<String>,      // e.g., "cpe:2.3:a:nginx:nginx:1.21.0"
-    pub confidence: u8,           // 0-100
-    pub source: String,           // banner/header/probe
+    pub technology: String,      // e.g., "nginx"
+    pub version: Option<String>, // e.g., "1.21.0"
+    pub cpe: Option<String>,     // e.g., "cpe:2.3:a:nginx:nginx:1.21.0"
+    pub confidence: u8,          // 0-100
+    pub source: String,          // banner/header/probe
     pub detected_at: u32,
 }
 
 /// Vulnerability record from CVE correlation
 #[derive(Debug, Clone)]
 pub struct VulnerabilityRecord {
-    pub cve_id: String,           // e.g., "CVE-2021-44228"
-    pub technology: String,       // e.g., "log4j"
-    pub version: Option<String>,  // e.g., "2.14.0"
-    pub cvss: f32,                // e.g., 10.0
-    pub risk_score: u8,           // 0-100
-    pub severity: Severity,       // Critical/High/Medium/Low
+    pub cve_id: String,          // e.g., "CVE-2021-44228"
+    pub technology: String,      // e.g., "log4j"
+    pub version: Option<String>, // e.g., "2.14.0"
+    pub cvss: f32,               // e.g., 10.0
+    pub risk_score: u8,          // 0-100
+    pub severity: Severity,      // Critical/High/Medium/Low
     pub description: String,
-    pub references: Vec<String>,  // URLs
+    pub references: Vec<String>, // URLs
     pub exploit_available: bool,
-    pub in_kev: bool,             // CISA Known Exploited
-    pub discovered_at: u32,       // timestamp
-    pub source: String,           // nvd/osv/kev/exploitdb
+    pub in_kev: bool,       // CISA Known Exploited
+    pub discovered_at: u32, // timestamp
+    pub source: String,     // nvd/osv/kev/exploitdb
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -333,9 +333,9 @@ pub enum SessionStatus {
 /// Session record for active shells
 #[derive(Debug, Clone)]
 pub struct SessionRecord {
-    pub id: String,               // uuid
+    pub id: String, // uuid
     pub target: String,
-    pub shell_type: String,       // tcp/http/dns/icmp
+    pub shell_type: String, // tcp/http/dns/icmp
     pub local_port: u16,
     pub remote_ip: String,
     pub status: SessionStatus,
@@ -373,16 +373,16 @@ pub struct PlaybookRunRecord {
 
 #[derive(Debug, Clone)]
 pub struct MitreAttackRecord {
-    pub technique_id: String,     // e.g., "T1059.001"
-    pub technique_name: String,   // e.g., "PowerShell"
-    pub tactic: String,           // e.g., "Execution"
-    pub target: String,           // e.g., "example.com"
-    pub source_finding: String,   // e.g., "port_scan:5985"
-    pub cve_id: Option<String>,   // e.g., "CVE-2021-44228"
-    pub confidence: u8,           // 0-100
-    pub score: u8,                // 0-100 (for Navigator)
-    pub detected_at: u32,         // Unix timestamp
-    pub evidence: String,         // Detail string
+    pub technique_id: String,   // e.g., "T1059.001"
+    pub technique_name: String, // e.g., "PowerShell"
+    pub tactic: String,         // e.g., "Execution"
+    pub target: String,         // e.g., "example.com"
+    pub source_finding: String, // e.g., "port_scan:5985"
+    pub cve_id: Option<String>, // e.g., "CVE-2021-44228"
+    pub confidence: u8,         // 0-100
+    pub score: u8,              // 0-100 (for Navigator)
+    pub detected_at: u32,       // Unix timestamp
+    pub evidence: String,       // Detail string
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -402,12 +402,12 @@ pub enum IocType {
 #[derive(Debug, Clone)]
 pub struct IocRecord {
     pub ioc_type: IocType,
-    pub value: String,            // e.g., "192.168.1.1"
-    pub target: String,           // e.g., "example.com"
-    pub confidence: u8,           // 0-100
-    pub source: String,           // e.g., "port_scan", "dns_lookup"
+    pub value: String,                 // e.g., "192.168.1.1"
+    pub target: String,                // e.g., "example.com"
+    pub confidence: u8,                // 0-100
+    pub source: String,                // e.g., "port_scan", "dns_lookup"
     pub mitre_techniques: Vec<String>, // List of T-codes
-    pub tags: Vec<String>,        // e.g., ["phishing", "apt29"]
+    pub tags: Vec<String>,             // e.g., ["phishing", "apt29"]
     pub first_seen: u32,
     pub last_seen: u32,
     pub stix_id: Option<String>,
@@ -1118,7 +1118,7 @@ impl FingerprintRecord {
         }
         let mut pos = 0;
         let host = read_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 2 {
             return Err(DecodeError("truncated port"));
         }
@@ -1128,7 +1128,7 @@ impl FingerprintRecord {
         let technology = read_string(bytes, &mut pos)?;
         let version = read_optional_string(bytes, &mut pos)?;
         let cpe = read_optional_string(bytes, &mut pos)?;
-        
+
         if pos >= bytes.len() {
             return Err(DecodeError("truncated confidence"));
         }
@@ -1136,11 +1136,12 @@ impl FingerprintRecord {
         pos += 1;
 
         let source = read_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let detected_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let detected_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
 
         Ok(Self {
             host,
@@ -1165,7 +1166,7 @@ impl VulnerabilityRecord {
         buf.push(self.risk_score);
         buf.push(self.severity as u8);
         write_string(&mut buf, &self.description);
-        
+
         write_varu32(&mut buf, self.references.len() as u32);
         for ref_url in &self.references {
             write_string(&mut buf, ref_url);
@@ -1183,11 +1184,12 @@ impl VulnerabilityRecord {
         let cve_id = read_string(bytes, &mut pos)?;
         let technology = read_string(bytes, &mut pos)?;
         let version = read_optional_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated cvss"));
         }
-        let cvss_bits = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let cvss_bits =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         let cvss = f32::from_bits(cvss_bits);
         pos += 4;
 
@@ -1225,7 +1227,8 @@ impl VulnerabilityRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let discovered_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let discovered_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         let source = read_string(bytes, &mut pos)?;
@@ -1264,7 +1267,7 @@ impl ExploitAttemptRecord {
         let target = read_string(bytes, &mut pos)?;
         let cve_id = read_optional_string(bytes, &mut pos)?;
         let exploit_name = read_string(bytes, &mut pos)?;
-        
+
         if pos >= bytes.len() {
             return Err(DecodeError("truncated status"));
         }
@@ -1278,11 +1281,12 @@ impl ExploitAttemptRecord {
         pos += 1;
 
         let output = read_optional_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let attempted_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let attempted_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
 
         Ok(Self {
             target,
@@ -1314,7 +1318,7 @@ impl SessionRecord {
         let id = read_string(bytes, &mut pos)?;
         let target = read_string(bytes, &mut pos)?;
         let shell_type = read_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 2 {
             return Err(DecodeError("truncated port"));
         }
@@ -1322,7 +1326,7 @@ impl SessionRecord {
         pos += 2;
 
         let remote_ip = read_string(bytes, &mut pos)?;
-        
+
         if pos >= bytes.len() {
             return Err(DecodeError("truncated status"));
         }
@@ -1337,9 +1341,11 @@ impl SessionRecord {
         if bytes.len() < pos + 8 {
             return Err(DecodeError("truncated timestamps"));
         }
-        let created_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let created_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
-        let last_activity = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let last_activity =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
 
         Ok(Self {
             id,
@@ -1362,7 +1368,7 @@ impl PlaybookRunRecord {
         buf.push(self.status as u8);
         buf.push(self.current_phase);
         buf.extend_from_slice(&self.started_at.to_le_bytes());
-        
+
         match self.completed_at {
             Some(ts) => {
                 buf.push(1);
@@ -1384,7 +1390,7 @@ impl PlaybookRunRecord {
         let mut pos = 0;
         let playbook_name = read_string(bytes, &mut pos)?;
         let target = read_string(bytes, &mut pos)?;
-        
+
         if pos >= bytes.len() {
             return Err(DecodeError("truncated status"));
         }
@@ -1405,7 +1411,8 @@ impl PlaybookRunRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated start time"));
         }
-        let started_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let started_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         if pos >= bytes.len() {
@@ -1413,12 +1420,13 @@ impl PlaybookRunRecord {
         }
         let has_completed = bytes[pos] != 0;
         pos += 1;
-        
+
         let completed_at = if has_completed {
             if bytes.len() < pos + 4 {
                 return Err(DecodeError("truncated completed time"));
             }
-            let ts = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+            let ts =
+                u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
             pos += 4;
             Some(ts)
         } else {
@@ -1431,7 +1439,11 @@ impl PlaybookRunRecord {
             let name = read_string(bytes, &mut pos)?;
             let status = read_string(bytes, &mut pos)?;
             let output = read_optional_string(bytes, &mut pos)?;
-            results.push(StepResult { name, status, output });
+            results.push(StepResult {
+                name,
+                status,
+                output,
+            });
         }
 
         Ok(Self {
@@ -1472,7 +1484,7 @@ impl MitreAttackRecord {
         let target = read_string(bytes, &mut pos)?;
         let source_finding = read_string(bytes, &mut pos)?;
         let cve_id = read_optional_string(bytes, &mut pos)?;
-        
+
         if bytes.len() < pos + 2 {
             return Err(DecodeError("truncated confidence/score"));
         }
@@ -1484,7 +1496,8 @@ impl MitreAttackRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let detected_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let detected_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         let evidence = read_string(bytes, &mut pos)?;
@@ -1512,7 +1525,7 @@ impl IocRecord {
         write_string(&mut buf, &self.target);
         buf.push(self.confidence);
         write_string(&mut buf, &self.source);
-        
+
         write_varu32(&mut buf, self.mitre_techniques.len() as u32);
         for tech in &self.mitre_techniques {
             write_string(&mut buf, tech);
@@ -1551,7 +1564,7 @@ impl IocRecord {
 
         let value = read_string(bytes, &mut pos)?;
         let target = read_string(bytes, &mut pos)?;
-        
+
         if pos >= bytes.len() {
             return Err(DecodeError("truncated confidence"));
         }
@@ -1575,9 +1588,11 @@ impl IocRecord {
         if bytes.len() < pos + 8 {
             return Err(DecodeError("truncated timestamps"));
         }
-        let first_seen = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let first_seen =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
-        let last_seen = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let last_seen =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         let stix_id = read_optional_string(bytes, &mut pos)?;
@@ -1653,8 +1668,14 @@ impl ProxyConnectionRecord {
 
         // Connection ID
         let connection_id = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
@@ -1714,9 +1735,11 @@ impl ProxyConnectionRecord {
         if bytes.len() < pos + 8 {
             return Err(DecodeError("truncated timestamps"));
         }
-        let started_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let started_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
-        let ended_at = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let ended_at =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         // Bytes sent/received
@@ -1724,13 +1747,25 @@ impl ProxyConnectionRecord {
             return Err(DecodeError("truncated byte counters"));
         }
         let bytes_sent = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
         let bytes_received = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
@@ -1799,13 +1834,20 @@ impl ProxyHttpRequestRecord {
 
         // Connection ID
         let connection_id = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
         // Request seq
-        let request_seq = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let request_seq =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         // Strings
@@ -1835,7 +1877,8 @@ impl ProxyHttpRequestRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let timestamp = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let timestamp =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         // Client addr
@@ -1898,13 +1941,20 @@ impl ProxyHttpResponseRecord {
 
         // Connection ID
         let connection_id = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
         // Request seq
-        let request_seq = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let request_seq =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         // Status
@@ -1935,7 +1985,8 @@ impl ProxyHttpResponseRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let timestamp = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let timestamp =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
         pos += 4;
 
         // Content type
@@ -1986,15 +2037,27 @@ impl ProxyWebSocketRecord {
 
         // Connection ID
         let connection_id = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
         // Frame seq
         let frame_seq = u64::from_le_bytes([
-            bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3],
-            bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7],
+            bytes[pos],
+            bytes[pos + 1],
+            bytes[pos + 2],
+            bytes[pos + 3],
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
         ]);
         pos += 8;
 
@@ -2016,7 +2079,8 @@ impl ProxyWebSocketRecord {
         if bytes.len() < pos + 4 {
             return Err(DecodeError("truncated timestamp"));
         }
-        let timestamp = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
+        let timestamp =
+            u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]);
 
         Ok(Self {
             connection_id,
@@ -2131,10 +2195,16 @@ mod tests {
 
     #[test]
     fn test_port_scan_all_statuses() {
-        for (status_byte, expected) in [(0, PortStatus::Open), (1, PortStatus::Closed),
-                                        (2, PortStatus::Filtered), (3, PortStatus::OpenFiltered)] {
+        for (status_byte, expected) in [
+            (0, PortStatus::Open),
+            (1, PortStatus::Closed),
+            (2, PortStatus::Filtered),
+            (3, PortStatus::OpenFiltered),
+        ] {
             let record = PortScanRecord::new(0x7F000001, 22, status_byte, 0);
-            assert!(matches!(record.status, _ if std::mem::discriminant(&record.status) == std::mem::discriminant(&expected)));
+            assert!(
+                matches!(record.status, _ if std::mem::discriminant(&record.status) == std::mem::discriminant(&expected))
+            );
         }
     }
 
@@ -2213,8 +2283,12 @@ mod tests {
 
     #[test]
     fn test_subdomain_all_sources() {
-        for source in [SubdomainSource::DnsBruteforce, SubdomainSource::CertTransparency,
-                       SubdomainSource::SearchEngine, SubdomainSource::WebCrawl] {
+        for source in [
+            SubdomainSource::DnsBruteforce,
+            SubdomainSource::CertTransparency,
+            SubdomainSource::SearchEngine,
+            SubdomainSource::WebCrawl,
+        ] {
             let record = SubdomainRecord {
                 subdomain: "test.example.com".to_string(),
                 ips: vec![],
@@ -2592,9 +2666,7 @@ mod tests {
             path: "/api/login".to_string(),
             http_version: "HTTP/1.1".to_string(),
             host: "auth.example.com".to_string(),
-            headers: vec![
-                ("content-type".to_string(), "application/json".to_string()),
-            ],
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
             body: b"{\"username\":\"test\"}".to_vec(),
             timestamp: 1700000100,
             client_addr: None,
@@ -2664,7 +2736,7 @@ mod tests {
             connection_id: 5000,
             frame_seq: 42,
             direction: 0, // client -> server
-            opcode: 1, // text
+            opcode: 1,    // text
             payload: b"Hello WebSocket!".to_vec(),
             timestamp: 1700000300,
         };
@@ -2686,7 +2758,7 @@ mod tests {
             connection_id: 6000,
             frame_seq: 100,
             direction: 1, // server -> client
-            opcode: 2, // binary
+            opcode: 2,    // binary
             payload: vec![0x00, 0x01, 0x02, 0x03, 0xFF],
             timestamp: 1700000400,
         };

@@ -13,7 +13,7 @@
 /// - Rule-based web scraping with config support
 ///
 /// All implementations are from scratch with ZERO external dependencies.
-pub mod cms;  // Advanced CMS security testing (wpscan, droopescan replacement)
+pub mod cms; // Advanced CMS security testing (wpscan, droopescan replacement)
 pub mod crawler;
 pub mod dom; // HTML DOM parser with CSS selectors
 pub mod extractors; // Built-in extractors for common web data
@@ -30,10 +30,13 @@ pub mod strategies;
 pub mod vuln_scanner;
 
 // Re-export commonly used types
-pub use cms::{CmsScanner, CmsScanConfig, CmsScanResult, CmsType, CmsDetector};
+pub use cms::{CmsDetector, CmsScanConfig, CmsScanResult, CmsScanner, CmsType};
 pub use crawler::{CrawlResult, CrawledPage, CrawlerConfig, WebCrawler};
 pub use fingerprinter::WebFingerprinter;
-pub use fuzzer::{WebFuzzer, WordlistManager, FuzzerConfig, FuzzTarget, FuzzResult, HttpMethod, DirectoryFuzzer, Wordlists, DirFuzzResult, DirFuzzStats, ProgressBar};
+pub use fuzzer::{
+    DirFuzzResult, DirFuzzStats, DirectoryFuzzer, FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod,
+    ProgressBar, WebFuzzer, WordlistManager, Wordlists,
+};
 pub use scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 pub use scraper::{ExtractType, ExtractedValue, ScrapeConfig, ScrapeResult, ScrapeRule, Scraper};
 pub use strategies::{

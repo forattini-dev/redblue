@@ -64,20 +64,35 @@ impl Command for BenchCommand {
                 .with_default("true"),
             Flag::new("max-idle", "Max idle connections per host").with_default("50"),
             // Mode flags
-            Flag::new("mode", "Testing mode: throughput, connections, realistic, stress")
-                .with_short('m')
-                .with_default("realistic"),
-            Flag::new("new-user-ratio", "Ratio of new users in realistic mode (0.0-1.0)")
-                .with_default("0.3"),
-            Flag::new("session-length", "Requests per session before reconnect (realistic mode)"),
-            Flag::new("think-variance", "Think time variance multiplier (realistic mode)")
-                .with_default("0.0"),
+            Flag::new(
+                "mode",
+                "Testing mode: throughput, connections, realistic, stress",
+            )
+            .with_short('m')
+            .with_default("realistic"),
+            Flag::new(
+                "new-user-ratio",
+                "Ratio of new users in realistic mode (0.0-1.0)",
+            )
+            .with_default("0.3"),
+            Flag::new(
+                "session-length",
+                "Requests per session before reconnect (realistic mode)",
+            ),
+            Flag::new(
+                "think-variance",
+                "Think time variance multiplier (realistic mode)",
+            )
+            .with_default("0.0"),
             Flag::new("ramp-up", "Gradual ramp-up duration in seconds"),
             Flag::new("warmup", "Warmup requests to skip from statistics").with_default("0"),
             Flag::new("rate-limit", "Target RPS limit (0 = unlimited)").with_default("0"),
             // HTTP/2 pool flags
-            Flag::new("shared-http2-pool", "Share HTTP/2 connections across workers")
-                .with_default("true"),
+            Flag::new(
+                "shared-http2-pool",
+                "Share HTTP/2 connections across workers",
+            )
+            .with_default("true"),
             Flag::new("http2-connections", "Max HTTP/2 connections per origin").with_default("6"),
             Flag::new("live", "Show real-time dashboard with graphs").with_short('l'),
             Flag::new("live-interval", "Seconds between live dashboard updates")
@@ -117,7 +132,10 @@ impl Command for BenchCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Basic load test (realistic mode)", "rb bench load run https://example.com"),
+            (
+                "Basic load test (realistic mode)",
+                "rb bench load run https://example.com",
+            ),
             (
                 "Maximum throughput test",
                 "rb bench load run https://example.com --mode throughput --users 500",
@@ -299,7 +317,10 @@ impl BenchCommand {
         // Display config
         Output::header("HTTP Load Test");
         Output::item("Target", url);
-        Output::item("Mode", &format!("{} ({})", mode.label(), mode.description()));
+        Output::item(
+            "Mode",
+            &format!("{} ({})", mode.label(), mode.description()),
+        );
         Output::item("Concurrent Users", &users.to_string());
         if let Some(req) = requests {
             Output::item("Requests/User", &req.to_string());
@@ -612,9 +633,7 @@ impl BenchCommand {
 }
 
 fn parse_method_and_body(ctx: &CliContext) -> Result<(String, Option<Vec<u8>>), String> {
-    let method_raw = ctx
-        .get_flag("method")
-        .unwrap_or_else(|| "GET".to_string());
+    let method_raw = ctx.get_flag("method").unwrap_or_else(|| "GET".to_string());
     let method_trimmed = method_raw.trim();
     if method_trimmed.is_empty() {
         return Err("HTTP method cannot be empty".to_string());

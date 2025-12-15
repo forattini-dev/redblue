@@ -568,7 +568,10 @@ mod tests {
             directory_offset: 0,
             encrypted: true,
         };
-        assert_eq!(encrypted.total_header_size(), FileHeader::SIZE + FileHeader::ENCRYPTION_DATA_SIZE);
+        assert_eq!(
+            encrypted.total_header_size(),
+            FileHeader::SIZE + FileHeader::ENCRYPTION_DATA_SIZE
+        );
     }
 
     // ==================== SectionEntry Tests ====================
@@ -637,9 +640,7 @@ mod tests {
 
     #[test]
     fn test_section_entry_write_read_v1() {
-        let entries = vec![
-            SectionEntry::new(SegmentKind::Dns, 200, 400),
-        ];
+        let entries = vec![SectionEntry::new(SegmentKind::Dns, 200, 400)];
 
         let mut buf = Vec::new();
         SectionEntry::write_all(&entries, &mut buf, 1);
@@ -683,7 +684,10 @@ mod tests {
         assert_eq!(decoded.len(), 3);
         assert_eq!(decoded[0], ("key1".to_string(), "value1".to_string()));
         assert_eq!(decoded[1], ("key2".to_string(), "value2".to_string()));
-        assert_eq!(decoded[2], ("target".to_string(), "example.com".to_string()));
+        assert_eq!(
+            decoded[2],
+            ("target".to_string(), "example.com".to_string())
+        );
     }
 
     #[test]

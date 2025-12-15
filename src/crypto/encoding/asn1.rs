@@ -184,10 +184,7 @@ pub enum Asn1Value {
         value: Box<Asn1Value>,
     },
     /// Context-specific tagged raw bytes [N] IMPLICIT
-    ContextSpecificRaw {
-        tag: u8,
-        data: Vec<u8>,
-    },
+    ContextSpecificRaw { tag: u8, data: Vec<u8> },
     /// Raw/unknown value (tag, data)
     Raw(u8, Vec<u8>),
 }
@@ -273,10 +270,8 @@ impl Asn1Value {
 
     /// Create OBJECT IDENTIFIER from dotted string (e.g., "1.2.840.113549")
     pub fn oid_from_str(s: &str) -> Result<Self, Asn1Error> {
-        let components: Result<Vec<u32>, _> = s
-            .split('.')
-            .map(|part| part.parse::<u32>())
-            .collect();
+        let components: Result<Vec<u32>, _> =
+            s.split('.').map(|part| part.parse::<u32>()).collect();
 
         match components {
             Ok(comps) if comps.len() >= 2 => Ok(Self::ObjectIdentifier(comps)),
@@ -493,9 +488,17 @@ impl Asn1Value {
                 buf.extend_from_slice(&content);
             }
 
-            Self::ContextSpecific { tag, constructed, value } => {
+            Self::ContextSpecific {
+                tag,
+                constructed,
+                value,
+            } => {
                 let tag_byte = 0xA0 | (*tag & 0x1F);
-                let tag_byte = if *constructed { tag_byte } else { tag_byte & !0x20 };
+                let tag_byte = if *constructed {
+                    tag_byte
+                } else {
+                    tag_byte & !0x20
+                };
                 buf.push(tag_byte);
                 let content = value.encode_der();
                 encode_length(content.len(), buf);
@@ -630,15 +633,15 @@ impl Asn1Value {
 
                 0x17 => {
                     // UTCTime
-                    let s = String::from_utf8(content.to_vec())
-                        .map_err(|_| Asn1Error::InvalidTime)?;
+                    let s =
+                        String::from_utf8(content.to_vec()).map_err(|_| Asn1Error::InvalidTime)?;
                     Self::UtcTime(s)
                 }
 
                 0x18 => {
                     // GeneralizedTime
-                    let s = String::from_utf8(content.to_vec())
-                        .map_err(|_| Asn1Error::InvalidTime)?;
+                    let s =
+                        String::from_utf8(content.to_vec()).map_err(|_| Asn1Error::InvalidTime)?;
                     Self::GeneralizedTime(s)
                 }
 
@@ -857,7 +860,10 @@ mod tests {
 
         // Decode and verify
         let (decoded, _) = Asn1Value::decode_der(&encoded).unwrap();
-        assert_eq!(decoded.oid_to_string(), Some("1.2.840.113549.1.1.1".to_string()));
+        assert_eq!(
+            decoded.oid_to_string(),
+            Some("1.2.840.113549.1.1.1".to_string())
+        );
     }
 
     #[test]

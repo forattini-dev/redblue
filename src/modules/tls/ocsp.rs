@@ -33,18 +33,18 @@
 ///
 /// **Educational value:**
 /// Learn how certificate revocation works and ASN.1/DER encoding!
-
 use std::time::Duration;
 
 /// OCSP certificate status
 #[derive(Debug, Clone, PartialEq)]
 pub enum OcspStatus {
-    Good,              // Certificate is valid
-    Revoked {          // Certificate has been revoked
+    Good, // Certificate is valid
+    Revoked {
+        // Certificate has been revoked
         revocation_time: String,
         reason: Option<RevocationReason>,
     },
-    Unknown,           // Status unknown (OCSP responder doesn't know)
+    Unknown, // Status unknown (OCSP responder doesn't know)
 }
 
 impl OcspStatus {
@@ -439,10 +439,7 @@ mod tests {
 
     #[test]
     fn test_revocation_reason_codes() {
-        assert_eq!(
-            RevocationReason::from_code(1).as_str(),
-            "Key Compromise"
-        );
+        assert_eq!(RevocationReason::from_code(1).as_str(), "Key Compromise");
         assert_eq!(RevocationReason::from_code(2).as_str(), "CA Compromise");
         assert_eq!(RevocationReason::from_code(4).as_str(), "Superseded");
     }

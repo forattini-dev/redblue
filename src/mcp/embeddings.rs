@@ -170,7 +170,8 @@ fn download_from_github(repository: &str, version: &str) -> Result<String, Strin
 
 /// Parse embeddings JSON into structured data
 fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
-    let json = parse_json(json_str).map_err(|e| format!("Failed to parse embeddings JSON: {}", e))?;
+    let json =
+        parse_json(json_str).map_err(|e| format!("Failed to parse embeddings JSON: {}", e))?;
 
     let version = json
         .get("version")
@@ -216,7 +217,10 @@ fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
             .unwrap_or("")
             .to_string();
 
-        let section = doc.get("section").and_then(|v| v.as_str()).map(String::from);
+        let section = doc
+            .get("section")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let category = doc
             .get("category")

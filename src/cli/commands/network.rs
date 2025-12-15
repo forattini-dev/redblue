@@ -5,7 +5,7 @@ use crate::cli::commands::{
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::network::fingerprint::HostFingerprint;
 use crate::modules::network::ping::{ping_system, PingConfig, PingSystemResult};
-use crate::modules::recon::ip_intel::{IpIntel, IpClassification};
+use crate::modules::recon::ip_intel::{IpClassification, IpIntel};
 use crate::storage::client::query::format as query_format;
 use crate::storage::records::{HostIntelRecord, ServiceIntelRecord};
 use crate::storage::service::StorageService;
@@ -119,7 +119,10 @@ impl Command for NetworkCommand {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
                     "{}",
-                    Validator::suggest_command(verb, &["ping", "discover", "fingerprint", "list", "intel"])
+                    Validator::suggest_command(
+                        verb,
+                        &["ping", "discover", "fingerprint", "list", "intel"]
+                    )
                 );
                 Err("Invalid verb".to_string())
             }
@@ -572,16 +575,16 @@ impl NetworkCommand {
         // Classification
         Output::subheader("Classification");
         let class_color = match result.classification {
-            IpClassification::Public => "\x1b[32m",     // Green
-            IpClassification::Private => "\x1b[33m",    // Yellow
-            IpClassification::Loopback => "\x1b[36m",   // Cyan
-            IpClassification::LinkLocal => "\x1b[36m",  // Cyan
-            IpClassification::Multicast => "\x1b[35m",  // Magenta
-            IpClassification::Reserved => "\x1b[31m",   // Red
-            IpClassification::Documentation => "\x1b[34m", // Blue
+            IpClassification::Public => "\x1b[32m",          // Green
+            IpClassification::Private => "\x1b[33m",         // Yellow
+            IpClassification::Loopback => "\x1b[36m",        // Cyan
+            IpClassification::LinkLocal => "\x1b[36m",       // Cyan
+            IpClassification::Multicast => "\x1b[35m",       // Magenta
+            IpClassification::Reserved => "\x1b[31m",        // Red
+            IpClassification::Documentation => "\x1b[34m",   // Blue
             IpClassification::CarrierGradeNat => "\x1b[33m", // Yellow
-            IpClassification::Benchmarking => "\x1b[34m", // Blue
-            IpClassification::Unknown => "\x1b[90m",    // Gray
+            IpClassification::Benchmarking => "\x1b[34m",    // Blue
+            IpClassification::Unknown => "\x1b[90m",         // Gray
         };
         println!("  {}{}\x1b[0m", class_color, result.classification);
 
@@ -654,13 +657,19 @@ impl NetworkCommand {
             println!("  \"ipv4_bogons\": [");
             for (i, (cidr, desc)) in ipv4_bogons.iter().enumerate() {
                 let comma = if i < ipv4_bogons.len() - 1 { "," } else { "" };
-                println!("    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}", cidr, desc, comma);
+                println!(
+                    "    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}",
+                    cidr, desc, comma
+                );
             }
             println!("  ],");
             println!("  \"ipv6_bogons\": [");
             for (i, (cidr, desc)) in ipv6_bogons.iter().enumerate() {
                 let comma = if i < ipv6_bogons.len() - 1 { "," } else { "" };
-                println!("    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}", cidr, desc, comma);
+                println!(
+                    "    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}",
+                    cidr, desc, comma
+                );
             }
             println!("  ]");
             println!("}}");

@@ -1,12 +1,12 @@
 pub mod file;
-pub mod process;
 pub mod network;
-pub mod service;
+pub mod process;
 pub mod registry;
+pub mod service;
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Metadata about an accessor
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,10 +49,10 @@ impl AccessorResult {
 pub trait Accessor: Send + Sync {
     /// Get accessor name (e.g., "file", "process")
     fn name(&self) -> &str;
-    
+
     /// Get metadata about the accessor
     fn info(&self) -> AccessorInfo;
-    
+
     /// Execute a method on the accessor
     fn execute(&self, method: &str, args: &HashMap<String, String>) -> AccessorResult;
 }

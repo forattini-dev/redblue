@@ -1,7 +1,7 @@
+use super::record::{WalRecord, WAL_MAGIC, WAL_VERSION};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use super::record::{WalRecord, WAL_MAGIC, WAL_VERSION};
 
 /// Reader for the Write-Ahead Log
 pub struct WalReader {
@@ -14,25 +14,31 @@ impl WalReader {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        
+
         // Check header
         let mut header = [0u8; 8];
         reader.read_exact(&mut header)?;
-        
+
         if &header[0..4] != WAL_MAGIC {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid WAL magic bytes"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid WAL magic bytes",
+            ));
         }
-        
+
         if header[4] != WAL_VERSION {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Unsupported WAL version: {}", header[4])));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Unsupported WAL version: {}", header[4]),
+            ));
         }
-        
+
         Ok(Self {
             reader,
             position: 8,
         })
     }
-    
+
     /// Iterate over records
     /// Returns iterator that yields (LSn, WalRecord)
     pub fn iter(self) -> WalIterator {
@@ -50,27 +56,27 @@ pub struct WalIterator {
 
 impl Iterator for WalIterator {
     type Item = io::Result<(u64, WalRecord)>;
-    
+
     fn next(&mut self) -> Option<Self::Item> {
         // Need to record start position for LSN
         // Since BufReader buffers, we can't trust file.seek(Current) directly without accounting for buffer.
         // But `WalRecord::read` reads sequentially.
         // The simple way: track position manually based on bytes read.
         // WalRecord::read consumes bytes.
-        
+
         // Wait, WalRecord::read takes &mut R. We can wrap the reader to count bytes?
         // Or just rely on the fact that we read sequentially.
         // But we need to know the *start* LSN of the record to return it.
-        
+
         let start_pos = self.position;
-        
+
         // We need a way to track how many bytes were read by `WalRecord::read`.
         // Let's create a counting wrapper.
         struct CountingReader<'a, R> {
             inner: &'a mut R,
             count: u64,
         }
-        
+
         impl<'a, R: Read> Read for CountingReader<'a, R> {
             fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
                 let n = self.inner.read(buf)?;
@@ -78,9 +84,12 @@ impl Iterator for WalIterator {
                 Ok(n)
             }
         }
-        
-        let mut counter = CountingReader { inner: &mut self.reader, count: 0 };
-        
+
+        let mut counter = CountingReader {
+            inner: &mut self.reader,
+            count: 0,
+        };
+
         match WalRecord::read(&mut counter) {
             Ok(Some(record)) => {
                 self.position += counter.count;
@@ -94,8 +103,8 @@ impl Iterator for WalIterator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::writer::WalWriter;
+    use super::*;
     use std::path::PathBuf;
 
     struct FileGuard {
@@ -109,7 +118,8 @@ mod tests {
     }
 
     fn temp_wal(name: &str) -> (FileGuard, PathBuf) {
-        let path = std::env::temp_dir().join(format!("rb_wal_reader_{}_{}.wal", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rb_wal_reader_{}_{}.wal", name, std::process::id()));
         let guard = FileGuard { path: path.clone() };
         let _ = std::fs::remove_file(&path);
         (guard, path)
@@ -158,11 +168,13 @@ mod tests {
         {
             let mut writer = WalWriter::open(&path).unwrap();
             writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
-            writer.append(&WalRecord::PageWrite {
-                tx_id: 1,
-                page_id: 10,
-                data: vec![1, 2, 3],
-            }).unwrap();
+            writer
+                .append(&WalRecord::PageWrite {
+                    tx_id: 1,
+                    page_id: 10,
+                    data: vec![1, 2, 3],
+                })
+                .unwrap();
             writer.append(&WalRecord::Commit { tx_id: 1 }).unwrap();
         }
 
@@ -178,7 +190,11 @@ mod tests {
             _ => panic!("Expected Begin"),
         }
         match &records[1].as_ref().unwrap().1 {
-            WalRecord::PageWrite { tx_id, page_id, data } => {
+            WalRecord::PageWrite {
+                tx_id,
+                page_id,
+                data,
+            } => {
                 assert_eq!(*tx_id, 1);
                 assert_eq!(*page_id, 10);
                 assert_eq!(data, &vec![1, 2, 3]);
@@ -249,11 +265,13 @@ mod tests {
         // Write large record
         {
             let mut writer = WalWriter::open(&path).unwrap();
-            writer.append(&WalRecord::PageWrite {
-                tx_id: 1,
-                page_id: 0,
-                data: large_data.clone(),
-            }).unwrap();
+            writer
+                .append(&WalRecord::PageWrite {
+                    tx_id: 1,
+                    page_id: 0,
+                    data: large_data.clone(),
+                })
+                .unwrap();
         }
 
         // Read back

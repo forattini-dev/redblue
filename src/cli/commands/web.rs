@@ -12,11 +12,11 @@ use crate::modules::web::linkfinder::{EndpointType, LinkFinder};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 use crate::protocols::har::{Har, HarRecorder};
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
-use crate::protocols::tls_impersonator::TlsProfile;
 use crate::protocols::http2::{
     Header, Http2Dispatcher, Http2LoggingMiddleware, Http2Request, Http2Response,
     Http2ResponseHandler,
 };
+use crate::protocols::tls_impersonator::TlsProfile;
 use crate::storage::records::{HttpHeadersRecord, HttpTlsSnapshot};
 use crate::storage::service::StorageService;
 use std::fs;
@@ -203,7 +203,11 @@ impl Command for WebCommand {
                 .with_short('t')
                 .with_default("10"),
             Flag::new("user-agent", "Custom User-Agent header").with_short('u'),
-            Flag::new("impersonate", "Impersonate a browser profile (chrome, firefox, safari)").with_short('I'),
+            Flag::new(
+                "impersonate",
+                "Impersonate a browser profile (chrome, firefox, safari)",
+            )
+            .with_short('I'),
             Flag::new("follow", "Follow redirects").with_short('f'),
             Flag::new("wordlist", "Wordlist for fuzzing").with_short('w'),
             Flag::new("threads", "Number of concurrent threads for fuzzing").with_default("50"),
@@ -292,7 +296,9 @@ impl Command for WebCommand {
             "http2" => self.http2(ctx),
             "cert" => self.cert(ctx),
             // "tls-audit" => self.tls_audit(ctx), // TODO: Enable when TlsAuditor compiles
-            "fuzz" => Err("Use 'rb web fuzz' command instead (dedicated fuzzing module)".to_string()),
+            "fuzz" => {
+                Err("Use 'rb web fuzz' command instead (dedicated fuzzing module)".to_string())
+            }
             "fingerprint" => self.fingerprint(ctx),
             "scan" => self.scan(ctx),
             "vuln-scan" => self.vuln_scan(ctx),
@@ -520,7 +526,6 @@ impl WebCommand {
                 Output::info("Available profiles: chrome, firefox, safari");
             }
         }
-
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Sending request");
@@ -807,7 +812,6 @@ impl WebCommand {
                 Output::info("Available profiles: chrome, firefox, safari");
             }
         }
-
 
         if format == crate::cli::format::OutputFormat::Human {
             Output::spinner_start("Fetching headers");
@@ -1129,7 +1133,10 @@ impl WebCommand {
             for pattern in &dangerous_wildcards {
                 if csp_lower.contains(pattern) {
                     csp_deductions += 5;
-                    csp_issues.push(format!("wildcard in {}", pattern.split(' ').next().unwrap_or("")));
+                    csp_issues.push(format!(
+                        "wildcard in {}",
+                        pattern.split(' ').next().unwrap_or("")
+                    ));
                     break; // Only count once
                 }
             }
@@ -1218,12 +1225,7 @@ impl WebCommand {
 
         // 5. Referrer-Policy (informational, no deduction)
         if let Some(rp) = response.headers.get("Referrer-Policy") {
-            findings.push((
-                "Referrer-Policy",
-                "PASS",
-                0,
-                format!("Set to: {}", rp),
-            ));
+            findings.push(("Referrer-Policy", "PASS", 0, format!("Set to: {}", rp)));
         } else {
             findings.push((
                 "Referrer-Policy",
@@ -1252,13 +1254,36 @@ impl WebCommand {
 
         // 7. Cross-Origin headers (informational)
         if response.headers.get("Cross-Origin-Opener-Policy").is_some() {
-            findings.push(("Cross-Origin-Opener-Policy", "PASS", 0, "Present".to_string()));
+            findings.push((
+                "Cross-Origin-Opener-Policy",
+                "PASS",
+                0,
+                "Present".to_string(),
+            ));
         }
-        if response.headers.get("Cross-Origin-Embedder-Policy").is_some() {
-            findings.push(("Cross-Origin-Embedder-Policy", "PASS", 0, "Present".to_string()));
+        if response
+            .headers
+            .get("Cross-Origin-Embedder-Policy")
+            .is_some()
+        {
+            findings.push((
+                "Cross-Origin-Embedder-Policy",
+                "PASS",
+                0,
+                "Present".to_string(),
+            ));
         }
-        if response.headers.get("Cross-Origin-Resource-Policy").is_some() {
-            findings.push(("Cross-Origin-Resource-Policy", "PASS", 0, "Present".to_string()));
+        if response
+            .headers
+            .get("Cross-Origin-Resource-Policy")
+            .is_some()
+        {
+            findings.push((
+                "Cross-Origin-Resource-Policy",
+                "PASS",
+                0,
+                "Present".to_string(),
+            ));
         }
 
         // Calculate grade
@@ -1314,11 +1339,11 @@ impl WebCommand {
 
         // Large grade display
         let grade_color = match grade {
-            "A+" | "A" => "\x1b[32m",  // Green
-            "B" => "\x1b[92m",         // Light green
-            "C" => "\x1b[33m",         // Yellow
-            "D" => "\x1b[33m",         // Yellow
-            _ => "\x1b[31m",           // Red
+            "A+" | "A" => "\x1b[32m", // Green
+            "B" => "\x1b[92m",        // Light green
+            "C" => "\x1b[33m",        // Yellow
+            "D" => "\x1b[33m",        // Yellow
+            _ => "\x1b[31m",          // Red
         };
         println!(
             "  {}┌─────────────────────────────────────────┐\x1b[0m",
@@ -1326,9 +1351,7 @@ impl WebCommand {
         );
         println!(
             "  {}│  Grade: {}    Score: {}/100           │\x1b[0m",
-            grade_color,
-            grade,
-            score
+            grade_color, grade, score
         );
         println!(
             "  {}└─────────────────────────────────────────┘\x1b[0m",
@@ -1337,7 +1360,10 @@ impl WebCommand {
         println!();
 
         // Findings table
-        println!("  {:<35} {:<8} {:<8} {}", "HEADER", "STATUS", "SCORE", "DETAILS");
+        println!(
+            "  {:<35} {:<8} {:<8} {}",
+            "HEADER", "STATUS", "SCORE", "DETAILS"
+        );
         println!("  {}", "─".repeat(90));
 
         for (header, status, deduction, details) in &findings {
@@ -1371,7 +1397,10 @@ impl WebCommand {
         println!();
 
         // Recommendations
-        let failed_headers: Vec<_> = findings.iter().filter(|(_, s, _, _)| *s == "FAIL").collect();
+        let failed_headers: Vec<_> = findings
+            .iter()
+            .filter(|(_, s, _, _)| *s == "FAIL")
+            .collect();
         if !failed_headers.is_empty() {
             Output::section("Recommendations");
             for (header, _, _, _) in failed_headers {
@@ -2838,7 +2867,10 @@ impl WebCommand {
         let mut external_links: Vec<&str> = Vec::new();
 
         for link in &extracted_links {
-            if link.url.contains(&base_domain) || link.href.starts_with('/') || link.href.starts_with('#') {
+            if link.url.contains(&base_domain)
+                || link.href.starts_with('/')
+                || link.href.starts_with('#')
+            {
                 internal_links.push(&link.url);
             } else if link.href.starts_with("http") {
                 external_links.push(&link.url);
@@ -2859,7 +2891,10 @@ impl WebCommand {
                 println!("  {:3}. {}", i + 1, link);
             }
             if internal_links.len() > 20 {
-                println!("  \x1b[90m... and {} more\x1b[0m", internal_links.len() - 20);
+                println!(
+                    "  \x1b[90m... and {} more\x1b[0m",
+                    internal_links.len() - 20
+                );
             }
             println!();
         }
@@ -2873,7 +2908,10 @@ impl WebCommand {
                 println!("  {:3}. {}", i + 1, link);
             }
             if external_links.len() > 20 {
-                println!("  \x1b[90m... and {} more\x1b[0m", external_links.len() - 20);
+                println!(
+                    "  \x1b[90m... and {} more\x1b[0m",
+                    external_links.len() - 20
+                );
             }
             println!();
         }
@@ -3012,13 +3050,7 @@ impl WebCommand {
 
         // Display title
         println!("\x1b[1m\x1b[36m● Page Title\x1b[0m");
-        println!(
-            "  {}",
-            meta_data
-                .title
-                .as_deref()
-                .unwrap_or("(no title)")
-        );
+        println!("  {}", meta_data.title.as_deref().unwrap_or("(no title)"));
         println!();
 
         // Display standard meta tags
@@ -3027,7 +3059,10 @@ impl WebCommand {
             println!("  \x1b[1mdescription\x1b[0m: {}", desc);
         }
         if !meta_data.keywords.is_empty() {
-            println!("  \x1b[1mkeywords\x1b[0m: {}", meta_data.keywords.join(", "));
+            println!(
+                "  \x1b[1mkeywords\x1b[0m: {}",
+                meta_data.keywords.join(", ")
+            );
         }
         if let Some(ref author) = meta_data.author {
             println!("  \x1b[1mauthor\x1b[0m: {}", author);
@@ -3085,8 +3120,12 @@ impl WebCommand {
 
         // Statistics
         println!("\x1b[1mStatistics:\x1b[0m");
-        let meta_count =
-            meta_data.other.len() + if meta_data.description.is_some() { 1 } else { 0 };
+        let meta_count = meta_data.other.len()
+            + if meta_data.description.is_some() {
+                1
+            } else {
+                0
+            };
         println!("  Meta tags: {}", meta_count);
         println!(
             "  OpenGraph: {}",
@@ -3246,7 +3285,10 @@ impl WebCommand {
                 "\x1b[1m\x1b[36m● Table #{}\x1b[0m ({} rows × {} cols)",
                 i + 1,
                 table.rows.len(),
-                table.headers.len().max(table.rows.first().map(|r| r.len()).unwrap_or(0))
+                table
+                    .headers
+                    .len()
+                    .max(table.rows.first().map(|r| r.len()).unwrap_or(0))
             );
 
             // Display headers if present
@@ -3279,7 +3321,10 @@ impl WebCommand {
                 println!();
 
                 if row_idx == 4 && table.rows.len() > 5 {
-                    println!("  \x1b[90m... and {} more rows\x1b[0m", table.rows.len() - 5);
+                    println!(
+                        "  \x1b[90m... and {} more rows\x1b[0m",
+                        table.rows.len() - 5
+                    );
                 }
             }
 
@@ -3374,23 +3419,11 @@ impl WebCommand {
             println!("  Total entries: {}", har.log.entries.len());
 
             // Calculate total size
-            let total_request_size: i64 = har
-                .log
-                .entries
-                .iter()
-                .map(|e| e.request.body_size)
-                .sum();
-            let total_response_size: i64 = har
-                .log
-                .entries
-                .iter()
-                .map(|e| e.response.body_size)
-                .sum();
+            let total_request_size: i64 = har.log.entries.iter().map(|e| e.request.body_size).sum();
+            let total_response_size: i64 =
+                har.log.entries.iter().map(|e| e.response.body_size).sum();
 
-            println!(
-                "  Total request size: {} bytes",
-                total_request_size.max(0)
-            );
+            println!("  Total request size: {} bytes", total_request_size.max(0));
             println!(
                 "  Total response size: {} bytes",
                 total_response_size.max(0)
@@ -3416,12 +3449,11 @@ impl WebCommand {
         Output::spinner_start("Loading HAR file");
 
         // Read and parse HAR file
-        let content = fs::read_to_string(file_path)
-            .map_err(|e| format!("Failed to read HAR file: {}", e))?;
+        let content =
+            fs::read_to_string(file_path).map_err(|e| format!("Failed to read HAR file: {}", e))?;
 
         // Manual JSON parsing for HAR structure
-        let har = Har::from_json(&content)
-            .map_err(|e| format!("Failed to parse HAR: {}", e))?;
+        let har = Har::from_json(&content).map_err(|e| format!("Failed to parse HAR: {}", e))?;
 
         Output::spinner_done();
 
@@ -3433,27 +3465,23 @@ impl WebCommand {
         // HAR Overview
         println!("\x1b[1m\x1b[36m● HAR Overview\x1b[0m");
         println!("  Version: {}", har.log.version);
-        println!("  Creator: {} {}", har.log.creator.name, har.log.creator.version);
+        println!(
+            "  Creator: {} {}",
+            har.log.creator.name, har.log.creator.version
+        );
         println!("  Total entries: {}", har.log.entries.len());
 
         // Calculate statistics
         let total_time: f64 = har.log.entries.iter().map(|e| e.time).sum();
-        let total_request_size: i64 = har
-            .log
-            .entries
-            .iter()
-            .map(|e| e.request.body_size)
-            .sum();
-        let total_response_size: i64 = har
-            .log
-            .entries
-            .iter()
-            .map(|e| e.response.body_size)
-            .sum();
+        let total_request_size: i64 = har.log.entries.iter().map(|e| e.request.body_size).sum();
+        let total_response_size: i64 = har.log.entries.iter().map(|e| e.response.body_size).sum();
 
         println!("  Total time: {:.2}ms", total_time);
         println!("  Total request size: {} bytes", total_request_size.max(0));
-        println!("  Total response size: {} bytes", total_response_size.max(0));
+        println!(
+            "  Total response size: {} bytes",
+            total_response_size.max(0)
+        );
         println!();
 
         // Show entries
@@ -3478,7 +3506,10 @@ impl WebCommand {
                 );
             }
             if har.log.entries.len() > 20 {
-                println!("  \x1b[90m... and {} more\x1b[0m", har.log.entries.len() - 20);
+                println!(
+                    "  \x1b[90m... and {} more\x1b[0m",
+                    har.log.entries.len() - 20
+                );
             }
             println!();
         }
@@ -3571,15 +3602,17 @@ impl WebCommand {
         // Parse options
         let sequential = ctx.has_flag("sequential");
         let compare = ctx.has_flag("compare");
-        let delay_ms: u64 = ctx.get_flag("delay").and_then(|d| d.parse().ok()).unwrap_or(0);
+        let delay_ms: u64 = ctx
+            .get_flag("delay")
+            .and_then(|d| d.parse().ok())
+            .unwrap_or(0);
 
         Output::spinner_start("Loading HAR file");
 
-        let content = fs::read_to_string(file_path)
-            .map_err(|e| format!("Failed to read HAR file: {}", e))?;
+        let content =
+            fs::read_to_string(file_path).map_err(|e| format!("Failed to read HAR file: {}", e))?;
 
-        let har = Har::from_json(&content)
-            .map_err(|e| format!("Failed to parse HAR: {}", e))?;
+        let har = Har::from_json(&content).map_err(|e| format!("Failed to parse HAR: {}", e))?;
 
         Output::spinner_done();
 
@@ -3625,7 +3658,10 @@ impl WebCommand {
             let result = match method.to_uppercase().as_str() {
                 "GET" => client.get(url),
                 "POST" => {
-                    let body = entry.request.post_data.as_ref()
+                    let body = entry
+                        .request
+                        .post_data
+                        .as_ref()
                         .map(|p| p.text.clone())
                         .unwrap_or_default();
                     client.post(url, body.into_bytes())
@@ -3658,7 +3694,10 @@ impl WebCommand {
                             println!("{}{}OK\x1b[0m (status: {})", status_color, "", status);
                             success_count += 1;
                         } else {
-                            println!("\x1b[33mDIFF\x1b[0m (was: {}, now: {})", original_status, status);
+                            println!(
+                                "\x1b[33mDIFF\x1b[0m (was: {}, now: {})",
+                                original_status, status
+                            );
                             diff_count += 1;
                         }
                     } else {
@@ -3697,7 +3736,10 @@ impl WebCommand {
             "Missing HAR file. Usage: rb web asset har-to-curl <file>\nExample: rb web asset har-to-curl site.har --format curl",
         )?;
 
-        let format = ctx.get_flag("format").map(|s| s.to_string()).unwrap_or_else(|| "curl".to_string());
+        let format = ctx
+            .get_flag("format")
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "curl".to_string());
 
         Output::header("HAR to Commands - Export HTTP Requests");
         Output::item("File", file_path);
@@ -3706,11 +3748,10 @@ impl WebCommand {
 
         Output::spinner_start("Loading HAR file");
 
-        let content = fs::read_to_string(file_path)
-            .map_err(|e| format!("Failed to read HAR file: {}", e))?;
+        let content =
+            fs::read_to_string(file_path).map_err(|e| format!("Failed to read HAR file: {}", e))?;
 
-        let har = Har::from_json(&content)
-            .map_err(|e| format!("Failed to parse HAR: {}", e))?;
+        let har = Har::from_json(&content).map_err(|e| format!("Failed to parse HAR: {}", e))?;
 
         Output::spinner_done();
 
@@ -3720,7 +3761,11 @@ impl WebCommand {
             return Ok(());
         }
 
-        Output::info(&format!("Converting {} entries to {} format", entries.len(), format));
+        Output::info(&format!(
+            "Converting {} entries to {} format",
+            entries.len(),
+            format
+        ));
         println!();
 
         for (i, entry) in entries.iter().enumerate() {
@@ -3731,7 +3776,12 @@ impl WebCommand {
                 "wget" => self.entry_to_wget(entry),
                 "python" => self.entry_to_python(entry),
                 "httpie" => self.entry_to_httpie(entry),
-                _ => return Err(format!("Unknown format: {}. Use: curl, wget, python, httpie", format)),
+                _ => {
+                    return Err(format!(
+                        "Unknown format: {}. Use: curl, wget, python, httpie",
+                        format
+                    ))
+                }
             };
 
             println!("{}", cmd);
@@ -3763,12 +3813,18 @@ impl WebCommand {
     }
 
     fn entry_to_wget(&self, entry: &crate::protocols::har::HarEntry) -> String {
-        let mut cmd = format!("wget --method={} '{}'", entry.request.method, entry.request.url);
+        let mut cmd = format!(
+            "wget --method={} '{}'",
+            entry.request.method, entry.request.url
+        );
 
         // Add headers
         for header in &entry.request.headers {
             if !header.name.starts_with(':') && header.name.to_lowercase() != "host" {
-                cmd.push_str(&format!(" \\\n  --header='{}: {}'", header.name, header.value));
+                cmd.push_str(&format!(
+                    " \\\n  --header='{}: {}'",
+                    header.name, header.value
+                ));
             }
         }
 
@@ -3788,7 +3844,10 @@ impl WebCommand {
         let mut code = String::from("import requests\n\n");
 
         // Build headers dict
-        let headers: Vec<String> = entry.request.headers.iter()
+        let headers: Vec<String> = entry
+            .request
+            .headers
+            .iter()
             .filter(|h| !h.name.starts_with(':'))
             .map(|h| format!("    '{}': '{}'", h.name, h.value.replace('\'', "\\'")))
             .collect();
@@ -3837,9 +3896,15 @@ impl WebCommand {
             if !post_data.text.is_empty() {
                 // For JSON, httpie uses := for raw JSON
                 if post_data.mime_type.contains("json") {
-                    cmd.push_str(&format!(" \\\n  --raw='{}'", post_data.text.replace('\'', "\\'")));
+                    cmd.push_str(&format!(
+                        " \\\n  --raw='{}'",
+                        post_data.text.replace('\'', "\\'")
+                    ));
                 } else {
-                    cmd.push_str(&format!(" \\\n  --raw='{}'", post_data.text.replace('\'', "\\'")));
+                    cmd.push_str(&format!(
+                        " \\\n  --raw='{}'",
+                        post_data.text.replace('\'', "\\'")
+                    ));
                 }
             }
         }
@@ -3974,7 +4039,7 @@ impl WebCommand {
 
     /// Advanced CMS security testing using the comprehensive cms module
     fn cms_advanced(&self, ctx: &CliContext) -> Result<(), String> {
-        use crate::modules::web::cms::{CmsScanner, CmsScanConfig, CmsType, VulnSeverity};
+        use crate::modules::web::cms::{CmsScanConfig, CmsScanner, CmsType, VulnSeverity};
         use std::time::Duration;
 
         let url = ctx.target.as_ref().ok_or(
@@ -3986,15 +4051,21 @@ impl WebCommand {
         // Build config from flags
         let aggressive = ctx.flags.contains_key("aggressive");
         let waf_evasion = ctx.flags.contains_key("waf-evasion");
-        let timeout = ctx.flags.get("timeout")
+        let timeout = ctx
+            .flags
+            .get("timeout")
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(10);
-        let threads = ctx.flags.get("threads")
+        let threads = ctx
+            .flags
+            .get("threads")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(10);
 
         // Parse enumerate flag
-        let enumerate_str = ctx.flags.get("enumerate")
+        let enumerate_str = ctx
+            .flags
+            .get("enumerate")
             .map(|s| s.as_str())
             .unwrap_or("plugins,themes,users");
         let enumerate_plugins = enumerate_str.contains("plugins") || enumerate_str.contains("all");
@@ -4013,7 +4084,10 @@ impl WebCommand {
             wordlist: ctx.flags.get("wordlist").map(|s| s.clone()),
             max_enum_items: 1000,
             waf_evasion,
-            rate_limit: ctx.flags.get("rate-limit").and_then(|v| v.parse::<f64>().ok()),
+            rate_limit: ctx
+                .flags
+                .get("rate-limit")
+                .and_then(|v| v.parse::<f64>().ok()),
             random_delay: None,
             follow_redirects: true,
             headers: Vec::new(),
@@ -4022,7 +4096,10 @@ impl WebCommand {
         };
 
         Output::header(&format!("Advanced CMS Security Scanner: {}", url));
-        Output::info(&format!("Mode: {}", if aggressive { "Aggressive" } else { "Passive" }));
+        Output::info(&format!(
+            "Mode: {}",
+            if aggressive { "Aggressive" } else { "Passive" }
+        ));
         if waf_evasion {
             Output::info("WAF Evasion: Enabled");
         }
@@ -4061,7 +4138,8 @@ impl WebCommand {
             _ => "red",
         };
         Output::section("Risk Assessment");
-        println!("  Risk Score: {} ({})",
+        println!(
+            "  Risk Score: {} ({})",
             Output::colorize(&result.risk_score.to_string(), risk_color),
             Output::colorize(result.risk_rating(), risk_color)
         );
@@ -4070,11 +4148,21 @@ impl WebCommand {
         let (critical, high, medium, low, info) = result.vuln_counts();
         if critical + high + medium + low + info > 0 {
             println!("  Vulnerabilities:");
-            if critical > 0 { println!("    \x1b[31mCritical: {}\x1b[0m", critical); }
-            if high > 0 { println!("    \x1b[91mHigh: {}\x1b[0m", high); }
-            if medium > 0 { println!("    \x1b[33mMedium: {}\x1b[0m", medium); }
-            if low > 0 { println!("    \x1b[94mLow: {}\x1b[0m", low); }
-            if info > 0 { println!("    \x1b[36mInfo: {}\x1b[0m", info); }
+            if critical > 0 {
+                println!("    \x1b[31mCritical: {}\x1b[0m", critical);
+            }
+            if high > 0 {
+                println!("    \x1b[91mHigh: {}\x1b[0m", high);
+            }
+            if medium > 0 {
+                println!("    \x1b[33mMedium: {}\x1b[0m", medium);
+            }
+            if low > 0 {
+                println!("    \x1b[94mLow: {}\x1b[0m", low);
+            }
+            if info > 0 {
+                println!("    \x1b[36mInfo: {}\x1b[0m", info);
+            }
         }
         println!();
 
@@ -4083,8 +4171,13 @@ impl WebCommand {
             Output::section(&format!("Plugins Found: {}", result.plugins.len()));
             for plugin in result.plugins.iter().take(20) {
                 let version = plugin.version.as_deref().unwrap_or("unknown");
-                let vuln_marker = if plugin.vulnerable { " \x1b[31m[VULNERABLE]\x1b[0m" } else { "" };
-                println!("  • {} ({}){}",
+                let vuln_marker = if plugin.vulnerable {
+                    " \x1b[31m[VULNERABLE]\x1b[0m"
+                } else {
+                    ""
+                };
+                println!(
+                    "  • {} ({}){}",
                     Output::colorize(&plugin.name, "cyan"),
                     version,
                     vuln_marker
@@ -4101,8 +4194,13 @@ impl WebCommand {
             Output::section(&format!("Themes Found: {}", result.themes.len()));
             for theme in result.themes.iter().take(10) {
                 let version = theme.version.as_deref().unwrap_or("unknown");
-                let vuln_marker = if theme.vulnerable { " \x1b[31m[VULNERABLE]\x1b[0m" } else { "" };
-                println!("  • {} ({}){}",
+                let vuln_marker = if theme.vulnerable {
+                    " \x1b[31m[VULNERABLE]\x1b[0m"
+                } else {
+                    ""
+                };
+                println!(
+                    "  • {} ({}){}",
                     Output::colorize(&theme.name, "cyan"),
                     version,
                     vuln_marker
@@ -4118,8 +4216,12 @@ impl WebCommand {
         if !result.users.is_empty() {
             Output::section(&format!("Users Enumerated: {}", result.users.len()));
             for user in result.users.iter().take(20) {
-                let id_str = user.id.map(|id| id.to_string()).unwrap_or_else(|| "?".to_string());
-                println!("  • {} (ID: {})",
+                let id_str = user
+                    .id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                println!(
+                    "  • {} (ID: {})",
                     Output::colorize(&user.username, "yellow"),
                     id_str
                 );
@@ -4135,7 +4237,10 @@ impl WebCommand {
 
         // Display vulnerabilities
         if !result.vulnerabilities.is_empty() {
-            Output::section(&format!("Vulnerabilities: {}", result.vulnerabilities.len()));
+            Output::section(&format!(
+                "Vulnerabilities: {}",
+                result.vulnerabilities.len()
+            ));
             for vuln in result.vulnerabilities.iter().take(15) {
                 let severity_color = match vuln.severity {
                     VulnSeverity::Critical => "\x1b[31m",
@@ -4144,7 +4249,10 @@ impl WebCommand {
                     VulnSeverity::Low => "\x1b[94m",
                     VulnSeverity::Info => "\x1b[36m",
                 };
-                println!("  {}[{:?}]\x1b[0m {}", severity_color, vuln.severity, vuln.title);
+                println!(
+                    "  {}[{:?}]\x1b[0m {}",
+                    severity_color, vuln.severity, vuln.title
+                );
                 if !vuln.id.is_empty() {
                     println!("         ID: {}", vuln.id);
                 }
@@ -4153,14 +4261,20 @@ impl WebCommand {
                 }
             }
             if result.vulnerabilities.len() > 15 {
-                Output::dim(&format!("  ... and {} more", result.vulnerabilities.len() - 15));
+                Output::dim(&format!(
+                    "  ... and {} more",
+                    result.vulnerabilities.len() - 15
+                ));
             }
             println!();
         }
 
         // Display interesting findings
         if !result.interesting_findings.is_empty() {
-            Output::section(&format!("Interesting Findings: {}", result.interesting_findings.len()));
+            Output::section(&format!(
+                "Interesting Findings: {}",
+                result.interesting_findings.len()
+            ));
             for finding in result.interesting_findings.iter().take(10) {
                 println!("  [{:?}] {}", finding.finding_type, finding.description);
                 if let Some(ref url) = finding.url {
@@ -4168,7 +4282,10 @@ impl WebCommand {
                 }
             }
             if result.interesting_findings.len() > 10 {
-                Output::dim(&format!("  ... and {} more", result.interesting_findings.len() - 10));
+                Output::dim(&format!(
+                    "  ... and {} more",
+                    result.interesting_findings.len() - 10
+                ));
             }
         }
 

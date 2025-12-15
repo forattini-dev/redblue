@@ -311,8 +311,7 @@ mod tests {
         let delay = shaper.next_delay();
         // Should be within range (or pause duration)
         assert!(
-            (delay.as_millis() >= 50 && delay.as_millis() <= 100)
-                || delay.as_millis() == 15000
+            (delay.as_millis() >= 50 && delay.as_millis() <= 100) || delay.as_millis() == 15000
         );
     }
 

@@ -21,7 +21,7 @@ impl ResumeManager {
     pub fn is_processed(&self, url: &str) -> bool {
         self.store.get(&format!("visited:{}", url)).is_some()
     }
-    
+
     pub fn get_processed_urls(&self) -> HashSet<String> {
         // This would require iterating the store, but our simple store doesn't expose iter.
         // For a simple boolean check, `is_processed` is enough.

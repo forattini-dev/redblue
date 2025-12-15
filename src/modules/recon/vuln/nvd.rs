@@ -8,9 +8,9 @@
 //! - Without API key: 5 requests per 30 seconds
 //! - With API key: 50 requests per 30 seconds
 
+use super::types::{Severity, VersionRange, VulnSource, Vulnerability};
 use crate::protocols::http::HttpClient;
-use crate::utils::json::{JsonValue, parse_json};
-use super::types::{Vulnerability, Severity, VulnSource, VersionRange};
+use crate::utils::json::{parse_json, JsonValue};
 
 const NVD_API_BASE: &str = "https://services.nvd.nist.gov/rest/json/cves/2.0";
 
@@ -130,7 +130,8 @@ impl NvdClient {
 
     /// Parse NVD API response
     fn parse_response(&self, json: &JsonValue) -> Result<Vec<Vulnerability>, String> {
-        let vulns_array = json.get("vulnerabilities")
+        let vulns_array = json
+            .get("vulnerabilities")
             .and_then(|v| v.as_array())
             .ok_or("Invalid NVD response: missing vulnerabilities array")?;
 
@@ -158,7 +159,8 @@ impl NvdClient {
         if let Some(descriptions) = cve.get("descriptions").and_then(|d| d.as_array()) {
             for desc in descriptions {
                 if desc.get("lang").and_then(|l| l.as_str()) == Some("en") {
-                    vuln.description = desc.get("value")
+                    vuln.description = desc
+                        .get("value")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
@@ -168,7 +170,8 @@ impl NvdClient {
         }
 
         // Title from first line of description
-        vuln.title = vuln.description
+        vuln.title = vuln
+            .description
             .lines()
             .next()
             .unwrap_or(&vuln.id)
@@ -178,20 +181,41 @@ impl NvdClient {
 
         // CVSS v3.1 score
         if let Some(metrics) = cve.get("metrics") {
-            if let Some(cvss31) = metrics.get("cvssMetricV31").and_then(|m| m.as_array()).and_then(|a| a.first()) {
+            if let Some(cvss31) = metrics
+                .get("cvssMetricV31")
+                .and_then(|m| m.as_array())
+                .and_then(|a| a.first())
+            {
                 if let Some(cvss_data) = cvss31.get("cvssData") {
-                    vuln.cvss_v3 = cvss_data.get("baseScore").and_then(|s| s.as_f64()).map(|s| s as f32);
+                    vuln.cvss_v3 = cvss_data
+                        .get("baseScore")
+                        .and_then(|s| s.as_f64())
+                        .map(|s| s as f32);
                 }
-            } else if let Some(cvss30) = metrics.get("cvssMetricV30").and_then(|m| m.as_array()).and_then(|a| a.first()) {
+            } else if let Some(cvss30) = metrics
+                .get("cvssMetricV30")
+                .and_then(|m| m.as_array())
+                .and_then(|a| a.first())
+            {
                 if let Some(cvss_data) = cvss30.get("cvssData") {
-                    vuln.cvss_v3 = cvss_data.get("baseScore").and_then(|s| s.as_f64()).map(|s| s as f32);
+                    vuln.cvss_v3 = cvss_data
+                        .get("baseScore")
+                        .and_then(|s| s.as_f64())
+                        .map(|s| s as f32);
                 }
             }
 
             // CVSS v2 as fallback
-            if let Some(cvss2) = metrics.get("cvssMetricV2").and_then(|m| m.as_array()).and_then(|a| a.first()) {
+            if let Some(cvss2) = metrics
+                .get("cvssMetricV2")
+                .and_then(|m| m.as_array())
+                .and_then(|a| a.first())
+            {
                 if let Some(cvss_data) = cvss2.get("cvssData") {
-                    vuln.cvss_v2 = cvss_data.get("baseScore").and_then(|s| s.as_f64()).map(|s| s as f32);
+                    vuln.cvss_v2 = cvss_data
+                        .get("baseScore")
+                        .and_then(|s| s.as_f64())
+                        .map(|s| s as f32);
                 }
             }
         }
@@ -202,8 +226,14 @@ impl NvdClient {
         }
 
         // Published date
-        vuln.published = cve.get("published").and_then(|p| p.as_str()).map(|s| s.to_string());
-        vuln.modified = cve.get("lastModified").and_then(|m| m.as_str()).map(|s| s.to_string());
+        vuln.published = cve
+            .get("published")
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string());
+        vuln.modified = cve
+            .get("lastModified")
+            .and_then(|m| m.as_str())
+            .map(|s| s.to_string());
 
         // References
         if let Some(refs) = cve.get("references").and_then(|r| r.as_array()) {
@@ -236,23 +266,31 @@ impl NvdClient {
                     for node in nodes {
                         if let Some(cpe_matches) = node.get("cpeMatch").and_then(|c| c.as_array()) {
                             for cpe_match in cpe_matches {
-                                if cpe_match.get("vulnerable").and_then(|v| v.as_bool()) == Some(true) {
-                                    if let Some(criteria) = cpe_match.get("criteria").and_then(|c| c.as_str()) {
+                                if cpe_match.get("vulnerable").and_then(|v| v.as_bool())
+                                    == Some(true)
+                                {
+                                    if let Some(criteria) =
+                                        cpe_match.get("criteria").and_then(|c| c.as_str())
+                                    {
                                         vuln.affected_cpes.push(criteria.to_string());
                                     }
 
                                     // Version range
                                     let range = VersionRange {
-                                        start_including: cpe_match.get("versionStartIncluding")
+                                        start_including: cpe_match
+                                            .get("versionStartIncluding")
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string()),
-                                        start_excluding: cpe_match.get("versionStartExcluding")
+                                        start_excluding: cpe_match
+                                            .get("versionStartExcluding")
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string()),
-                                        end_including: cpe_match.get("versionEndIncluding")
+                                        end_including: cpe_match
+                                            .get("versionEndIncluding")
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string()),
-                                        end_excluding: cpe_match.get("versionEndExcluding")
+                                        end_excluding: cpe_match
+                                            .get("versionEndExcluding")
                                             .and_then(|v| v.as_str())
                                             .map(|s| s.to_string()),
                                     };

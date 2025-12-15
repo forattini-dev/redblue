@@ -1,8 +1,8 @@
-use std::process::Command;
-use std::io::{self, BufReader, BufRead};
-use std::path::Path;
 use crate::modules::collection::secrets::SecretFinding;
-use crate::modules::collection::secrets::SecretScanner; // To reuse scan_line
+use crate::modules::collection::secrets::SecretScanner;
+use std::io::{self, BufRead, BufReader};
+use std::path::Path;
+use std::process::Command; // To reuse scan_line
 
 pub struct GitScanner {
     scanner: SecretScanner,
@@ -18,13 +18,14 @@ impl GitScanner {
     /// Scans all branches in a git repository for secrets.
     pub fn scan_branches(&self, repo_path: &str) -> Result<Vec<SecretFinding>, String> {
         let mut all_findings = Vec::new();
-        let current_dir = std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
+        let current_dir =
+            std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
         let repo_path_abs = current_dir.join(repo_path);
 
         if !repo_path_abs.is_dir() {
             return Err(format!("Repository path is not a directory: {}", repo_path));
         }
-        
+
         // Ensure it's a git repository
         if !repo_path_abs.join(".git").exists() {
             return Err(format!("Not a git repository: {}", repo_path));
@@ -39,15 +40,23 @@ impl GitScanner {
             .map_err(|e| format!("Failed to execute git branch: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("git branch failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "git branch failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let branches: Vec<String> = stdout.lines()
+        let branches: Vec<String> = stdout
+            .lines()
             .filter_map(|line| {
                 // Remove asterisk for current branch and trim
                 let branch_name = line.trim_start_matches('*').trim().to_string();
-                if branch_name.is_empty() { None } else { Some(branch_name) }
+                if branch_name.is_empty() {
+                    None
+                } else {
+                    Some(branch_name)
+                }
             })
             .collect();
 
@@ -60,8 +69,10 @@ impl GitScanner {
             .arg("HEAD")
             .output()
             .map_err(|e| format!("Failed to get current branch: {}", e))?;
-        
-        let current_branch = String::from_utf8_lossy(&current_branch_output.stdout).trim().to_string();
+
+        let current_branch = String::from_utf8_lossy(&current_branch_output.stdout)
+            .trim()
+            .to_string();
 
         for branch in branches {
             println!("Scanning branch: {}", branch);
@@ -75,17 +86,27 @@ impl GitScanner {
                 .output()
                 .map_err(|e| format!("Failed to checkout branch {}: {}", branch, e))?;
             if !checkout_output.status.success() {
-                 eprintln!("Warning: Failed to checkout branch {}: {}", branch, String::from_utf8_lossy(&checkout_output.stderr));
-                 continue;
+                eprintln!(
+                    "Warning: Failed to checkout branch {}: {}",
+                    branch,
+                    String::from_utf8_lossy(&checkout_output.stderr)
+                );
+                continue;
             }
 
             // Scan the current working directory of the branch
-            match self.scanner.scan_directory(&repo_path_abs.to_string_lossy()) {
+            match self
+                .scanner
+                .scan_directory(&repo_path_abs.to_string_lossy())
+            {
                 Ok(findings) => all_findings.extend(findings),
-                Err(e) => eprintln!("Warning: Failed to scan directory for branch {}: {}", branch, e),
+                Err(e) => eprintln!(
+                    "Warning: Failed to scan directory for branch {}: {}",
+                    branch, e
+                ),
             }
         }
-        
+
         // Restore original branch
         let _ = Command::new("git")
             .arg("-C")
@@ -118,14 +139,19 @@ impl GitScanner {
             .map_err(|e| format!("Failed to execute git log: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("git log failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "git log failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut current_commit = String::new();
 
         for line in stdout.lines() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
 
             if line.len() == 40 && line.chars().all(|c| c.is_ascii_hexdigit()) {
                 // This is a commit hash
@@ -133,7 +159,7 @@ impl GitScanner {
             } else {
                 // This is a file path changed in the commit
                 let file_path = line;
-                
+
                 // Get content of the file at this commit
                 let file_content_output = Command::new("git")
                     .arg("-C")
@@ -141,19 +167,19 @@ impl GitScanner {
                     .arg("show")
                     .arg(format!("{}:{}", current_commit, file_path))
                     .output();
-                
+
                 match file_content_output {
                     Ok(output) if output.status.success() => {
                         let content = String::from_utf8_lossy(&output.stdout);
                         for (line_num, line_content) in content.lines().enumerate() {
                             let findings = self.scanner.scan_line_internal(
-                                &format!("{}:{}@{}", repo_path, file_path, current_commit), 
-                                line_num + 1, 
-                                line_content
+                                &format!("{}:{}@{}", repo_path, file_path, current_commit),
+                                line_num + 1,
+                                line_content,
                             );
                             all_findings.extend(findings);
                         }
-                    },
+                    }
                     _ => {
                         // File might not exist in that commit (deleted/renamed), or binary. Ignore.
                     }
@@ -165,14 +191,18 @@ impl GitScanner {
     }
 
     /// Scans git diffs for secrets (reusing existing SecretScanner logic for line scanning).
-    pub fn scan_diff(&self, repo_path: &str, diff_target: &str) -> Result<Vec<SecretFinding>, String> {
+    pub fn scan_diff(
+        &self,
+        repo_path: &str,
+        diff_target: &str,
+    ) -> Result<Vec<SecretFinding>, String> {
         let mut all_findings = Vec::new();
         let repo_path_abs = Path::new(repo_path);
 
         if !repo_path_abs.is_dir() {
             return Err(format!("Repository path is not a directory: {}", repo_path));
         }
-        
+
         let output = Command::new("git")
             .arg("-C")
             .arg(&repo_path_abs)
@@ -182,7 +212,10 @@ impl GitScanner {
             .map_err(|e| format!("Failed to execute git diff: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("git diff failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "git diff failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -199,8 +232,10 @@ impl GitScanner {
             } else if line.starts_with("@@") {
                 // Parse line number changes: @@ -old_start,old_count +new_start,new_count @@
                 if let Some(plus_idx) = line.find('+') {
-                    if let Some(comma_idx) = line[plus_idx+1..].find(',') {
-                        if let Ok(num) = line[plus_idx+1..plus_idx+1+comma_idx].parse::<usize>() {
+                    if let Some(comma_idx) = line[plus_idx + 1..].find(',') {
+                        if let Ok(num) =
+                            line[plus_idx + 1..plus_idx + 1 + comma_idx].parse::<usize>()
+                        {
                             current_line_num = num - 1; // -1 because we increment before scanning
                         }
                     }
@@ -212,7 +247,7 @@ impl GitScanner {
                 let findings = self.scanner.scan_line_internal(
                     &format!("{}:{} (diff)", repo_path, current_file),
                     current_line_num,
-                    line_content
+                    line_content,
                 );
                 all_findings.extend(findings);
             } else if !line.starts_with('-') {
@@ -220,7 +255,7 @@ impl GitScanner {
                 current_line_num += 1;
             }
         }
-        
+
         Ok(all_findings)
     }
 }

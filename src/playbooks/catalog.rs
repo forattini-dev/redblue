@@ -26,7 +26,6 @@
 /// ### Data Collection
 /// - `credential-harvesting` - Credential collection techniques
 /// - `data-exfiltration` - Data extraction methods
-
 use super::types::*;
 use crate::scripts::FindingSeverity;
 
@@ -78,7 +77,12 @@ pub fn playbooks_by_tag(tag: &str) -> Vec<Playbook> {
     let tag_lower = tag.to_lowercase();
     all_playbooks()
         .into_iter()
-        .filter(|p| p.metadata.tags.iter().any(|t| t.to_lowercase() == tag_lower))
+        .filter(|p| {
+            p.metadata
+                .tags
+                .iter()
+                .any(|t| t.to_lowercase() == tag_lower)
+        })
         .collect()
 }
 
@@ -327,13 +331,13 @@ pub fn webshell_upload() -> Playbook {
                 .with_description("Locate file upload functionality")
                 .with_command("rb web asset crawl <url>")
                 .with_success("Upload endpoints identified")
-                .with_mitre("T1595", None) // Active Scanning
+                .with_mitre("T1595", None), // Active Scanning
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Recon, "Analyze Upload Restrictions")
                 .with_description("Determine file type and size restrictions")
                 .with_manual("Test different file extensions: .php, .asp, .jsp, .php5")
-                .with_success("Restriction bypass method identified")
+                .with_success("Restriction bypass method identified"),
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::InitialAccess, "Upload Webshell")
@@ -341,7 +345,7 @@ pub fn webshell_upload() -> Playbook {
                 .with_manual("Upload minimal PHP webshell: <?php system($_GET['c']); ?>")
                 .with_success("Webshell uploaded without error")
                 .depends(2)
-                .with_mitre("T1505.003", None)
+                .with_mitre("T1505.003", None),
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Execution, "Execute Commands")
@@ -349,26 +353,28 @@ pub fn webshell_upload() -> Playbook {
                 .with_manual("Access: http://<target>/<upload-path>/shell.php?c=whoami")
                 .with_success("Commands execute and return output")
                 .depends(3)
-                .with_mitre("T1059", None)
+                .with_mitre("T1059", None),
         )
         .add_evidence(
             ExpectedEvidence::new("Webshell accessible")
                 .at("Uploaded file path")
                 .with_indicator("HTTP 200 response")
                 .with_indicator("Command output returned")
-                .severity(FindingSeverity::Critical)
+                .severity(FindingSeverity::Critical),
         )
         .add_failed_control(
             FailedControl::new(
                 "File Type Validation",
-                "Server-side validation only checks extension, not content"
-            ).with_fix("Implement content-type validation, use allowlist for file types")
+                "Server-side validation only checks extension, not content",
+            )
+            .with_fix("Implement content-type validation, use allowlist for file types"),
         )
         .add_failed_control(
             FailedControl::new(
                 "Web Application Firewall",
-                "WAF rules may not catch obfuscated webshells"
-            ).with_fix("Update WAF rules, implement file upload scanning")
+                "WAF rules may not catch obfuscated webshells",
+            )
+            .with_fix("Update WAF rules, implement file upload scanning"),
         )
 }
 
@@ -380,7 +386,9 @@ pub fn webshell_upload() -> Playbook {
 pub fn web_app_assessment() -> Playbook {
     Playbook::new("web-app-assessment", "Web Application Security Assessment")
         .with_description("Comprehensive security assessment of web applications")
-        .with_objective("Identify vulnerabilities in web applications including OWASP Top 10 issues")
+        .with_objective(
+            "Identify vulnerabilities in web applications including OWASP Top 10 issues",
+        )
         .for_target(TargetType::WebApp)
         .for_os(TargetOS::Any)
         .with_risk(RiskLevel::Medium)
@@ -395,39 +403,39 @@ pub fn web_app_assessment() -> Playbook {
                 .with_command("rb web asset fingerprint <url>")
                 .with_script("http-headers")
                 .with_success("Technology stack identified")
-                .with_mitre("T1592", None) // Gather Victim Host Information
+                .with_mitre("T1592", None), // Gather Victim Host Information
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Recon, "Security Header Analysis")
                 .with_description("Check security headers configuration")
                 .with_command("rb web asset security <url>")
                 .with_script("http-security")
-                .with_success("Security headers analyzed")
+                .with_success("Security headers analyzed"),
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Recon, "TLS Configuration Audit")
                 .with_description("Analyze TLS/SSL configuration")
                 .with_command("rb tls security audit <host>")
-                .with_success("TLS configuration documented")
+                .with_success("TLS configuration documented"),
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Discovery, "Directory Discovery")
                 .with_description("Discover hidden directories and files")
                 .with_command("rb web asset fuzz <url>")
                 .with_success("Hidden paths discovered")
-                .with_mitre("T1083", None) // File and Directory Discovery
+                .with_mitre("T1083", None), // File and Directory Discovery
         )
         .add_step(
             PlaybookStep::new(5, PlaybookPhase::Discovery, "Crawl Application")
                 .with_description("Map application structure and endpoints")
                 .with_command("rb web asset crawl <url>")
-                .with_success("Application mapped")
+                .with_success("Application mapped"),
         )
         .add_step(
             PlaybookStep::new(6, PlaybookPhase::Discovery, "Parameter Discovery")
                 .with_description("Identify input parameters for testing")
                 .with_command("rb web asset params <url>")
-                .with_success("Parameters identified")
+                .with_success("Parameters identified"),
         )
         .add_step(
             PlaybookStep::new(7, PlaybookPhase::Discovery, "Vulnerability Scanning")
@@ -435,31 +443,32 @@ pub fn web_app_assessment() -> Playbook {
                 .with_command("rb web asset vuln-scan <url>")
                 .with_script("http-vulns")
                 .with_success("Vulnerability scan completed")
-                .with_mitre("T1190", None) // Exploit Public-Facing Application
+                .with_mitre("T1190", None), // Exploit Public-Facing Application
         )
         .add_evidence(
             ExpectedEvidence::new("Security header issues")
                 .at("HTTP response headers")
                 .with_indicator("Missing HSTS, CSP, X-Frame-Options")
-                .severity(FindingSeverity::Medium)
+                .severity(FindingSeverity::Medium),
         )
         .add_evidence(
             ExpectedEvidence::new("Outdated software")
                 .at("Server headers, error pages")
                 .with_indicator("Version numbers in headers")
-                .severity(FindingSeverity::Medium)
+                .severity(FindingSeverity::Medium),
         )
         .add_evidence(
             ExpectedEvidence::new("Injection vulnerabilities")
                 .at("Input parameters")
                 .with_indicator("Error messages, unexpected behavior")
-                .severity(FindingSeverity::Critical)
+                .severity(FindingSeverity::Critical),
         )
         .add_failed_control(
             FailedControl::new(
                 "Input Validation",
-                "Server-side validation may be insufficient or bypassable"
-            ).with_fix("Implement strict input validation and parameterized queries")
+                "Server-side validation may be insufficient or bypassable",
+            )
+            .with_fix("Implement strict input validation and parameterized queries"),
         )
 }
 
@@ -480,34 +489,34 @@ pub fn external_footprint() -> Playbook {
                 .with_description("Gather domain registration information")
                 .with_command("rb recon domain whois <domain>")
                 .with_success("Registration info collected")
-                .with_mitre("T1596.002", None) // WHOIS
+                .with_mitre("T1596.002", None), // WHOIS
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Recon, "DNS Enumeration")
                 .with_description("Enumerate DNS records")
                 .with_command("rb dns record lookup <domain> --type ANY")
                 .with_success("DNS records documented")
-                .with_mitre("T1590.002", None) // DNS
+                .with_mitre("T1590.002", None), // DNS
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Recon, "Subdomain Discovery")
                 .with_description("Discover subdomains through multiple sources")
                 .with_command("rb recon domain subdomains <domain>")
                 .with_success("Subdomain list compiled")
-                .with_mitre("T1596.001", None) // DNS/Passive DNS
+                .with_mitre("T1596.001", None), // DNS/Passive DNS
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Recon, "Certificate Transparency")
                 .with_description("Search certificate logs for additional domains")
                 .with_command("rb recon domain subdomains <domain> --ct-logs")
-                .with_success("CT log domains identified")
+                .with_success("CT log domains identified"),
         )
         .add_step(
             PlaybookStep::new(5, PlaybookPhase::Discovery, "Resolve All Subdomains")
                 .with_description("Resolve discovered subdomains to IPs")
                 .with_command("rb dns record mass-resolve subdomains.txt")
                 .with_success("IP addresses mapped")
-                .depends(3)
+                .depends(3),
         )
         .add_step(
             PlaybookStep::new(6, PlaybookPhase::Discovery, "Port Scan External Assets")
@@ -515,32 +524,33 @@ pub fn external_footprint() -> Playbook {
                 .with_command("rb network ports scan <hosts> --preset web")
                 .with_success("Open ports identified")
                 .depends(5)
-                .with_mitre("T1046", None) // Network Service Discovery
+                .with_mitre("T1046", None), // Network Service Discovery
         )
         .add_step(
             PlaybookStep::new(7, PlaybookPhase::Discovery, "Check for Subdomain Takeover")
                 .with_description("Test for subdomain takeover vulnerabilities")
                 .with_command("rb cloud asset takeover-scan subdomains.txt")
                 .with_success("Takeover vulnerabilities documented")
-                .depends(3)
+                .depends(3),
         )
         .add_evidence(
             ExpectedEvidence::new("Untracked subdomains")
                 .at("Subdomain enumeration results")
                 .with_indicator("Domains not in official inventory")
-                .severity(FindingSeverity::Medium)
+                .severity(FindingSeverity::Medium),
         )
         .add_evidence(
             ExpectedEvidence::new("Subdomain takeover possible")
                 .at("DNS CNAME records")
                 .with_indicator("CNAME pointing to unclaimed resource")
-                .severity(FindingSeverity::High)
+                .severity(FindingSeverity::High),
         )
         .add_failed_control(
             FailedControl::new(
                 "Asset Inventory",
-                "Shadow IT and forgotten assets not tracked"
-            ).with_fix("Implement continuous asset discovery and inventory management")
+                "Shadow IT and forgotten assets not tracked",
+            )
+            .with_fix("Implement continuous asset discovery and inventory management"),
         )
 }
 
@@ -562,7 +572,7 @@ pub fn ssh_credential_test() -> Playbook {
                 .with_command("rb network ports scan <target> --port 22")
                 .with_script("ssh-banner")
                 .with_success("SSH version identified")
-                .with_mitre("T1592.002", None) // Software
+                .with_mitre("T1592.002", None), // Software
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::InitialAccess, "Test Common Credentials")
@@ -570,7 +580,7 @@ pub fn ssh_credential_test() -> Playbook {
                 .with_manual("Test: root/root, admin/admin, user/password, etc.")
                 .with_success("Weak credentials identified")
                 .depends(1)
-                .with_mitre("T1110.001", None) // Password Guessing
+                .with_mitre("T1110.001", None), // Password Guessing
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::InitialAccess, "Key-based Auth Check")
@@ -578,25 +588,24 @@ pub fn ssh_credential_test() -> Playbook {
                 .with_manual("Test for: default keys, weak keys, agent forwarding")
                 .with_success("Key auth issues documented")
                 .depends(1)
-                .with_mitre("T1552.004", None) // Private Keys
+                .with_mitre("T1552.004", None), // Private Keys
         )
         .add_evidence(
             ExpectedEvidence::new("Weak password accepted")
                 .at("SSH authentication")
                 .with_indicator("Login successful with common password")
-                .severity(FindingSeverity::Critical)
+                .severity(FindingSeverity::Critical),
         )
         .add_failed_control(
-            FailedControl::new(
-                "Password Policy",
-                "Weak or default passwords not prevented"
-            ).with_fix("Enforce strong password policy, disable password auth, require keys")
+            FailedControl::new("Password Policy", "Weak or default passwords not prevented")
+                .with_fix("Enforce strong password policy, disable password auth, require keys"),
         )
         .add_failed_control(
             FailedControl::new(
                 "Brute Force Protection",
-                "No rate limiting or account lockout"
-            ).with_fix("Implement fail2ban or similar, enable rate limiting")
+                "No rate limiting or account lockout",
+            )
+            .with_fix("Implement fail2ban or similar, enable rate limiting"),
         )
 }
 
@@ -608,7 +617,9 @@ pub fn ssh_credential_test() -> Playbook {
 pub fn linux_privesc_assessment() -> Playbook {
     Playbook::new("linux-privesc", "Linux Privilege Escalation Assessment")
         .with_description("Assess privilege escalation vectors on Linux systems")
-        .with_objective("Identify misconfigurations and vulnerabilities that allow privilege escalation")
+        .with_objective(
+            "Identify misconfigurations and vulnerabilities that allow privilege escalation",
+        )
         .for_target(TargetType::Host)
         .for_os(TargetOS::Linux)
         .with_risk(RiskLevel::Medium)
@@ -621,34 +632,34 @@ pub fn linux_privesc_assessment() -> Playbook {
                 .with_description("Gather system and kernel information")
                 .with_manual("Run: uname -a, cat /etc/os-release, arch")
                 .with_success("System info collected")
-                .with_mitre("T1082", None) // System Information Discovery
+                .with_mitre("T1082", None), // System Information Discovery
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Discovery, "User Context Analysis")
                 .with_description("Analyze current user privileges and groups")
                 .with_manual("Run: id, groups, sudo -l")
                 .with_success("User context documented")
-                .with_mitre("T1033", None) // System Owner/User Discovery
+                .with_mitre("T1033", None), // System Owner/User Discovery
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Discovery, "SUID/SGID Binary Search")
                 .with_description("Find potentially exploitable SUID/SGID binaries")
                 .with_manual("Run: find / -perm -4000 -type f 2>/dev/null")
                 .with_success("SUID binaries listed")
-                .with_mitre("T1548.001", None) // Setuid and Setgid
+                .with_mitre("T1548.001", None), // Setuid and Setgid
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Discovery, "Writable Path Analysis")
                 .with_description("Check for writable system paths")
                 .with_manual("Check: /etc/passwd, /etc/shadow permissions, cron directories")
-                .with_success("Writable paths identified")
+                .with_success("Writable paths identified"),
         )
         .add_step(
             PlaybookStep::new(5, PlaybookPhase::Discovery, "Cron Job Analysis")
                 .with_description("Analyze scheduled tasks for escalation vectors")
                 .with_manual("Check: /etc/crontab, /etc/cron.*, user crontabs")
                 .with_success("Cron jobs analyzed")
-                .with_mitre("T1053.003", None) // Cron
+                .with_mitre("T1053.003", None), // Cron
         )
         .add_step(
             PlaybookStep::new(6, PlaybookPhase::PrivilegeEscalation, "Sudo Exploitation")
@@ -656,33 +667,38 @@ pub fn linux_privesc_assessment() -> Playbook {
                 .with_command("rb exploit payload privesc <target> --os linux --method sudo")
                 .with_success("Sudo escalation successful")
                 .depends(2)
-                .with_mitre("T1548.003", None) // Sudo and Sudo Caching
+                .with_mitre("T1548.003", None), // Sudo and Sudo Caching
         )
         .add_step(
-            PlaybookStep::new(7, PlaybookPhase::PrivilegeEscalation, "Kernel Exploit Check")
-                .with_description("Check for applicable kernel exploits")
-                .with_command("rb intel vuln search kernel <version>")
-                .with_success("Potential kernel exploits identified")
-                .depends(1)
-                .with_mitre("T1068", None) // Exploitation for Privilege Escalation
+            PlaybookStep::new(
+                7,
+                PlaybookPhase::PrivilegeEscalation,
+                "Kernel Exploit Check",
+            )
+            .with_description("Check for applicable kernel exploits")
+            .with_command("rb intel vuln search kernel <version>")
+            .with_success("Potential kernel exploits identified")
+            .depends(1)
+            .with_mitre("T1068", None), // Exploitation for Privilege Escalation
         )
         .add_evidence(
             ExpectedEvidence::new("Sudo misconfiguration")
                 .at("sudo -l output")
                 .with_indicator("NOPASSWD entries for dangerous commands")
-                .severity(FindingSeverity::High)
+                .severity(FindingSeverity::High),
         )
         .add_evidence(
             ExpectedEvidence::new("Writable system files")
                 .at("File system permissions")
                 .with_indicator("Non-root writable /etc files")
-                .severity(FindingSeverity::Critical)
+                .severity(FindingSeverity::Critical),
         )
         .add_failed_control(
             FailedControl::new(
                 "Sudo Configuration",
-                "Overly permissive sudo rules allow escalation"
-            ).with_fix("Apply least privilege to sudo rules, avoid NOPASSWD")
+                "Overly permissive sudo rules allow escalation",
+            )
+            .with_fix("Apply least privilege to sudo rules, avoid NOPASSWD"),
         )
 }
 
@@ -702,47 +718,45 @@ pub fn windows_privesc_assessment() -> Playbook {
                 .with_description("Gather Windows system information")
                 .with_manual("Run: systeminfo, whoami /all, net user")
                 .with_success("System info collected")
-                .with_mitre("T1082", None)
+                .with_mitre("T1082", None),
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Discovery, "Token Privileges Check")
                 .with_description("Check for exploitable token privileges")
                 .with_manual("Run: whoami /priv")
                 .with_success("Token privileges documented")
-                .with_mitre("T1134", None) // Access Token Manipulation
+                .with_mitre("T1134", None), // Access Token Manipulation
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Discovery, "Service Permissions")
                 .with_description("Check for misconfigured service permissions")
                 .with_manual("Check service binaries and permissions")
                 .with_success("Service misconfigs identified")
-                .with_mitre("T1574.010", None) // Services File Permissions Weakness
+                .with_mitre("T1574.010", None), // Services File Permissions Weakness
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Discovery, "Unquoted Service Paths")
                 .with_description("Find unquoted service paths")
                 .with_manual("Look for services with spaces in unquoted paths")
                 .with_success("Unquoted paths documented")
-                .with_mitre("T1574.009", None) // Path Interception by Unquoted Path
+                .with_mitre("T1574.009", None), // Path Interception by Unquoted Path
         )
         .add_step(
             PlaybookStep::new(5, PlaybookPhase::PrivilegeEscalation, "UAC Bypass")
                 .with_description("Attempt UAC bypass techniques")
                 .with_command("rb exploit payload privesc <target> --os windows --method uac")
                 .with_success("UAC bypassed")
-                .with_mitre("T1548.002", None) // Bypass User Account Control
+                .with_mitre("T1548.002", None), // Bypass User Account Control
         )
         .add_evidence(
             ExpectedEvidence::new("SeImpersonatePrivilege enabled")
                 .at("whoami /priv output")
                 .with_indicator("SeImpersonatePrivilege: Enabled")
-                .severity(FindingSeverity::High)
+                .severity(FindingSeverity::High),
         )
         .add_failed_control(
-            FailedControl::new(
-                "UAC Configuration",
-                "UAC set to lower security level"
-            ).with_fix("Set UAC to highest level, require credentials for elevation")
+            FailedControl::new("UAC Configuration", "UAC set to lower security level")
+                .with_fix("Set UAC to highest level, require credentials for elevation"),
         )
 }
 
@@ -766,14 +780,14 @@ pub fn internal_recon() -> Playbook {
                 .with_description("Identify network interfaces and subnets")
                 .with_manual("Run: ip a, ifconfig, route -n")
                 .with_success("Network topology understood")
-                .with_mitre("T1016", None) // System Network Configuration Discovery
+                .with_mitre("T1016", None), // System Network Configuration Discovery
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Discovery, "ARP Discovery")
                 .with_description("Discover hosts via ARP")
                 .with_command("rb network host discover <subnet>")
                 .with_success("Active hosts identified")
-                .with_mitre("T1018", None) // Remote System Discovery
+                .with_mitre("T1018", None), // Remote System Discovery
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Discovery, "Port Scanning")
@@ -781,7 +795,7 @@ pub fn internal_recon() -> Playbook {
                 .with_command("rb network ports scan <hosts> --preset common")
                 .with_success("Services mapped")
                 .depends(2)
-                .with_mitre("T1046", None)
+                .with_mitre("T1046", None),
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Discovery, "Domain Controller Discovery")
@@ -789,7 +803,7 @@ pub fn internal_recon() -> Playbook {
                 .with_manual("Look for LDAP (389), Kerberos (88), DNS (53)")
                 .with_success("Domain controllers identified")
                 .depends(3)
-                .with_mitre("T1018", None)
+                .with_mitre("T1018", None),
         )
         .add_step(
             PlaybookStep::new(5, PlaybookPhase::Discovery, "SMB Enumeration")
@@ -797,19 +811,20 @@ pub fn internal_recon() -> Playbook {
                 .with_script("smb-info")
                 .with_success("SMB shares documented")
                 .depends(3)
-                .with_mitre("T1135", None) // Network Share Discovery
+                .with_mitre("T1135", None), // Network Share Discovery
         )
         .add_evidence(
             ExpectedEvidence::new("Domain controller identified")
                 .at("Port scan results")
                 .with_indicator("Ports 88, 389, 636, 3268 open")
-                .severity(FindingSeverity::Info)
+                .severity(FindingSeverity::Info),
         )
         .add_failed_control(
             FailedControl::new(
                 "Network Segmentation",
-                "Flat network allows unrestricted lateral movement"
-            ).with_fix("Implement network segmentation and micro-segmentation")
+                "Flat network allows unrestricted lateral movement",
+            )
+            .with_fix("Implement network segmentation and micro-segmentation"),
         )
 }
 
@@ -830,33 +845,34 @@ pub fn lateral_movement_assessment() -> Playbook {
                 .with_description("Test SMB-based lateral movement")
                 .with_command("rb exploit payload lateral --method smb <target>")
                 .with_success("SMB access achieved")
-                .with_mitre("T1021.002", None) // SMB/Windows Admin Shares
+                .with_mitre("T1021.002", None), // SMB/Windows Admin Shares
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::LateralMovement, "WinRM Movement")
                 .with_description("Test WinRM-based access")
                 .with_manual("Test: Enter-PSSession -ComputerName <target>")
                 .with_success("WinRM access achieved")
-                .with_mitre("T1021.006", None) // Windows Remote Management
+                .with_mitre("T1021.006", None), // Windows Remote Management
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::LateralMovement, "SSH Movement")
                 .with_description("Test SSH-based lateral movement")
                 .with_command("rb exploit payload lateral --method ssh <target>")
                 .with_success("SSH access achieved")
-                .with_mitre("T1021.004", None) // SSH
+                .with_mitre("T1021.004", None), // SSH
         )
         .add_evidence(
             ExpectedEvidence::new("Cross-system access")
                 .at("Remote system")
                 .with_indicator("Shell access on different host")
-                .severity(FindingSeverity::High)
+                .severity(FindingSeverity::High),
         )
         .add_failed_control(
             FailedControl::new(
                 "Credential Guard",
-                "Credential Guard not enabled, allowing credential theft"
-            ).with_fix("Enable Windows Credential Guard on all systems")
+                "Credential Guard not enabled, allowing credential theft",
+            )
+            .with_fix("Enable Windows Credential Guard on all systems"),
         )
 }
 
@@ -880,40 +896,38 @@ pub fn credential_harvesting() -> Playbook {
                 .with_description("Search for credentials in configuration files")
                 .with_command("rb code secrets scan /")
                 .with_success("Config files with credentials found")
-                .with_mitre("T1552.001", None) // Credentials In Files
+                .with_mitre("T1552.001", None), // Credentials In Files
         )
         .add_step(
             PlaybookStep::new(2, PlaybookPhase::Collection, "Environment Variables")
                 .with_description("Check for credentials in environment")
                 .with_manual("Check: env, printenv, .bashrc, .profile")
                 .with_success("Environment credentials documented")
-                .with_mitre("T1552.001", None)
+                .with_mitre("T1552.001", None),
         )
         .add_step(
             PlaybookStep::new(3, PlaybookPhase::Collection, "Browser Credential Check")
                 .with_description("Check for stored browser credentials")
                 .with_manual("Check browser credential stores")
                 .with_success("Browser credentials identified")
-                .with_mitre("T1555.003", None) // Credentials from Web Browsers
+                .with_mitre("T1555.003", None), // Credentials from Web Browsers
         )
         .add_step(
             PlaybookStep::new(4, PlaybookPhase::Collection, "SSH Key Discovery")
                 .with_description("Search for SSH private keys")
                 .with_manual("Search: ~/.ssh/, /home/*/.ssh/, /root/.ssh/")
                 .with_success("SSH keys located")
-                .with_mitre("T1552.004", None) // Private Keys
+                .with_mitre("T1552.004", None), // Private Keys
         )
         .add_evidence(
             ExpectedEvidence::new("Plaintext credentials")
                 .at("Configuration files")
                 .with_indicator("API keys, passwords, tokens in plaintext")
-                .severity(FindingSeverity::Critical)
+                .severity(FindingSeverity::Critical),
         )
         .add_failed_control(
-            FailedControl::new(
-                "Secret Management",
-                "Credentials stored in plaintext files"
-            ).with_fix("Use secrets manager (Vault, AWS Secrets Manager)")
+            FailedControl::new("Secret Management", "Credentials stored in plaintext files")
+                .with_fix("Use secrets manager (Vault, AWS Secrets Manager)"),
         )
 }
 
@@ -925,9 +939,21 @@ mod tests {
     fn test_all_playbooks_have_metadata() {
         for playbook in all_playbooks() {
             assert!(!playbook.metadata.id.is_empty(), "Playbook missing ID");
-            assert!(!playbook.metadata.name.is_empty(), "Playbook {} missing name", playbook.metadata.id);
-            assert!(!playbook.metadata.description.is_empty(), "Playbook {} missing description", playbook.metadata.id);
-            assert!(!playbook.steps.is_empty(), "Playbook {} has no steps", playbook.metadata.id);
+            assert!(
+                !playbook.metadata.name.is_empty(),
+                "Playbook {} missing name",
+                playbook.metadata.id
+            );
+            assert!(
+                !playbook.metadata.description.is_empty(),
+                "Playbook {} missing description",
+                playbook.metadata.id
+            );
+            assert!(
+                !playbook.steps.is_empty(),
+                "Playbook {} has no steps",
+                playbook.metadata.id
+            );
         }
     }
 
@@ -935,7 +961,10 @@ mod tests {
     fn test_get_playbook_by_id() {
         let playbook = get_playbook("reverse-shell-linux");
         assert!(playbook.is_some());
-        assert_eq!(playbook.unwrap().metadata.name, "Reverse Shell Assessment (Linux)");
+        assert_eq!(
+            playbook.unwrap().metadata.name,
+            "Reverse Shell Assessment (Linux)"
+        );
     }
 
     #[test]

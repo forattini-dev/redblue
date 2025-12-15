@@ -2,14 +2,13 @@
 ///
 /// Re-scans stored ports to detect state changes over time.
 /// Supports check, diff, and watch operations.
-
 use std::collections::HashMap;
-use std::net::{IpAddr, TcpStream, SocketAddr, ToSocketAddrs};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::storage::records::{PortHealthRecord, PortStateChange, PortScanRecord, PortStatus};
+use crate::storage::records::{PortHealthRecord, PortScanRecord, PortStateChange, PortStatus};
 
 /// Result of a port health check
 #[derive(Debug, Clone)]
@@ -111,20 +110,18 @@ impl PortHealthChecker {
             let ports_queue = Arc::clone(&ports_queue);
             let host = host.clone();
 
-            let handle = thread::spawn(move || {
-                loop {
-                    let port = {
-                        let mut queue = ports_queue.lock().unwrap();
-                        queue.pop()
-                    };
+            let handle = thread::spawn(move || loop {
+                let port = {
+                    let mut queue = ports_queue.lock().unwrap();
+                    queue.pop()
+                };
 
-                    match port {
-                        Some(p) => {
-                            let result = Self::check_port_internal(&host, p, timeout);
-                            results.lock().unwrap().push(result);
-                        }
-                        None => break,
+                match port {
+                    Some(p) => {
+                        let result = Self::check_port_internal(&host, p, timeout);
+                        results.lock().unwrap().push(result);
                     }
+                    None => break,
                 }
             });
 
@@ -165,7 +162,11 @@ impl PortHealthChecker {
         Self::try_connect_with_timeout(host, port, self.timeout)
     }
 
-    fn try_connect_with_timeout(host: &str, port: u16, timeout: Duration) -> (bool, Option<IpAddr>) {
+    fn try_connect_with_timeout(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+    ) -> (bool, Option<IpAddr>) {
         let addr = format!("{}:{}", host, port);
 
         // Try to resolve and connect
@@ -380,7 +381,11 @@ impl PortWatcher {
             let diff = if previous_results.is_empty() {
                 // First iteration - all are "new"
                 PortDiff {
-                    new_ports: current_results.iter().filter(|r| r.is_open).cloned().collect(),
+                    new_ports: current_results
+                        .iter()
+                        .filter(|r| r.is_open)
+                        .cloned()
+                        .collect(),
                     ..Default::default()
                 }
             } else {
@@ -391,7 +396,11 @@ impl PortWatcher {
                         r.ip.map(|ip| PortScanRecord {
                             ip,
                             port: r.port,
-                            status: if r.is_open { PortStatus::Open } else { PortStatus::Closed },
+                            status: if r.is_open {
+                                PortStatus::Open
+                            } else {
+                                PortStatus::Closed
+                            },
                             service_id: 0, // Will be derived from port
                             timestamp: 0,
                         })
@@ -436,10 +445,22 @@ mod tests {
 
     #[test]
     fn test_detect_service() {
-        assert_eq!(PortHealthChecker::detect_service_static(22), Some("SSH".to_string()));
-        assert_eq!(PortHealthChecker::detect_service_static(80), Some("HTTP".to_string()));
-        assert_eq!(PortHealthChecker::detect_service_static(443), Some("HTTPS".to_string()));
-        assert_eq!(PortHealthChecker::detect_service_static(3306), Some("MySQL".to_string()));
+        assert_eq!(
+            PortHealthChecker::detect_service_static(22),
+            Some("SSH".to_string())
+        );
+        assert_eq!(
+            PortHealthChecker::detect_service_static(80),
+            Some("HTTP".to_string())
+        );
+        assert_eq!(
+            PortHealthChecker::detect_service_static(443),
+            Some("HTTPS".to_string())
+        );
+        assert_eq!(
+            PortHealthChecker::detect_service_static(3306),
+            Some("MySQL".to_string())
+        );
         assert_eq!(PortHealthChecker::detect_service_static(12345), None);
     }
 
@@ -477,7 +498,7 @@ mod tests {
                 host: "test".to_string(),
                 ip: Some(test_ip),
                 port: 22,
-                is_open: true,  // still open
+                is_open: true, // still open
                 response_time_ms: 12,
                 change: PortStateChange::New,
                 service: Some("SSH".to_string()),
@@ -495,7 +516,7 @@ mod tests {
                 host: "test".to_string(),
                 ip: Some(test_ip),
                 port: 443,
-                is_open: true,  // was closed, now open
+                is_open: true, // was closed, now open
                 response_time_ms: 8,
                 change: PortStateChange::New,
                 service: Some("HTTPS".to_string()),
@@ -504,7 +525,7 @@ mod tests {
                 host: "test".to_string(),
                 ip: Some(test_ip),
                 port: 8080,
-                is_open: true,  // new port
+                is_open: true, // new port
                 response_time_ms: 15,
                 change: PortStateChange::New,
                 service: Some("HTTP-Proxy".to_string()),

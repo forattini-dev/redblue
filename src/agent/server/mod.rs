@@ -1,17 +1,17 @@
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::sync::mpsc; 
 
-use crate::modules::http_server::{HttpServer, HttpServerConfig, HttpRequest, HttpResponse};
 use crate::agent::crypto::AgentCrypto;
-use crate::agent::protocol::{BeaconMessage, MessageType, AgentCommand, AgentResponse};
-use crate::crypto::x25519::x25519;
+use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
 use crate::crypto::chacha20::chacha20poly1305_decrypt;
-use crate::storage::reddb::RedDb;
+use crate::crypto::x25519::x25519;
+use crate::modules::http_server::{HttpRequest, HttpResponse, HttpServer, HttpServerConfig};
 use crate::storage::records::{SessionRecord, SessionStatus as DbSessionStatus};
+use crate::storage::reddb::RedDb;
 
 /// Agent C2 Server
 pub struct AgentServer {
@@ -82,10 +82,10 @@ impl AgentServer {
             .add_route("/beacon", move |req| {
                 Self::handle_beacon(req, &clients, &crypto, &db)
             });
-        
+
         let server = HttpServer::new(http_config);
         let server_clone = server.clone();
-        
+
         thread::spawn(move || {
             // Signal readiness after the server starts listening.
             // This is a bit of a hack since HttpServer::run() blocks,
@@ -98,12 +98,16 @@ impl AgentServer {
                 eprintln!("C2 Server error: {}", e);
             }
         });
-        
+
         self.http_server = Some(server);
         Ok(())
     }
 
-    pub fn add_command_to_session(&self, session_id: &str, command: AgentCommand) -> Result<(), String> {
+    pub fn add_command_to_session(
+        &self,
+        session_id: &str,
+        command: AgentCommand,
+    ) -> Result<(), String> {
         let mut clients_guard = self.clients.lock().unwrap();
         if let Some(session) = clients_guard.get_mut(session_id) {
             session.command_queue.push_back(command);
@@ -112,14 +116,14 @@ impl AgentServer {
             Err(format!("Session {} not found", session_id))
         }
     }
-    
+
     pub fn list_agents(&self) -> Vec<AgentSession> {
         let clients = self.clients.lock().unwrap();
         clients.values().cloned().collect()
     }
 
     fn handle_beacon(
-        req: &HttpRequest, 
+        req: &HttpRequest,
         clients: &Arc<Mutex<HashMap<String, AgentSession>>>,
         crypto: &Arc<AgentCrypto>,
         db: &Option<Arc<Mutex<RedDb>>>,
@@ -137,25 +141,26 @@ impl AgentServer {
                 return HttpResponse::new(400, b"Invalid JSON".to_vec());
             }
         };
-        
+
         let session_id_str = format!("{:x}", beacon.session_id);
-        
+
         let mut clients_guard = clients.lock().unwrap();
-        
+
         // Handle KeyExchange
         if beacon.msg_type == MessageType::KeyExchange {
             println!("Handling KeyExchange for {}", session_id_str);
             if beacon.payload.len() != 32 {
                 return HttpResponse::new(400, b"Invalid Public Key Length".to_vec());
             }
-            
+
             let mut client_pub = [0u8; 32];
             client_pub.copy_from_slice(&beacon.payload);
-            
+
             let session_key = x25519(&crypto.private_key, &client_pub);
-            
-            let session = clients_guard.entry(session_id_str.clone()).or_insert_with(|| {
-                AgentSession {
+
+            let session = clients_guard
+                .entry(session_id_str.clone())
+                .or_insert_with(|| AgentSession {
                     id: session_id_str.clone(),
                     hostname: "unknown".to_string(),
                     os: "unknown".to_string(),
@@ -164,8 +169,7 @@ impl AgentServer {
                     session_key: None,
                     command_queue: VecDeque::new(),
                     response_queue: VecDeque::new(),
-                }
-            });
+                });
             session.session_key = Some(session_key);
             session.last_seen = std::time::SystemTime::now();
             session.status = SessionStatus::Active;
@@ -173,7 +177,10 @@ impl AgentServer {
             // Persist new session
             if let Some(db_arc) = db {
                 if let Ok(mut db) = db_arc.lock() {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as u32;
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as u32;
                     let record = SessionRecord {
                         id: session_id_str.clone(),
                         target: "unknown".to_string(), // Hostname not known yet
@@ -187,7 +194,7 @@ impl AgentServer {
                     let _ = db.sessions().insert(record);
                 }
             }
-            
+
             // Return server public key
             return HttpResponse::new(200, crypto.public_key.to_vec());
         }
@@ -195,9 +202,14 @@ impl AgentServer {
         // Handle regular Beacon or Response messages
         let session = match clients_guard.get_mut(&session_id_str) {
             Some(s) => s,
-            None => return HttpResponse::new(401, b"Unauthorized: Session not found (Perform Handshake)".to_vec()),
+            None => {
+                return HttpResponse::new(
+                    401,
+                    b"Unauthorized: Session not found (Perform Handshake)".to_vec(),
+                )
+            }
         };
-        
+
         session.last_seen = std::time::SystemTime::now();
         session.status = SessionStatus::Active;
 
@@ -208,31 +220,35 @@ impl AgentServer {
                 // ideally we fetch, update, save. But SessionSegment.update handles it if ID matches.
                 // But we don't want to reset created_at.
                 if let Ok(Some(mut record)) = db.sessions().get(&session_id_str) {
-                    record.last_activity = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as u32;
+                    record.last_activity = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as u32;
                     let _ = db.sessions().update(record);
                 }
             }
         }
-        
+
         let session_key = match session.session_key {
             Some(key) => key,
             None => return HttpResponse::new(401, b"Session key not established".to_vec()),
         };
-        
+
         // Decrypt incoming payload
         // The payload contains the nonce prepended to the ciphertext.
         // The tag is separate in the BeaconMessage struct.
-        if beacon.payload.len() < 12 { // Nonce is 12 bytes
+        if beacon.payload.len() < 12 {
+            // Nonce is 12 bytes
             return HttpResponse::new(400, b"Invalid Payload Length".to_vec());
         }
         let nonce = &beacon.payload[..12];
         let ciphertext = &beacon.payload[12..];
-        
+
         // Combine ciphertext and tag for decryption
         let mut ciphertext_and_tag = Vec::with_capacity(ciphertext.len() + beacon.tag.len());
         ciphertext_and_tag.extend_from_slice(ciphertext);
         ciphertext_and_tag.extend_from_slice(&beacon.tag);
-        
+
         let nonce_arr: [u8; 12] = match nonce.try_into() {
             Ok(n) => n,
             Err(_) => return HttpResponse::new(400, b"Invalid Nonce".to_vec()),
@@ -240,7 +256,10 @@ impl AgentServer {
 
         println!("DEBUG: beacon.payload.len() = {}", beacon.payload.len());
         println!("DEBUG: beacon.tag.len() = {}", beacon.tag.len());
-        println!("DEBUG: ciphertext_and_tag.len() = {}", ciphertext_and_tag.len());
+        println!(
+            "DEBUG: ciphertext_and_tag.len() = {}",
+            ciphertext_and_tag.len()
+        );
 
         match chacha20poly1305_decrypt(&session_key, &nonce_arr, b"", &ciphertext_and_tag) {
             Ok(plaintext_incoming) => {
@@ -249,43 +268,59 @@ impl AgentServer {
                         // This is a regular beacon, might contain info or previous command results
                         if !plaintext_incoming.is_empty() {
                             // Attempt to parse AgentResponse(s)
-                            match serde_json::from_slice::<Vec<AgentResponse>>(&plaintext_incoming) {
+                            match serde_json::from_slice::<Vec<AgentResponse>>(&plaintext_incoming)
+                            {
                                 Ok(responses) => {
                                     for resp in responses {
-                                        println!("Agent {} responded to command {}: Success={}", session_id_str, resp.command_id, resp.success);
+                                        println!(
+                                            "Agent {} responded to command {}: Success={}",
+                                            session_id_str, resp.command_id, resp.success
+                                        );
                                         if let Some(ref err) = resp.error {
                                             eprintln!("Error: {}", err);
                                         }
                                         session.response_queue.push_back(resp);
                                     }
                                 }
-                                Err(e) => eprintln!("Agent {} sent unparseable response: {}", session_id_str, e),
+                                Err(e) => eprintln!(
+                                    "Agent {} sent unparseable response: {}",
+                                    session_id_str, e
+                                ),
                             }
                         } else {
                             println!("Received HEARTBEAT from {}", session_id_str);
                         }
-                    },
+                    }
                     MessageType::Response => {
                         // This indicates the agent is sending back results for a specific command
                         match serde_json::from_slice::<Vec<AgentResponse>>(&plaintext_incoming) {
                             Ok(responses) => {
                                 for resp in responses {
-                                    println!("Agent {} sent command result for {}: Success={}", session_id_str, resp.command_id, resp.success);
+                                    println!(
+                                        "Agent {} sent command result for {}: Success={}",
+                                        session_id_str, resp.command_id, resp.success
+                                    );
                                     if let Some(ref err) = resp.error {
                                         eprintln!("Error: {}", err);
                                     }
                                     session.response_queue.push_back(resp);
                                 }
                             }
-                            Err(e) => eprintln!("Agent {} sent unparseable command results: {}", session_id_str, e),
+                            Err(e) => eprintln!(
+                                "Agent {} sent unparseable command results: {}",
+                                session_id_str, e
+                            ),
                         }
-                    },
+                    }
                     _ => {
-                        eprintln!("Received unexpected message type from agent {}: {:?}", session_id_str, beacon.msg_type);
+                        eprintln!(
+                            "Received unexpected message type from agent {}: {:?}",
+                            session_id_str, beacon.msg_type
+                        );
                         return HttpResponse::new(400, b"Unexpected Message Type".to_vec());
                     }
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("Decryption failed for {}: {}", session_id_str, e);
                 return HttpResponse::new(400, b"Decryption Failed".to_vec());
@@ -299,10 +334,16 @@ impl AgentServer {
         }
 
         let response_payload = serde_json::to_vec(&commands_to_send).unwrap_or_default();
-        let (encrypted_response_payload, response_tag) = match crypto.as_ref().encrypt_with_key(&session_key, &response_payload) {
+        let (encrypted_response_payload, response_tag) = match crypto
+            .as_ref()
+            .encrypt_with_key(&session_key, &response_payload)
+        {
             Ok(result) => result,
             Err(e) => {
-                eprintln!("Failed to encrypt server response for {}: {}", session_id_str, e);
+                eprintln!(
+                    "Failed to encrypt server response for {}: {}",
+                    session_id_str, e
+                );
                 return HttpResponse::new(500, b"Server Encryption Error".to_vec());
             }
         };
@@ -323,9 +364,9 @@ impl AgentServer {
 mod tests {
     use super::*;
     use crate::agent::client::{AgentClient, AgentConfig};
-    use std::time::Instant;
-    use std::sync::mpsc;
     use crate::protocols::http::HttpClient;
+    use std::sync::mpsc;
+    use std::time::Instant;
 
     #[test]
     fn test_agent_server_lifecycle() {
@@ -344,13 +385,22 @@ mod tests {
         let (tx_ready, rx_ready) = mpsc::channel();
 
         // Start agent server with the sender for readiness notification
-        agent_server.start(Some(tx_ready)).expect("Failed to start agent server");
+        agent_server
+            .start(Some(tx_ready))
+            .expect("Failed to start agent server");
 
         // Wait for the server to indicate it's ready (bound and listening)
-        rx_ready.recv_timeout(Duration::from_secs(5)).expect("Server did not signal readiness within 5 seconds");
-        
+        rx_ready
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Server did not signal readiness within 5 seconds");
+
         // Wait until we can get the local address
-        let mut actual_server_addr = agent_server.http_server.as_ref().unwrap().config.listen_addr;
+        let mut actual_server_addr = agent_server
+            .http_server
+            .as_ref()
+            .unwrap()
+            .config
+            .listen_addr;
         for _ in 0..50 {
             if let Some(addr) = agent_server.http_server.as_ref().unwrap().local_addr() {
                 actual_server_addr = addr;
@@ -358,9 +408,9 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(10));
         }
-        
+
         println!("Test Server running on: {}", actual_server_addr);
-        
+
         // --- 2. Setup Client ---
         let client_config = AgentConfig {
             server_url: format!("http://{}", actual_server_addr),
@@ -372,30 +422,53 @@ mod tests {
 
         // --- 3. Client Handshake ---
         let handshake_res = agent_client.perform_handshake();
-        assert!(handshake_res.is_ok(), "Client handshake failed: {:?}", handshake_res.err());
-        assert!(agent_client.crypto.session_key.is_some(), "Client session key not derived");
+        assert!(
+            handshake_res.is_ok(),
+            "Client handshake failed: {:?}",
+            handshake_res.err()
+        );
+        assert!(
+            agent_client.crypto.session_key.is_some(),
+            "Client session key not derived"
+        );
         println!("Client {} handshake successful.", client_session_id);
 
         // Verify session exists on server
         thread::sleep(Duration::from_millis(50)); // Allow server to process request
         let server_clients = agent_server.clients.lock().unwrap();
-        assert!(server_clients.contains_key(&client_session_id), "Server did not register client session after handshake");
+        assert!(
+            server_clients.contains_key(&client_session_id),
+            "Server did not register client session after handshake"
+        );
         let session = server_clients.get(&client_session_id).unwrap();
-        assert!(session.session_key.is_some(), "Server did not derive session key for client");
+        assert!(
+            session.session_key.is_some(),
+            "Server did not derive session key for client"
+        );
         assert_eq!(session.status, SessionStatus::Active);
         println!("Server verified client {} session.", client_session_id);
 
         // --- 4. Client Sends First Beacon (Heartbeat) ---
         let beacon_res = agent_client.send_beacon();
-        assert!(beacon_res.is_ok(), "Client initial beacon failed: {:?}", beacon_res.err());
+        assert!(
+            beacon_res.is_ok(),
+            "Client initial beacon failed: {:?}",
+            beacon_res.err()
+        );
         println!("Client {} sent initial beacon.", client_session_id);
         thread::sleep(Duration::from_millis(50)); // Allow server to process request
 
         // Verify no commands sent from server (empty queue)
         let server_clients = agent_server.clients.lock().unwrap();
         let session = server_clients.get(&client_session_id).unwrap();
-        assert!(session.command_queue.is_empty(), "Server should have an empty command queue initially");
-        assert!(session.response_queue.is_empty(), "Server should have an empty response queue initially");
+        assert!(
+            session.command_queue.is_empty(),
+            "Server should have an empty command queue initially"
+        );
+        assert!(
+            session.response_queue.is_empty(),
+            "Server should have an empty response queue initially"
+        );
 
         // --- 5. Server Enqueues a Command for Client ---
         let test_command = AgentCommand {
@@ -403,20 +476,32 @@ mod tests {
             action: "ls".to_string(),
             args: vec!["-la".to_string(), "/tmp".to_string()],
         };
-        agent_server.add_command_to_session(&client_session_id, test_command.clone()).expect("Failed to add command");
+        agent_server
+            .add_command_to_session(&client_session_id, test_command.clone())
+            .expect("Failed to add command");
         println!("Server enqueued command for client {}.", client_session_id);
 
         // --- 6. Client Sends Another Beacon, Receives Command ---
         let beacon_res = agent_client.send_beacon();
-        assert!(beacon_res.is_ok(), "Client second beacon failed: {:?}", beacon_res.err());
-        println!("Client {} sent second beacon, received command.", client_session_id);
+        assert!(
+            beacon_res.is_ok(),
+            "Client second beacon failed: {:?}",
+            beacon_res.err()
+        );
+        println!(
+            "Client {} sent second beacon, received command.",
+            client_session_id
+        );
 
         // Let's manually verify the server's state after client receives command
         thread::sleep(Duration::from_millis(50)); // Allow server to process request
         let server_clients = agent_server.clients.lock().unwrap();
         let session = server_clients.get(&client_session_id).unwrap();
         // The command should have been dequeued by the server as it was sent to the client
-        assert!(session.command_queue.is_empty(), "Command queue should be empty after dispatch");
+        assert!(
+            session.command_queue.is_empty(),
+            "Command queue should be empty after dispatch"
+        );
 
         println!("Agent-Server lifecycle test completed successfully.");
     }

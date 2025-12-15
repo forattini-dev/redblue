@@ -6,16 +6,16 @@ use crate::storage::records::FingerprintRecord;
 
 #[derive(Debug, Clone)]
 struct FingerprintDirEntry {
-    host_hash: u64,       // Use hash for fixed size directory entries? Or length prefixed string?
-                          // Let's use variable length string for simplicity and exact matching first.
-                          // Actually, for "Directory" standard, fixed size is better. 
-                          // But keys are strings (hosts). 
-                          // Let's stick to the pattern: Directory has metadata, Payload has data.
-                          // Directory maps Key -> Offset/Length.
-    key_offset: u64,      // Offset to the host string in the key section? 
-                          // Simplification: Let's store keys in the directory block if they are short, 
-                          // or pointers if they are long. 
-                          // BETTER: Standard RedDB approach -> Directory maps (Key -> Range).
+    host_hash: u64, // Use hash for fixed size directory entries? Or length prefixed string?
+    // Let's use variable length string for simplicity and exact matching first.
+    // Actually, for "Directory" standard, fixed size is better.
+    // But keys are strings (hosts).
+    // Let's stick to the pattern: Directory has metadata, Payload has data.
+    // Directory maps Key -> Offset/Length.
+    key_offset: u64, // Offset to the host string in the key section?
+    // Simplification: Let's store keys in the directory block if they are short,
+    // or pointers if they are long.
+    // BETTER: Standard RedDB approach -> Directory maps (Key -> Range).
     payload_offset: u64,
     payload_len: u64,
     record_count: u32,
@@ -29,7 +29,7 @@ struct FingerprintDirEntry {
 // [Record 2 Length] [Record 2 Data]
 // ...
 //
-// This is not indexed but it's a start. 
+// This is not indexed but it's a start.
 // Wait, I should try to be consistent with `ports.rs`.
 // `ports.rs` uses: Header -> Directory -> Payload.
 // Directory Entry: Key (16 bytes IP) -> Offset/Len.
@@ -94,7 +94,7 @@ impl FingerprintSegmentHeader {
 pub struct FingerprintSegment {
     records: Vec<FingerprintRecord>,
     // In-memory index: Host -> indices in records vec
-    index: HashMap<String, Vec<usize>>, 
+    index: HashMap<String, Vec<usize>>,
 }
 
 impl FingerprintSegment {
@@ -130,7 +130,7 @@ impl FingerprintSegment {
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        
+
         // Prepare Directory and Payload
         let mut directory = Vec::new();
         let mut payload = Vec::new();
@@ -142,7 +142,7 @@ impl FingerprintSegment {
         for host in hosts {
             let indices = &self.index[host];
             let start_offset = payload.len() as u64;
-            
+
             // Write records for this host into payload
             let mut block = Vec::new();
             for &idx in indices {
@@ -170,7 +170,7 @@ impl FingerprintSegment {
         header.write(&mut buf);
         buf.extend_from_slice(&directory);
         buf.extend_from_slice(&payload);
-        
+
         buf
     }
 
@@ -179,7 +179,7 @@ impl FingerprintSegment {
             return Err(DecodeError("segment too small"));
         }
         let header = FingerprintSegmentHeader::read(bytes)?;
-        
+
         let dir_start = FingerprintSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
         let payload_start = dir_end;
@@ -198,50 +198,47 @@ impl FingerprintSegment {
         let mut dir_pos = 0;
         for _ in 0..header.host_count {
             let host = read_string(dir_bytes, &mut dir_pos)?.to_string();
-            
+
             if dir_pos + 4 + 8 + 8 > dir_bytes.len() {
                 return Err(DecodeError("directory truncated"));
             }
-            
-            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos+4].try_into().unwrap());
+
+            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos + 4].try_into().unwrap());
             dir_pos += 4;
-            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
-            let len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
 
             let mut host_indices = Vec::with_capacity(count as usize);
-            
+
             // Decode Payload Block
             let block_start = offset as usize;
             let block_end = block_start + len as usize;
             if block_end > payload_bytes.len() {
                 return Err(DecodeError("payload block out of bounds"));
             }
-            
+
             let mut block_pos = block_start;
             let block = &payload_bytes;
-            
+
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut block_pos)? as usize;
                 if block_pos + rec_len > block_end {
                     return Err(DecodeError("record out of block bounds"));
                 }
-                let rec_bytes = &block[block_pos..block_pos+rec_len];
+                let rec_bytes = &block[block_pos..block_pos + rec_len];
                 let record = FingerprintRecord::from_bytes(rec_bytes)?;
                 block_pos += rec_len;
-                
+
                 records.push(record);
                 host_indices.push(records.len() - 1);
             }
-            
+
             index.insert(host, host_indices);
         }
 
-        Ok(Self {
-            records,
-            index,
-        })
+        Ok(Self { records, index })
     }
 }
 
@@ -254,17 +251,17 @@ pub struct FingerprintSegmentView {
 
 impl FingerprintSegmentView {
     pub fn from_arc(data: Arc<Vec<u8>>, offset: usize, len: usize) -> Result<Self, DecodeError> {
-        let slice = &data[offset..offset+len];
+        let slice = &data[offset..offset + len];
         if slice.len() < FingerprintSegmentHeader::SIZE {
             return Err(DecodeError("view too small"));
         }
         let header = FingerprintSegmentHeader::read(slice)?;
-        
+
         let dir_start = offset + FingerprintSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
-        
+
         let payload_start = dir_end;
-        
+
         if dir_end > offset + len {
             return Err(DecodeError("directory out of bounds"));
         }
@@ -272,16 +269,16 @@ impl FingerprintSegmentView {
         let dir_bytes = &data[dir_start..dir_end];
         let mut directory = HashMap::with_capacity(header.host_count as usize);
         let mut pos = 0;
-        
+
         for _ in 0..header.host_count {
             let host = read_string(dir_bytes, &mut pos)?.to_string();
-            let count = u32::from_le_bytes(dir_bytes[pos..pos+4].try_into().unwrap());
+            let count = u32::from_le_bytes(dir_bytes[pos..pos + 4].try_into().unwrap());
             pos += 4;
-            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
-            let p_len = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_len = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
-            
+
             directory.insert(host, (p_offset, p_len, count));
         }
 
@@ -296,25 +293,25 @@ impl FingerprintSegmentView {
         if let Some(&(offset, len, count)) = self.directory.get(host) {
             let abs_start = self.payload_start + offset as usize;
             let abs_end = abs_start + len as usize;
-            
+
             if abs_end > self.data.len() {
                 return Err(DecodeError("payload read out of bounds"));
             }
-            
+
             let block = &self.data[abs_start..abs_end];
             let mut pos = 0;
             let mut results = Vec::with_capacity(count as usize);
-            
+
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut pos)? as usize;
                 if pos + rec_len > block.len() {
                     return Err(DecodeError("record read out of bounds"));
                 }
-                let rec = FingerprintRecord::from_bytes(&block[pos..pos+rec_len])?;
+                let rec = FingerprintRecord::from_bytes(&block[pos..pos + rec_len])?;
                 pos += rec_len;
                 results.push(rec);
             }
-            
+
             Ok(results)
         } else {
             Ok(Vec::new())

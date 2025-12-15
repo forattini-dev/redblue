@@ -18,7 +18,6 @@
 /// 2. Does server support session tickets (RFC 5077)?
 /// 3. Session ticket lifetime (if disclosed)
 /// 4. Does resumed session skip full handshake?
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -184,11 +183,7 @@ impl SessionResumptionTester {
     /// 1. Connect and complete handshake, capture session ID
     /// 2. Reconnect with the captured session ID
     /// 3. Check if server accepts abbreviated handshake
-    fn test_session_id_resumption(
-        &self,
-        host: &str,
-        port: u16,
-    ) -> Result<(bool, Vec<u8>), String> {
+    fn test_session_id_resumption(&self, host: &str, port: u16) -> Result<(bool, Vec<u8>), String> {
         // First connection: get session ID from server
         let session_id = self.get_server_session_id(host, port)?;
 
@@ -205,8 +200,8 @@ impl SessionResumptionTester {
     /// Get session ID from initial handshake
     fn get_server_session_id(&self, host: &str, port: u16) -> Result<Vec<u8>, String> {
         let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect(&addr)
-            .map_err(|e| format!("Connection failed: {}", e))?;
+        let mut stream =
+            TcpStream::connect(&addr).map_err(|e| format!("Connection failed: {}", e))?;
         stream
             .set_read_timeout(Some(self.timeout))
             .map_err(|e| format!("Set timeout failed: {}", e))?;
@@ -236,8 +231,8 @@ impl SessionResumptionTester {
         session_id: &[u8],
     ) -> Result<bool, String> {
         let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect(&addr)
-            .map_err(|e| format!("Connection failed: {}", e))?;
+        let mut stream =
+            TcpStream::connect(&addr).map_err(|e| format!("Connection failed: {}", e))?;
         stream
             .set_read_timeout(Some(self.timeout))
             .map_err(|e| format!("Set timeout failed: {}", e))?;
@@ -267,8 +262,8 @@ impl SessionResumptionTester {
         port: u16,
     ) -> Result<(bool, Option<u32>), String> {
         let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect(&addr)
-            .map_err(|e| format!("Connection failed: {}", e))?;
+        let mut stream =
+            TcpStream::connect(&addr).map_err(|e| format!("Connection failed: {}", e))?;
         stream
             .set_read_timeout(Some(self.timeout))
             .map_err(|e| format!("Set timeout failed: {}", e))?;
@@ -365,8 +360,8 @@ fn build_client_hello(host: &str, session_id: &[u8], include_ticket_extension: b
     extensions.extend_from_slice(&[
         0x00, 0x0b, // ec_point_formats extension
         0x00, 0x02, // length
-        0x01,       // list length
-        0x00,       // uncompressed
+        0x01, // list length
+        0x00, // uncompressed
     ]);
 
     // Signature algorithms
@@ -411,7 +406,7 @@ fn build_sni_extension(host: &str) -> Vec<u8> {
 
     let name_bytes = host.as_bytes();
     let name_list_len = name_bytes.len() + 3; // 1 byte type + 2 bytes length + name
-    let ext_len = name_list_len + 2;         // 2 bytes for list length
+    let ext_len = name_list_len + 2; // 2 bytes for list length
 
     ext.push((ext_len >> 8) as u8);
     ext.push((ext_len & 0xff) as u8);
@@ -554,7 +549,9 @@ fn parse_session_ticket_support(data: &[u8]) -> (bool, Option<u32>) {
 /// Get hex preview of bytes
 fn hex_preview(data: &[u8]) -> String {
     if data.len() <= 8 {
-        data.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        data.iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
     } else {
         format!(
             "{}...",

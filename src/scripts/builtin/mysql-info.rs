@@ -2,7 +2,6 @@
 ///
 /// Detects MySQL/MariaDB servers and identifies version information
 /// and potential security issues.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,15 @@ impl MysqlInfoScript {
                 name: "MySQL/MariaDB Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects MySQL/MariaDB servers and identifies version and configuration".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Safe, ScriptCategory::Default],
+                description:
+                    "Detects MySQL/MariaDB servers and identifies version and configuration"
+                        .to_string(),
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["mysql".to_string()],
                 ports: vec![3306, 3307, 33060],
                 license: "MIT".to_string(),
@@ -138,7 +144,9 @@ impl MysqlInfoScript {
         }
 
         // Clean up trailing dots/dashes
-        let version = version.trim_end_matches(|c| c == '.' || c == '-').to_string();
+        let version = version
+            .trim_end_matches(|c| c == '.' || c == '-')
+            .to_string();
 
         if version.contains('.') {
             Some(version)
@@ -167,7 +175,9 @@ impl MysqlInfoScript {
                 result.add_finding(
                     Finding::new(FindingType::Vulnerability, "MySQL Server Vulnerability")
                         .with_cve("CVE-2023-21912")
-                        .with_description("MySQL 8.0.0-8.0.32 has multiple security vulnerabilities")
+                        .with_description(
+                            "MySQL 8.0.0-8.0.32 has multiple security vulnerabilities",
+                        )
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Upgrade to MySQL 8.0.33 or later"),
                 );
@@ -188,7 +198,13 @@ impl MysqlInfoScript {
     fn version_lt(&self, version: &str, target: &str) -> bool {
         let parse = |s: &str| -> Vec<u32> {
             s.split('.')
-                .filter_map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok())
+                .filter_map(|p| {
+                    p.chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                        .parse()
+                        .ok()
+                })
                 .collect()
         };
 
@@ -196,8 +212,12 @@ impl MysqlInfoScript {
         let v2 = parse(target);
 
         for (a, b) in v1.iter().zip(v2.iter()) {
-            if a < b { return true; }
-            if a > b { return false; }
+            if a < b {
+                return true;
+            }
+            if a > b {
+                return false;
+            }
         }
         v1.len() < v2.len()
     }
@@ -225,6 +245,9 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("mysql_version"), Some(&"5.7.32-0ubuntu0.18.04.1".to_string()));
+        assert_eq!(
+            result.extracted.get("mysql_version"),
+            Some(&"5.7.32-0ubuntu0.18.04.1".to_string())
+        );
     }
 }

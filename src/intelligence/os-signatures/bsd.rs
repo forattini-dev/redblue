@@ -1,7 +1,6 @@
 /// BSD and Unix OS Signatures
 ///
 /// TCP/IP fingerprints for FreeBSD, OpenBSD, NetBSD, DragonFly BSD, and other Unix variants.
-
 use super::types::*;
 
 /// Add all BSD and Unix signatures to the database
@@ -47,7 +46,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // FreeBSD 13.x
         SignatureBuilder::new(4001, "FreeBSD 13.x")
             .vendor("FreeBSD Project")
@@ -64,7 +62,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // FreeBSD 12.x
         SignatureBuilder::new(4002, "FreeBSD 12.x")
             .vendor("FreeBSD Project")
@@ -81,7 +78,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // FreeBSD 11.x
         SignatureBuilder::new(4003, "FreeBSD 11.x")
             .vendor("FreeBSD Project")
@@ -98,7 +94,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // FreeBSD 10.x
         SignatureBuilder::new(4004, "FreeBSD 10.x")
             .vendor("FreeBSD Project")
@@ -115,7 +110,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // FreeBSD 9.x
         SignatureBuilder::new(4005, "FreeBSD 9.x")
             .vendor("FreeBSD Project")
@@ -132,7 +126,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.78)
             .build(),
-
         // pfSense (FreeBSD-based firewall)
         SignatureBuilder::new(4010, "pfSense")
             .vendor("Netgate")
@@ -149,7 +142,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // OPNsense (FreeBSD-based firewall)
         SignatureBuilder::new(4011, "OPNsense")
             .vendor("Deciso B.V.")
@@ -166,7 +158,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // TrueNAS (FreeBSD-based NAS)
         SignatureBuilder::new(4020, "TrueNAS")
             .vendor("iXsystems")
@@ -183,7 +174,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // FreeNAS (legacy TrueNAS)
         SignatureBuilder::new(4021, "FreeNAS")
             .vendor("iXsystems")
@@ -200,7 +190,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // PlayStation 5 (FreeBSD-based)
         SignatureBuilder::new(4030, "PlayStation 5")
             .vendor("Sony")
@@ -217,7 +206,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // PlayStation 4 (FreeBSD-based)
         SignatureBuilder::new(4031, "PlayStation 4")
             .vendor("Sony")
@@ -234,7 +222,6 @@ fn freebsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Nintendo Switch (FreeBSD-based)
         SignatureBuilder::new(4032, "Nintendo Switch")
             .vendor("Nintendo")
@@ -272,7 +259,6 @@ fn openbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.95)
             .build(),
-
         // OpenBSD 7.4
         SignatureBuilder::new(4101, "OpenBSD 7.4")
             .vendor("OpenBSD Project")
@@ -289,7 +275,6 @@ fn openbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.93)
             .build(),
-
         // OpenBSD 7.3
         SignatureBuilder::new(4102, "OpenBSD 7.3")
             .vendor("OpenBSD Project")
@@ -306,7 +291,6 @@ fn openbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // OpenBSD 6.x
         SignatureBuilder::new(4103, "OpenBSD 6.x")
             .vendor("OpenBSD Project")
@@ -323,7 +307,6 @@ fn openbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // OpenBSD 5.x
         SignatureBuilder::new(4104, "OpenBSD 5.x")
             .vendor("OpenBSD Project")
@@ -361,7 +344,6 @@ fn netbsd_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // NetBSD 9.x
         SignatureBuilder::new(4201, "NetBSD 9.x")
             .vendor("NetBSD Foundation")
@@ -378,7 +360,6 @@ fn netbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // NetBSD 8.x
         SignatureBuilder::new(4202, "NetBSD 8.x")
             .vendor("NetBSD Foundation")
@@ -395,7 +376,6 @@ fn netbsd_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // NetBSD 7.x
         SignatureBuilder::new(4203, "NetBSD 7.x")
             .vendor("NetBSD Foundation")
@@ -433,7 +413,6 @@ fn dragonfly_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // DragonFly BSD 5.x
         SignatureBuilder::new(4301, "DragonFly BSD 5.x")
             .vendor("DragonFly BSD Project")
@@ -450,7 +429,6 @@ fn dragonfly_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // MidnightBSD 3.x
         SignatureBuilder::new(4310, "MidnightBSD 3.x")
             .vendor("MidnightBSD Project")
@@ -467,7 +445,6 @@ fn dragonfly_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // GhostBSD
         SignatureBuilder::new(4320, "GhostBSD")
             .vendor("GhostBSD Project")
@@ -483,7 +460,6 @@ fn dragonfly_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.85)
             .build(),
-
         // HardenedBSD
         SignatureBuilder::new(4330, "HardenedBSD")
             .vendor("HardenedBSD Project")
@@ -520,7 +496,6 @@ fn solaris_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.92)
             .build(),
-
         // Oracle Solaris 11.3
         SignatureBuilder::new(4401, "Oracle Solaris 11.3")
             .vendor("Oracle")
@@ -537,7 +512,6 @@ fn solaris_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Oracle Solaris 10
         SignatureBuilder::new(4402, "Oracle Solaris 10")
             .vendor("Oracle")
@@ -554,7 +528,6 @@ fn solaris_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // illumos (OpenIndiana)
         SignatureBuilder::new(4410, "OpenIndiana")
             .vendor("illumos Project")
@@ -570,7 +543,6 @@ fn solaris_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // OmniOS
         SignatureBuilder::new(4411, "OmniOS")
             .vendor("OmniOS Community Edition")
@@ -586,7 +558,6 @@ fn solaris_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // SmartOS
         SignatureBuilder::new(4412, "SmartOS")
             .vendor("Joyent")
@@ -624,7 +595,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // IBM AIX 7.2
         SignatureBuilder::new(4501, "IBM AIX 7.2")
             .vendor("IBM")
@@ -641,7 +611,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // IBM AIX 7.1
         SignatureBuilder::new(4502, "IBM AIX 7.1")
             .vendor("IBM")
@@ -658,7 +627,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // HP-UX 11.31
         SignatureBuilder::new(4510, "HP-UX 11.31")
             .vendor("Hewlett-Packard")
@@ -675,7 +643,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // HP-UX 11.23
         SignatureBuilder::new(4511, "HP-UX 11.23")
             .vendor("Hewlett-Packard")
@@ -692,7 +659,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // SCO UnixWare 7
         SignatureBuilder::new(4520, "SCO UnixWare 7")
             .vendor("SCO")
@@ -709,7 +675,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.75)
             .build(),
-
         // QNX Neutrino 7.x
         SignatureBuilder::new(4530, "QNX Neutrino 7.x")
             .vendor("BlackBerry QNX")
@@ -727,7 +692,6 @@ fn commercial_unix_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // QNX Neutrino 6.x
         SignatureBuilder::new(4531, "QNX Neutrino 6.x")
             .vendor("BlackBerry QNX")
@@ -755,7 +719,11 @@ mod tests {
     #[test]
     fn test_bsd_signatures_count() {
         let sigs = signatures();
-        assert!(sigs.len() >= 30, "Expected at least 30 BSD/Unix signatures, got {}", sigs.len());
+        assert!(
+            sigs.len() >= 30,
+            "Expected at least 30 BSD/Unix signatures, got {}",
+            sigs.len()
+        );
     }
 
     #[test]
@@ -785,9 +753,7 @@ mod tests {
     fn test_openbsd_zero_ip_id() {
         let sigs = openbsd_signatures();
         // Modern OpenBSD uses zero IP ID for security
-        let recent_openbsd: Vec<_> = sigs.iter()
-            .filter(|s| s.name.contains("7."))
-            .collect();
+        let recent_openbsd: Vec<_> = sigs.iter().filter(|s| s.name.contains("7.")).collect();
 
         for sig in recent_openbsd {
             assert!(

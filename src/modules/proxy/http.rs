@@ -28,8 +28,8 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{ProxyContext, ProxyError, ProxyResult, Protocol};
-use crate::{debug, info, error};
+use super::{Protocol, ProxyContext, ProxyError, ProxyResult};
+use crate::{debug, error, info};
 
 /// HTTP proxy authentication
 #[derive(Debug, Clone)]
@@ -54,8 +54,7 @@ impl HttpAuth {
         let mut encoded = Vec::new();
         {
             // Simple base64 encoding (no external crate)
-            let alphabet =
-                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
             let bytes = credentials.as_bytes();
             let mut i = 0;
             while i < bytes.len() {
@@ -113,9 +112,15 @@ impl Default for HttpProxyConfig {
 #[derive(Debug, Clone)]
 pub enum UpstreamProxy {
     /// HTTP CONNECT proxy
-    Http { addr: SocketAddr, auth: Option<HttpAuth> },
+    Http {
+        addr: SocketAddr,
+        auth: Option<HttpAuth>,
+    },
     /// SOCKS5 proxy
-    Socks5 { addr: SocketAddr, auth: Option<(String, String)> },
+    Socks5 {
+        addr: SocketAddr,
+        auth: Option<(String, String)>,
+    },
 }
 
 /// Parsed HTTP CONNECT request
@@ -136,7 +141,9 @@ impl ConnectRequest {
 
         let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
         if parts.len() != 3 {
-            return Err(ProxyError::Protocol("Invalid HTTP request line".to_string()));
+            return Err(ProxyError::Protocol(
+                "Invalid HTTP request line".to_string(),
+            ));
         }
 
         let method = parts[0];
@@ -158,7 +165,9 @@ impl ConnectRequest {
                 .map_err(|_| ProxyError::Protocol("Invalid port".to_string()))?;
             (host, port)
         } else {
-            return Err(ProxyError::Protocol("Missing port in CONNECT target".to_string()));
+            return Err(ProxyError::Protocol(
+                "Missing port in CONNECT target".to_string(),
+            ));
         };
 
         // Parse headers
@@ -304,11 +313,8 @@ impl HttpProxy {
         ctx.flow_stats.connection_opened(Protocol::Tcp);
 
         // Start relay
-        let result = super::relay::tcp::relay_bidirectional(
-            &mut client,
-            &mut server,
-            &ctx.flow_stats,
-        );
+        let result =
+            super::relay::tcp::relay_bidirectional(&mut client, &mut server, &ctx.flow_stats);
 
         ctx.flow_stats.connection_closed();
 
@@ -316,9 +322,7 @@ impl HttpProxy {
             Ok((sent, recv)) => {
                 info!(
                     "[{}] Closed: {} bytes sent, {} bytes received",
-                    conn_id,
-                    sent,
-                    recv
+                    conn_id, sent, recv
                 );
                 Ok(())
             }
@@ -421,9 +425,8 @@ impl HttpProxy {
 
         // Handle authentication if selected
         if response[1] == 0x02 {
-            let (username, password) = auth.ok_or_else(|| {
-                ProxyError::Auth("SOCKS5 requires authentication".to_string())
-            })?;
+            let (username, password) =
+                auth.ok_or_else(|| ProxyError::Auth("SOCKS5 requires authentication".to_string()))?;
 
             let mut auth_req = vec![0x01, username.len() as u8];
             auth_req.extend(username.as_bytes());
@@ -438,7 +441,9 @@ impl HttpProxy {
                 return Err(ProxyError::Auth("SOCKS5 authentication failed".to_string()));
             }
         } else if response[1] == 0xFF {
-            return Err(ProxyError::Auth("No acceptable SOCKS5 auth method".to_string()));
+            return Err(ProxyError::Auth(
+                "No acceptable SOCKS5 auth method".to_string(),
+            ));
         }
 
         // Send CONNECT request
@@ -469,10 +474,7 @@ impl HttpProxy {
 
     /// Send HTTP response
     fn send_response(stream: &mut TcpStream, status: u16, reason: &str) -> ProxyResult<()> {
-        let response = format!(
-            "HTTP/1.1 {} {}\r\n\r\n",
-            status, reason
-        );
+        let response = format!("HTTP/1.1 {} {}\r\n\r\n", status, reason);
         stream.write_all(response.as_bytes())?;
         stream.flush()?;
         Ok(())

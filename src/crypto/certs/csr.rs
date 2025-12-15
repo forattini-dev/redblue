@@ -2,10 +2,10 @@
 //!
 //! Implements CSR generation and parsing as per RFC 2986.
 
-use super::x509::{Name, AlgorithmIdentifier, Extension, CertError};
-use crate::crypto::encoding::asn1::{Asn1Value, Asn1Error};
-use crate::crypto::encoding::pem::PemBlock;
+use super::x509::{AlgorithmIdentifier, CertError, Extension, Name};
+use crate::crypto::encoding::asn1::{Asn1Error, Asn1Value};
 use crate::crypto::encoding::oid::Oid;
+use crate::crypto::encoding::pem::PemBlock;
 use std::net::IpAddr;
 
 /// Certificate Signing Request (PKCS#10)
@@ -61,7 +61,11 @@ impl CertificateRequest {
         // Parse CertificationRequestInfo
         let cri_seq = match &seq[0] {
             Asn1Value::Sequence(s) => s,
-            _ => return Err(CertError::InvalidFormat("CSR: Expected CRI SEQUENCE".into())),
+            _ => {
+                return Err(CertError::InvalidFormat(
+                    "CSR: Expected CRI SEQUENCE".into(),
+                ))
+            }
         };
 
         if cri_seq.len() < 4 {
@@ -70,7 +74,7 @@ impl CertificateRequest {
 
         // Version (should be 0)
         let _version = match &cri_seq[0] {
-            Asn1Value::Integer(_) => {},
+            Asn1Value::Integer(_) => {}
             _ => return Err(CertError::InvalidFormat("CSR: Expected version".into())),
         };
 
@@ -86,7 +90,12 @@ impl CertificateRequest {
         let mut san_ip = Vec::new();
         let mut san_email = Vec::new();
 
-        if let Some(Asn1Value::ContextSpecific { tag: 0, value: attrs, .. }) = cri_seq.get(3) {
+        if let Some(Asn1Value::ContextSpecific {
+            tag: 0,
+            value: attrs,
+            ..
+        }) = cri_seq.get(3)
+        {
             // Parse extension request attribute if present
             if let Asn1Value::Sequence(attr_seq) = attrs.as_ref() {
                 for attr in attr_seq {
@@ -100,7 +109,9 @@ impl CertificateRequest {
                                         for val in values {
                                             if let Asn1Value::Sequence(exts) = val {
                                                 for ext in exts {
-                                                    if let Ok((e, dns, ip, email)) = Self::parse_extension(ext) {
+                                                    if let Ok((e, dns, ip, email)) =
+                                                        Self::parse_extension(ext)
+                                                    {
                                                         extensions.push(e);
                                                         san_dns.extend(dns);
                                                         san_ip.extend(ip);
@@ -178,13 +189,19 @@ impl CertificateRequest {
         };
 
         if seq.len() < 2 {
-            return Err(CertError::InvalidFormat("SPKI: Need algorithm and key".into()));
+            return Err(CertError::InvalidFormat(
+                "SPKI: Need algorithm and key".into(),
+            ));
         }
 
         // Parse algorithm
         let alg_seq = match &seq[0] {
             Asn1Value::Sequence(s) => s,
-            _ => return Err(CertError::InvalidFormat("SPKI: Expected alg SEQUENCE".into())),
+            _ => {
+                return Err(CertError::InvalidFormat(
+                    "SPKI: Expected alg SEQUENCE".into(),
+                ))
+            }
         };
 
         let algorithm = match alg_seq.first() {
@@ -194,7 +211,10 @@ impl CertificateRequest {
 
         let parameters = alg_seq.get(1).map(|v| v.encode_der());
 
-        let key_algorithm = AlgorithmIdentifier { algorithm, parameters };
+        let key_algorithm = AlgorithmIdentifier {
+            algorithm,
+            parameters,
+        };
 
         // Parse public key
         let public_key = match &seq[1] {
@@ -206,7 +226,9 @@ impl CertificateRequest {
     }
 
     /// Parse extension and extract SANs
-    fn parse_extension(value: &Asn1Value) -> Result<(Extension, Vec<String>, Vec<IpAddr>, Vec<String>), CertError> {
+    fn parse_extension(
+        value: &Asn1Value,
+    ) -> Result<(Extension, Vec<String>, Vec<IpAddr>, Vec<String>), CertError> {
         let seq = match value {
             Asn1Value::Sequence(s) => s,
             _ => return Err(CertError::InvalidFormat("Ext: Expected SEQUENCE".into())),
@@ -243,7 +265,10 @@ impl CertificateRequest {
             // Subject Alternative Name
             if let Ok((Asn1Value::Sequence(items), _)) = Asn1Value::decode_der(&value_data) {
                 for item in items {
-                    if let Asn1Value::ContextSpecific { tag, value: inner, .. } = item {
+                    if let Asn1Value::ContextSpecific {
+                        tag, value: inner, ..
+                    } = item
+                    {
                         match tag {
                             2 => {
                                 // dNSName
@@ -278,7 +303,16 @@ impl CertificateRequest {
             }
         }
 
-        Ok((Extension { oid, critical, value: value_data }, san_dns, san_ip, san_email))
+        Ok((
+            Extension {
+                oid,
+                critical,
+                value: value_data,
+            },
+            san_dns,
+            san_ip,
+            san_email,
+        ))
     }
 }
 
@@ -321,13 +355,13 @@ impl CsrBuilder {
 
     /// Build CSR using OpenSSL
     pub fn build(self, key_pem: &str) -> Result<String, CertError> {
-        use boring::pkey::PKey;
-        use boring::x509::X509ReqBuilder;
-        use boring::x509::X509NameBuilder;
-        use boring::x509::extension::SubjectAlternativeName;
-        use boring::nid::Nid;
         use boring::hash::MessageDigest;
+        use boring::nid::Nid;
+        use boring::pkey::PKey;
         use boring::stack::Stack;
+        use boring::x509::extension::SubjectAlternativeName;
+        use boring::x509::X509NameBuilder;
+        use boring::x509::X509ReqBuilder;
 
         // Load private key
         let pkey = PKey::private_key_from_pem(key_pem.as_bytes())
@@ -362,10 +396,12 @@ impl CsrBuilder {
         let mut builder = X509ReqBuilder::new()
             .map_err(|e| CertError::InvalidFormat(format!("CSR builder failed: {}", e)))?;
 
-        builder.set_subject_name(&x509_name)
+        builder
+            .set_subject_name(&x509_name)
             .map_err(|e| CertError::InvalidFormat(format!("Set subject failed: {}", e)))?;
 
-        builder.set_pubkey(&pkey)
+        builder
+            .set_pubkey(&pkey)
             .map_err(|e| CertError::InvalidFormat(format!("Set pubkey failed: {}", e)))?;
 
         // Add SANs if any
@@ -387,21 +423,26 @@ impl CsrBuilder {
                 san_builder.email(email);
             }
 
-            let san = san_builder.build(&builder.x509v3_context(None))
+            let san = san_builder
+                .build(&builder.x509v3_context(None))
                 .map_err(|e| CertError::InvalidFormat(format!("SAN build failed: {}", e)))?;
-            extensions.push(san)
+            extensions
+                .push(san)
                 .map_err(|e| CertError::InvalidFormat(format!("Push SAN failed: {}", e)))?;
 
-            builder.add_extensions(&extensions)
+            builder
+                .add_extensions(&extensions)
                 .map_err(|e| CertError::InvalidFormat(format!("Add extensions failed: {}", e)))?;
         }
 
         // Sign CSR
-        builder.sign(&pkey, MessageDigest::sha256())
+        builder
+            .sign(&pkey, MessageDigest::sha256())
             .map_err(|e| CertError::InvalidFormat(format!("Sign failed: {}", e)))?;
 
         let csr = builder.build();
-        let csr_pem = csr.to_pem()
+        let csr_pem = csr
+            .to_pem()
             .map_err(|e| CertError::InvalidFormat(format!("To PEM failed: {}", e)))?;
 
         Ok(String::from_utf8(csr_pem).unwrap_or_default())
@@ -415,9 +456,9 @@ mod tests {
     #[test]
     fn test_csr_builder() {
         // Generate a key first
-        use boring::pkey::PKey;
-        use boring::ec::{EcKey, EcGroup};
+        use boring::ec::{EcGroup, EcKey};
         use boring::nid::Nid;
+        use boring::pkey::PKey;
 
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
         let ec = EcKey::generate(&group).unwrap();

@@ -1,3 +1,4 @@
+use super::tls::TlsClient as RawTlsClient;
 /// TLS Certificate Information Module
 ///
 /// Provides display-friendly certificate information structures and
@@ -5,9 +6,7 @@
 ///
 /// This module bridges the low-level X.509 parsing with the high-level
 /// TLS auditing functionality.
-
 use super::x509::X509Certificate;
-use super::tls::TlsClient as RawTlsClient;
 use std::time::Duration;
 
 /// Display-friendly certificate information
@@ -265,11 +264,16 @@ fn parse_san_extension(data: &[u8]) -> Option<Vec<String>> {
             0x87 => {
                 // iPAddress
                 if len == 4 {
-                    sans.push(format!("{}.{}.{}.{}", value[0], value[1], value[2], value[3]));
+                    sans.push(format!(
+                        "{}.{}.{}.{}",
+                        value[0], value[1], value[2], value[3]
+                    ));
                 } else if len == 16 {
                     // IPv6
                     let parts: Vec<String> = (0..8)
-                        .map(|i| format!("{:x}", u16::from_be_bytes([value[i * 2], value[i * 2 + 1]])))
+                        .map(|i| {
+                            format!("{:x}", u16::from_be_bytes([value[i * 2], value[i * 2 + 1]]))
+                        })
                         .collect();
                     sans.push(parts.join(":"));
                 }

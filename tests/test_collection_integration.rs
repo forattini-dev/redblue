@@ -10,7 +10,7 @@ mod tests {
         let cats = ServiceCategorizer::categorize(html, &headers);
         assert!(cats.contains(&"Login Page".to_string()));
     }
-    
+
     // Note: Actual screenshot tests require a running Chrome instance or mock.
     // We will skip live browser tests here and focus on the logic we added.
 }

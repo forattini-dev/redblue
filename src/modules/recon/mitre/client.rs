@@ -77,7 +77,8 @@ impl MitreClient {
         let mut data = AttackData::new();
 
         // Simple JSON parsing - find "objects" array
-        let objects_start = json.find("\"objects\"")
+        let objects_start = json
+            .find("\"objects\"")
             .and_then(|pos| json[pos..].find('[').map(|p| pos + p))
             .ok_or("Invalid STIX bundle: no objects array")?;
 
@@ -164,8 +165,7 @@ impl MitreClient {
     /// Parse a technique from STIX attack-pattern
     fn parse_technique(&self, json: &str) -> Option<Technique> {
         let external_refs = extract_external_references(json);
-        let mitre_ref = external_refs.iter()
-            .find(|r| r.source == "mitre-attack")?;
+        let mitre_ref = external_refs.iter().find(|r| r.source == "mitre-attack")?;
 
         let id = mitre_ref.external_id.clone()?;
 
@@ -187,11 +187,15 @@ impl MitreClient {
 
         // Get URL from external references
         let url = mitre_ref.url.clone().unwrap_or_else(|| {
-            format!("https://attack.mitre.org/techniques/{}/", id.replace('.', "/"))
+            format!(
+                "https://attack.mitre.org/techniques/{}/",
+                id.replace('.', "/")
+            )
         });
 
         // Extract CVEs from references
-        let cves = external_refs.iter()
+        let cves = external_refs
+            .iter()
             .filter_map(|r| r.external_id.as_ref())
             .filter(|id| id.starts_with("CVE-"))
             .cloned()
@@ -223,8 +227,7 @@ impl MitreClient {
     /// Parse a tactic from STIX x-mitre-tactic
     fn parse_tactic(&self, json: &str) -> Option<Tactic> {
         let external_refs = extract_external_references(json);
-        let mitre_ref = external_refs.iter()
-            .find(|r| r.source == "mitre-attack")?;
+        let mitre_ref = external_refs.iter().find(|r| r.source == "mitre-attack")?;
 
         let id = mitre_ref.external_id.clone()?;
         let name = extract_string(json, "name")?;
@@ -245,8 +248,7 @@ impl MitreClient {
     /// Parse a threat group from STIX intrusion-set
     fn parse_group(&self, json: &str) -> Option<ThreatGroup> {
         let external_refs = extract_external_references(json);
-        let mitre_ref = external_refs.iter()
-            .find(|r| r.source == "mitre-attack")?;
+        let mitre_ref = external_refs.iter().find(|r| r.source == "mitre-attack")?;
 
         let id = mitre_ref.external_id.clone()?;
         let name = extract_string(json, "name")?;
@@ -269,8 +271,7 @@ impl MitreClient {
     /// Parse software (malware or tool) from STIX
     fn parse_software(&self, json: &str, obj_type: &str) -> Option<Software> {
         let external_refs = extract_external_references(json);
-        let mitre_ref = external_refs.iter()
-            .find(|r| r.source == "mitre-attack")?;
+        let mitre_ref = external_refs.iter().find(|r| r.source == "mitre-attack")?;
 
         let id = mitre_ref.external_id.clone()?;
         let name = extract_string(json, "name")?;
@@ -301,8 +302,7 @@ impl MitreClient {
     /// Parse a mitigation from STIX course-of-action
     fn parse_mitigation(&self, json: &str) -> Option<Mitigation> {
         let external_refs = extract_external_references(json);
-        let mitre_ref = external_refs.iter()
-            .find(|r| r.source == "mitre-attack")?;
+        let mitre_ref = external_refs.iter().find(|r| r.source == "mitre-attack")?;
 
         let id = mitre_ref.external_id.clone()?;
 
@@ -443,7 +443,8 @@ impl MitreClient {
             for tactic_name in &tech.tactics {
                 // Find tactic ID by short name
                 if let Some(tactic) = data.tactics.values().find(|t| {
-                    t.short_name == *tactic_name || t.name.to_lowercase().replace(' ', "-") == *tactic_name
+                    t.short_name == *tactic_name
+                        || t.name.to_lowercase().replace(' ', "-") == *tactic_name
                 }) {
                     data.technique_tactics
                         .entry(id.clone())
@@ -491,7 +492,10 @@ impl MitreClient {
     /// Get techniques for a tactic
     pub fn techniques_for_tactic(&mut self, tactic_id: &str) -> Result<Vec<Technique>, String> {
         self.fetch()?;
-        Ok(self.cache.as_ref().unwrap()
+        Ok(self
+            .cache
+            .as_ref()
+            .unwrap()
             .techniques_for_tactic(tactic_id)
             .into_iter()
             .cloned()
@@ -501,7 +505,10 @@ impl MitreClient {
     /// Get groups using a technique
     pub fn groups_for_technique(&mut self, technique_id: &str) -> Result<Vec<ThreatGroup>, String> {
         self.fetch()?;
-        Ok(self.cache.as_ref().unwrap()
+        Ok(self
+            .cache
+            .as_ref()
+            .unwrap()
             .groups_for_technique(technique_id)
             .into_iter()
             .cloned()
@@ -509,9 +516,15 @@ impl MitreClient {
     }
 
     /// Get mitigations for a technique
-    pub fn mitigations_for_technique(&mut self, technique_id: &str) -> Result<Vec<Mitigation>, String> {
+    pub fn mitigations_for_technique(
+        &mut self,
+        technique_id: &str,
+    ) -> Result<Vec<Mitigation>, String> {
         self.fetch()?;
-        Ok(self.cache.as_ref().unwrap()
+        Ok(self
+            .cache
+            .as_ref()
+            .unwrap()
             .mitigations_for_technique(technique_id)
             .into_iter()
             .cloned()
@@ -521,7 +534,10 @@ impl MitreClient {
     /// Get all tactics in kill chain order
     pub fn all_tactics(&mut self) -> Result<Vec<Tactic>, String> {
         self.fetch()?;
-        Ok(self.cache.as_ref().unwrap()
+        Ok(self
+            .cache
+            .as_ref()
+            .unwrap()
             .all_tactics()
             .into_iter()
             .cloned()
@@ -576,7 +592,11 @@ fn extract_string(json: &str, key: &str) -> Option<String> {
                 value_end = i + 1;
             }
             '"' => {
-                return Some(trimmed[value_start..i].replace("\\n", "\n").replace("\\\"", "\""));
+                return Some(
+                    trimmed[value_start..i]
+                        .replace("\\n", "\n")
+                        .replace("\\\"", "\""),
+                );
             }
             _ => value_end = i + 1,
         }

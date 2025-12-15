@@ -9,10 +9,10 @@ pub mod terminal;
 pub mod tui;
 pub mod validator;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
 use crate::config::yaml::YamlConfig; // Import YamlConfig
 use crate::storage::PersistenceConfig;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct CliContext {
@@ -70,7 +70,7 @@ impl CliContext {
                     return Some(value);
                 }
             }
-            
+
             // Check global flags/settings from YAML config (not implemented yet in yaml.rs for arbitrary keys)
             // For now, this is where it would be.
 
@@ -101,16 +101,19 @@ impl CliContext {
                 self.resource.as_deref(),
                 self.verb.as_deref(),
             ) {
-                if config.get_command_flag(domain, resource, verb, key).is_some() {
+                if config
+                    .get_command_flag(domain, resource, verb, key)
+                    .is_some()
+                {
                     return true;
                 }
             }
             // Check for credentials
             if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
-                 let service_name = key.trim_end_matches("-key").replace("-", "_");
-                 if config.get_credential(&service_name, key).is_some() {
-                     return true;
-                 }
+                let service_name = key.trim_end_matches("-key").replace("-", "_");
+                if config.get_credential(&service_name, key).is_some() {
+                    return true;
+                }
             }
         }
 
@@ -124,8 +127,7 @@ impl CliContext {
     }
 
     pub fn get_flag_or(&self, key: &str, default: &str) -> String {
-        self.get_flag(key)
-            .unwrap_or_else(|| default.to_string())
+        self.get_flag(key).unwrap_or_else(|| default.to_string())
     }
 
     pub fn domain_only(&self) -> Option<&str> {
@@ -164,7 +166,8 @@ impl CliContext {
             config.database.auto_persist
         };
 
-        let db_path = self.get_flag("db")
+        let db_path = self
+            .get_flag("db")
             .or_else(|| self.get_flag("db-path"))
             .map(PathBuf::from);
         let password = self.get_flag("db-password");
@@ -237,7 +240,10 @@ mod tests {
         ctx.flags.insert("key".to_string(), "value".to_string());
 
         assert_eq!(ctx.get_flag_with_config("key"), ctx.get_flag("key"));
-        assert_eq!(ctx.get_flag_with_config("nonexistent"), ctx.get_flag("nonexistent"));
+        assert_eq!(
+            ctx.get_flag_with_config("nonexistent"),
+            ctx.get_flag("nonexistent")
+        );
     }
 
     #[test]
@@ -325,7 +331,8 @@ mod tests {
     #[test]
     fn test_get_persistence_config_with_db_path() {
         let mut ctx = CliContext::new();
-        ctx.flags.insert("db".to_string(), "/custom/path.rbdb".to_string());
+        ctx.flags
+            .insert("db".to_string(), "/custom/path.rbdb".to_string());
 
         let config = ctx.get_persistence_config();
         assert_eq!(config.db_path, Some(PathBuf::from("/custom/path.rbdb")));
@@ -334,7 +341,8 @@ mod tests {
     #[test]
     fn test_get_persistence_config_with_db_path_long() {
         let mut ctx = CliContext::new();
-        ctx.flags.insert("db-path".to_string(), "/another/path.rbdb".to_string());
+        ctx.flags
+            .insert("db-path".to_string(), "/another/path.rbdb".to_string());
 
         let config = ctx.get_persistence_config();
         assert_eq!(config.db_path, Some(PathBuf::from("/another/path.rbdb")));
@@ -344,8 +352,10 @@ mod tests {
     fn test_get_persistence_config_db_over_db_path() {
         let mut ctx = CliContext::new();
         // --db has priority over --db-path
-        ctx.flags.insert("db".to_string(), "/priority/path.rbdb".to_string());
-        ctx.flags.insert("db-path".to_string(), "/fallback/path.rbdb".to_string());
+        ctx.flags
+            .insert("db".to_string(), "/priority/path.rbdb".to_string());
+        ctx.flags
+            .insert("db-path".to_string(), "/fallback/path.rbdb".to_string());
 
         let config = ctx.get_persistence_config();
         assert_eq!(config.db_path, Some(PathBuf::from("/priority/path.rbdb")));
@@ -354,7 +364,8 @@ mod tests {
     #[test]
     fn test_get_persistence_config_with_password() {
         let mut ctx = CliContext::new();
-        ctx.flags.insert("db-password".to_string(), "secret123".to_string());
+        ctx.flags
+            .insert("db-password".to_string(), "secret123".to_string());
 
         let config = ctx.get_persistence_config();
         assert_eq!(config.password, Some("secret123".to_string()));
@@ -364,8 +375,10 @@ mod tests {
     fn test_get_persistence_config_full() {
         let mut ctx = CliContext::new();
         ctx.flags.insert("save".to_string(), "true".to_string());
-        ctx.flags.insert("db".to_string(), "/data/scan.rbdb".to_string());
-        ctx.flags.insert("db-password".to_string(), "mypassword".to_string());
+        ctx.flags
+            .insert("db".to_string(), "/data/scan.rbdb".to_string());
+        ctx.flags
+            .insert("db-password".to_string(), "mypassword".to_string());
 
         let config = ctx.get_persistence_config();
         assert!(config.force_save);
@@ -376,7 +389,12 @@ mod tests {
     #[test]
     fn test_cli_context_with_full_command() {
         let mut ctx = CliContext::new();
-        ctx.raw = vec!["network".to_string(), "ports".to_string(), "scan".to_string(), "192.168.1.1".to_string()];
+        ctx.raw = vec![
+            "network".to_string(),
+            "ports".to_string(),
+            "scan".to_string(),
+            "192.168.1.1".to_string(),
+        ];
         ctx.domain = Some("network".to_string());
         ctx.resource = Some("ports".to_string());
         ctx.verb = Some("scan".to_string());
@@ -409,7 +427,8 @@ mod tests {
     fn test_cli_context_clone() {
         let mut ctx = CliContext::new();
         ctx.domain = Some("dns".to_string());
-        ctx.flags.insert("server".to_string(), "8.8.8.8".to_string());
+        ctx.flags
+            .insert("server".to_string(), "8.8.8.8".to_string());
 
         let ctx2 = ctx.clone();
         assert_eq!(ctx2.domain, ctx.domain);

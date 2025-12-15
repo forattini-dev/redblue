@@ -29,12 +29,14 @@
 //! ```
 
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, TcpStream};
+use std::net::{
+    Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6, TcpListener, TcpStream,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{Address, ProxyContext, ProxyError, ProxyResult, Protocol};
-use crate::{debug, info, error};
+use super::{Address, Protocol, ProxyContext, ProxyError, ProxyResult};
+use crate::{debug, error, info};
 
 /// SOCKS5 version constant
 pub const SOCKS5_VERSION: u8 = 0x05;
@@ -84,7 +86,10 @@ impl TryFrom<u8> for Command {
             0x01 => Ok(Self::Connect),
             0x02 => Ok(Self::Bind),
             0x03 => Ok(Self::UdpAssociate),
-            _ => Err(ProxyError::Protocol(format!("Invalid command: {:#x}", value))),
+            _ => Err(ProxyError::Protocol(format!(
+                "Invalid command: {:#x}",
+                value
+            ))),
         }
     }
 }
@@ -231,8 +236,8 @@ impl AuthRequest {
         let ulen = header[1] as usize;
         let mut username_buf = vec![0u8; ulen];
         stream.read_exact(&mut username_buf)?;
-        let username =
-            String::from_utf8(username_buf).map_err(|_| ProxyError::Auth("Invalid username encoding".to_string()))?;
+        let username = String::from_utf8(username_buf)
+            .map_err(|_| ProxyError::Auth("Invalid username encoding".to_string()))?;
 
         let mut plen_buf = [0u8; 1];
         stream.read_exact(&mut plen_buf)?;
@@ -240,8 +245,8 @@ impl AuthRequest {
 
         let mut password_buf = vec![0u8; plen];
         stream.read_exact(&mut password_buf)?;
-        let password =
-            String::from_utf8(password_buf).map_err(|_| ProxyError::Auth("Invalid password encoding".to_string()))?;
+        let password = String::from_utf8(password_buf)
+            .map_err(|_| ProxyError::Auth("Invalid password encoding".to_string()))?;
 
         Ok(Self {
             version,
@@ -559,7 +564,9 @@ impl Socks5Server {
         MethodSelectionResponse::new(selected_method).write_to(&mut stream)?;
 
         if selected_method == AuthMethod::NoAcceptable {
-            return Err(ProxyError::Auth("No acceptable authentication method".to_string()));
+            return Err(ProxyError::Auth(
+                "No acceptable authentication method".to_string(),
+            ));
         }
 
         // Step 2: Authentication (if required)
@@ -583,19 +590,21 @@ impl Socks5Server {
         let conn_req = ConnectionRequest::read_from(&mut stream)?;
 
         match conn_req.command {
-            Command::Connect => {
-                Self::handle_connect(stream, conn_req.address, ctx, peer_addr)
-            }
+            Command::Connect => Self::handle_connect(stream, conn_req.address, ctx, peer_addr),
             Command::Bind => {
                 ConnectionResponse::error(Reply::CommandNotSupported).write_to(&mut stream)?;
-                Err(ProxyError::Protocol("BIND command not supported".to_string()))
+                Err(ProxyError::Protocol(
+                    "BIND command not supported".to_string(),
+                ))
             }
             Command::UdpAssociate => {
                 if config.allow_udp {
                     Self::handle_udp_associate(stream, ctx, peer_addr)
                 } else {
                     ConnectionResponse::error(Reply::CommandNotSupported).write_to(&mut stream)?;
-                    Err(ProxyError::Protocol("UDP ASSOCIATE not allowed".to_string()))
+                    Err(ProxyError::Protocol(
+                        "UDP ASSOCIATE not allowed".to_string(),
+                    ))
                 }
             }
         }
@@ -657,17 +666,17 @@ impl Socks5Server {
         ctx.flow_stats.connection_opened(Protocol::Tcp);
 
         // Start relay
-        let result = super::relay::tcp::relay_bidirectional(
-            &mut client,
-            &mut server,
-            &ctx.flow_stats,
-        );
+        let result =
+            super::relay::tcp::relay_bidirectional(&mut client, &mut server, &ctx.flow_stats);
 
         ctx.flow_stats.connection_closed();
 
         match result {
             Ok((sent, recv)) => {
-                info!("[{}] Closed: {} bytes sent, {} bytes received", conn_id, sent, recv);
+                info!(
+                    "[{}] Closed: {} bytes sent, {} bytes received",
+                    conn_id, sent, recv
+                );
                 Ok(())
             }
             Err(e) => {
@@ -713,7 +722,9 @@ impl Socks5Server {
         // Thread to monitor TCP connection (controls UDP lifetime)
         let tcp_monitor = thread::spawn(move || {
             let mut buf = [0u8; 1];
-            client.set_read_timeout(Some(Duration::from_millis(500))).ok();
+            client
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .ok();
             loop {
                 match client.read(&mut buf) {
                     Ok(0) => break, // Client closed
@@ -747,7 +758,13 @@ impl Socks5Server {
                     if is_from_client {
                         // Parse SOCKS5 UDP header and forward to destination
                         if let Some((dest, payload)) = Self::parse_udp_request(&buf[..n]) {
-                            debug!("[{}] UDP {} -> {} ({} bytes)", conn_id, from_addr, dest, payload.len());
+                            debug!(
+                                "[{}] UDP {} -> {} ({} bytes)",
+                                conn_id,
+                                from_addr,
+                                dest,
+                                payload.len()
+                            );
 
                             // Get or create socket for this destination
                             let dest_socket = dest_sockets.entry(dest).or_insert_with(|| {
@@ -801,7 +818,11 @@ impl Socks5Server {
         // Cleanup
         let _ = tcp_monitor.join();
         ctx.flow_stats.connection_closed();
-        info!("[{}] UDP ASSOCIATE closed ({} destinations)", conn_id, dest_sockets.len());
+        info!(
+            "[{}] UDP ASSOCIATE closed ({} destinations)",
+            conn_id,
+            dest_sockets.len()
+        );
 
         Ok(())
     }
@@ -930,9 +951,8 @@ mod tests {
 
     #[test]
     fn test_connection_response_serialization() {
-        let resp = ConnectionResponse::success(Address::from_socket(
-            "192.168.1.1:8080".parse().unwrap(),
-        ));
+        let resp =
+            ConnectionResponse::success(Address::from_socket("192.168.1.1:8080".parse().unwrap()));
         assert_eq!(resp.reply, Reply::Succeeded);
     }
 }

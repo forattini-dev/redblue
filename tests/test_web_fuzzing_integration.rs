@@ -12,7 +12,10 @@ mod tests {
     #[test]
     fn test_fuzzer_filters_placeholder() {
         // Placeholder test for fuzzer response filters.
-        assert!(true, "Web fuzzer response filters integration test placeholder.");
+        assert!(
+            true,
+            "Web fuzzer response filters integration test placeholder."
+        );
     }
 
     #[test]

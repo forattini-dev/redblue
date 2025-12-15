@@ -3,7 +3,6 @@
 ///
 /// Provides recording and replay of HTTP transactions
 /// with full timing information for analysis.
-
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -239,8 +238,16 @@ impl HarLog {
         let mut json = String::with_capacity(2048);
 
         json.push_str("{\n");
-        json.push_str(&format!("{}\"version\": \"{}\",\n", pad2, escape_json_string(&self.version)));
-        json.push_str(&format!("{}\"creator\": {},\n", pad2, self.creator.to_json()));
+        json.push_str(&format!(
+            "{}\"version\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.version)
+        ));
+        json.push_str(&format!(
+            "{}\"creator\": {},\n",
+            pad2,
+            self.creator.to_json()
+        ));
 
         if let Some(ref browser) = self.browser {
             json.push_str(&format!("{}\"browser\": {},\n", pad2, browser.to_json()));
@@ -248,7 +255,11 @@ impl HarLog {
 
         json.push_str(&format!("{}\"pages\": [\n", pad2));
         for (i, page) in self.pages.iter().enumerate() {
-            json.push_str(&format!("{}{}", " ".repeat(indent + 4), page.to_json(indent + 4)));
+            json.push_str(&format!(
+                "{}{}",
+                " ".repeat(indent + 4),
+                page.to_json(indent + 4)
+            ));
             if i < self.pages.len() - 1 {
                 json.push(',');
             }
@@ -258,7 +269,11 @@ impl HarLog {
 
         json.push_str(&format!("{}\"entries\": [\n", pad2));
         for (i, entry) in self.entries.iter().enumerate() {
-            json.push_str(&format!("{}{}", " ".repeat(indent + 4), entry.to_json(indent + 4)));
+            json.push_str(&format!(
+                "{}{}",
+                " ".repeat(indent + 4),
+                entry.to_json(indent + 4)
+            ));
             if i < self.entries.len() - 1 {
                 json.push(',');
             }
@@ -267,7 +282,11 @@ impl HarLog {
         json.push_str(&format!("{}]", pad2));
 
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(",\n{}\"comment\": \"{}\"", pad2, escape_json_string(comment)));
+            json.push_str(&format!(
+                ",\n{}\"comment\": \"{}\"",
+                pad2,
+                escape_json_string(comment)
+            ));
         }
 
         json.push_str(&format!("\n{}}}", pad));
@@ -276,7 +295,8 @@ impl HarLog {
 
     fn to_json_compact(&self) -> String {
         let mut json = String::with_capacity(1024);
-        json.push_str(&format!("{{\"version\":\"{}\",\"creator\":{},",
+        json.push_str(&format!(
+            "{{\"version\":\"{}\",\"creator\":{},",
             escape_json_string(&self.version),
             self.creator.to_json_compact()
         ));
@@ -318,7 +338,10 @@ impl HarCreator {
             escape_json_string(&self.version)
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -346,7 +369,10 @@ impl HarBrowser {
             escape_json_string(&self.version)
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -376,7 +402,10 @@ impl HarPage {
             self.page_timings.to_json()
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -437,24 +466,52 @@ impl HarEntry {
         json.push_str("{\n");
 
         if let Some(ref pageref) = self.pageref {
-            json.push_str(&format!("{}\"pageref\": \"{}\",\n", pad2, escape_json_string(pageref)));
+            json.push_str(&format!(
+                "{}\"pageref\": \"{}\",\n",
+                pad2,
+                escape_json_string(pageref)
+            ));
         }
 
-        json.push_str(&format!("{}\"startedDateTime\": \"{}\",\n", pad2, escape_json_string(&self.started_date_time)));
+        json.push_str(&format!(
+            "{}\"startedDateTime\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.started_date_time)
+        ));
         json.push_str(&format!("{}\"time\": {},\n", pad2, self.time));
-        json.push_str(&format!("{}\"request\": {},\n", pad2, self.request.to_json(indent + 2)));
-        json.push_str(&format!("{}\"response\": {},\n", pad2, self.response.to_json(indent + 2)));
+        json.push_str(&format!(
+            "{}\"request\": {},\n",
+            pad2,
+            self.request.to_json(indent + 2)
+        ));
+        json.push_str(&format!(
+            "{}\"response\": {},\n",
+            pad2,
+            self.response.to_json(indent + 2)
+        ));
         json.push_str(&format!("{}\"cache\": {},\n", pad2, self.cache.to_json()));
         json.push_str(&format!("{}\"timings\": {}", pad2, self.timings.to_json()));
 
         if let Some(ref ip) = self.server_ip_address {
-            json.push_str(&format!(",\n{}\"serverIPAddress\": \"{}\"", pad2, escape_json_string(ip)));
+            json.push_str(&format!(
+                ",\n{}\"serverIPAddress\": \"{}\"",
+                pad2,
+                escape_json_string(ip)
+            ));
         }
         if let Some(ref conn) = self.connection {
-            json.push_str(&format!(",\n{}\"connection\": \"{}\"", pad2, escape_json_string(conn)));
+            json.push_str(&format!(
+                ",\n{}\"connection\": \"{}\"",
+                pad2,
+                escape_json_string(conn)
+            ));
         }
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(",\n{}\"comment\": \"{}\"", pad2, escape_json_string(comment)));
+            json.push_str(&format!(
+                ",\n{}\"comment\": \"{}\"",
+                pad2,
+                escape_json_string(comment)
+            ));
         }
 
         json.push_str(&format!("\n{}}}", pad));
@@ -480,7 +537,10 @@ impl HarEntry {
         ));
 
         if let Some(ref ip) = self.server_ip_address {
-            json.push_str(&format!(",\"serverIPAddress\":\"{}\"", escape_json_string(ip)));
+            json.push_str(&format!(
+                ",\"serverIPAddress\":\"{}\"",
+                escape_json_string(ip)
+            ));
         }
         if let Some(ref conn) = self.connection {
             json.push_str(&format!(",\"connection\":\"{}\"", escape_json_string(conn)));
@@ -501,9 +561,21 @@ impl HarRequest {
         let mut json = String::with_capacity(512);
 
         json.push_str("{\n");
-        json.push_str(&format!("{}\"method\": \"{}\",\n", pad2, escape_json_string(&self.method)));
-        json.push_str(&format!("{}\"url\": \"{}\",\n", pad2, escape_json_string(&self.url)));
-        json.push_str(&format!("{}\"httpVersion\": \"{}\",\n", pad2, escape_json_string(&self.http_version)));
+        json.push_str(&format!(
+            "{}\"method\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.method)
+        ));
+        json.push_str(&format!(
+            "{}\"url\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.url)
+        ));
+        json.push_str(&format!(
+            "{}\"httpVersion\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.http_version)
+        ));
 
         json.push_str(&format!("{}\"cookies\": [", pad2));
         for (i, cookie) in self.cookies.iter().enumerate() {
@@ -536,11 +608,18 @@ impl HarRequest {
             json.push_str(&format!("{}\"postData\": {},\n", pad2, post_data.to_json()));
         }
 
-        json.push_str(&format!("{}\"headersSize\": {},\n", pad2, self.headers_size));
+        json.push_str(&format!(
+            "{}\"headersSize\": {},\n",
+            pad2, self.headers_size
+        ));
         json.push_str(&format!("{}\"bodySize\": {}", pad2, self.body_size));
 
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(",\n{}\"comment\": \"{}\"", pad2, escape_json_string(comment)));
+            json.push_str(&format!(
+                ",\n{}\"comment\": \"{}\"",
+                pad2,
+                escape_json_string(comment)
+            ));
         }
 
         json.push_str(&format!("\n{}}}", pad));
@@ -583,7 +662,10 @@ impl HarRequest {
             json.push_str(&format!(",\"postData\":{}", post_data.to_json_compact()));
         }
 
-        json.push_str(&format!(",\"headersSize\":{},\"bodySize\":{}", self.headers_size, self.body_size));
+        json.push_str(&format!(
+            ",\"headersSize\":{},\"bodySize\":{}",
+            self.headers_size, self.body_size
+        ));
 
         if let Some(ref comment) = self.comment {
             json.push_str(&format!(",\"comment\":\"{}\"", escape_json_string(comment)));
@@ -602,8 +684,16 @@ impl HarResponse {
 
         json.push_str("{\n");
         json.push_str(&format!("{}\"status\": {},\n", pad2, self.status));
-        json.push_str(&format!("{}\"statusText\": \"{}\",\n", pad2, escape_json_string(&self.status_text)));
-        json.push_str(&format!("{}\"httpVersion\": \"{}\",\n", pad2, escape_json_string(&self.http_version)));
+        json.push_str(&format!(
+            "{}\"statusText\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.status_text)
+        ));
+        json.push_str(&format!(
+            "{}\"httpVersion\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.http_version)
+        ));
 
         json.push_str(&format!("{}\"cookies\": [", pad2));
         for (i, cookie) in self.cookies.iter().enumerate() {
@@ -623,13 +713,28 @@ impl HarResponse {
         }
         json.push_str("],\n");
 
-        json.push_str(&format!("{}\"content\": {},\n", pad2, self.content.to_json()));
-        json.push_str(&format!("{}\"redirectURL\": \"{}\",\n", pad2, escape_json_string(&self.redirect_url)));
-        json.push_str(&format!("{}\"headersSize\": {},\n", pad2, self.headers_size));
+        json.push_str(&format!(
+            "{}\"content\": {},\n",
+            pad2,
+            self.content.to_json()
+        ));
+        json.push_str(&format!(
+            "{}\"redirectURL\": \"{}\",\n",
+            pad2,
+            escape_json_string(&self.redirect_url)
+        ));
+        json.push_str(&format!(
+            "{}\"headersSize\": {},\n",
+            pad2, self.headers_size
+        ));
         json.push_str(&format!("{}\"bodySize\": {}", pad2, self.body_size));
 
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(",\n{}\"comment\": \"{}\"", pad2, escape_json_string(comment)));
+            json.push_str(&format!(
+                ",\n{}\"comment\": \"{}\"",
+                pad2,
+                escape_json_string(comment)
+            ));
         }
 
         json.push_str(&format!("\n{}}}", pad));
@@ -686,7 +791,10 @@ impl HarHeader {
             escape_json_string(&self.value)
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -714,7 +822,10 @@ impl HarQueryParam {
             escape_json_string(&self.value)
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -748,7 +859,10 @@ impl HarCookie {
             json.push_str(&format!(", \"domain\": \"{}\"", escape_json_string(domain)));
         }
         if let Some(ref expires) = self.expires {
-            json.push_str(&format!(", \"expires\": \"{}\"", escape_json_string(expires)));
+            json.push_str(&format!(
+                ", \"expires\": \"{}\"",
+                escape_json_string(expires)
+            ));
         }
         if let Some(http_only) = self.http_only {
             json.push_str(&format!(", \"httpOnly\": {}", http_only));
@@ -757,7 +871,10 @@ impl HarCookie {
             json.push_str(&format!(", \"secure\": {}", secure));
         }
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -804,9 +921,15 @@ impl HarPostData {
                 json.push_str(", ");
             }
         }
-        json.push_str(&format!("], \"text\": \"{}\"", escape_json_string(&self.text)));
+        json.push_str(&format!(
+            "], \"text\": \"{}\"",
+            escape_json_string(&self.text)
+        ));
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -823,7 +946,10 @@ impl HarPostData {
                 json.push(',');
             }
         }
-        json.push_str(&format!("],\"text\":\"{}\"", escape_json_string(&self.text)));
+        json.push_str(&format!(
+            "],\"text\":\"{}\"",
+            escape_json_string(&self.text)
+        ));
         if let Some(ref comment) = self.comment {
             json.push_str(&format!(",\"comment\":\"{}\"", escape_json_string(comment)));
         }
@@ -839,13 +965,22 @@ impl HarPostDataParam {
             json.push_str(&format!(", \"value\": \"{}\"", escape_json_string(value)));
         }
         if let Some(ref file_name) = self.file_name {
-            json.push_str(&format!(", \"fileName\": \"{}\"", escape_json_string(file_name)));
+            json.push_str(&format!(
+                ", \"fileName\": \"{}\"",
+                escape_json_string(file_name)
+            ));
         }
         if let Some(ref content_type) = self.content_type {
-            json.push_str(&format!(", \"contentType\": \"{}\"", escape_json_string(content_type)));
+            json.push_str(&format!(
+                ", \"contentType\": \"{}\"",
+                escape_json_string(content_type)
+            ));
         }
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -857,10 +992,16 @@ impl HarPostDataParam {
             json.push_str(&format!(",\"value\":\"{}\"", escape_json_string(value)));
         }
         if let Some(ref file_name) = self.file_name {
-            json.push_str(&format!(",\"fileName\":\"{}\"", escape_json_string(file_name)));
+            json.push_str(&format!(
+                ",\"fileName\":\"{}\"",
+                escape_json_string(file_name)
+            ));
         }
         if let Some(ref content_type) = self.content_type {
-            json.push_str(&format!(",\"contentType\":\"{}\"", escape_json_string(content_type)));
+            json.push_str(&format!(
+                ",\"contentType\":\"{}\"",
+                escape_json_string(content_type)
+            ));
         }
         if let Some(ref comment) = self.comment {
             json.push_str(&format!(",\"comment\":\"{}\"", escape_json_string(comment)));
@@ -884,10 +1025,16 @@ impl HarContent {
             json.push_str(&format!(", \"text\": \"{}\"", escape_json_string(text)));
         }
         if let Some(ref encoding) = self.encoding {
-            json.push_str(&format!(", \"encoding\": \"{}\"", escape_json_string(encoding)));
+            json.push_str(&format!(
+                ", \"encoding\": \"{}\"",
+                escape_json_string(encoding)
+            ));
         }
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -906,7 +1053,10 @@ impl HarContent {
             json.push_str(&format!(",\"text\":\"{}\"", escape_json_string(text)));
         }
         if let Some(ref encoding) = self.encoding {
-            json.push_str(&format!(",\"encoding\":\"{}\"", escape_json_string(encoding)));
+            json.push_str(&format!(
+                ",\"encoding\":\"{}\"",
+                escape_json_string(encoding)
+            ));
         }
         if let Some(ref comment) = self.comment {
             json.push_str(&format!(",\"comment\":\"{}\"", escape_json_string(comment)));
@@ -955,10 +1105,16 @@ impl HarCacheEntry {
             self.hit_count
         );
         if let Some(ref expires) = self.expires {
-            json.push_str(&format!(", \"expires\": \"{}\"", escape_json_string(expires)));
+            json.push_str(&format!(
+                ", \"expires\": \"{}\"",
+                escape_json_string(expires)
+            ));
         }
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -989,7 +1145,10 @@ impl HarTimings {
             self.blocked, self.dns, self.connect, self.send, self.wait, self.receive, self.ssl
         );
         if let Some(ref comment) = self.comment {
-            json.push_str(&format!(", \"comment\": \"{}\"", escape_json_string(comment)));
+            json.push_str(&format!(
+                ", \"comment\": \"{}\"",
+                escape_json_string(comment)
+            ));
         }
         json.push('}');
         json
@@ -1068,7 +1227,9 @@ impl<'a> JsonParser<'a> {
                     't' => result.push('\t'),
                     'u' => {
                         if self.pos + 4 <= self.input.len() {
-                            if let Ok(code) = u32::from_str_radix(&self.input[self.pos..self.pos+4], 16) {
+                            if let Ok(code) =
+                                u32::from_str_radix(&self.input[self.pos..self.pos + 4], 16)
+                            {
                                 if let Some(ch) = char::from_u32(code) {
                                     result.push(ch);
                                 }
@@ -1212,7 +1373,9 @@ impl<'a> JsonParser<'a> {
                 self.parse_null()?;
                 Ok(JsonValue::Null)
             }
-            Some(c) if c == '-' || c.is_ascii_digit() => Ok(JsonValue::Number(self.parse_number()?)),
+            Some(c) if c == '-' || c.is_ascii_digit() => {
+                Ok(JsonValue::Number(self.parse_number()?))
+            }
             _ => Err(format!("Unexpected character at position {}", self.pos)),
         }
     }
@@ -1298,12 +1461,14 @@ impl HarLog {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for log")?;
 
-        let version = obj.get("version")
+        let version = obj
+            .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("1.2")
             .to_string();
 
-        let creator = obj.get("creator")
+        let creator = obj
+            .get("creator")
             .map(|v| HarCreator::from_json_value(v))
             .transpose()?
             .unwrap_or_else(|| HarCreator {
@@ -1312,21 +1477,35 @@ impl HarLog {
                 comment: None,
             });
 
-        let browser = obj.get("browser")
+        let browser = obj
+            .get("browser")
             .map(|v| HarBrowser::from_json_value(v))
             .transpose()?;
 
-        let pages = obj.get("pages")
+        let pages = obj
+            .get("pages")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| HarPage::from_json_value(v).ok()).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| HarPage::from_json_value(v).ok())
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let entries = obj.get("entries")
+        let entries = obj
+            .get("entries")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| HarEntry::from_json_value(v).ok()).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| HarEntry::from_json_value(v).ok())
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let comment = obj.get("comment").and_then(|v| v.as_str()).map(String::from);
+        let comment = obj
+            .get("comment")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         Ok(HarLog {
             version,
@@ -1343,9 +1522,20 @@ impl HarCreator {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for creator")?;
         Ok(HarCreator {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            version: obj.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            version: obj
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1354,9 +1544,20 @@ impl HarBrowser {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for browser")?;
         Ok(HarBrowser {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            version: obj.get("version").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            version: obj
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1365,10 +1566,23 @@ impl HarPage {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for page")?;
         Ok(HarPage {
-            started_date_time: obj.get("startedDateTime").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            id: obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            title: obj.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            page_timings: obj.get("pageTimings")
+            started_date_time: obj
+                .get("startedDateTime")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            id: obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            title: obj
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            page_timings: obj
+                .get("pageTimings")
                 .map(|v| HarPageTimings::from_json_value(v))
                 .transpose()?
                 .unwrap_or_else(|| HarPageTimings {
@@ -1376,7 +1590,10 @@ impl HarPage {
                     on_load: None,
                     comment: None,
                 }),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1387,7 +1604,10 @@ impl HarPageTimings {
         Ok(HarPageTimings {
             on_content_load: obj.get("onContentLoad").and_then(|v| v.as_f64()),
             on_load: obj.get("onLoad").and_then(|v| v.as_f64()),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1397,18 +1617,28 @@ impl HarEntry {
         let obj = value.as_object().ok_or("Expected object for entry")?;
 
         Ok(HarEntry {
-            pageref: obj.get("pageref").and_then(|v| v.as_str()).map(String::from),
-            started_date_time: obj.get("startedDateTime").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            pageref: obj
+                .get("pageref")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            started_date_time: obj
+                .get("startedDateTime")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             time: obj.get("time").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            request: obj.get("request")
+            request: obj
+                .get("request")
                 .map(|v| HarRequest::from_json_value(v))
                 .transpose()?
                 .ok_or("Missing request in entry")?,
-            response: obj.get("response")
+            response: obj
+                .get("response")
                 .map(|v| HarResponse::from_json_value(v))
                 .transpose()?
                 .ok_or("Missing response in entry")?,
-            cache: obj.get("cache")
+            cache: obj
+                .get("cache")
                 .map(|v| HarCache::from_json_value(v))
                 .transpose()?
                 .unwrap_or_else(|| HarCache {
@@ -1416,13 +1646,23 @@ impl HarEntry {
                     after_request: None,
                     comment: None,
                 }),
-            timings: obj.get("timings")
+            timings: obj
+                .get("timings")
                 .map(|v| HarTimings::from_json_value(v))
                 .transpose()?
                 .ok_or("Missing timings in entry")?,
-            server_ip_address: obj.get("serverIPAddress").and_then(|v| v.as_str()).map(String::from),
-            connection: obj.get("connection").and_then(|v| v.as_str()).map(String::from),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            server_ip_address: obj
+                .get("serverIPAddress")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            connection: obj
+                .get("connection")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1432,27 +1672,61 @@ impl HarRequest {
         let obj = value.as_object().ok_or("Expected object for request")?;
 
         Ok(HarRequest {
-            method: obj.get("method").and_then(|v| v.as_str()).unwrap_or("GET").to_string(),
-            url: obj.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            http_version: obj.get("httpVersion").and_then(|v| v.as_str()).unwrap_or("HTTP/1.1").to_string(),
-            cookies: obj.get("cookies")
+            method: obj
+                .get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("GET")
+                .to_string(),
+            url: obj
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            http_version: obj
+                .get("httpVersion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("HTTP/1.1")
+                .to_string(),
+            cookies: obj
+                .get("cookies")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarCookie::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarCookie::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            headers: obj.get("headers")
+            headers: obj
+                .get("headers")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarHeader::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarHeader::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            query_string: obj.get("queryString")
+            query_string: obj
+                .get("queryString")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarQueryParam::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarQueryParam::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            post_data: obj.get("postData")
+            post_data: obj
+                .get("postData")
                 .map(|v| HarPostData::from_json_value(v))
                 .transpose()?,
-            headers_size: obj.get("headersSize").and_then(|v| v.as_i64()).unwrap_or(-1),
+            headers_size: obj
+                .get("headersSize")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(-1),
             body_size: obj.get("bodySize").and_then(|v| v.as_i64()).unwrap_or(-1),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1462,25 +1736,58 @@ impl HarResponse {
         let obj = value.as_object().ok_or("Expected object for response")?;
 
         Ok(HarResponse {
-            status: obj.get("status").and_then(|v| v.as_f64()).map(|n| n as u16).unwrap_or(0),
-            status_text: obj.get("statusText").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            http_version: obj.get("httpVersion").and_then(|v| v.as_str()).unwrap_or("HTTP/1.1").to_string(),
-            cookies: obj.get("cookies")
+            status: obj
+                .get("status")
+                .and_then(|v| v.as_f64())
+                .map(|n| n as u16)
+                .unwrap_or(0),
+            status_text: obj
+                .get("statusText")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            http_version: obj
+                .get("httpVersion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("HTTP/1.1")
+                .to_string(),
+            cookies: obj
+                .get("cookies")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarCookie::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarCookie::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            headers: obj.get("headers")
+            headers: obj
+                .get("headers")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarHeader::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarHeader::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            content: obj.get("content")
+            content: obj
+                .get("content")
                 .map(|v| HarContent::from_json_value(v))
                 .transpose()?
                 .ok_or("Missing content in response")?,
-            redirect_url: obj.get("redirectURL").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            headers_size: obj.get("headersSize").and_then(|v| v.as_i64()).unwrap_or(-1),
+            redirect_url: obj
+                .get("redirectURL")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            headers_size: obj
+                .get("headersSize")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(-1),
             body_size: obj.get("bodySize").and_then(|v| v.as_i64()).unwrap_or(-1),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1489,9 +1796,20 @@ impl HarHeader {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for header")?;
         Ok(HarHeader {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            value: obj.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            value: obj
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1500,9 +1818,20 @@ impl HarQueryParam {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for queryParam")?;
         Ok(HarQueryParam {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            value: obj.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            value: obj
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1511,14 +1840,28 @@ impl HarCookie {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for cookie")?;
         Ok(HarCookie {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            value: obj.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            value: obj
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             path: obj.get("path").and_then(|v| v.as_str()).map(String::from),
             domain: obj.get("domain").and_then(|v| v.as_str()).map(String::from),
-            expires: obj.get("expires").and_then(|v| v.as_str()).map(String::from),
+            expires: obj
+                .get("expires")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             http_only: obj.get("httpOnly").and_then(|v| v.as_bool()),
             secure: obj.get("secure").and_then(|v| v.as_bool()),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1527,26 +1870,57 @@ impl HarPostData {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for postData")?;
         Ok(HarPostData {
-            mime_type: obj.get("mimeType").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            params: obj.get("params")
+            mime_type: obj
+                .get("mimeType")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            params: obj
+                .get("params")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| HarPostDataParam::from_json_value(v).ok()).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| HarPostDataParam::from_json_value(v).ok())
+                        .collect()
+                })
                 .unwrap_or_default(),
-            text: obj.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            text: obj
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
 
 impl HarPostDataParam {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
-        let obj = value.as_object().ok_or("Expected object for postDataParam")?;
+        let obj = value
+            .as_object()
+            .ok_or("Expected object for postDataParam")?;
         Ok(HarPostDataParam {
-            name: obj.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            name: obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             value: obj.get("value").and_then(|v| v.as_str()).map(String::from),
-            file_name: obj.get("fileName").and_then(|v| v.as_str()).map(String::from),
-            content_type: obj.get("contentType").and_then(|v| v.as_str()).map(String::from),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            file_name: obj
+                .get("fileName")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            content_type: obj
+                .get("contentType")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1557,10 +1931,20 @@ impl HarContent {
         Ok(HarContent {
             size: obj.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
             compression: obj.get("compression").and_then(|v| v.as_i64()),
-            mime_type: obj.get("mimeType").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            mime_type: obj
+                .get("mimeType")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             text: obj.get("text").and_then(|v| v.as_str()).map(String::from),
-            encoding: obj.get("encoding").and_then(|v| v.as_str()).map(String::from),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            encoding: obj
+                .get("encoding")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1569,13 +1953,18 @@ impl HarCache {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for cache")?;
         Ok(HarCache {
-            before_request: obj.get("beforeRequest")
+            before_request: obj
+                .get("beforeRequest")
                 .map(|v| HarCacheEntry::from_json_value(v))
                 .transpose()?,
-            after_request: obj.get("afterRequest")
+            after_request: obj
+                .get("afterRequest")
                 .map(|v| HarCacheEntry::from_json_value(v))
                 .transpose()?,
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1584,11 +1973,29 @@ impl HarCacheEntry {
     fn from_json_value(value: &JsonValue) -> Result<Self, String> {
         let obj = value.as_object().ok_or("Expected object for cacheEntry")?;
         Ok(HarCacheEntry {
-            expires: obj.get("expires").and_then(|v| v.as_str()).map(String::from),
-            last_access: obj.get("lastAccess").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            e_tag: obj.get("eTag").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            hit_count: obj.get("hitCount").and_then(|v| v.as_f64()).map(|n| n as i32).unwrap_or(0),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            expires: obj
+                .get("expires")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            last_access: obj
+                .get("lastAccess")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            e_tag: obj
+                .get("eTag")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            hit_count: obj
+                .get("hitCount")
+                .and_then(|v| v.as_f64())
+                .map(|n| n as i32)
+                .unwrap_or(0),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1604,7 +2011,10 @@ impl HarTimings {
             wait: obj.get("wait").and_then(|v| v.as_f64()).unwrap_or(0.0),
             receive: obj.get("receive").and_then(|v| v.as_f64()).unwrap_or(0.0),
             ssl: obj.get("ssl").and_then(|v| v.as_f64()).unwrap_or(-1.0),
-            comment: obj.get("comment").and_then(|v| v.as_str()).map(String::from),
+            comment: obj
+                .get("comment")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         })
     }
 }
@@ -1620,7 +2030,8 @@ impl Har {
     }
 
     pub fn load_from_file(path: &str) -> Result<Self, String> {
-        let json = fs::read_to_string(path).map_err(|e| format!("Failed to read HAR file: {}", e))?;
+        let json =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read HAR file: {}", e))?;
         Self::from_json(&json)
     }
 }
@@ -2148,8 +2559,8 @@ impl HttpClientWithHar {
                 blocked: -1.0,
                 dns: -1.0,
                 connect: -1.0,
-                send: total_time_ms * 0.1, // Estimate
-                wait: total_time_ms * 0.7,  // Estimate
+                send: total_time_ms * 0.1,    // Estimate
+                wait: total_time_ms * 0.7,    // Estimate
                 receive: total_time_ms * 0.2, // Estimate
                 ssl: -1.0,
                 comment: None,

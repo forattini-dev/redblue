@@ -1,10 +1,9 @@
 /// CMS Detection Module
 ///
 /// Multi-method CMS detection with confidence scoring
-
 use super::{CmsScanConfig, CmsType, DetectionResult, HttpResponse};
-use std::net::TcpStream;
 use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::time::Duration;
 
 /// CMS Detector with multiple detection methods
@@ -118,7 +117,6 @@ impl CmsDetector {
                 confidence: 85,
                 description: "WP REST API endpoint",
             },
-
             // Drupal signatures
             CmsSignature {
                 cms: CmsType::Drupal,
@@ -176,7 +174,6 @@ impl CmsDetector {
                 confidence: 80,
                 description: "Drupal session cookie",
             },
-
             // Joomla signatures
             CmsSignature {
                 cms: CmsType::Joomla,
@@ -220,7 +217,6 @@ impl CmsDetector {
                 confidence: 85,
                 description: "Joomla! in HTML",
             },
-
             // Magento signatures
             CmsSignature {
                 cms: CmsType::Magento,
@@ -250,7 +246,6 @@ impl CmsDetector {
                 confidence: 50,
                 description: "Magento admin path",
             },
-
             // Shopify signatures
             CmsSignature {
                 cms: CmsType::Shopify,
@@ -273,7 +268,6 @@ impl CmsDetector {
                 confidence: 100,
                 description: "X-ShopId header",
             },
-
             // Ghost signatures
             CmsSignature {
                 cms: CmsType::Ghost,
@@ -296,7 +290,6 @@ impl CmsDetector {
                 confidence: 85,
                 description: "Ghost admin path",
             },
-
             // TYPO3 signatures
             CmsSignature {
                 cms: CmsType::TYPO3,
@@ -319,7 +312,6 @@ impl CmsDetector {
                 confidence: 90,
                 description: "TYPO3 backend path",
             },
-
             // Static site generators
             CmsSignature {
                 cms: CmsType::Hugo,
@@ -349,7 +341,6 @@ impl CmsDetector {
                 confidence: 95,
                 description: "Next.js data object",
             },
-
             // Hosted platforms
             CmsSignature {
                 cms: CmsType::Squarespace,
@@ -379,7 +370,8 @@ impl CmsDetector {
     pub fn detect(&self, url: &str, config: &CmsScanConfig) -> DetectionResult {
         let mut result = DetectionResult::unknown();
         let mut scores: std::collections::HashMap<CmsType, u16> = std::collections::HashMap::new();
-        let mut methods: std::collections::HashMap<CmsType, Vec<String>> = std::collections::HashMap::new();
+        let mut methods: std::collections::HashMap<CmsType, Vec<String>> =
+            std::collections::HashMap::new();
 
         // Fetch main page
         let main_response = match self.fetch(url, config) {
@@ -433,7 +425,10 @@ impl CmsDetector {
 
             if matched {
                 *scores.entry(sig.cms).or_insert(0) += sig.confidence as u16;
-                methods.entry(sig.cms).or_default().push(sig.description.to_string());
+                methods
+                    .entry(sig.cms)
+                    .or_default()
+                    .push(sig.description.to_string());
             }
         }
 
@@ -478,7 +473,13 @@ impl CmsDetector {
     }
 
     /// Detect CMS version
-    fn detect_version(&self, cms: CmsType, url: &str, main_response: &HttpResponse, config: &CmsScanConfig) -> Option<String> {
+    fn detect_version(
+        &self,
+        cms: CmsType,
+        url: &str,
+        main_response: &HttpResponse,
+        config: &CmsScanConfig,
+    ) -> Option<String> {
         match cms {
             CmsType::WordPress => self.detect_wordpress_version(url, main_response, config),
             CmsType::Drupal => self.detect_drupal_version(url, config),
@@ -488,16 +489,24 @@ impl CmsDetector {
     }
 
     /// Detect WordPress version
-    fn detect_wordpress_version(&self, url: &str, main_response: &HttpResponse, config: &CmsScanConfig) -> Option<String> {
+    fn detect_wordpress_version(
+        &self,
+        url: &str,
+        main_response: &HttpResponse,
+        config: &CmsScanConfig,
+    ) -> Option<String> {
         // Method 1: Meta generator
-        if let Some(version) = self.extract_meta_generator_version(&main_response.body, "WordPress") {
+        if let Some(version) = self.extract_meta_generator_version(&main_response.body, "WordPress")
+        {
             return Some(version);
         }
 
         // Method 2: readme.html
         let readme_url = format!("{}/readme.html", url.trim_end_matches('/'));
         if let Some(readme) = self.fetch(&readme_url, config) {
-            if let Some(version) = self.extract_version_from_html(&readme.body, r"Version (\d+\.\d+(?:\.\d+)?)") {
+            if let Some(version) =
+                self.extract_version_from_html(&readme.body, r"Version (\d+\.\d+(?:\.\d+)?)")
+            {
                 return Some(version);
             }
         }
@@ -530,7 +539,12 @@ impl CmsDetector {
                     for (i, part) in parts.iter().enumerate() {
                         if *part == "Drupal" && i + 1 < parts.len() {
                             let version = parts[i + 1].trim_end_matches(',');
-                            if version.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            if version
+                                .chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                            {
                                 return Some(version.to_string());
                             }
                         }
@@ -540,7 +554,10 @@ impl CmsDetector {
         }
 
         // Method 2: core/modules/system/system.info.yml (Drupal 8+)
-        let system_url = format!("{}/core/modules/system/system.info.yml", url.trim_end_matches('/'));
+        let system_url = format!(
+            "{}/core/modules/system/system.info.yml",
+            url.trim_end_matches('/')
+        );
         if let Some(system) = self.fetch(&system_url, config) {
             if let Some(version) = self.extract_yaml_version(&system.body) {
                 return Some(version);
@@ -553,7 +570,10 @@ impl CmsDetector {
     /// Detect Joomla version
     fn detect_joomla_version(&self, url: &str, config: &CmsScanConfig) -> Option<String> {
         // Method 1: administrator/manifests/files/joomla.xml
-        let manifest_url = format!("{}/administrator/manifests/files/joomla.xml", url.trim_end_matches('/'));
+        let manifest_url = format!(
+            "{}/administrator/manifests/files/joomla.xml",
+            url.trim_end_matches('/')
+        );
         if let Some(manifest) = self.fetch(&manifest_url, config) {
             if let Some(version) = self.extract_xml_version(&manifest.body) {
                 return Some(version);
@@ -587,7 +607,12 @@ impl CmsDetector {
                         // Extract version number
                         let parts: Vec<&str> = content.split_whitespace().collect();
                         for part in parts.iter().skip(1) {
-                            if part.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                            if part
+                                .chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                            {
                                 return Some(part.to_string());
                             }
                         }
@@ -606,7 +631,8 @@ impl CmsDetector {
                 let words: Vec<&str> = line.split_whitespace().collect();
                 for (i, word) in words.iter().enumerate() {
                     if *word == "Version" && i + 1 < words.len() {
-                        let version = words[i + 1].trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
+                        let version =
+                            words[i + 1].trim_matches(|c: char| !c.is_ascii_digit() && c != '.');
                         if !version.is_empty() {
                             return Some(version.to_string());
                         }
@@ -621,7 +647,11 @@ impl CmsDetector {
     fn extract_yaml_version(&self, content: &str) -> Option<String> {
         for line in content.lines() {
             if line.starts_with("version:") {
-                let value = line.trim_start_matches("version:").trim().trim_matches('\'').trim_matches('"');
+                let value = line
+                    .trim_start_matches("version:")
+                    .trim()
+                    .trim_matches('\'')
+                    .trim_matches('"');
                 if !value.is_empty() {
                     return Some(value.to_string());
                 }
@@ -663,10 +693,7 @@ impl CmsDetector {
 
         // Connect
         let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect_timeout(
-            &addr.parse().ok()?,
-            config.timeout
-        ).ok()?;
+        let mut stream = TcpStream::connect_timeout(&addr.parse().ok()?, config.timeout).ok()?;
 
         stream.set_read_timeout(Some(config.timeout)).ok()?;
         stream.set_write_timeout(Some(config.timeout)).ok()?;
@@ -753,7 +780,9 @@ impl CmsDetector {
         }
 
         // Rest is body
-        let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+        let body_start = text
+            .find("\r\n\r\n")
+            .map(|p| p + 4)
             .or_else(|| text.find("\n\n").map(|p| p + 2))
             .unwrap_or(text.len());
         let body = text[body_start..].to_string();

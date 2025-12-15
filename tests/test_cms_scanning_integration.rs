@@ -19,6 +19,9 @@ mod tests {
     #[test]
     fn test_cms_fingerprinting_placeholder() {
         // Placeholder for favicon/file hash fingerprinting
-        assert!(true, "CMS fingerprinting (favicon/file hash) integration test placeholder.");
+        assert!(
+            true,
+            "CMS fingerprinting (favicon/file hash) integration test placeholder."
+        );
     }
 }

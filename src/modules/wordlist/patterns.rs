@@ -46,10 +46,10 @@ impl PatternGenerator {
                             // Unknown modifier, treat '?' as literal?
                             // Or treat '?' and modifier as literals?
                             // Hashcat treats ? without valid modifier as literal ? if strictly interpreted,
-                            // but usually it expects escaping. 
+                            // but usually it expects escaping.
                             // Let's treat it as literal '?' for now if modifier is invalid?
                             // No, let's treat it as just the literal char.
-                            charsets.push(vec![c]); 
+                            charsets.push(vec![c]);
                             // Don't consume the next char if it wasn't a modifier?
                             // Actually, let's assume valid masks for now.
                         }
@@ -130,8 +130,8 @@ mod tests {
 
     #[test]
     fn test_all_mask() {
-         // Just verify it compiles and runs for a small subset
-         let mut gen = PatternGenerator::new("?l");
-         assert_eq!(gen.count(), 26);
+        // Just verify it compiles and runs for a small subset
+        let mut gen = PatternGenerator::new("?l");
+        assert_eq!(gen.count(), 26);
     }
 }

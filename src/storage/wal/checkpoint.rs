@@ -22,10 +22,10 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
 
-use crate::storage::engine::{Pager, Page, PAGE_SIZE};
 use super::reader::WalReader;
-use super::writer::WalWriter;
 use super::record::WalRecord;
+use super::writer::WalWriter;
+use crate::storage::engine::{Page, Pager, PAGE_SIZE};
 
 /// Checkpoint mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,7 +171,11 @@ impl Checkpointer {
                 WalRecord::Rollback { tx_id } => {
                     tx_states.insert(tx_id, TxState::Aborted);
                 }
-                WalRecord::PageWrite { tx_id, page_id, data } => {
+                WalRecord::PageWrite {
+                    tx_id,
+                    page_id,
+                    data,
+                } => {
                     pending_writes.push(PendingWrite {
                         tx_id,
                         page_id,
@@ -179,7 +183,9 @@ impl Checkpointer {
                         lsn,
                     });
                 }
-                WalRecord::Checkpoint { lsn: _checkpoint_lsn } => {
+                WalRecord::Checkpoint {
+                    lsn: _checkpoint_lsn,
+                } => {
                     // Checkpoint marker - we can skip records before this LSN
                     // For now, we process everything
                 }
@@ -282,9 +288,9 @@ impl Checkpointer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::engine::PageType;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use crate::storage::engine::PageType;
 
     fn temp_dir() -> std::path::PathBuf {
         let timestamp = SystemTime::now()
@@ -337,9 +343,7 @@ mod tests {
             let mut wal_writer = WalWriter::open(&wal_path).unwrap();
 
             // Begin transaction
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
 
             // Write a page
             let mut page_data = [0u8; PAGE_SIZE];
@@ -353,9 +357,7 @@ mod tests {
                 .unwrap();
 
             // Commit transaction
-            wal_writer
-                .append(&WalRecord::Commit { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Commit { tx_id: 1 }).unwrap();
 
             wal_writer.sync().unwrap();
         }
@@ -394,9 +396,7 @@ mod tests {
             let mut wal_writer = WalWriter::open(&wal_path).unwrap();
 
             // Begin transaction
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
 
             // Write a page
             let mut page_data = [0u8; PAGE_SIZE];
@@ -453,9 +453,7 @@ mod tests {
             let mut wal_writer = WalWriter::open(&wal_path).unwrap();
 
             // Transaction 1: Committed
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
             let mut page_data1 = [0u8; PAGE_SIZE];
             page_data1[0] = 0x11;
             wal_writer
@@ -465,14 +463,10 @@ mod tests {
                     data: page_data1.to_vec(),
                 })
                 .unwrap();
-            wal_writer
-                .append(&WalRecord::Commit { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Commit { tx_id: 1 }).unwrap();
 
             // Transaction 2: Aborted
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 2 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 2 }).unwrap();
             let mut page_data2 = [0u8; PAGE_SIZE];
             page_data2[0] = 0x22;
             wal_writer
@@ -487,9 +481,7 @@ mod tests {
                 .unwrap();
 
             // Transaction 3: Committed
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 3 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 3 }).unwrap();
             let mut page_data3 = [0u8; PAGE_SIZE];
             page_data3[0] = 0x33;
             wal_writer
@@ -499,9 +491,7 @@ mod tests {
                     data: page_data3.to_vec(),
                 })
                 .unwrap();
-            wal_writer
-                .append(&WalRecord::Commit { tx_id: 3 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Commit { tx_id: 3 }).unwrap();
 
             wal_writer.sync().unwrap();
         }
@@ -537,12 +527,8 @@ mod tests {
         // Create WAL with a committed transaction
         {
             let mut wal_writer = WalWriter::open(&wal_path).unwrap();
-            wal_writer
-                .append(&WalRecord::Begin { tx_id: 1 })
-                .unwrap();
-            wal_writer
-                .append(&WalRecord::Commit { tx_id: 1 })
-                .unwrap();
+            wal_writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
+            wal_writer.append(&WalRecord::Commit { tx_id: 1 }).unwrap();
             wal_writer.sync().unwrap();
         }
 
@@ -555,7 +541,11 @@ mod tests {
         // WAL should be truncated (only header + checkpoint marker)
         let wal_size = fs::metadata(&wal_path).unwrap().len();
         // Header (8 bytes) + Checkpoint record (1 + 8 + 4 = 13 bytes)
-        assert!(wal_size < 50, "WAL should be truncated, but size is {}", wal_size);
+        assert!(
+            wal_size < 50,
+            "WAL should be truncated, but size is {}",
+            wal_size
+        );
 
         cleanup(&dir);
     }

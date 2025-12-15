@@ -13,12 +13,18 @@ mod tests {
     fn test_tls_heartbleed_detection_placeholder() {
         // Placeholder test for Heartbleed detection.
         // Requires a vulnerable test server or mocking specific TLS records.
-        assert!(true, "TLS Heartbleed detection integration test placeholder.");
+        assert!(
+            true,
+            "TLS Heartbleed detection integration test placeholder."
+        );
     }
 
     #[test]
     fn test_tls_robot_detection_placeholder() {
         // Placeholder test for ROBOT attack detection.
-        assert!(true, "TLS ROBOT attack detection integration test placeholder.");
+        assert!(
+            true,
+            "TLS ROBOT attack detection integration test placeholder."
+        );
     }
 }

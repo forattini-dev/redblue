@@ -1,5 +1,4 @@
 /// Gzip decompression error types (RFC 1952 / RFC 1951)
-
 use std::fmt::{self, Display};
 use std::io::ErrorKind;
 
@@ -71,7 +70,11 @@ impl Display for GzipError {
             Self::UnexpectedEnd => write!(f, "Unexpected end of stream"),
             Self::InvalidDynamicCodebook => write!(f, "Invalid dynamic codebook"),
             Self::ChecksumMismatch { expected, got } => {
-                write!(f, "CRC32 mismatch: expected {:08x}, got {:08x}", expected, got)
+                write!(
+                    f,
+                    "CRC32 mismatch: expected {:08x}, got {:08x}",
+                    expected, got
+                )
             }
             Self::SizeMismatch { expected, got } => {
                 write!(f, "Size mismatch: expected {}, got {}", expected, got)

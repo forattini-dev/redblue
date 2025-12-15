@@ -24,7 +24,6 @@
 /// let filter = ScriptFilter::new().with_category(ScriptCategory::Vuln);
 /// let results = engine.run_filtered(&ctx, &filter);
 /// ```
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -132,7 +131,11 @@ impl ScriptEngine {
     }
 
     /// Run scripts matching a filter
-    pub fn run_filtered(&mut self, ctx: &ScriptContext, filter: &ScriptFilter) -> Vec<ScriptResult> {
+    pub fn run_filtered(
+        &mut self,
+        ctx: &ScriptContext,
+        filter: &ScriptFilter,
+    ) -> Vec<ScriptResult> {
         let start = Instant::now();
         let mut results = Vec::new();
 
@@ -174,7 +177,11 @@ impl ScriptEngine {
     }
 
     /// Run scripts by category
-    pub fn run_by_category(&mut self, ctx: &ScriptContext, category: ScriptCategory) -> Vec<ScriptResult> {
+    pub fn run_by_category(
+        &mut self,
+        ctx: &ScriptContext,
+        category: ScriptCategory,
+    ) -> Vec<ScriptResult> {
         let filter = ScriptFilter::new().with_category(category);
         self.run_filtered(ctx, &filter)
     }
@@ -517,7 +524,10 @@ mod tests {
         assert_eq!(aggregated.summary.total_findings, 2);
         assert_eq!(aggregated.summary.high_findings, 1);
         assert_eq!(aggregated.summary.info_findings, 1);
-        assert_eq!(aggregated.extracted_data.get("version"), Some(&"1.0.0".to_string()));
+        assert_eq!(
+            aggregated.extracted_data.get("version"),
+            Some(&"1.0.0".to_string())
+        );
     }
 
     #[test]

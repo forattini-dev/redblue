@@ -3,8 +3,8 @@
 //! Handles secure storage and derivation of encryption keys.
 //! Ensures keys are zeroed out from memory when dropped.
 
-use std::ptr;
 use super::pbkdf2::derive_key;
+use std::ptr;
 
 /// A securely managed encryption key
 pub struct SecureKey {
@@ -14,9 +14,7 @@ pub struct SecureKey {
 impl SecureKey {
     /// Create a new secure key from raw bytes
     pub fn new(data: &[u8]) -> Self {
-        Self {
-            data: data.into(),
-        }
+        Self { data: data.into() }
     }
 
     /// Derive a key from a password using PBKDF2-SHA256
@@ -32,7 +30,7 @@ impl SecureKey {
     /// Otherwise, it's treated as a passphrase and KDF is applied (requires salt).
     pub fn from_env(var_name: &str, salt: Option<&[u8]>) -> Result<Self, String> {
         let val = std::env::var(var_name).map_err(|_| format!("{} not set", var_name))?;
-        
+
         // Try hex decoding first
         if val.len() == 64 {
             if let Ok(bytes) = decode_hex(&val) {
@@ -58,12 +56,11 @@ fn decode_hex(s: &str) -> Result<Vec<u8>, String> {
     if s.len() % 2 != 0 {
         return Err("Odd length".to_string());
     }
-    
+
     let mut bytes = Vec::with_capacity(s.len() / 2);
     for i in (0..s.len()).step_by(2) {
-        let byte_str = &s[i..i+2];
-        let byte = u8::from_str_radix(byte_str, 16)
-            .map_err(|e| format!("Invalid hex: {}", e))?;
+        let byte_str = &s[i..i + 2];
+        let byte = u8::from_str_radix(byte_str, 16).map_err(|e| format!("Invalid hex: {}", e))?;
         bytes.push(byte);
     }
     Ok(bytes)

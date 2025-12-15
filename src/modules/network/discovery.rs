@@ -56,10 +56,7 @@ pub struct MacAddress(pub [u8; 6]);
 impl MacAddress {
     /// Parse MAC from string (various formats)
     pub fn parse(s: &str) -> Option<Self> {
-        let cleaned: String = s
-            .chars()
-            .filter(|c| c.is_ascii_hexdigit())
-            .collect();
+        let cleaned: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
 
         if cleaned.len() != 12 {
             return None;
@@ -582,9 +579,7 @@ impl NetBiosScanner {
         // First name entry starts at offset 57
         // Each entry is 18 bytes: 15-byte name + 1-byte suffix + 2-byte flags
         let name_bytes = &response[57..57 + 15];
-        let name = String::from_utf8_lossy(name_bytes)
-            .trim()
-            .to_string();
+        let name = String::from_utf8_lossy(name_bytes).trim().to_string();
 
         if name.is_empty() {
             None
@@ -708,7 +703,10 @@ impl MdnsScanner {
                 Ok((len, addr)) => {
                     if let Some(service) = self.parse_response(&buf[..len], addr) {
                         // Deduplicate
-                        if !results.iter().any(|s: &DiscoveredService| s.name == service.name) {
+                        if !results
+                            .iter()
+                            .any(|s: &DiscoveredService| s.name == service.name)
+                        {
                             results.push(service);
                         }
                     }

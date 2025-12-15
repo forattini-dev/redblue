@@ -98,7 +98,10 @@ impl Command for HttpServerCommand {
                 Ok(())
             }
             _ => {
-                Output::error(&format!("Unknown verb '{}'. Use 'serve' or 'payloads'", verb));
+                Output::error(&format!(
+                    "Unknown verb '{}'. Use 'serve' or 'payloads'",
+                    verb
+                ));
                 print_help(self);
                 Err(format!("Unknown verb: {}", verb))
             }
@@ -158,10 +161,7 @@ impl HttpServerCommand {
                 "enabled"
             },
         );
-        Output::item(
-            "Serve /rb",
-            if serve_self { "enabled" } else { "disabled" },
-        );
+        Output::item("Serve /rb", if serve_self { "enabled" } else { "disabled" });
         println!();
         Output::info("Built-in payloads:");
         Output::dim(&format!("  /hook.js   - Browser hook payload"));
@@ -184,7 +184,9 @@ impl HttpServerCommand {
         });
 
         // Start server (blocking)
-        server_ref.run().map_err(|e| format!("Server error: {}", e))?;
+        server_ref
+            .run()
+            .map_err(|e| format!("Server error: {}", e))?;
 
         Output::success("Server stopped");
         Ok(())

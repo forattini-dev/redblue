@@ -8,7 +8,6 @@
 /// - Tables
 /// - Scripts and Styles
 /// - JSON-LD structured data
-
 use crate::modules::web::dom::{Document, Element};
 use std::collections::HashMap;
 
@@ -71,10 +70,7 @@ impl ExtractedLink {
 /// Extract all links from a document
 pub fn links(doc: &Document) -> Vec<ExtractedLink> {
     let mut result = Vec::new();
-    let base_domain = doc
-        .base_url
-        .as_ref()
-        .and_then(|url| extract_domain(url));
+    let base_domain = doc.base_url.as_ref().and_then(|url| extract_domain(url));
 
     for elem in doc.all_elements() {
         if elem.tag == "a" {
@@ -116,10 +112,7 @@ pub fn links_matching(doc: &Document, selector: &str) -> Vec<ExtractedLink> {
 
     let selection = sel.match_in(doc);
     let mut result = Vec::new();
-    let base_domain = doc
-        .base_url
-        .as_ref()
-        .and_then(|url| extract_domain(url));
+    let base_domain = doc.base_url.as_ref().and_then(|url| extract_domain(url));
 
     for elem in selection.iter() {
         // Check the element itself
@@ -780,7 +773,8 @@ pub fn tables(doc: &Document) -> Vec<ExtractedTable> {
                     found_thead = true;
                     // Get th elements from thead
                     for th in doc.all_elements() {
-                        if th.tag == "th" && is_descendant_of(doc, th.self_index, child.self_index) {
+                        if th.tag == "th" && is_descendant_of(doc, th.self_index, child.self_index)
+                        {
                             table.headers.push(doc.element_text(th.self_index));
                         }
                     }

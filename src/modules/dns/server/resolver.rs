@@ -125,8 +125,8 @@ impl UpstreamResolver {
 
     /// Query using TCP
     fn query_tcp(&self, server: SocketAddr, query: &[u8]) -> Result<Vec<u8>, String> {
-        let mut stream =
-            TcpStream::connect_timeout(&server, self.timeout).map_err(|e| format!("Connect error: {}", e))?;
+        let mut stream = TcpStream::connect_timeout(&server, self.timeout)
+            .map_err(|e| format!("Connect error: {}", e))?;
 
         stream
             .set_read_timeout(Some(self.timeout))
@@ -171,7 +171,8 @@ impl UpstreamResolver {
 
 impl Default for UpstreamResolver {
     fn default() -> Self {
-        Self::with_fallback("8.8.8.8:53", "1.1.1.1:53").expect("Default DNS servers should be valid")
+        Self::with_fallback("8.8.8.8:53", "1.1.1.1:53")
+            .expect("Default DNS servers should be valid")
     }
 }
 

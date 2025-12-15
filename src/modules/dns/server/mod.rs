@@ -23,12 +23,12 @@
 //! server.run()?;
 //! ```
 
-pub mod server;
-pub mod rules;
 pub mod cache;
 pub mod resolver;
+pub mod rules;
+pub mod server;
 
-pub use server::{DnsServer, DnsServerConfig};
-pub use rules::{DnsRule, RuleAction, RuleMatch};
 pub use cache::DnsCache;
 pub use resolver::UpstreamResolver;
+pub use rules::{DnsRule, RuleAction, RuleMatch};
+pub use server::{DnsServer, DnsServerConfig};

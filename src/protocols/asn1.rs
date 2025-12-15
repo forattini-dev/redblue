@@ -345,7 +345,10 @@ fn parse_value(tag_byte: u8, constructed: bool, data: &[u8]) -> Result<Asn1Value
                 .map_err(|e| format!("Invalid GeneralizedTime: {}", e))?;
             Ok(Asn1Value::GeneralizedTime(s))
         }
-        _ => Err(format!("Unsupported tag: 0x{:02X} (class={}, number={})", tag_byte, tag_class, tag_number)),
+        _ => Err(format!(
+            "Unsupported tag: 0x{:02X} (class={}, number={})",
+            tag_byte, tag_class, tag_number
+        )),
     }
 }
 

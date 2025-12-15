@@ -4,10 +4,12 @@
 //! Best for small to medium datasets (< 100K vectors).
 
 use super::dense::DenseVectorStorage;
-use super::distance::{Distance, cosine_distance, l2_squared_distance, dot_product, manhattan_distance};
+use super::distance::{
+    cosine_distance, dot_product, l2_squared_distance, manhattan_distance, Distance,
+};
 use super::types::{DenseVector, SearchResult, VectorId};
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// Flat index for exact k-NN search
 ///
@@ -44,7 +46,10 @@ impl PartialOrd for HeapEntry {
 impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order for max-heap (we want smallest distances)
-        other.distance.partial_cmp(&self.distance).unwrap_or(Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -152,7 +157,11 @@ impl FlatIndex {
             .collect();
 
         // Sort by distance (ascending)
-        results.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(Ordering::Equal));
+        results.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
+        });
 
         results
     }
@@ -176,7 +185,11 @@ impl FlatIndex {
         }
 
         // Sort by distance
-        results.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(Ordering::Equal));
+        results.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
+        });
 
         results
     }
@@ -495,10 +508,10 @@ mod tests {
         let mut index = FlatIndex::new(2, Distance::L2);
 
         // Add vectors at varying distances from origin
-        index.add(1, DenseVector::new(vec![1.0, 0.0]));   // dist = 1.0
-        index.add(2, DenseVector::new(vec![2.0, 0.0]));   // dist = 2.0
-        index.add(3, DenseVector::new(vec![3.0, 0.0]));   // dist = 3.0
-        index.add(4, DenseVector::new(vec![0.5, 0.0]));   // dist = 0.5
+        index.add(1, DenseVector::new(vec![1.0, 0.0])); // dist = 1.0
+        index.add(2, DenseVector::new(vec![2.0, 0.0])); // dist = 2.0
+        index.add(3, DenseVector::new(vec![3.0, 0.0])); // dist = 3.0
+        index.add(4, DenseVector::new(vec![0.5, 0.0])); // dist = 0.5
 
         let query = DenseVector::new(vec![0.0, 0.0]);
         let results = index.search(&query, 4);

@@ -5,7 +5,7 @@
 //! - Validating certificate chain integrity
 //! - Exporting chains in various formats
 
-use super::x509::{Certificate, CertError};
+use super::x509::{CertError, Certificate};
 use crate::crypto::encoding::pem::PemBlock;
 
 /// Certificate Chain (ordered from leaf to root)
@@ -34,10 +34,7 @@ impl CertificateChain {
     ///
     /// Attempts to order certificates from leaf to root by matching
     /// issuer/subject relationships.
-    pub fn build(
-        leaf: Certificate,
-        intermediates: &[Certificate],
-    ) -> Result<Self, CertError> {
+    pub fn build(leaf: Certificate, intermediates: &[Certificate]) -> Result<Self, CertError> {
         let mut chain = vec![leaf];
         let mut available: Vec<_> = intermediates.iter().cloned().collect();
 
@@ -76,7 +73,9 @@ impl CertificateChain {
             }
         }
 
-        Ok(CertificateChain { certificates: chain })
+        Ok(CertificateChain {
+            certificates: chain,
+        })
     }
 
     /// Parse chain from PEM bundle
@@ -108,10 +107,7 @@ impl CertificateChain {
 
     /// Export chain as DER (concatenated)
     pub fn to_der(&self) -> Vec<u8> {
-        self.certificates
-            .iter()
-            .flat_map(|c| c.to_der())
-            .collect()
+        self.certificates.iter().flat_map(|c| c.to_der()).collect()
     }
 
     /// Get leaf certificate (first in chain)
@@ -172,10 +168,9 @@ impl CertificateChain {
                         i, cn
                     ));
                 } else {
-                    result.issues.push(format!(
-                        "Certificate {} is expired or not yet valid",
-                        i
-                    ));
+                    result
+                        .issues
+                        .push(format!("Certificate {} is expired or not yet valid", i));
                 }
             }
 
@@ -186,7 +181,8 @@ impl CertificateChain {
                     result.valid = false;
                     result.issues.push(format!(
                         "Certificate {} issuer doesn't match certificate {} subject",
-                        i, i + 1
+                        i,
+                        i + 1
                     ));
                 }
 
@@ -194,7 +190,8 @@ impl CertificateChain {
                 if !next.is_ca() && !next.is_self_signed() {
                     result.issues.push(format!(
                         "Certificate {} is not a CA but signed certificate {}",
-                        i + 1, i
+                        i + 1,
+                        i
                     ));
                 }
             }
@@ -203,7 +200,9 @@ impl CertificateChain {
         // Check if root is self-signed
         if let Some(root) = self.root() {
             if !root.is_self_signed() {
-                result.issues.push("Root certificate is not self-signed".to_string());
+                result
+                    .issues
+                    .push("Root certificate is not self-signed".to_string());
             }
         }
 
@@ -282,19 +281,16 @@ mod tests {
     #[test]
     fn test_chain_build() {
         // Create CA
-        let ca = CertificateAuthority::new(
-            "CN=Test CA",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA should be created");
+        let ca = CertificateAuthority::new("CN=Test CA", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA should be created");
 
         // Generate leaf cert
-        let (leaf, _) = ca.generate_cert("leaf.example.com")
+        let (leaf, _) = ca
+            .generate_cert("leaf.example.com")
             .expect("Leaf cert should be created");
 
         // Build chain
-        let chain = CertificateChain::build(leaf, &[ca.cert.clone()])
-            .expect("Chain should build");
+        let chain = CertificateChain::build(leaf, &[ca.cert.clone()]).expect("Chain should build");
 
         assert_eq!(chain.len(), 2);
         assert!(chain.leaf().is_some());
@@ -304,48 +300,45 @@ mod tests {
     #[test]
     fn test_chain_verify() {
         // Create CA
-        let ca = CertificateAuthority::new(
-            "CN=Test CA",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA should be created");
+        let ca = CertificateAuthority::new("CN=Test CA", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA should be created");
 
         // Generate leaf cert
-        let (leaf, _) = ca.generate_cert("leaf.example.com")
+        let (leaf, _) = ca
+            .generate_cert("leaf.example.com")
             .expect("Leaf cert should be created");
 
         // Build chain
-        let chain = CertificateChain::build(leaf, &[ca.cert.clone()])
-            .expect("Chain should build");
+        let chain = CertificateChain::build(leaf, &[ca.cert.clone()]).expect("Chain should build");
 
         // Verify chain
         let result = chain.verify().expect("Verify should succeed");
-        assert!(result.is_valid(), "Chain should be valid: {:?}", result.issues);
+        assert!(
+            result.is_valid(),
+            "Chain should be valid: {:?}",
+            result.issues
+        );
     }
 
     #[test]
     fn test_chain_pem_roundtrip() {
         // Create CA
-        let ca = CertificateAuthority::new(
-            "CN=Test CA",
-            KeyAlgorithm::EcdsaP256,
-            365,
-        ).expect("CA should be created");
+        let ca = CertificateAuthority::new("CN=Test CA", KeyAlgorithm::EcdsaP256, 365)
+            .expect("CA should be created");
 
         // Generate leaf cert
-        let (leaf, _) = ca.generate_cert("leaf.example.com")
+        let (leaf, _) = ca
+            .generate_cert("leaf.example.com")
             .expect("Leaf cert should be created");
 
         // Build chain
-        let chain = CertificateChain::build(leaf, &[ca.cert.clone()])
-            .expect("Chain should build");
+        let chain = CertificateChain::build(leaf, &[ca.cert.clone()]).expect("Chain should build");
 
         // Export to PEM
         let pem = chain.to_pem();
 
         // Parse back
-        let chain2 = CertificateChain::from_pem(&pem)
-            .expect("PEM parse should succeed");
+        let chain2 = CertificateChain::from_pem(&pem).expect("PEM parse should succeed");
 
         assert_eq!(chain.len(), chain2.len());
     }

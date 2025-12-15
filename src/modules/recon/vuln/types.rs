@@ -383,9 +383,7 @@ impl VulnCollection {
     /// Get all vulnerabilities sorted by risk score
     pub fn sorted_by_risk(&self) -> Vec<&Vulnerability> {
         let mut vulns: Vec<_> = self.vulns.values().collect();
-        vulns.sort_by(|a, b| {
-            b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0))
-        });
+        vulns.sort_by(|a, b| b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0)));
         vulns
     }
 
@@ -439,9 +437,7 @@ impl VulnCollection {
     /// Consume the collection and return sorted vulnerabilities by risk score
     pub fn into_sorted(self) -> Vec<Vulnerability> {
         let mut vulns: Vec<Vulnerability> = self.vulns.into_values().collect();
-        vulns.sort_by(|a, b| {
-            b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0))
-        });
+        vulns.sort_by(|a, b| b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0)));
         vulns
     }
 }

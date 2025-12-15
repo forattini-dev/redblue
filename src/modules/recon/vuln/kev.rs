@@ -4,12 +4,13 @@
 //!
 //! Catalog URL: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
 
+use super::types::{ExploitRef, VulnSource, Vulnerability};
 use crate::protocols::http::HttpClient;
-use crate::utils::json::{JsonValue, parse_json};
-use super::types::{Vulnerability, VulnSource, ExploitRef};
+use crate::utils::json::{parse_json, JsonValue};
 use std::collections::HashMap;
 
-const KEV_JSON_URL: &str = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
+const KEV_JSON_URL: &str =
+    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
 
 /// CISA KEV entry
 #[derive(Debug, Clone)]
@@ -63,7 +64,8 @@ impl KevClient {
         let body = String::from_utf8_lossy(&response.body).to_string();
         let json = parse_json(&body)?;
 
-        let vulns = json.get("vulnerabilities")
+        let vulns = json
+            .get("vulnerabilities")
             .and_then(|v| v.as_array())
             .ok_or("Invalid KEV response")?;
 
@@ -85,7 +87,8 @@ impl KevClient {
     pub fn is_in_kev(&mut self, cve_id: &str) -> Result<bool, String> {
         self.fetch_catalog()?;
 
-        Ok(self.cache
+        Ok(self
+            .cache
             .as_ref()
             .map(|c| c.contains_key(cve_id))
             .unwrap_or(false))
@@ -95,9 +98,7 @@ impl KevClient {
     pub fn get_entry(&mut self, cve_id: &str) -> Result<Option<KevEntry>, String> {
         self.fetch_catalog()?;
 
-        Ok(self.cache
-            .as_ref()
-            .and_then(|c| c.get(cve_id).cloned()))
+        Ok(self.cache.as_ref().and_then(|c| c.get(cve_id).cloned()))
     }
 
     /// Enrich vulnerability with KEV data
@@ -130,7 +131,8 @@ impl KevClient {
     pub fn get_all(&mut self) -> Result<Vec<KevEntry>, String> {
         self.fetch_catalog()?;
 
-        Ok(self.cache
+        Ok(self
+            .cache
             .as_ref()
             .map(|c| c.values().cloned().collect())
             .unwrap_or_default())
@@ -142,7 +144,8 @@ impl KevClient {
 
         let vendor_lower = vendor.to_lowercase();
 
-        Ok(self.cache
+        Ok(self
+            .cache
             .as_ref()
             .map(|c| {
                 c.values()
@@ -159,7 +162,8 @@ impl KevClient {
 
         let product_lower = product.to_lowercase();
 
-        Ok(self.cache
+        Ok(self
+            .cache
             .as_ref()
             .map(|c| {
                 c.values()
@@ -181,11 +185,15 @@ impl KevClient {
             short_description: json.get("shortDescription")?.as_str()?.to_string(),
             required_action: json.get("requiredAction")?.as_str()?.to_string(),
             due_date: json.get("dueDate")?.as_str()?.to_string(),
-            known_ransomware_use: json.get("knownRansomwareCampaignUse")
+            known_ransomware_use: json
+                .get("knownRansomwareCampaignUse")
                 .and_then(|k| k.as_str())
                 .map(|s| s.to_lowercase() == "known")
                 .unwrap_or(false),
-            notes: json.get("notes").and_then(|n| n.as_str()).map(|s| s.to_string()),
+            notes: json
+                .get("notes")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string()),
         })
     }
 

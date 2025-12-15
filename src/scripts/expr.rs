@@ -37,7 +37,6 @@
 /// # Check if banner contains "Apache" and version is 2.x
 /// and(contains($banner, "Apache"), matches($banner, "2\\.[0-9]+"))
 /// ```
-
 use std::collections::HashMap;
 
 /// Expression evaluator
@@ -83,7 +82,13 @@ impl ExprValue {
         match self {
             ExprValue::String(s) => s.parse().unwrap_or(0.0),
             ExprValue::Number(n) => *n,
-            ExprValue::Bool(b) => if *b { 1.0 } else { 0.0 },
+            ExprValue::Bool(b) => {
+                if *b {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
             ExprValue::List(l) => l.len() as f64,
             ExprValue::Null => 0.0,
         }
@@ -140,7 +145,8 @@ impl ExprEvaluator {
     /// Set multiple variables from a HashMap
     pub fn set_vars(&mut self, vars: &HashMap<String, String>) {
         for (k, v) in vars {
-            self.variables.insert(k.clone(), ExprValue::String(v.clone()));
+            self.variables
+                .insert(k.clone(), ExprValue::String(v.clone()));
         }
     }
 
@@ -150,10 +156,7 @@ impl ExprEvaluator {
         let parts: Vec<&str> = name.split('.').collect();
 
         if parts.len() == 1 {
-            self.variables
-                .get(name)
-                .cloned()
-                .unwrap_or(ExprValue::Null)
+            self.variables.get(name).cloned().unwrap_or(ExprValue::Null)
         } else {
             // Try to get the nested value
             let base_name = parts[0];
@@ -424,7 +427,9 @@ impl ExprEvaluator {
                 }
                 let actual = self.eval(&args[0])?.as_str();
                 let required = self.eval(&args[1])?.as_str();
-                Ok(ExprValue::Bool(self.compare_versions(&actual, &required) >= 0))
+                Ok(ExprValue::Bool(
+                    self.compare_versions(&actual, &required) >= 0,
+                ))
             }
 
             "version_lt" => {
@@ -433,7 +438,9 @@ impl ExprEvaluator {
                 }
                 let actual = self.eval(&args[0])?.as_str();
                 let required = self.eval(&args[1])?.as_str();
-                Ok(ExprValue::Bool(self.compare_versions(&actual, &required) < 0))
+                Ok(ExprValue::Bool(
+                    self.compare_versions(&actual, &required) < 0,
+                ))
             }
 
             _ => Err(format!("Unknown function: {}", name)),
@@ -589,8 +596,14 @@ mod tests {
         let mut eval = ExprEvaluator::new();
         eval.set_var("banner", "Apache/2.4.51 (Unix)");
 
-        assert!(eval.eval("contains($banner, \"Apache\")").unwrap().as_bool());
-        assert!(eval.eval("contains($banner, \"apache\")").unwrap().as_bool()); // Case-insensitive
+        assert!(eval
+            .eval("contains($banner, \"Apache\")")
+            .unwrap()
+            .as_bool());
+        assert!(eval
+            .eval("contains($banner, \"apache\")")
+            .unwrap()
+            .as_bool()); // Case-insensitive
         assert!(!eval.eval("contains($banner, \"nginx\")").unwrap().as_bool());
     }
 
@@ -599,8 +612,14 @@ mod tests {
         let mut eval = ExprEvaluator::new();
         eval.set_var("banner", "Apache/2.4.51");
 
-        assert!(eval.eval("starts_with($banner, \"Apache\")").unwrap().as_bool());
-        assert!(!eval.eval("starts_with($banner, \"nginx\")").unwrap().as_bool());
+        assert!(eval
+            .eval("starts_with($banner, \"Apache\")")
+            .unwrap()
+            .as_bool());
+        assert!(!eval
+            .eval("starts_with($banner, \"nginx\")")
+            .unwrap()
+            .as_bool());
         assert!(eval.eval("ends_with($banner, \"51\")").unwrap().as_bool());
     }
 
@@ -609,7 +628,10 @@ mod tests {
         let mut eval = ExprEvaluator::new();
         eval.set_var("banner", "Apache/2.4.51 (Unix)");
 
-        assert!(eval.eval("matches($banner, \"Apache*\")").unwrap().as_bool());
+        assert!(eval
+            .eval("matches($banner, \"Apache*\")")
+            .unwrap()
+            .as_bool());
         assert!(eval.eval("matches($banner, \"*2.4*\")").unwrap().as_bool());
         assert!(!eval.eval("matches($banner, \"nginx*\")").unwrap().as_bool());
     }
@@ -646,13 +668,22 @@ mod tests {
         let eval = ExprEvaluator::new();
 
         // 2.4.51 >= 2.4.0
-        assert!(eval.eval("version_gte(\"2.4.51\", \"2.4.0\")").unwrap().as_bool());
+        assert!(eval
+            .eval("version_gte(\"2.4.51\", \"2.4.0\")")
+            .unwrap()
+            .as_bool());
 
         // 2.4.51 < 3.0.0
-        assert!(eval.eval("version_lt(\"2.4.51\", \"3.0.0\")").unwrap().as_bool());
+        assert!(eval
+            .eval("version_lt(\"2.4.51\", \"3.0.0\")")
+            .unwrap()
+            .as_bool());
 
         // 2.4.51 >= 2.4.51
-        assert!(eval.eval("version_gte(\"2.4.51\", \"2.4.51\")").unwrap().as_bool());
+        assert!(eval
+            .eval("version_gte(\"2.4.51\", \"2.4.51\")")
+            .unwrap()
+            .as_bool());
     }
 
     #[test]

@@ -2,7 +2,6 @@
 ///
 /// Grabs and analyzes SMTP banners for version detection
 /// and mail server identification.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -20,7 +19,12 @@ impl SmtpBannerScript {
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
                 description: "Grabs SMTP banner and identifies mail server software".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Safe, ScriptCategory::Default],
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["smtp".to_string()],
                 ports: vec![25, 465, 587, 2525],
                 license: "MIT".to_string(),
@@ -38,13 +42,21 @@ impl SmtpBannerScript {
             ("postfix", "Postfix", &["postfix"][..]),
             ("sendmail", "Sendmail", &["sendmail"]),
             ("exim", "Exim", &["exim"]),
-            ("exchange", "Microsoft Exchange", &["microsoft", "exchange", "esmtp mail"]),
+            (
+                "exchange",
+                "Microsoft Exchange",
+                &["microsoft", "exchange", "esmtp mail"],
+            ),
             ("qmail", "qmail", &["qmail"]),
             ("gmail", "Google SMTP", &["smtp.google", "gmail", "google"]),
             ("dovecot", "Dovecot", &["dovecot"]),
             ("courier", "Courier", &["courier"]),
             ("zimbra", "Zimbra", &["zimbra"]),
-            ("office365", "Office 365", &["outlook", "office365", "protection.outlook"]),
+            (
+                "office365",
+                "Office 365",
+                &["outlook", "office365", "protection.outlook"],
+            ),
             ("protonmail", "ProtonMail", &["protonmail"]),
             ("mailcow", "mailcow", &["mailcow"]),
             ("hMailServer", "hMailServer", &["hmailserver"]),
@@ -77,16 +89,31 @@ impl SmtpBannerScript {
         // Simple version extraction
         let words: Vec<&str> = banner.split_whitespace().collect();
         for (i, word) in words.iter().enumerate() {
-            if word.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && word.contains('.') {
+            if word
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+                && word.contains('.')
+            {
                 // Check if previous word might be a software name
                 if i > 0 {
                     let prev = words[i - 1].to_lowercase();
-                    if ["postfix", "exim", "sendmail", "dovecot"].iter().any(|s| prev.contains(s)) {
-                        return Some(word.trim_matches(|c: char| !c.is_ascii_digit() && c != '.').to_string());
+                    if ["postfix", "exim", "sendmail", "dovecot"]
+                        .iter()
+                        .any(|s| prev.contains(s))
+                    {
+                        return Some(
+                            word.trim_matches(|c: char| !c.is_ascii_digit() && c != '.')
+                                .to_string(),
+                        );
                     }
                 }
                 // Still return if it looks like a version
-                let clean: String = word.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let clean: String = word
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
                 if clean.contains('.') {
                     return Some(clean);
                 }
@@ -101,7 +128,8 @@ impl SmtpBannerScript {
         // Extract hostname after 220 code
         let parts: Vec<&str> = banner.split_whitespace().collect();
         if parts.len() >= 2 && parts[0].starts_with("220") {
-            let hostname = parts[1].trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '-');
+            let hostname =
+                parts[1].trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '-');
             if hostname.contains('.') {
                 return Some(hostname.to_string());
             }
@@ -154,10 +182,13 @@ impl Script for SmtpBannerScript {
         }
 
         result.add_finding(
-            Finding::new(FindingType::Version, &format!("{} Detected", server_info.server_name))
-                .with_description(&desc)
-                .with_evidence(banner)
-                .with_severity(FindingSeverity::Info),
+            Finding::new(
+                FindingType::Version,
+                &format!("{} Detected", server_info.server_name),
+            )
+            .with_description(&desc)
+            .with_evidence(banner)
+            .with_severity(FindingSeverity::Info),
         );
 
         // Extract data
@@ -222,7 +253,9 @@ impl SmtpBannerScript {
                     result.add_finding(
                         Finding::new(FindingType::Vulnerability, "Exim Remote Code Execution")
                             .with_cve("CVE-2019-15846")
-                            .with_description("Exim before 4.92.2 allows remote code execution via TLS SNI")
+                            .with_description(
+                                "Exim before 4.92.2 allows remote code execution via TLS SNI",
+                            )
                             .with_severity(FindingSeverity::Critical)
                             .with_remediation("Upgrade to Exim 4.92.2 or later"),
                     );
@@ -244,7 +277,9 @@ impl SmtpBannerScript {
                 if self.version_lt(version, "8.15") {
                     result.add_finding(
                         Finding::new(FindingType::Vulnerability, "Outdated Sendmail")
-                            .with_description("Sendmail before 8.15 has multiple known vulnerabilities")
+                            .with_description(
+                                "Sendmail before 8.15 has multiple known vulnerabilities",
+                            )
                             .with_severity(FindingSeverity::High)
                             .with_remediation("Upgrade to Sendmail 8.15 or later"),
                     );
@@ -258,7 +293,9 @@ impl SmtpBannerScript {
                             .with_cve("CVE-2023-51764")
                             .with_description("Postfix before 3.8.4 vulnerable to SMTP smuggling")
                             .with_severity(FindingSeverity::Medium)
-                            .with_remediation("Upgrade to Postfix 3.8.4+ or configure smtpd_data_restrictions"),
+                            .with_remediation(
+                                "Upgrade to Postfix 3.8.4+ or configure smtpd_data_restrictions",
+                            ),
                     );
                 }
             }
@@ -314,8 +351,14 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("smtp_server_id"), Some(&"postfix".to_string()));
-        assert_eq!(result.extracted.get("smtp_hostname"), Some(&"mail.example.com".to_string()));
+        assert_eq!(
+            result.extracted.get("smtp_server_id"),
+            Some(&"postfix".to_string())
+        );
+        assert_eq!(
+            result.extracted.get("smtp_hostname"),
+            Some(&"mail.example.com".to_string())
+        );
     }
 
     #[test]
@@ -326,8 +369,14 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("smtp_server_id"), Some(&"exim".to_string()));
-        assert_eq!(result.extracted.get("smtp_version"), Some(&"4.92".to_string()));
+        assert_eq!(
+            result.extracted.get("smtp_server_id"),
+            Some(&"exim".to_string())
+        );
+        assert_eq!(
+            result.extracted.get("smtp_version"),
+            Some(&"4.92".to_string())
+        );
     }
 
     #[test]

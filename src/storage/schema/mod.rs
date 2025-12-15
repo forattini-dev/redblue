@@ -8,11 +8,11 @@
 //! The schema system is designed to support security-focused data types
 //! like IP addresses, MAC addresses, and vectors for similarity search.
 
-pub mod types;
-pub mod table;
 pub mod registry;
+pub mod table;
+pub mod types;
 
 // Re-export common types
-pub use types::{DataType, Value, ValueError, Row};
-pub use table::{TableDef, ColumnDef, IndexDef, IndexType, Constraint, ConstraintType};
-pub use registry::{SchemaRegistry, SchemaError};
+pub use registry::{SchemaError, SchemaRegistry};
+pub use table::{ColumnDef, Constraint, ConstraintType, IndexDef, IndexType, TableDef};
+pub use types::{DataType, Row, Value, ValueError};

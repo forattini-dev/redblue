@@ -1,10 +1,10 @@
-pub mod patterns;
-pub mod rules;
+pub mod analysis;
 pub mod combinator;
-pub mod mutations;
-pub mod sorter;
 pub mod dedup;
 pub mod filter;
-pub mod analysis;
-pub mod preview;
 pub mod loader;
+pub mod mutations;
+pub mod patterns;
+pub mod preview;
+pub mod rules;
+pub mod sorter;

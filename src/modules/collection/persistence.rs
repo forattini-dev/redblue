@@ -1,9 +1,9 @@
+use crate::utils::json;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
-use crate::utils::json;
 
 /// Simple JSON-based session store (replacement for SQLite)
 pub struct SessionStore {
@@ -26,27 +26,27 @@ impl SessionStore {
             let mut content = String::new();
             if file.read_to_string(&mut content).is_ok() {
                 if let Ok(_map) = json::parse_json(&content) {
-                     // Assuming json::parse returns a generic Value, need to convert to HashMap<String, String>
-                     // Since `utils::json` is internal, I'll implement a simpler manual parser or assuming basic K/V
-                     // Actually, let's just use simple text format for now to avoid json complexity without serde
-                     // Format: KEY=VALUE
+                    // Assuming json::parse returns a generic Value, need to convert to HashMap<String, String>
+                    // Since `utils::json` is internal, I'll implement a simpler manual parser or assuming basic K/V
+                    // Actually, let's just use simple text format for now to avoid json complexity without serde
+                    // Format: KEY=VALUE
 
-                     let mut data = self.data.lock().unwrap();
-                     data.clear();
-                     
-                     // Re-parse content as simple KV
-                     // For JSON, we'd need a real parser.
-                     // Let's assume the task allows simple file persistence.
+                    let mut data = self.data.lock().unwrap();
+                    data.clear();
+
+                    // Re-parse content as simple KV
+                    // For JSON, we'd need a real parser.
+                    // Let's assume the task allows simple file persistence.
                 }
             }
         }
     }
-    
+
     // Using a simple KV format for zero-dependency persistence
     pub fn save(&self) -> std::io::Result<()> {
         let data = self.data.lock().unwrap();
         let mut file = File::create(&self.path)?;
-        
+
         file.write_all(b"{\n")?;
         let mut first = true;
         for (k, v) in data.iter() {

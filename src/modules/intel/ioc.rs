@@ -388,11 +388,7 @@ impl IocCollection {
     pub fn by_type(&self, ioc_type: &IocType) -> Vec<&Ioc> {
         self.by_type
             .get(ioc_type)
-            .map(|keys| {
-                keys.iter()
-                    .filter_map(|k| self.iocs.get(k))
-                    .collect()
-            })
+            .map(|keys| keys.iter().filter_map(|k| self.iocs.get(k)).collect())
             .unwrap_or_default()
     }
 
@@ -400,11 +396,7 @@ impl IocCollection {
     pub fn by_target(&self, target: &str) -> Vec<&Ioc> {
         self.by_target
             .get(target)
-            .map(|keys| {
-                keys.iter()
-                    .filter_map(|k| self.iocs.get(k))
-                    .collect()
-            })
+            .map(|keys| keys.iter().filter_map(|k| self.iocs.get(k)).collect())
             .unwrap_or_default()
     }
 
@@ -412,11 +404,7 @@ impl IocCollection {
     pub fn by_technique(&self, technique_id: &str) -> Vec<&Ioc> {
         self.by_technique
             .get(technique_id)
-            .map(|keys| {
-                keys.iter()
-                    .filter_map(|k| self.iocs.get(k))
-                    .collect()
-            })
+            .map(|keys| keys.iter().filter_map(|k| self.iocs.get(k)).collect())
             .unwrap_or_default()
     }
 
@@ -499,7 +487,9 @@ impl IocCollection {
 
     /// Export to CSV format
     pub fn to_csv(&self) -> String {
-        let mut csv = String::from("type,value,source,confidence,target,mitre_techniques,tags,first_seen,last_seen\n");
+        let mut csv = String::from(
+            "type,value,source,confidence,target,mitre_techniques,tags,first_seen,last_seen\n",
+        );
 
         for ioc in self.iocs.values() {
             csv.push_str(&format!(
@@ -536,11 +526,7 @@ impl IocExtractor {
     /// Extract IOCs from port scan results
     ///
     /// Input: target IP/hostname and list of open ports
-    pub fn extract_from_port_scan(
-        &self,
-        target_ip: &str,
-        open_ports: &[u16],
-    ) -> Vec<Ioc> {
+    pub fn extract_from_port_scan(&self, target_ip: &str, open_ports: &[u16]) -> Vec<Ioc> {
         let mut iocs = Vec::new();
 
         // Extract target IP as IOC
@@ -550,13 +536,7 @@ impl IocExtractor {
                 IpAddr::V6(_) => IocType::IPv6,
             };
 
-            let mut ioc = Ioc::new(
-                ioc_type,
-                target_ip,
-                IocSource::PortScan,
-                80,
-                &self.target,
-            );
+            let mut ioc = Ioc::new(ioc_type, target_ip, IocSource::PortScan, 80, &self.target);
 
             // Add techniques based on open ports
             let techniques = self.ports_to_techniques(open_ports);
@@ -569,10 +549,7 @@ impl IocExtractor {
                 ioc = ioc.with_tag(format!("port:{}", port));
             }
 
-            ioc = ioc.with_context(format!(
-                "Scanned host with {} open ports",
-                open_ports.len()
-            ));
+            ioc = ioc.with_context(format!("Scanned host with {} open ports", open_ports.len()));
 
             iocs.push(ioc);
         }
@@ -604,7 +581,7 @@ impl IocExtractor {
                 &self.target,
             )
             .with_technique("T1071.004") // DNS protocol
-            .with_tag("primary_domain")
+            .with_tag("primary_domain"),
         );
 
         // A records (IPv4)
@@ -619,7 +596,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.004")
                 .with_tag("dns_resolved")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -635,7 +612,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.004")
                 .with_tag("dns_resolved")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -653,7 +630,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.003") // SMTP protocol
                 .with_tag("mail_server")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -670,7 +647,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.004")
                 .with_tag("nameserver")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -687,7 +664,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.004")
                 .with_tag("cname_target")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -719,7 +696,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1573.002") // Encrypted channel
                 .with_tag("tls_cn")
-                .with_context(format!("TLS certificate CN, issuer: {}", issuer))
+                .with_context(format!("TLS certificate CN, issuer: {}", issuer)),
             );
         }
 
@@ -737,15 +714,9 @@ impl IocExtractor {
                     IpAddr::V6(_) => IocType::IPv6,
                 };
                 iocs.push(
-                    Ioc::new(
-                        ioc_type,
-                        san,
-                        IocSource::TlsCertificate,
-                        85,
-                        &self.target,
-                    )
-                    .with_technique("T1573.002")
-                    .with_tag("tls_san")
+                    Ioc::new(ioc_type, san, IocSource::TlsCertificate, 85, &self.target)
+                        .with_technique("T1573.002")
+                        .with_tag("tls_san"),
                 );
             } else {
                 iocs.push(
@@ -757,7 +728,7 @@ impl IocExtractor {
                         &self.target,
                     )
                     .with_technique("T1573.002")
-                    .with_tag("tls_san")
+                    .with_tag("tls_san"),
                 );
             }
         }
@@ -774,7 +745,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1573.002")
                 .with_tag("cert_fingerprint")
-                .with_context(format!("Serial: {}", serial))
+                .with_context(format!("Serial: {}", serial)),
             );
         }
 
@@ -791,7 +762,7 @@ impl IocExtractor {
                         &self.target,
                     )
                     .with_technique("T1573.002")
-                    .with_tag("ca_domain")
+                    .with_tag("ca_domain"),
                 );
             }
         }
@@ -842,7 +813,7 @@ impl IocExtractor {
                     )
                     .with_technique("T1589.002") // Gather victim identity info: Email
                     .with_tag("registrant_email")
-                    .with_related(domain)
+                    .with_related(domain),
                 );
             }
         }
@@ -864,7 +835,7 @@ impl IocExtractor {
                     )
                     .with_technique("T1589.002")
                     .with_tag("admin_email")
-                    .with_related(domain)
+                    .with_related(domain),
                 );
             }
         }
@@ -887,7 +858,7 @@ impl IocExtractor {
                     )
                     .with_technique("T1589.002")
                     .with_tag("tech_email")
-                    .with_related(domain)
+                    .with_related(domain),
                 );
             }
         }
@@ -905,7 +876,7 @@ impl IocExtractor {
                 )
                 .with_technique("T1071.004")
                 .with_tag("whois_nameserver")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -920,7 +891,7 @@ impl IocExtractor {
                     &self.target,
                 )
                 .with_tag("registrar")
-                .with_related(domain)
+                .with_related(domain),
             );
         }
 
@@ -938,15 +909,9 @@ impl IocExtractor {
 
         // The URL itself
         iocs.push(
-            Ioc::new(
-                IocType::Url,
-                url,
-                IocSource::HttpResponse,
-                85,
-                &self.target,
-            )
-            .with_technique("T1071.001") // Web protocols
-            .with_tag("scanned_url")
+            Ioc::new(IocType::Url, url, IocSource::HttpResponse, 85, &self.target)
+                .with_technique("T1071.001") // Web protocols
+                .with_tag("scanned_url"),
         );
 
         // Extract from headers
@@ -976,7 +941,7 @@ impl IocExtractor {
                         &self.target,
                     )
                     .with_technique("T1071.001")
-                    .with_tag("redirect_target")
+                    .with_tag("redirect_target"),
                 );
             }
         }
@@ -995,7 +960,7 @@ impl IocExtractor {
                         70,
                         &self.target,
                     )
-                    .with_tag("csp_domain")
+                    .with_tag("csp_domain"),
                 );
             }
         }
@@ -1013,14 +978,8 @@ impl IocExtractor {
                         IpAddr::V6(_) => IocType::IPv6,
                     };
                     iocs.push(
-                        Ioc::new(
-                            ioc_type,
-                            ip_str,
-                            IocSource::HttpHeaders,
-                            65,
-                            &self.target,
-                        )
-                        .with_tag("proxy_chain")
+                        Ioc::new(ioc_type, ip_str, IocSource::HttpHeaders, 65, &self.target)
+                            .with_tag("proxy_chain"),
                     );
                 }
             }
@@ -1038,7 +997,7 @@ impl IocExtractor {
                             70,
                             &self.target,
                         )
-                        .with_tag("cookie_domain")
+                        .with_tag("cookie_domain"),
                     );
                 }
             }
@@ -1056,15 +1015,9 @@ impl IocExtractor {
             // Only external URLs
             if url.starts_with("http://") || url.starts_with("https://") {
                 iocs.push(
-                    Ioc::new(
-                        IocType::Url,
-                        &url,
-                        IocSource::HtmlContent,
-                        65,
-                        &self.target,
-                    )
-                    .with_technique("T1071.001")
-                    .with_tag("html_link")
+                    Ioc::new(IocType::Url, &url, IocSource::HtmlContent, 65, &self.target)
+                        .with_technique("T1071.001")
+                        .with_tag("html_link"),
                 );
             }
         }
@@ -1081,7 +1034,7 @@ impl IocExtractor {
                         &self.target,
                     )
                     .with_technique("T1589.002")
-                    .with_tag("html_email")
+                    .with_tag("html_email"),
                 );
             }
         }
@@ -1118,8 +1071,8 @@ impl IocExtractor {
                     techniques.push("T1563.002"); // RDP hijacking
                 }
                 5985 | 5986 => techniques.push("T1021.006"), // WinRM
-                6379 => techniques.push("T1190"), // Redis
-                27017 => techniques.push("T1190"), // MongoDB
+                6379 => techniques.push("T1190"),            // Redis
+                27017 => techniques.push("T1190"),           // MongoDB
                 _ => {}
             }
         }
@@ -1242,7 +1195,14 @@ impl IocExtractor {
         let mut urls = Vec::new();
 
         // Simple regex-like extraction for href="..." and src="..."
-        let patterns = ["href=\"", "href='", "src=\"", "src='", "action=\"", "action='"];
+        let patterns = [
+            "href=\"",
+            "href='",
+            "src=\"",
+            "src='",
+            "action=\"",
+            "action='",
+        ];
 
         for pattern in patterns {
             let quote = if pattern.ends_with('"') { '"' } else { '\'' };
@@ -1279,7 +1239,8 @@ impl IocExtractor {
         let mut current_word = String::new();
 
         for ch in text.chars() {
-            if ch.is_alphanumeric() || ch == '@' || ch == '.' || ch == '_' || ch == '-' || ch == '+' {
+            if ch.is_alphanumeric() || ch == '@' || ch == '.' || ch == '_' || ch == '-' || ch == '+'
+            {
                 current_word.push(ch);
                 in_word = true;
             } else if in_word {
@@ -1440,10 +1401,14 @@ mod tests {
         assert!(iocs.len() >= 3);
 
         // Check domain IOC
-        assert!(iocs.iter().any(|i| i.ioc_type == IocType::Domain && i.value == "example.com"));
+        assert!(iocs
+            .iter()
+            .any(|i| i.ioc_type == IocType::Domain && i.value == "example.com"));
 
         // Check IP IOC
-        assert!(iocs.iter().any(|i| i.ioc_type == IocType::IPv4 && i.value == "93.184.216.34"));
+        assert!(iocs
+            .iter()
+            .any(|i| i.ioc_type == IocType::IPv4 && i.value == "93.184.216.34"));
 
         // Check MX host IOC
         assert!(iocs.iter().any(|i| i.ioc_type == IocType::Domain

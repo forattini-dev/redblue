@@ -2,7 +2,6 @@
 ///
 /// Detects SMB services and identifies security issues including
 /// EternalBlue (MS17-010) and other SMB vulnerabilities.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -78,7 +77,7 @@ impl Script for SmbInfoScript {
                     Finding::new(FindingType::Vulnerability, "SMBv1 Enabled")
                         .with_description(
                             "SMBv1 is enabled. This protocol version has known vulnerabilities \
-                             including EternalBlue (MS17-010) and should be disabled."
+                             including EternalBlue (MS17-010) and should be disabled.",
                         )
                         .with_severity(FindingSeverity::Critical)
                         .with_remediation("Disable SMBv1 and use SMBv2/v3"),
@@ -93,7 +92,7 @@ impl Script for SmbInfoScript {
                     Finding::new(FindingType::Misconfiguration, "SMB Signing Not Required")
                         .with_description(
                             "SMB message signing is not required. This allows \
-                             man-in-the-middle attacks and SMB relay attacks."
+                             man-in-the-middle attacks and SMB relay attacks.",
                         )
                         .with_severity(FindingSeverity::High)
                         .with_remediation("Enable SMB signing on all systems"),
@@ -120,31 +119,37 @@ impl Script for SmbInfoScript {
         {
             if version_lower.contains("1") || version_lower.contains("smb1") {
                 result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "Potential EternalBlue Vulnerability")
-                        .with_cve("CVE-2017-0144")
-                        .with_description(
-                            "System may be vulnerable to EternalBlue (MS17-010), \
-                             a critical RCE vulnerability in SMBv1."
-                        )
-                        .with_severity(FindingSeverity::Critical)
-                        .with_remediation(
-                            "Apply MS17-010 patches immediately. Disable SMBv1."
-                        ),
+                    Finding::new(
+                        FindingType::Vulnerability,
+                        "Potential EternalBlue Vulnerability",
+                    )
+                    .with_cve("CVE-2017-0144")
+                    .with_description(
+                        "System may be vulnerable to EternalBlue (MS17-010), \
+                             a critical RCE vulnerability in SMBv1.",
+                    )
+                    .with_severity(FindingSeverity::Critical)
+                    .with_remediation("Apply MS17-010 patches immediately. Disable SMBv1."),
                 );
             }
         }
 
         // SMBGhost (CVE-2020-0796) - Windows 10 1903/1909
-        if data_lower.contains("windows 10") && (data_lower.contains("1903") || data_lower.contains("1909")) {
+        if data_lower.contains("windows 10")
+            && (data_lower.contains("1903") || data_lower.contains("1909"))
+        {
             result.add_finding(
-                Finding::new(FindingType::Vulnerability, "Potential SMBGhost Vulnerability")
-                    .with_cve("CVE-2020-0796")
-                    .with_description(
-                        "Windows 10 1903/1909 may be vulnerable to SMBGhost, \
-                         a critical RCE in SMBv3.1.1 compression."
-                    )
-                    .with_severity(FindingSeverity::Critical)
-                    .with_remediation("Apply KB4551762 patch or disable SMBv3 compression"),
+                Finding::new(
+                    FindingType::Vulnerability,
+                    "Potential SMBGhost Vulnerability",
+                )
+                .with_cve("CVE-2020-0796")
+                .with_description(
+                    "Windows 10 1903/1909 may be vulnerable to SMBGhost, \
+                         a critical RCE in SMBv3.1.1 compression.",
+                )
+                .with_severity(FindingSeverity::Critical)
+                .with_remediation("Apply KB4551762 patch or disable SMBv3 compression"),
             );
         }
 
@@ -154,7 +159,7 @@ impl Script for SmbInfoScript {
                 Finding::new(FindingType::Misconfiguration, "SMB Null Session Allowed")
                     .with_description(
                         "SMB null sessions are allowed, enabling anonymous access \
-                         to share enumeration and potentially sensitive information."
+                         to share enumeration and potentially sensitive information.",
                     )
                     .with_severity(FindingSeverity::High)
                     .with_remediation("Disable null sessions via registry or Group Policy"),
@@ -197,7 +202,10 @@ impl Script for SmbInfoScript {
             }
         }
 
-        result.add_output(&format!("SMB analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "SMB analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -220,7 +228,10 @@ mod tests {
         ctx.set_data("smb_response", "Windows 7 Professional");
 
         let result = script.run(&ctx).unwrap();
-        let has_vuln = result.findings.iter().any(|f| f.title.contains("SMBv1 Enabled"));
+        let has_vuln = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("SMBv1 Enabled"));
         assert!(has_vuln);
     }
 }

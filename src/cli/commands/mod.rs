@@ -1,21 +1,21 @@
 pub mod access; // ✅ Remote access - reverse shells & listeners
-pub mod agent;  // ✅ C2 Agent - server and client
+pub mod agent; // ✅ C2 Agent - server and client
 pub mod attack; // ✅ Attack workflow - plan, run, playbooks
 pub mod auth_test; // ✅ Credential testing
 pub mod bench;
-pub mod config; // ✅ Configuration management - database passwords, settings
-pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
-pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
 pub mod cloud;
-pub mod crypto; // ✅ File encryption vault - AES-256-GCM
 pub mod code;
 pub mod collection; // ✅ Browser credentials collection
+pub mod config; // ✅ Configuration management - database passwords, settings
+pub mod crypto; // ✅ File encryption vault - AES-256-GCM
+pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
 pub mod search; // ✅ Global search across all stored data
-// pub mod database; // Database operations - TODO: APIs changed, needs update
+pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
+                 // pub mod database; // Database operations - TODO: APIs changed, needs update
 pub mod deps;
-pub mod docs; // ✅ Documentation search and indexing
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod dns_server; // ✅ DNS server with hijacking for MITM
+pub mod docs; // ✅ Documentation search and indexing
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
 pub mod fuzz;
 pub mod health; // ✅ Port health monitoring (check, diff, watch)
@@ -24,26 +24,26 @@ pub mod init; // ✅ Config init command
 pub mod magic;
 pub mod mcp;
 pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception
-// pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
+              // pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
+pub mod exploit_browser; // ✅ RBB Browser Exploitation
+pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
+pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
+pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
+pub mod intel_taxii;
 pub mod nc; // ⚠️ Netcat - AUTHORIZED USE ONLY
 pub mod network;
 pub mod ping; // ICMP ping
 pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
-pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod recon;
-pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
 pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email/breach
+pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
 pub mod scan;
 pub mod screenshot;
 pub mod takeover;
 pub mod tls; // TLS security testing - audit, ciphers, vuln
 pub mod tls_intel; // ✅ TLS intelligence gathering
-pub mod trace;
-pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
-pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
-pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
-pub mod intel_taxii; // ✅ TAXII 2.1 client - rb intel taxii
-// pub mod vuln; // REMOVED - use intel vuln
+pub mod trace; // ✅ TAXII 2.1 client - rb intel taxii
+               // pub mod vuln; // REMOVED - use intel vuln
 pub mod web; // ✅ Re-enabled with TLS routes!
 pub mod wordlist; // ✅ Wordlist management
 
@@ -86,8 +86,8 @@ impl CommandRegistry {
             Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
             Box::new(code::CodeCommand),
             Box::new(collection::CollectCommand), // ✅ Browser collection
-            Box::new(fuzz::FuzzCommand), // ✅ Web fuzzing engine
-            Box::new(crypto::CryptoCommand),       // ✅ File encryption vault
+            Box::new(fuzz::FuzzCommand),          // ✅ Web fuzzing engine
+            Box::new(crypto::CryptoCommand),      // ✅ File encryption vault
             Box::new(deps::DepsCommand),
             Box::new(cloud::CloudCommand),
             Box::new(takeover::TakeoverCommand),
@@ -99,34 +99,34 @@ impl CommandRegistry {
             Box::new(docs::DocsCommand),             // ✅ Documentation search
             Box::new(intel::IntelCommand),           // ✅ Intelligence domain - rb intel vuln *
             Box::new(intel_mitre::IntelMitreCommand), // ✅ MITRE ATT&CK intelligence - rb intel mitre *
-            Box::new(intel_ioc::IntelIocCommand), // ✅ IOC extraction - rb intel ioc *
+            Box::new(intel_ioc::IntelIocCommand),     // ✅ IOC extraction - rb intel ioc *
             Box::new(intel_taxii::IntelTaxiiCommand), // ✅ TAXII 2.1 client - rb intel taxii *
-            Box::new(proxy::HttpProxyCommand),       // ✅ HTTP CONNECT proxy
-            Box::new(proxy::Socks5ProxyCommand),     // ✅ SOCKS5 proxy (RFC 1928)
+            Box::new(proxy::HttpProxyCommand),        // ✅ HTTP CONNECT proxy
+            Box::new(proxy::Socks5ProxyCommand),      // ✅ SOCKS5 proxy (RFC 1928)
             Box::new(proxy::TransparentProxyCommand), // ✅ Transparent proxy (iptables/nftables)
-            Box::new(proxy::ProxyDataCommand),        // ✅ Query stored proxy history and traffic data
-            Box::new(dns_server::DnsServerCommand),  // ✅ DNS server with hijacking for MITM
-            Box::new(mitm::MitmCommand),             // ✅ MITM attack orchestrator
+            Box::new(proxy::ProxyDataCommand), // ✅ Query stored proxy history and traffic data
+            Box::new(dns_server::DnsServerCommand), // ✅ DNS server with hijacking for MITM
+            Box::new(mitm::MitmCommand),       // ✅ MITM attack orchestrator
             Box::new(exploit_browser::BrowserExploitCommand), // ✅ RBB Browser Exploitation
             Box::new(http_server::HttpServerCommand), // ✅ HTTP server for file serving
-            Box::new(service::ServiceCommand),     // ✅ Service manager - persistence
-            Box::new(evasion::EvasionSandboxCommand),   // ✅ Sandbox/VM detection
+            Box::new(service::ServiceCommand), // ✅ Service manager - persistence
+            Box::new(evasion::EvasionSandboxCommand), // ✅ Sandbox/VM detection
             Box::new(evasion::EvasionObfuscateCommand), // ✅ String obfuscation
-            Box::new(evasion::EvasionNetworkCommand),   // ✅ Network evasion (jitter)
-            Box::new(evasion::EvasionConfigCommand),    // ✅ Evasion config presets
-            Box::new(evasion::EvasionBuildCommand),     // ✅ Build-time binary mutation
+            Box::new(evasion::EvasionNetworkCommand), // ✅ Network evasion (jitter)
+            Box::new(evasion::EvasionConfigCommand), // ✅ Evasion config presets
+            Box::new(evasion::EvasionBuildCommand), // ✅ Build-time binary mutation
             Box::new(evasion::EvasionAntidebugCommand), // ✅ Anti-debugging detection
-            Box::new(evasion::EvasionMemoryCommand),    // ✅ Memory encryption
-            Box::new(evasion::EvasionApihashCommand),   // ✅ API hashing
+            Box::new(evasion::EvasionMemoryCommand), // ✅ Memory encryption
+            Box::new(evasion::EvasionApihashCommand), // ✅ API hashing
             Box::new(evasion::EvasionControlflowCommand), // ✅ Control flow obfuscation
-            Box::new(evasion::EvasionInjectCommand),    // ✅ Process injection & shellcode
-            Box::new(evasion::EvasionAmsiCommand),      // ✅ AMSI bypass (Windows)
-            Box::new(evasion::EvasionStringsCommand),   // ✅ String encryption
-            Box::new(evasion::EvasionTracksCommand),    // ✅ Track covering (history clearing)
-            Box::new(init::InitCommand), // ✅ Config init
+            Box::new(evasion::EvasionInjectCommand), // ✅ Process injection & shellcode
+            Box::new(evasion::EvasionAmsiCommand), // ✅ AMSI bypass (Windows)
+            Box::new(evasion::EvasionStringsCommand), // ✅ String encryption
+            Box::new(evasion::EvasionTracksCommand), // ✅ Track covering (history clearing)
+            Box::new(init::InitCommand),       // ✅ Config init
             Box::new(config::ConfigDatabaseCommand), // ✅ Database password management
-            Box::new(search::SearchCommand), // ✅ Global search across all stored data
-            // Box::new(monitor::MonitorCommand),  // Temporarily disabled
+            Box::new(search::SearchCommand),   // ✅ Global search across all stored data
+                                               // Box::new(monitor::MonitorCommand),  // Temporarily disabled
         ];
 
         // commands.extend(database::commands()); // Temporarily disabled

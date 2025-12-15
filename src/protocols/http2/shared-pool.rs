@@ -130,8 +130,14 @@ impl SharedHttp2Pool {
 
         // Create new connection
         let mut client = Http2Client::connect(host, port)?;
-        let result =
-            client.send_request_with_timing(method, path, authority, headers.clone(), body, start_time);
+        let result = client.send_request_with_timing(
+            method,
+            path,
+            authority,
+            headers.clone(),
+            body,
+            start_time,
+        );
 
         // Store the connection for reuse if successful
         if result.is_ok() {
@@ -174,8 +180,14 @@ impl SharedHttp2Pool {
 
         // Create new connection
         let mut client = Http2Client::connect(host, port)?;
-        let result =
-            client.send_request_with_handler(method, path, authority, headers.clone(), body, handler);
+        let result = client.send_request_with_handler(
+            method,
+            path,
+            authority,
+            headers.clone(),
+            body,
+            handler,
+        );
 
         // Store the connection for reuse if successful
         if result.is_ok() {
@@ -311,8 +323,14 @@ mod tests {
 
     #[test]
     fn test_origin_key() {
-        assert_eq!(SharedHttp2Pool::origin_key("example.com", 443), "example.com:443");
-        assert_eq!(SharedHttp2Pool::origin_key("api.test.io", 8443), "api.test.io:8443");
+        assert_eq!(
+            SharedHttp2Pool::origin_key("example.com", 443),
+            "example.com:443"
+        );
+        assert_eq!(
+            SharedHttp2Pool::origin_key("api.test.io", 8443),
+            "api.test.io:8443"
+        );
     }
 
     #[test]

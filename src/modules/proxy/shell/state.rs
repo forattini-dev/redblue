@@ -93,7 +93,8 @@ impl HttpExchange {
 
     /// Get formatted timestamp
     pub fn timestamp_str(&self) -> String {
-        let secs = self.timestamp
+        let secs = self
+            .timestamp
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
@@ -164,7 +165,8 @@ impl HttpExchange {
 
         // Content-type filter
         if let Some(ref content_type) = filter.content_type {
-            let resp_ct = self.response_headers
+            let resp_ct = self
+                .response_headers
                 .get("content-type")
                 .map(|s| s.to_lowercase())
                 .unwrap_or_default();
@@ -178,7 +180,9 @@ impl HttpExchange {
 
     /// Get content type from response
     pub fn content_type(&self) -> Option<&str> {
-        self.response_headers.get("content-type").map(|s| s.as_str())
+        self.response_headers
+            .get("content-type")
+            .map(|s| s.as_str())
     }
 
     /// Check if response is JSON
@@ -271,9 +275,7 @@ impl RequestFilter {
                             }
                         }
                     }
-                    "type" | "t" | "content-type" => {
-                        filter.content_type = Some(value.to_string())
-                    }
+                    "type" | "t" | "content-type" => filter.content_type = Some(value.to_string()),
                     _ => {}
                 }
             }
@@ -447,7 +449,8 @@ impl ShellState {
             return;
         }
 
-        self.filtered_indices = self.exchanges
+        self.filtered_indices = self
+            .exchanges
             .iter()
             .enumerate()
             .filter(|(_, e)| e.matches_filter(&self.filter))

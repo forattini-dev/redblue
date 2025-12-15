@@ -178,8 +178,7 @@ impl PageHeader {
 
     /// Deserialize header from bytes
     pub fn from_bytes(buf: &[u8; HEADER_SIZE]) -> Result<Self, PageError> {
-        let page_type = PageType::from_u8(buf[0])
-            .ok_or(PageError::InvalidPageType(buf[0]))?;
+        let page_type = PageType::from_u8(buf[0]).ok_or(PageError::InvalidPageType(buf[0]))?;
 
         Ok(Self {
             page_type,
@@ -191,8 +190,7 @@ impl PageHeader {
             parent_id: u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]),
             right_child: u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]),
             lsn: u64::from_le_bytes([
-                buf[20], buf[21], buf[22], buf[23],
-                buf[24], buf[25], buf[26], buf[27],
+                buf[20], buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27],
             ]),
             checksum: u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]),
         })
@@ -251,7 +249,11 @@ impl std::fmt::Display for PageError {
         match self {
             Self::InvalidPageType(t) => write!(f, "Invalid page type: {}", t),
             Self::ChecksumMismatch { expected, actual } => {
-                write!(f, "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}", expected, actual)
+                write!(
+                    f,
+                    "Checksum mismatch: expected 0x{:08X}, got 0x{:08X}",
+                    expected, actual
+                )
             }
             Self::InvalidSize(s) => write!(f, "Invalid page size: {} (expected {})", s, PAGE_SIZE),
             Self::PageFull => write!(f, "Page is full"),
@@ -410,9 +412,8 @@ impl Page {
 
     /// Verify page checksum
     pub fn verify_checksum(&self) -> Result<(), PageError> {
-        let stored = u32::from_le_bytes([
-            self.data[28], self.data[29], self.data[30], self.data[31]
-        ]);
+        let stored =
+            u32::from_le_bytes([self.data[28], self.data[29], self.data[30], self.data[31]]);
 
         // Calculate checksum with stored value zeroed
         let mut temp = self.data;
@@ -439,7 +440,10 @@ impl Page {
         }
 
         let offset = HEADER_SIZE + index * 2;
-        Ok(u16::from_le_bytes([self.data[offset], self.data[offset + 1]]))
+        Ok(u16::from_le_bytes([
+            self.data[offset],
+            self.data[offset + 1],
+        ]))
     }
 
     /// Set cell pointer at index
@@ -513,14 +517,17 @@ impl Page {
 
         // Write cell data
         self.data[cell_offset..cell_offset + 2].copy_from_slice(&(key_len as u16).to_le_bytes());
-        self.data[cell_offset + 2..cell_offset + 6].copy_from_slice(&(value_len as u32).to_le_bytes());
+        self.data[cell_offset + 2..cell_offset + 6]
+            .copy_from_slice(&(value_len as u32).to_le_bytes());
         self.data[cell_offset + 6..cell_offset + 6 + key_len].copy_from_slice(key);
-        self.data[cell_offset + 6 + key_len..cell_offset + 6 + key_len + value_len].copy_from_slice(value);
+        self.data[cell_offset + 6 + key_len..cell_offset + 6 + key_len + value_len]
+            .copy_from_slice(value);
 
         // Write cell pointer
         let cell_index = header.cell_count as usize;
         let pointer_offset = HEADER_SIZE + cell_index * 2;
-        self.data[pointer_offset..pointer_offset + 2].copy_from_slice(&(cell_offset as u16).to_le_bytes());
+        self.data[pointer_offset..pointer_offset + 2]
+            .copy_from_slice(&(cell_offset as u16).to_le_bytes());
 
         // Update header
         header.cell_count += 1;
@@ -582,7 +589,8 @@ impl Page {
         page.data[HEADER_SIZE + 4..HEADER_SIZE + 8].copy_from_slice(&DB_VERSION.to_le_bytes());
 
         // Write page size
-        page.data[HEADER_SIZE + 8..HEADER_SIZE + 12].copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+        page.data[HEADER_SIZE + 8..HEADER_SIZE + 12]
+            .copy_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
 
         // Write page count
         page.data[HEADER_SIZE + 12..HEADER_SIZE + 16].copy_from_slice(&page_count.to_le_bytes());

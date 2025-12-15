@@ -64,7 +64,8 @@ fn ioc_type_to_key(t: IocType) -> String {
         IocType::HashSHA256 => "sha256",
         IocType::Certificate => "cert",
         IocType::JA3 => "ja3",
-    }.to_string()
+    }
+    .to_string()
 }
 
 fn key_to_ioc_type(k: &str) -> Option<IocType> {
@@ -87,7 +88,7 @@ fn key_to_ioc_type(k: &str) -> Option<IocType> {
 pub struct IocSegment {
     records: Vec<IocRecord>,
     // Index: IocType (string) -> indices in records vec
-    index: HashMap<String, Vec<usize>>, 
+    index: HashMap<String, Vec<usize>>,
 }
 
 impl IocSegment {
@@ -110,7 +111,7 @@ impl IocSegment {
             Vec::new()
         }
     }
-    
+
     pub fn get_all(&self) -> &Vec<IocRecord> {
         &self.records
     }
@@ -126,7 +127,7 @@ impl IocSegment {
         for key in keys {
             let indices = &self.index[key];
             let start_offset = payload.len() as u64;
-            
+
             let mut block = Vec::new();
             for &idx in indices {
                 let rec_bytes = self.records[idx].to_bytes();
@@ -160,7 +161,7 @@ impl IocSegment {
             return Err(DecodeError("segment too small"));
         }
         let header = IocSegmentHeader::read(bytes)?;
-        
+
         let dir_start = IocSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
         let payload_start = dir_end;
@@ -179,30 +180,30 @@ impl IocSegment {
         let mut dir_pos = 0;
         for _ in 0..header.type_count {
             let key = read_string(dir_bytes, &mut dir_pos)?.to_string();
-            
-            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos+4].try_into().unwrap());
+
+            let count = u32::from_le_bytes(dir_bytes[dir_pos..dir_pos + 4].try_into().unwrap());
             dir_pos += 4;
-            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
-            let _len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos+8].try_into().unwrap());
+            let _len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
 
             let mut key_indices = Vec::with_capacity(count as usize);
-            
+
             let block_start = offset as usize;
             let block = &payload_bytes;
             let mut block_pos = block_start;
-            
+
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut block_pos)? as usize;
-                let rec_bytes = &block[block_pos..block_pos+rec_len];
+                let rec_bytes = &block[block_pos..block_pos + rec_len];
                 let record = IocRecord::from_bytes(rec_bytes)?;
                 block_pos += rec_len;
-                
+
                 records.push(record);
                 key_indices.push(records.len() - 1);
             }
-            
+
             index.insert(key, key_indices);
         }
 
@@ -218,9 +219,9 @@ pub struct IocSegmentView {
 
 impl IocSegmentView {
     pub fn from_arc(data: Arc<Vec<u8>>, offset: usize, len: usize) -> Result<Self, DecodeError> {
-        let slice = &data[offset..offset+len];
+        let slice = &data[offset..offset + len];
         let header = IocSegmentHeader::read(slice)?;
-        
+
         let dir_start = offset + IocSegmentHeader::SIZE;
         let dir_end = dir_start + header.directory_len as usize;
         let payload_start = dir_end;
@@ -228,19 +229,23 @@ impl IocSegmentView {
         let dir_bytes = &data[dir_start..dir_end];
         let mut directory = HashMap::with_capacity(header.type_count as usize);
         let mut pos = 0;
-        
+
         for _ in 0..header.type_count {
             let key = read_string(dir_bytes, &mut pos)?.to_string();
-            let count = u32::from_le_bytes(dir_bytes[pos..pos+4].try_into().unwrap());
+            let count = u32::from_le_bytes(dir_bytes[pos..pos + 4].try_into().unwrap());
             pos += 4;
-            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_offset = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
-            let p_len = u64::from_le_bytes(dir_bytes[pos..pos+8].try_into().unwrap());
+            let p_len = u64::from_le_bytes(dir_bytes[pos..pos + 8].try_into().unwrap());
             pos += 8;
             directory.insert(key, (p_offset, p_len, count));
         }
 
-        Ok(Self { data, directory, payload_start })
+        Ok(Self {
+            data,
+            directory,
+            payload_start,
+        })
     }
 
     pub fn get_by_type(&self, ioc_type: IocType) -> Result<Vec<IocRecord>, DecodeError> {
@@ -249,12 +254,12 @@ impl IocSegmentView {
             let abs_start = self.payload_start + offset as usize;
             let abs_end = abs_start + len as usize;
             let block = &self.data[abs_start..abs_end];
-            
+
             let mut pos = 0;
             let mut results = Vec::with_capacity(count as usize);
             for _ in 0..count {
                 let rec_len = read_varu32(block, &mut pos)? as usize;
-                let rec = IocRecord::from_bytes(&block[pos..pos+rec_len])?;
+                let rec = IocRecord::from_bytes(&block[pos..pos + rec_len])?;
                 pos += rec_len;
                 results.push(rec);
             }

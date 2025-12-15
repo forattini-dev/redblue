@@ -2,7 +2,6 @@
 ///
 /// Detects exposed Docker APIs and identifies security issues
 /// including unauthenticated access to the Docker daemon.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,14 +18,19 @@ impl DockerInfoScript {
                 name: "Docker API Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects exposed Docker APIs and identifies security issues".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description: "Detects exposed Docker APIs and identifies security issues"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["http".to_string(), "https".to_string()],
                 ports: vec![2375, 2376, 2377, 4243],
                 license: "MIT".to_string(),
                 cves: Vec::new(),
                 references: vec![
-                    "https://docs.docker.com/engine/security/protect-access/".to_string(),
+                    "https://docs.docker.com/engine/security/protect-access/".to_string()
                 ],
             },
         }
@@ -97,7 +101,7 @@ impl Script for DockerInfoScript {
                         Finding::new(FindingType::Vulnerability, "Unencrypted Docker API Port")
                             .with_description(
                                 "Port 2375 is the default unencrypted Docker API port. \
-                                 This typically indicates no TLS protection."
+                                 This typically indicates no TLS protection.",
                             )
                             .with_severity(FindingSeverity::Critical)
                             .with_remediation("Use port 2376 with TLS certificates"),
@@ -122,15 +126,21 @@ impl Script for DockerInfoScript {
         }
 
         // Check for privileged containers
-        if data_lower.contains("\"privileged\":true") || data_lower.contains("\"privileged\": true") {
+        if data_lower.contains("\"privileged\":true") || data_lower.contains("\"privileged\": true")
+        {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Privileged Containers Running")
-                    .with_description(
-                        "Privileged containers are running. These containers have \
-                         full access to the host system."
-                    )
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Avoid privileged containers. Use specific capabilities instead."),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Privileged Containers Running",
+                )
+                .with_description(
+                    "Privileged containers are running. These containers have \
+                         full access to the host system.",
+                )
+                .with_severity(FindingSeverity::High)
+                .with_remediation(
+                    "Avoid privileged containers. Use specific capabilities instead.",
+                ),
             );
         }
 
@@ -140,19 +150,24 @@ impl Script for DockerInfoScript {
                 Finding::new(FindingType::Misconfiguration, "Docker Socket Mounted")
                     .with_description(
                         "Container has Docker socket mounted. This allows \
-                         container escape and host compromise."
+                         container escape and host compromise.",
                     )
                     .with_severity(FindingSeverity::Critical)
                     .with_remediation("Remove Docker socket mount unless absolutely necessary"),
             );
         }
 
-        if data_lower.contains("\"type\":\"bind\"") && (data_lower.contains("\"/etc\"") || data_lower.contains("\"/root\"")) {
+        if data_lower.contains("\"type\":\"bind\"")
+            && (data_lower.contains("\"/etc\"") || data_lower.contains("\"/root\""))
+        {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Sensitive Host Paths Mounted")
-                    .with_description("Containers have sensitive host paths mounted (/etc, /root)")
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Review and minimize host path mounts"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Sensitive Host Paths Mounted",
+                )
+                .with_description("Containers have sensitive host paths mounted (/etc, /root)")
+                .with_severity(FindingSeverity::High)
+                .with_remediation("Review and minimize host path mounts"),
             );
         }
 
@@ -197,17 +212,20 @@ impl Script for DockerInfoScript {
                 Finding::new(FindingType::Vulnerability, "Docker API Exposed to Internet")
                     .with_description(
                         "Docker API is exposed to the internet. This is extremely dangerous \
-                         as it provides root-level access to the host system."
+                         as it provides root-level access to the host system.",
                     )
                     .with_severity(FindingSeverity::Critical)
                     .with_remediation(
                         "Never expose Docker API to the internet. \
-                         Use VPN or SSH tunneling if remote access is needed."
+                         Use VPN or SSH tunneling if remote access is needed.",
                     ),
             );
         }
 
-        result.add_output(&format!("Docker API analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "Docker API analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -255,7 +273,10 @@ mod tests {
         ctx.set_data("docker_tls", "false");
 
         let result = script.run(&ctx).unwrap();
-        let has_no_tls = result.findings.iter().any(|f| f.title.contains("Without TLS"));
+        let has_no_tls = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Without TLS"));
         assert!(has_no_tls);
     }
 }

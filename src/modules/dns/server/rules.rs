@@ -66,15 +66,13 @@ impl DnsRule {
     /// Create A record override rule
     pub fn override_a(pattern: &str, ip: &str) -> Self {
         let ip: IpAddr = ip.parse().expect("Invalid IP address");
-        Self::new(pattern, RuleAction::Override(ip))
-            .with_record_type(1) // A record
+        Self::new(pattern, RuleAction::Override(ip)).with_record_type(1) // A record
     }
 
     /// Create AAAA record override rule
     pub fn override_aaaa(pattern: &str, ip: &str) -> Self {
         let ip: IpAddr = ip.parse().expect("Invalid IPv6 address");
-        Self::new(pattern, RuleAction::Override(ip))
-            .with_record_type(28) // AAAA record
+        Self::new(pattern, RuleAction::Override(ip)).with_record_type(28) // AAAA record
     }
 
     /// Create block rule
@@ -94,8 +92,7 @@ impl DnsRule {
 
     /// Create allow rule (bypass other rules)
     pub fn allow(pattern: &str) -> Self {
-        Self::new(pattern, RuleAction::Allow)
-            .with_priority(200) // Higher priority
+        Self::new(pattern, RuleAction::Allow).with_priority(200) // Higher priority
     }
 
     /// Set record type filter

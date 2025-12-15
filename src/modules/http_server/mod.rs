@@ -28,10 +28,10 @@
 //! rb http serve --port 8080 --no-cors
 //! ```
 
-mod server;
-mod mime;
 mod embedded;
+mod mime;
+mod server;
 
-pub use server::{HttpServer, HttpServerConfig, HttpRequest, HttpResponse};
-pub use mime::MimeType;
 pub use embedded::EmbeddedFiles;
+pub use mime::MimeType;
+pub use server::{HttpRequest, HttpResponse, HttpServer, HttpServerConfig};

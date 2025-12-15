@@ -24,8 +24,8 @@
 //! let results = client.search("powershell")?;
 //! ```
 
-pub mod types;
 pub mod client;
+pub mod types;
 
-pub use types::*;
 pub use client::MitreClient;
+pub use types::*;

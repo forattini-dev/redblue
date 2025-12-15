@@ -1,7 +1,7 @@
-use std::io::{self, Read, BufReader, Cursor};
+use crate::compression::{gzip, GzipDecoder, TarReader};
 use std::fs::File;
+use std::io::{self, BufReader, Cursor, Read};
 use std::path::Path;
-use crate::compression::{GzipDecoder, TarReader, gzip};
 
 pub struct Loader;
 
@@ -29,8 +29,12 @@ impl Loader {
     /// Returns the content as a String (assuming text).
     /// For huge files, this should be streaming, but `TarReader` doesn't support random access.
     /// We must scan until we find it.
-    pub fn extract_from_archive(archive_path: &Path, filename_inside: &str) -> io::Result<Option<Box<dyn Read>>> {
-        let is_gzipped = archive_path.to_string_lossy().ends_with(".gz") || archive_path.to_string_lossy().ends_with(".tgz");
+    pub fn extract_from_archive(
+        archive_path: &Path,
+        filename_inside: &str,
+    ) -> io::Result<Option<Box<dyn Read>>> {
+        let is_gzipped = archive_path.to_string_lossy().ends_with(".gz")
+            || archive_path.to_string_lossy().ends_with(".tgz");
 
         // Handle decompression - decompress into memory first
         let tar_data: Vec<u8> = if is_gzipped {

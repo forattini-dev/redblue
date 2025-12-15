@@ -1,8 +1,8 @@
-use crate::cli::commands::{Command, Flag, Route};
-use crate::cli::CliContext;
-use crate::cli::output::Output;
-use crate::agent::server::{AgentServer, AgentServerConfig};
 use crate::agent::client::{AgentClient, AgentConfig};
+use crate::agent::server::{AgentServer, AgentServerConfig};
+use crate::cli::commands::{Command, Flag, Route};
+use crate::cli::output::Output;
+use crate::cli::CliContext;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -77,8 +77,10 @@ impl AgentCommand {
         let host = ctx.get_flag_or("host", "0.0.0.0");
         let port = ctx.get_flag_or("port", "4444");
         let addr_str = format!("{}:{}", host, port);
-        
-        let addr: SocketAddr = addr_str.parse().map_err(|e| format!("Invalid address {}: {}", addr_str, e))?;
+
+        let addr: SocketAddr = addr_str
+            .parse()
+            .map_err(|e| format!("Invalid address {}: {}", addr_str, e))?;
 
         Output::header("Starting C2 Server");
         Output::item("Address", &addr_str);
@@ -93,7 +95,7 @@ impl AgentCommand {
 
         let mut server = AgentServer::new(config);
         server.start(None)?;
-        
+
         // Keep main thread alive
         loop {
             std::thread::sleep(Duration::from_secs(1));
@@ -102,8 +104,14 @@ impl AgentCommand {
 
     fn start_agent(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or("Missing C2 server URL")?;
-        let interval_secs = ctx.get_flag_or("interval", "60").parse::<u64>().unwrap_or(60);
-        let jitter = ctx.get_flag_or("jitter", "0.1").parse::<f32>().unwrap_or(0.1);
+        let interval_secs = ctx
+            .get_flag_or("interval", "60")
+            .parse::<u64>()
+            .unwrap_or(60);
+        let jitter = ctx
+            .get_flag_or("jitter", "0.1")
+            .parse::<f32>()
+            .unwrap_or(0.1);
 
         Output::header("Starting Agent");
         Output::item("C2 Server", url);
@@ -127,13 +135,13 @@ mod tests {
     #[test]
     fn test_agent_command_parsing() {
         let cmd = AgentCommand;
-        
+
         // Test flags
         let flags = cmd.flags();
         assert!(flags.iter().any(|f| f.long == "host"));
         assert!(flags.iter().any(|f| f.long == "port"));
         assert!(flags.iter().any(|f| f.long == "interval"));
-        
+
         // Test routes
         let routes = cmd.routes();
         assert!(routes.iter().any(|r| r.verb == "server"));

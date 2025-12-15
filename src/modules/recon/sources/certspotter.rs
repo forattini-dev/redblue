@@ -4,7 +4,6 @@
 /// Free tier: 100 queries/hour without API key, unlimited with key.
 ///
 /// API: https://api.certspotter.com/v1/issuances?domain=example.com&include_subdomains=true
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -35,7 +34,11 @@ impl CertSpotterSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -72,7 +75,8 @@ impl CertSpotterSource {
                     };
 
                     // Validate domain
-                    if (clean_name.ends_with(&format!(".{}", domain_lower)) || clean_name == domain_lower)
+                    if (clean_name.ends_with(&format!(".{}", domain_lower))
+                        || clean_name == domain_lower)
                         && seen.insert(clean_name.to_string())
                     {
                         records.push(SubdomainRecord {
@@ -135,7 +139,11 @@ impl CertSpotterSource {
 
     fn find_field(&self, json: &str, key: &str) -> Option<String> {
         let search = format!("\"{}\"", key);
-        let window = if json.len() > 1000 { &json[..1000] } else { json };
+        let window = if json.len() > 1000 {
+            &json[..1000]
+        } else {
+            json
+        };
 
         if let Some(pos) = window.find(&search) {
             self.extract_string_at(&window[pos..])
@@ -209,7 +217,9 @@ impl SubdomainSource for CertSpotterSource {
             .map_err(|e| SourceError::NetworkError(e))?;
 
         if response.status_code == 429 {
-            return Err(SourceError::RateLimited(std::time::Duration::from_secs(3600)));
+            return Err(SourceError::RateLimited(std::time::Duration::from_secs(
+                3600,
+            )));
         }
 
         if response.status_code == 401 {

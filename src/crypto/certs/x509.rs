@@ -25,9 +25,9 @@
 //! }
 //! ```
 
-use crate::crypto::encoding::asn1::{Asn1Value, Asn1Error};
-use crate::crypto::encoding::pem::{PemBlock, PemError};
+use crate::crypto::encoding::asn1::{Asn1Error, Asn1Value};
 use crate::crypto::encoding::oid::Oid;
+use crate::crypto::encoding::pem::{PemBlock, PemError};
 use std::net::IpAddr;
 
 /// X.509 Certificate
@@ -196,7 +196,9 @@ impl Certificate {
         };
 
         if seq.len() < 3 {
-            return Err(CertError::InvalidFormat("Certificate SEQUENCE too short".into()));
+            return Err(CertError::InvalidFormat(
+                "Certificate SEQUENCE too short".into(),
+            ));
         }
 
         // Parse TBSCertificate
@@ -209,7 +211,11 @@ impl Certificate {
         // Parse signature value
         let signature = match &seq[2] {
             Asn1Value::BitString(data, _unused) => data.clone(),
-            _ => return Err(CertError::InvalidFormat("Expected BIT STRING for signature".into())),
+            _ => {
+                return Err(CertError::InvalidFormat(
+                    "Expected BIT STRING for signature".into(),
+                ))
+            }
         };
 
         Ok(Certificate {
@@ -439,7 +445,10 @@ impl Certificate {
     }
 
     /// Parse TBSCertificate from ASN.1
-    fn parse_tbs_certificate(value: &Asn1Value, raw_tbs: Vec<u8>) -> Result<TbsCertificate, CertError> {
+    fn parse_tbs_certificate(
+        value: &Asn1Value,
+        raw_tbs: Vec<u8>,
+    ) -> Result<TbsCertificate, CertError> {
         let seq = match value {
             Asn1Value::Sequence(s) => s,
             _ => return Err(CertError::InvalidFormat("TBS: Expected SEQUENCE".into())),
@@ -452,7 +461,11 @@ impl Certificate {
             idx += 1;
             match value.as_ref() {
                 Asn1Value::Integer(bytes) => {
-                    if bytes.is_empty() { 0 } else { bytes[0] }
+                    if bytes.is_empty() {
+                        0
+                    } else {
+                        bytes[0]
+                    }
                 }
                 _ => 0,
             }
@@ -470,33 +483,38 @@ impl Certificate {
         };
 
         // Signature algorithm
-        let signature = Self::parse_algorithm_identifier(seq.get(idx).ok_or_else(|| {
-            CertError::InvalidFormat("Missing signature algorithm".into())
-        })?)?;
+        let signature = Self::parse_algorithm_identifier(
+            seq.get(idx)
+                .ok_or_else(|| CertError::InvalidFormat("Missing signature algorithm".into()))?,
+        )?;
         idx += 1;
 
         // Issuer
-        let issuer = Self::parse_name(seq.get(idx).ok_or_else(|| {
-            CertError::InvalidFormat("Missing issuer".into())
-        })?)?;
+        let issuer = Self::parse_name(
+            seq.get(idx)
+                .ok_or_else(|| CertError::InvalidFormat("Missing issuer".into()))?,
+        )?;
         idx += 1;
 
         // Validity
-        let validity = Self::parse_validity(seq.get(idx).ok_or_else(|| {
-            CertError::InvalidFormat("Missing validity".into())
-        })?)?;
+        let validity = Self::parse_validity(
+            seq.get(idx)
+                .ok_or_else(|| CertError::InvalidFormat("Missing validity".into()))?,
+        )?;
         idx += 1;
 
         // Subject
-        let subject = Self::parse_name(seq.get(idx).ok_or_else(|| {
-            CertError::InvalidFormat("Missing subject".into())
-        })?)?;
+        let subject = Self::parse_name(
+            seq.get(idx)
+                .ok_or_else(|| CertError::InvalidFormat("Missing subject".into()))?,
+        )?;
         idx += 1;
 
         // Subject Public Key Info
-        let subject_public_key_info = Self::parse_spki(seq.get(idx).ok_or_else(|| {
-            CertError::InvalidFormat("Missing SPKI".into())
-        })?)?;
+        let subject_public_key_info = Self::parse_spki(
+            seq.get(idx)
+                .ok_or_else(|| CertError::InvalidFormat("Missing SPKI".into()))?,
+        )?;
         idx += 1;
 
         // Extensions (optional, explicit tag [3])
@@ -541,7 +559,10 @@ impl Certificate {
 
         let parameters = seq.get(1).map(|v| v.encode_der());
 
-        Ok(AlgorithmIdentifier { algorithm, parameters })
+        Ok(AlgorithmIdentifier {
+            algorithm,
+            parameters,
+        })
     }
 
     /// Parse Name (Distinguished Name)
@@ -584,7 +605,11 @@ impl Certificate {
     fn parse_validity(value: &Asn1Value) -> Result<Validity, CertError> {
         let seq = match value {
             Asn1Value::Sequence(s) => s,
-            _ => return Err(CertError::InvalidFormat("Validity: Expected SEQUENCE".into())),
+            _ => {
+                return Err(CertError::InvalidFormat(
+                    "Validity: Expected SEQUENCE".into(),
+                ))
+            }
         };
 
         if seq.len() < 2 {
@@ -594,7 +619,10 @@ impl Certificate {
         let not_before = Self::parse_time(&seq[0])?;
         let not_after = Self::parse_time(&seq[1])?;
 
-        Ok(Validity { not_before, not_after })
+        Ok(Validity {
+            not_before,
+            not_after,
+        })
     }
 
     /// Parse UTCTime or GeneralizedTime to Unix timestamp
@@ -613,12 +641,24 @@ impl Certificate {
             return Err(CertError::InvalidFormat("UTCTime too short".into()));
         }
 
-        let year: i32 = s[0..2].parse().map_err(|_| CertError::InvalidFormat("Invalid year".into()))?;
-        let month: u32 = s[2..4].parse().map_err(|_| CertError::InvalidFormat("Invalid month".into()))?;
-        let day: u32 = s[4..6].parse().map_err(|_| CertError::InvalidFormat("Invalid day".into()))?;
-        let hour: u32 = s[6..8].parse().map_err(|_| CertError::InvalidFormat("Invalid hour".into()))?;
-        let min: u32 = s[8..10].parse().map_err(|_| CertError::InvalidFormat("Invalid minute".into()))?;
-        let sec: u32 = s[10..12].parse().map_err(|_| CertError::InvalidFormat("Invalid second".into()))?;
+        let year: i32 = s[0..2]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid year".into()))?;
+        let month: u32 = s[2..4]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid month".into()))?;
+        let day: u32 = s[4..6]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid day".into()))?;
+        let hour: u32 = s[6..8]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid hour".into()))?;
+        let min: u32 = s[8..10]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid minute".into()))?;
+        let sec: u32 = s[10..12]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid second".into()))?;
 
         // RFC 5280: YY >= 50 means 19YY, YY < 50 means 20YY
         let full_year = if year >= 50 { 1900 + year } else { 2000 + year };
@@ -633,18 +673,37 @@ impl Certificate {
             return Err(CertError::InvalidFormat("GeneralizedTime too short".into()));
         }
 
-        let year: i32 = s[0..4].parse().map_err(|_| CertError::InvalidFormat("Invalid year".into()))?;
-        let month: u32 = s[4..6].parse().map_err(|_| CertError::InvalidFormat("Invalid month".into()))?;
-        let day: u32 = s[6..8].parse().map_err(|_| CertError::InvalidFormat("Invalid day".into()))?;
-        let hour: u32 = s[8..10].parse().map_err(|_| CertError::InvalidFormat("Invalid hour".into()))?;
-        let min: u32 = s[10..12].parse().map_err(|_| CertError::InvalidFormat("Invalid minute".into()))?;
-        let sec: u32 = s[12..14].parse().map_err(|_| CertError::InvalidFormat("Invalid second".into()))?;
+        let year: i32 = s[0..4]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid year".into()))?;
+        let month: u32 = s[4..6]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid month".into()))?;
+        let day: u32 = s[6..8]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid day".into()))?;
+        let hour: u32 = s[8..10]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid hour".into()))?;
+        let min: u32 = s[10..12]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid minute".into()))?;
+        let sec: u32 = s[12..14]
+            .parse()
+            .map_err(|_| CertError::InvalidFormat("Invalid second".into()))?;
 
         Self::datetime_to_timestamp(year, month, day, hour, min, sec)
     }
 
     /// Convert datetime components to Unix timestamp
-    fn datetime_to_timestamp(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32) -> Result<i64, CertError> {
+    fn datetime_to_timestamp(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        min: u32,
+        sec: u32,
+    ) -> Result<i64, CertError> {
         // Days in each month (non-leap year)
         const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
@@ -685,7 +744,9 @@ impl Certificate {
         };
 
         if seq.len() < 2 {
-            return Err(CertError::InvalidFormat("SPKI: Need algorithm and key".into()));
+            return Err(CertError::InvalidFormat(
+                "SPKI: Need algorithm and key".into(),
+            ));
         }
 
         let algorithm = Self::parse_algorithm_identifier(&seq[0])?;
@@ -695,7 +756,10 @@ impl Certificate {
             _ => return Err(CertError::InvalidFormat("SPKI: Expected BIT STRING".into())),
         };
 
-        Ok(SubjectPublicKeyInfo { algorithm, public_key })
+        Ok(SubjectPublicKeyInfo {
+            algorithm,
+            public_key,
+        })
     }
 
     /// Parse Extension
@@ -727,7 +791,11 @@ impl Certificate {
             _ => return Err(CertError::InvalidFormat("Ext: Missing value".into())),
         };
 
-        Ok(Extension { oid, critical, value })
+        Ok(Extension {
+            oid,
+            critical,
+            value,
+        })
     }
 }
 
@@ -816,15 +884,23 @@ impl Name {
 
     /// Encode to ASN.1 DER
     pub fn to_der(&self) -> Vec<u8> {
-        let rdns: Vec<Asn1Value> = self.rdns.iter().map(|rdn| {
-            let attrs: Vec<Asn1Value> = rdn.attributes.iter().map(|attr| {
-                Asn1Value::Sequence(vec![
-                    attr.oid.to_asn1(),
-                    Asn1Value::Utf8String(attr.value.clone()),
-                ])
-            }).collect();
-            Asn1Value::Set(attrs)
-        }).collect();
+        let rdns: Vec<Asn1Value> = self
+            .rdns
+            .iter()
+            .map(|rdn| {
+                let attrs: Vec<Asn1Value> = rdn
+                    .attributes
+                    .iter()
+                    .map(|attr| {
+                        Asn1Value::Sequence(vec![
+                            attr.oid.to_asn1(),
+                            Asn1Value::Utf8String(attr.value.clone()),
+                        ])
+                    })
+                    .collect();
+                Asn1Value::Set(attrs)
+            })
+            .collect();
 
         Asn1Value::Sequence(rdns).encode_der()
     }
@@ -869,10 +945,22 @@ mod tests {
     #[test]
     fn test_hostname_matching() {
         assert!(Certificate::matches_hostname("example.com", "example.com"));
-        assert!(Certificate::matches_hostname("*.example.com", "www.example.com"));
-        assert!(Certificate::matches_hostname("*.example.com", "api.example.com"));
-        assert!(!Certificate::matches_hostname("*.example.com", "example.com"));
-        assert!(!Certificate::matches_hostname("*.example.com", "sub.www.example.com"));
+        assert!(Certificate::matches_hostname(
+            "*.example.com",
+            "www.example.com"
+        ));
+        assert!(Certificate::matches_hostname(
+            "*.example.com",
+            "api.example.com"
+        ));
+        assert!(!Certificate::matches_hostname(
+            "*.example.com",
+            "example.com"
+        ));
+        assert!(!Certificate::matches_hostname(
+            "*.example.com",
+            "sub.www.example.com"
+        ));
     }
 
     #[test]

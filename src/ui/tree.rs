@@ -134,8 +134,12 @@ impl TreeNode {
     /// Create an ASN node
     pub fn asn(number: u32, org: impl Into<String>) -> Self {
         let org = org.into();
-        Self::new(format!("AS{}", number), NodeType::Asn, format!("AS{}", number))
-            .with_metadata(org)
+        Self::new(
+            format!("AS{}", number),
+            NodeType::Asn,
+            format!("AS{}", number),
+        )
+        .with_metadata(org)
     }
 
     /// Create a port node
@@ -368,7 +372,12 @@ impl TreeRenderer {
                     let remaining = node.children.len() - threshold;
 
                     for (i, child) in node.children.iter().take(threshold).enumerate() {
-                        self.render_child(child, output, &child_prefix, i == threshold - 1 && remaining == 0);
+                        self.render_child(
+                            child,
+                            output,
+                            &child_prefix,
+                            i == threshold - 1 && remaining == 0,
+                        );
                     }
 
                     // Add ellipsis node
@@ -400,17 +409,17 @@ impl TreeRenderer {
     /// Apply ANSI colors based on node type
     fn colorize_node(&self, node_type: &NodeType, text: &str) -> String {
         let color = match node_type {
-            NodeType::Domain => "\x1b[1;36m",      // Bold cyan
-            NodeType::Subdomain => "\x1b[36m",    // Cyan
-            NodeType::Ip => "\x1b[33m",           // Yellow
-            NodeType::Asn => "\x1b[35m",          // Magenta
-            NodeType::Port => "\x1b[32m",         // Green
-            NodeType::Service => "\x1b[34m",      // Blue
-            NodeType::Technology => "\x1b[94m",   // Light blue
-            NodeType::Cname => "\x1b[90m",        // Gray
-            NodeType::Nameserver => "\x1b[33m",   // Yellow
-            NodeType::MailServer => "\x1b[31m",   // Red
-            NodeType::Generic => "\x1b[0m",       // Default
+            NodeType::Domain => "\x1b[1;36m",   // Bold cyan
+            NodeType::Subdomain => "\x1b[36m",  // Cyan
+            NodeType::Ip => "\x1b[33m",         // Yellow
+            NodeType::Asn => "\x1b[35m",        // Magenta
+            NodeType::Port => "\x1b[32m",       // Green
+            NodeType::Service => "\x1b[34m",    // Blue
+            NodeType::Technology => "\x1b[94m", // Light blue
+            NodeType::Cname => "\x1b[90m",      // Gray
+            NodeType::Nameserver => "\x1b[33m", // Yellow
+            NodeType::MailServer => "\x1b[31m", // Red
+            NodeType::Generic => "\x1b[0m",     // Default
         };
         format!("{}{}\x1b[0m", color, text)
     }
@@ -514,8 +523,7 @@ mod tests {
     #[test]
     fn test_tree_render() {
         let mut root = TreeNode::domain("example.com");
-        let mut api = TreeNode::subdomain("api.example.com")
-            .with_metadata("1.2.3.4");
+        let mut api = TreeNode::subdomain("api.example.com").with_metadata("1.2.3.4");
         api.add_child(TreeNode::port(443, Some("HTTPS")));
         root.add_child(api);
         root.add_child(TreeNode::subdomain("mail.example.com"));

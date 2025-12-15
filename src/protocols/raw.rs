@@ -7,7 +7,6 @@
 ///
 /// Requires CAP_NET_RAW on Linux or root privileges.
 /// Reference: RFC 791 (IP), RFC 793 (TCP), RFC 768 (UDP)
-
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
@@ -58,18 +57,18 @@ impl std::fmt::Display for PortState {
 /// IPv4 header (20 bytes without options)
 #[derive(Debug, Clone)]
 pub struct Ipv4Header {
-    pub version: u8,         // 4 bits: always 4
-    pub ihl: u8,             // 4 bits: header length in 32-bit words (5 for no options)
-    pub tos: u8,             // Type of Service
-    pub total_length: u16,   // Total packet length
-    pub identification: u16, // Fragment identification
-    pub flags: u8,           // 3 bits: fragmentation flags
+    pub version: u8,          // 4 bits: always 4
+    pub ihl: u8,              // 4 bits: header length in 32-bit words (5 for no options)
+    pub tos: u8,              // Type of Service
+    pub total_length: u16,    // Total packet length
+    pub identification: u16,  // Fragment identification
+    pub flags: u8,            // 3 bits: fragmentation flags
     pub fragment_offset: u16, // 13 bits: fragment offset
-    pub ttl: u8,             // Time to Live
-    pub protocol: u8,        // Protocol (6=TCP, 17=UDP, 1=ICMP)
-    pub checksum: u16,       // Header checksum
-    pub src_addr: Ipv4Addr,  // Source IP
-    pub dst_addr: Ipv4Addr,  // Destination IP
+    pub ttl: u8,              // Time to Live
+    pub protocol: u8,         // Protocol (6=TCP, 17=UDP, 1=ICMP)
+    pub checksum: u16,        // Header checksum
+    pub src_addr: Ipv4Addr,   // Source IP
+    pub dst_addr: Ipv4Addr,   // Destination IP
 }
 
 impl Ipv4Header {
@@ -337,8 +336,8 @@ impl UdpHeader {
 /// ICMP Destination Unreachable message (for UDP scan responses)
 #[derive(Debug, Clone)]
 pub struct IcmpDestUnreachable {
-    pub icmp_type: u8,  // 3 for dest unreachable
-    pub code: u8,       // 3 = port unreachable
+    pub icmp_type: u8, // 3 for dest unreachable
+    pub code: u8,      // 3 = port unreachable
     pub checksum: u16,
     pub unused: u32,
     pub original_ip: Vec<u8>, // Original IP header + 8 bytes of original datagram
@@ -537,14 +536,8 @@ pub mod raw_socket {
 
         /// Receive raw packet
         pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
-            let result = unsafe {
-                libc::recv(
-                    self.fd,
-                    buf.as_mut_ptr() as *mut libc::c_void,
-                    buf.len(),
-                    0,
-                )
-            };
+            let result =
+                unsafe { libc::recv(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0) };
 
             if result < 0 {
                 Err(io::Error::last_os_error())
@@ -1034,7 +1027,10 @@ mod tests {
     #[test]
     fn test_checksum() {
         // Test with known values
-        let data = [0x45, 0x00, 0x00, 0x3c, 0x1c, 0x46, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xac, 0x10, 0x0a, 0x63, 0xac, 0x10, 0x0a, 0x0c];
+        let data = [
+            0x45, 0x00, 0x00, 0x3c, 0x1c, 0x46, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xac, 0x10,
+            0x0a, 0x63, 0xac, 0x10, 0x0a, 0x0c,
+        ];
         let checksum = internet_checksum(&data);
         // Checksum should be non-zero
         assert!(checksum != 0);

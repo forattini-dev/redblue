@@ -2,7 +2,6 @@
 ///
 /// Detects PostgreSQL services and identifies security issues
 /// including weak authentication and known vulnerabilities.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,13 @@ impl PostgresInfoScript {
                 name: "PostgreSQL Service Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects PostgreSQL services and identifies security issues".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description: "Detects PostgreSQL services and identifies security issues"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["postgresql".to_string()],
                 ports: vec![5432, 5433],
                 license: "MIT".to_string(),
@@ -28,7 +32,9 @@ impl PostgresInfoScript {
                     "CVE-2019-9193".to_string(), // COPY command RCE
                     "CVE-2023-2454".to_string(), // CREATE SCHEMA privilege escalation
                 ],
-                references: vec!["https://www.postgresql.org/docs/current/auth-pg-hba-conf.html".to_string()],
+                references: vec![
+                    "https://www.postgresql.org/docs/current/auth-pg-hba-conf.html".to_string(),
+                ],
             },
         }
     }
@@ -83,26 +89,32 @@ impl Script for PostgresInfoScript {
         match auth_lower.as_str() {
             "trust" => {
                 result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "PostgreSQL Trust Authentication")
-                        .with_description(
-                            "PostgreSQL is configured with 'trust' authentication. \
-                             This allows connections without any password."
-                        )
-                        .with_severity(FindingSeverity::Critical)
-                        .with_remediation(
-                            "Change pg_hba.conf to use 'scram-sha-256' or 'md5' authentication"
-                        ),
+                    Finding::new(
+                        FindingType::Vulnerability,
+                        "PostgreSQL Trust Authentication",
+                    )
+                    .with_description(
+                        "PostgreSQL is configured with 'trust' authentication. \
+                             This allows connections without any password.",
+                    )
+                    .with_severity(FindingSeverity::Critical)
+                    .with_remediation(
+                        "Change pg_hba.conf to use 'scram-sha-256' or 'md5' authentication",
+                    ),
                 );
             }
             "md5" => {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "PostgreSQL MD5 Authentication")
-                        .with_description(
-                            "PostgreSQL uses MD5 authentication which is deprecated. \
-                             SCRAM-SHA-256 is more secure."
-                        )
-                        .with_severity(FindingSeverity::Low)
-                        .with_remediation("Upgrade to SCRAM-SHA-256 authentication"),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        "PostgreSQL MD5 Authentication",
+                    )
+                    .with_description(
+                        "PostgreSQL uses MD5 authentication which is deprecated. \
+                             SCRAM-SHA-256 is more secure.",
+                    )
+                    .with_severity(FindingSeverity::Low)
+                    .with_remediation("Upgrade to SCRAM-SHA-256 authentication"),
                 );
             }
             "scram-sha-256" => {
@@ -114,13 +126,16 @@ impl Script for PostgresInfoScript {
             }
             "password" => {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "Cleartext Password Authentication")
-                        .with_description(
-                            "PostgreSQL uses cleartext password authentication. \
-                             Passwords are sent unencrypted."
-                        )
-                        .with_severity(FindingSeverity::High)
-                        .with_remediation("Use SCRAM-SHA-256 or MD5 authentication"),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        "Cleartext Password Authentication",
+                    )
+                    .with_description(
+                        "PostgreSQL uses cleartext password authentication. \
+                             Passwords are sent unencrypted.",
+                    )
+                    .with_severity(FindingSeverity::High)
+                    .with_remediation("Use SCRAM-SHA-256 or MD5 authentication"),
                 );
             }
             _ => {}
@@ -135,10 +150,12 @@ impl Script for PostgresInfoScript {
                     Finding::new(FindingType::Misconfiguration, "Superuser Access Available")
                         .with_description(
                             "Connection appears to have superuser privileges. \
-                             Applications should use least-privilege accounts."
+                             Applications should use least-privilege accounts.",
                         )
                         .with_severity(FindingSeverity::Medium)
-                        .with_remediation("Create application-specific users with limited privileges"),
+                        .with_remediation(
+                            "Create application-specific users with limited privileges",
+                        ),
                 );
             }
         }
@@ -150,7 +167,7 @@ impl Script for PostgresInfoScript {
                     Finding::new(FindingType::Misconfiguration, "PostgreSQL SSL Disabled")
                         .with_description(
                             "SSL/TLS is not enabled for PostgreSQL connections. \
-                             Data including passwords is transmitted in cleartext."
+                             Data including passwords is transmitted in cleartext.",
                         )
                         .with_severity(FindingSeverity::High)
                         .with_remediation("Enable SSL in postgresql.conf: ssl = on"),
@@ -168,22 +185,32 @@ impl Script for PostgresInfoScript {
         if data_lower.contains("listen_addresses") {
             if data_lower.contains("*") || data_lower.contains("0.0.0.0") {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "PostgreSQL Listening on All Interfaces")
-                        .with_description(
-                            "PostgreSQL is configured to listen on all network interfaces. \
-                             Combined with weak pg_hba.conf rules, this can expose the database."
-                        )
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation(
-                            "Restrict listen_addresses to specific IPs. \
-                             Use firewall rules to limit access."
-                        ),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        "PostgreSQL Listening on All Interfaces",
+                    )
+                    .with_description(
+                        "PostgreSQL is configured to listen on all network interfaces. \
+                             Combined with weak pg_hba.conf rules, this can expose the database.",
+                    )
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation(
+                        "Restrict listen_addresses to specific IPs. \
+                             Use firewall rules to limit access.",
+                    ),
                 );
             }
         }
 
         // Check for exposed database names
-        let sensitive_dbs = ["production", "prod", "customer", "users", "payment", "finance"];
+        let sensitive_dbs = [
+            "production",
+            "prod",
+            "customer",
+            "users",
+            "payment",
+            "finance",
+        ];
         for db in sensitive_dbs {
             if data_lower.contains(db) {
                 result.add_finding(
@@ -197,8 +224,16 @@ impl Script for PostgresInfoScript {
 
         // Check for extensions that could be security risks
         let risky_extensions = [
-            ("plpythonu", "PL/Python Untrusted", "Allows arbitrary Python code execution"),
-            ("plperlu", "PL/Perl Untrusted", "Allows arbitrary Perl code execution"),
+            (
+                "plpythonu",
+                "PL/Python Untrusted",
+                "Allows arbitrary Python code execution",
+            ),
+            (
+                "plperlu",
+                "PL/Perl Untrusted",
+                "Allows arbitrary Perl code execution",
+            ),
             ("adminpack", "Admin Pack", "Provides file system access"),
             ("file_fdw", "File FDW", "Can read arbitrary files"),
         ];
@@ -206,15 +241,21 @@ impl Script for PostgresInfoScript {
         for (ext, name, desc) in risky_extensions {
             if data_lower.contains(ext) {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, &format!("{} Extension Enabled", name))
-                        .with_description(&format!("{} extension is enabled. {}", name, desc))
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation(&format!("Review necessity of {} extension", name)),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        &format!("{} Extension Enabled", name),
+                    )
+                    .with_description(&format!("{} extension is enabled. {}", name, desc))
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation(&format!("Review necessity of {} extension", name)),
                 );
             }
         }
 
-        result.add_output(&format!("PostgreSQL analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "PostgreSQL analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -264,17 +305,20 @@ impl PostgresInfoScript {
 
         if affected_2454 {
             result.add_finding(
-                Finding::new(FindingType::Vulnerability, "CREATE SCHEMA Privilege Escalation")
-                    .with_cve("CVE-2023-2454")
-                    .with_description(
-                        "PostgreSQL version may be vulnerable to privilege escalation \
-                         via CREATE SCHEMA statement."
-                    )
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation(&format!(
-                        "Upgrade PostgreSQL {} to latest minor version",
-                        major
-                    )),
+                Finding::new(
+                    FindingType::Vulnerability,
+                    "CREATE SCHEMA Privilege Escalation",
+                )
+                .with_cve("CVE-2023-2454")
+                .with_description(
+                    "PostgreSQL version may be vulnerable to privilege escalation \
+                         via CREATE SCHEMA statement.",
+                )
+                .with_severity(FindingSeverity::High)
+                .with_remediation(&format!(
+                    "Upgrade PostgreSQL {} to latest minor version",
+                    major
+                )),
             );
         }
 
@@ -285,7 +329,7 @@ impl PostgresInfoScript {
                 .with_cve("CVE-2019-9193")
                 .with_description(
                     "PostgreSQL COPY TO/FROM PROGRAM allows command execution. \
-                     Ensure only trusted users have this capability."
+                     Ensure only trusted users have this capability.",
                 )
                 .with_severity(FindingSeverity::Info),
         );
@@ -310,7 +354,10 @@ mod tests {
         ctx.set_data("postgres_version", "14.5");
 
         let result = script.run(&ctx).unwrap();
-        let has_trust = result.findings.iter().any(|f| f.title.contains("Trust Authentication"));
+        let has_trust = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Trust Authentication"));
         assert!(has_trust);
     }
 }

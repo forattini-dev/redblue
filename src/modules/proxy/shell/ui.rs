@@ -1,7 +1,7 @@
 //! UI rendering for the MITM shell - k9s-style split panes
 
+use super::state::{DetailTab, HttpExchange, ShellState, ShellViewMode};
 use std::io::{self, Write};
-use super::state::{ShellState, HttpExchange, ShellViewMode, DetailTab};
 
 /// Terminal size
 #[derive(Debug, Clone, Copy)]
@@ -145,7 +145,13 @@ impl ShellUI {
     /// Enter alternate screen and hide cursor
     pub fn enter(&self) -> io::Result<()> {
         let mut stdout = io::stdout();
-        write!(stdout, "{}{}{}", ansi::ALTERNATE_SCREEN, ansi::HIDE_CURSOR, ansi::CLEAR_SCREEN)?;
+        write!(
+            stdout,
+            "{}{}{}",
+            ansi::ALTERNATE_SCREEN,
+            ansi::HIDE_CURSOR,
+            ansi::CLEAR_SCREEN
+        )?;
         stdout.flush()
     }
 
@@ -242,15 +248,28 @@ impl ShellUI {
         let selected = state.selected_idx;
 
         // Clone the data we need to avoid borrow issues
-        let filtered: Vec<_> = state.filtered_exchanges()
+        let filtered: Vec<_> = state
+            .filtered_exchanges()
             .into_iter()
             .skip(scroll_offset)
             .take(visible_rows)
-            .map(|e| (e.id, e.source_ip.clone(), e.method.clone(), e.host.clone(), e.path.clone(),
-                      e.status_code, e.duration_ms, e.was_dropped))
+            .map(|e| {
+                (
+                    e.id,
+                    e.source_ip.clone(),
+                    e.method.clone(),
+                    e.host.clone(),
+                    e.path.clone(),
+                    e.status_code,
+                    e.duration_ms,
+                    e.was_dropped,
+                )
+            })
             .collect();
 
-        for (row_idx, (id, source_ip, method, host, path, status_code, duration_ms, was_dropped)) in filtered.iter().enumerate() {
+        for (row_idx, (id, source_ip, method, host, path, status_code, duration_ms, was_dropped)) in
+            filtered.iter().enumerate()
+        {
             let actual_idx = scroll_offset + row_idx;
             let is_selected = actual_idx == selected;
 
@@ -300,10 +319,14 @@ impl ShellUI {
                 " {:>4} {:^15} {}{:>6}{} {:^20} {:^24} {}{:>6}{} {:>7}",
                 id,
                 source_trunc,
-                method_color, method, ansi::RESET,
+                method_color,
+                method,
+                ansi::RESET,
                 host_trunc,
                 path_trunc,
-                status_color, status_str, ansi::RESET,
+                status_color,
+                status_str,
+                ansi::RESET,
                 duration_str
             );
 
@@ -332,11 +355,23 @@ impl ShellUI {
         // Show detail tab indicator
         let tabs = format!(
             " [{}Headers{}] [{}Body{}] [{}Raw{}] ",
-            if state.detail_tab == DetailTab::Headers { ansi::BOLD } else { "" },
+            if state.detail_tab == DetailTab::Headers {
+                ansi::BOLD
+            } else {
+                ""
+            },
             ansi::RESET,
-            if state.detail_tab == DetailTab::Body { ansi::BOLD } else { "" },
+            if state.detail_tab == DetailTab::Body {
+                ansi::BOLD
+            } else {
+                ""
+            },
             ansi::RESET,
-            if state.detail_tab == DetailTab::Raw { ansi::BOLD } else { "" },
+            if state.detail_tab == DetailTab::Raw {
+                ansi::BOLD
+            } else {
+                ""
+            },
             ansi::RESET,
         );
         buf.push_str(&tabs);
@@ -381,7 +416,10 @@ impl ShellUI {
         // Request info
         buf.push_str(ansi::BOLD);
         buf.push_str(ansi::CYAN);
-        buf.push_str(&format!("  Request: {} {} {}", ex.method, ex.path, ex.version));
+        buf.push_str(&format!(
+            "  Request: {} {} {}",
+            ex.method, ex.path, ex.version
+        ));
         buf.push_str(ansi::CLEAR_LINE);
         buf.push_str(ansi::RESET);
         buf.push('\n');
@@ -455,7 +493,10 @@ impl ShellUI {
         // Request body
         buf.push_str(ansi::BOLD);
         buf.push_str(ansi::CYAN);
-        buf.push_str(&format!("  Request Body ({} bytes):", ex.request_body.len()));
+        buf.push_str(&format!(
+            "  Request Body ({} bytes):",
+            ex.request_body.len()
+        ));
         buf.push_str(ansi::CLEAR_LINE);
         buf.push_str(ansi::RESET);
         buf.push('\n');
@@ -485,7 +526,10 @@ impl ShellUI {
         // Response body
         buf.push_str(ansi::BOLD);
         buf.push_str(ansi::CYAN);
-        buf.push_str(&format!("  Response Body ({} bytes):", ex.response_body.len()));
+        buf.push_str(&format!(
+            "  Response Body ({} bytes):",
+            ex.response_body.len()
+        ));
         buf.push_str(ansi::CLEAR_LINE);
         buf.push_str(ansi::RESET);
         buf.push('\n');

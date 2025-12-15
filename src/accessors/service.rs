@@ -1,6 +1,6 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use std::collections::HashMap;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -14,7 +14,11 @@ impl ServiceAccessor {
     #[cfg(target_os = "linux")]
     fn list_services(&self) -> AccessorResult {
         let mut services = Vec::new();
-        let dirs = ["/etc/systemd/system", "/lib/systemd/system", "/usr/lib/systemd/system"];
+        let dirs = [
+            "/etc/systemd/system",
+            "/lib/systemd/system",
+            "/usr/lib/systemd/system",
+        ];
 
         for dir in dirs {
             let path = Path::new(dir);
@@ -23,9 +27,13 @@ impl ServiceAccessor {
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.extension().map(|e| e == "service").unwrap_or(false) {
-                            let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                            let name = path
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                             let description = self.parse_description(&path).unwrap_or_default();
-                            
+
                             services.push(json!({
                                 "name": name,
                                 "path": path.to_string_lossy(),
@@ -37,7 +45,7 @@ impl ServiceAccessor {
                 }
             }
         }
-        
+
         // Sort by name
         services.sort_by(|a, b| {
             let a_name = a["name"].as_str().unwrap_or("");
@@ -46,9 +54,7 @@ impl ServiceAccessor {
         });
 
         // Deduplicate (simple by name)
-        services.dedup_by(|a, b| {
-            a["name"].as_str() == b["name"].as_str()
-        });
+        services.dedup_by(|a, b| a["name"].as_str() == b["name"].as_str());
 
         AccessorResult::success(json!(services))
     }

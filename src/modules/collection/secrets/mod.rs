@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
 pub mod archive;
-pub mod decoding;
 pub mod config;
-pub mod verifiers;
+pub mod decoding;
 pub mod git_scanner;
+pub mod verifiers;
 
+use config::SecretsConfig;
 /// Secret detection module (Gitleaks replacement)
 ///
 /// Detects secrets, API keys, tokens, and credentials in code using:
@@ -19,7 +20,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use config::SecretsConfig;
 
 struct HighRiskFile {
     rule_id: &'static str,
@@ -83,7 +83,10 @@ impl SecretScanner {
     pub fn from_config(cfg: SecretsConfig) -> Self {
         let rules = if let Some(path) = cfg.rules_path {
             // Placeholder for loading custom rules from file
-            println!("Warning: Custom rules loading from {} not yet implemented. Using default rules.", path);
+            println!(
+                "Warning: Custom rules loading from {} not yet implemented. Using default rules.",
+                path
+            );
             Self::default_rules()
         } else {
             Self::default_rules()
@@ -99,13 +102,11 @@ impl SecretScanner {
         }
     }
 
-
     /// Set an allowlist of secrets to ignore
     pub fn with_allowlist(mut self, allowlist: HashSet<String>) -> Self {
         self.allowlist = allowlist;
         self
     }
-
 
     /// Default secret detection rules (Gitleaks-inspired)
     fn default_rules() -> Vec<SecretRule> {
@@ -396,7 +397,12 @@ impl SecretScanner {
     }
 
     /// Scan a single line for secrets (public wrapper for URL scanning)
-    pub fn scan_line_internal(&self, file_path: &str, line_num: usize, line: &str) -> Vec<SecretFinding> {
+    pub fn scan_line_internal(
+        &self,
+        file_path: &str,
+        line_num: usize,
+        line: &str,
+    ) -> Vec<SecretFinding> {
         self.scan_line(file_path, line_num, line)
     }
 
@@ -559,8 +565,7 @@ impl SecretScanner {
         // Handle AWS Access Key ID pattern
         if pattern.contains("AKIA") {
             for (i, _) in text.match_indices("AKIA") {
-                if i + 20 <= text.len() {
-                    let candidate = &text[i..i + 20];
+                if let Some(candidate) = text.get(i..i + 20) {
                     if candidate
                         .chars()
                         .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
@@ -596,8 +601,7 @@ impl SecretScanner {
         if pattern.contains("gh[pousr]") {
             for prefix in &["ghp_", "gho_", "ghu_", "ghs_", "ghr_"] {
                 for (i, _) in text.match_indices(prefix) {
-                    if i + 40 <= text.len() {
-                        let candidate = &text[i..i + 40];
+                    if let Some(candidate) = text.get(i..i + 40) {
                         if candidate.chars().skip(4).all(|c| c.is_ascii_alphanumeric()) {
                             matches.push((i, candidate.to_string()));
                         }
@@ -695,7 +699,11 @@ impl SecretScanner {
 
                     // Check for assignment operators: =, :, or quotes
                     let first_char = trimmed.chars().next().unwrap();
-                    if first_char == '=' || first_char == ':' || first_char == '"' || first_char == '\'' {
+                    if first_char == '='
+                        || first_char == ':'
+                        || first_char == '"'
+                        || first_char == '\''
+                    {
                         let value_start = if first_char == '=' || first_char == ':' {
                             trimmed[1..].trim_start()
                         } else {

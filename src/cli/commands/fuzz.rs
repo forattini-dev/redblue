@@ -1,26 +1,40 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::web::fuzzer::{WebFuzzer, FuzzerConfig, FuzzTarget, FUZZ_KEYWORD, FuzzResult, HttpMethod};
+use crate::modules::web::fuzzer::{
+    FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, FUZZ_KEYWORD,
+};
+use crate::utils::json::JsonValue;
 use crate::wordlists::Loader;
 use std::path::Path;
-use crate::utils::json::JsonValue;
 
 // Helper to convert FuzzResult to JsonValue
 fn fuzz_result_to_json(result: &FuzzResult) -> JsonValue {
     let mut obj_entries = Vec::new();
-    obj_entries.push(("payload".to_string(), JsonValue::String(result.payload.clone())));
+    obj_entries.push((
+        "payload".to_string(),
+        JsonValue::String(result.payload.clone()),
+    ));
     obj_entries.push(("url".to_string(), JsonValue::String(result.url.clone())));
-    obj_entries.push(("status_code".to_string(), JsonValue::Number(result.status_code as f64)));
+    obj_entries.push((
+        "status_code".to_string(),
+        JsonValue::Number(result.status_code as f64),
+    ));
     obj_entries.push(("size".to_string(), JsonValue::Number(result.size as f64)));
     obj_entries.push(("words".to_string(), JsonValue::Number(result.words as f64)));
     obj_entries.push(("lines".to_string(), JsonValue::Number(result.lines as f64)));
-    obj_entries.push(("duration_ms".to_string(), JsonValue::Number(result.duration.as_millis() as f64)));
+    obj_entries.push((
+        "duration_ms".to_string(),
+        JsonValue::Number(result.duration.as_millis() as f64),
+    ));
     obj_entries.push(("filtered".to_string(), JsonValue::Bool(result.filtered)));
     if let Some(ref redirect) = result.redirect {
         obj_entries.push(("redirect".to_string(), JsonValue::String(redirect.clone())));
     }
     if let Some(ref content_type) = result.content_type {
-        obj_entries.push(("content_type".to_string(), JsonValue::String(content_type.clone())));
+        obj_entries.push((
+            "content_type".to_string(),
+            JsonValue::String(content_type.clone()),
+        ));
     }
     JsonValue::Object(obj_entries)
 }
@@ -74,7 +88,7 @@ impl Command for FuzzCommand {
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
-        vec![( 
+        vec![(
             "Basic directory fuzzing",
             "rb web fuzz run http://example.com/FUZZ -w /path/to/wordlist.txt",
         )]
@@ -100,7 +114,10 @@ impl FuzzCommand {
     fn run(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or("Missing target URL")?;
         let wordlist_path_str = ctx.get_flag("wordlist").ok_or("Missing --wordlist")?;
-        let output_format = ctx.get_flag("output").unwrap_or_else(|| "plain".to_string()).to_lowercase();
+        let output_format = ctx
+            .get_flag("output")
+            .unwrap_or_else(|| "plain".to_string())
+            .to_lowercase();
 
         let wordlist_path = Path::new(&wordlist_path_str);
         if !wordlist_path.exists() {
@@ -117,9 +134,12 @@ impl FuzzCommand {
             ));
             let new_url = format!("{}/{}", url.trim_end_matches('/'), FUZZ_KEYWORD);
             // This is an error because fuzzing won't work without FUZZ.
-            return Err(format!("URL must contain '{}' keyword. Automatically appending it: {}", FUZZ_KEYWORD, new_url));
+            return Err(format!(
+                "URL must contain '{}' keyword. Automatically appending it: {}",
+                FUZZ_KEYWORD, new_url
+            ));
         }
-        
+
         let config = FuzzerConfig::default(); // Use default config for now
         let target = FuzzTarget {
             url: url.clone(),
@@ -137,9 +157,12 @@ impl FuzzCommand {
 
         let mut all_results = Vec::new();
 
-        for word_chunk in words.chunks(100) { // Process in chunks to update progress
+        for word_chunk in words.chunks(100) {
+            // Process in chunks to update progress
             let chunk_vec: Vec<String> = word_chunk.to_vec();
-            let chunk_results = fuzzer.fuzz(&target, &chunk_vec).map_err(|e| e.to_string())?;
+            let chunk_results = fuzzer
+                .fuzz(&target, &chunk_vec)
+                .map_err(|e| e.to_string())?;
             all_results.extend(chunk_results);
             progress_bar.tick(word_chunk.len() as u64);
         }
@@ -147,33 +170,41 @@ impl FuzzCommand {
 
         match output_format.as_str() {
             "json" => {
-                let json_results: Vec<JsonValue> = all_results.iter().map(fuzz_result_to_json).collect();
+                let json_results: Vec<JsonValue> =
+                    all_results.iter().map(fuzz_result_to_json).collect();
                 Output::json(&JsonValue::Array(json_results).to_json_string());
-            },
+            }
             "xml" => {
                 Output::error("XML output not implemented due to zero external dependencies constraint. Requires a dedicated XML library.");
-            },
+            }
             "csv" => {
                 // Print CSV header
-                Output::raw("Payload,URL,Status,Size,Words,Lines,DurationMs,Filtered,Redirect,ContentType");
+                Output::raw(
+                    "Payload,URL,Status,Size,Words,Lines,DurationMs,Filtered,Redirect,ContentType",
+                );
                 for result in all_results {
                     Output::raw(&fuzz_result_to_csv_row(&result));
                 }
-            },
+            }
             "plain" => {
                 for result in all_results {
                     Output::info(&format!(
                         "STATUS: {} SIZE: {} WORDS: {} LINES: {} DURATION: {:?} URL: {}",
-                        result.status_code, result.size, result.words, result.lines, result.duration, result.url
+                        result.status_code,
+                        result.size,
+                        result.words,
+                        result.lines,
+                        result.duration,
+                        result.url
                     ));
                     // Add more details if needed
                 }
-            },
+            }
             _ => {
                 Output::error(&format!("Unknown output format: {}", output_format));
             }
         }
-        
+
         Ok(())
     }
 }

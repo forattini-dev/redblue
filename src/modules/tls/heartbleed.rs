@@ -33,7 +33,6 @@
 ///
 /// **Educational value:**
 /// Read the code to understand how buffer over-read vulnerabilities work!
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -41,11 +40,11 @@ use std::time::Duration;
 /// Heartbleed test result
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeartbleedResult {
-    Vulnerable,      // Server is vulnerable to Heartbleed
-    NotVulnerable,   // Server patched or doesn't support heartbeat
-    NoHeartbeat,     // Server doesn't have heartbeat extension
-    Timeout,         // Connection timeout (inconclusive)
-    Error(String),   // Connection or protocol error
+    Vulnerable,    // Server is vulnerable to Heartbleed
+    NotVulnerable, // Server patched or doesn't support heartbeat
+    NoHeartbeat,   // Server doesn't have heartbeat extension
+    Timeout,       // Connection timeout (inconclusive)
+    Error(String), // Connection or protocol error
 }
 
 impl HeartbleedResult {
@@ -99,7 +98,9 @@ impl HeartbleedTester {
         // Connect to server
         let addr = format!("{}:{}", host, port);
         let mut stream = TcpStream::connect_timeout(
-            &addr.parse().map_err(|e| format!("Invalid address: {}", e))?,
+            &addr
+                .parse()
+                .map_err(|e| format!("Invalid address: {}", e))?,
             self.timeout,
         )
         .map_err(|e| format!("Connection failed: {}", e))?;

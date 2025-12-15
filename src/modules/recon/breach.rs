@@ -2,8 +2,8 @@
 //!
 //! Implements password and email breach checks using the HIBP API.
 
-use crate::protocols::http::HttpClient;
 use crate::crypto::sha1::sha1;
+use crate::protocols::http::HttpClient;
 
 /// Breach information for an email
 #[derive(Debug, Clone)]
@@ -71,7 +71,9 @@ impl BreachClient {
         // Query HIBP API
         let url = format!("https://api.pwnedpasswords.com/range/{}", prefix);
 
-        let response = self.http.get(&url)
+        let response = self
+            .http
+            .get(&url)
             .map_err(|e| format!("HIBP API error: {}", e))?;
 
         // Convert body to string and search for our suffix
@@ -82,10 +84,7 @@ impl BreachClient {
                 let hash_suffix = parts[0].trim();
                 if hash_suffix.eq_ignore_ascii_case(suffix) {
                     let count: u64 = parts[1].trim().parse().unwrap_or(0);
-                    return Ok(PasswordCheckResult {
-                        pwned: true,
-                        count,
-                    });
+                    return Ok(PasswordCheckResult { pwned: true, count });
                 }
             }
         }
@@ -98,7 +97,9 @@ impl BreachClient {
 
     /// Check if an email has been exposed in breaches (requires API key)
     pub fn check_email(&self, email: &str) -> Result<EmailCheckResult, String> {
-        let api_key = self.api_key.as_ref()
+        let api_key = self
+            .api_key
+            .as_ref()
             .ok_or("HIBP API key required for email checks")?;
 
         let url = format!(
@@ -106,10 +107,16 @@ impl BreachClient {
             urlencoding(email)
         );
 
-        let response = self.http.get_with_headers(&url, &[
-            ("hibp-api-key", api_key.as_str()),
-            ("User-Agent", "redblue-security-tool"),
-        ]).map_err(|e| format!("HIBP API error: {}", e))?;
+        let response = self
+            .http
+            .get_with_headers(
+                &url,
+                &[
+                    ("hibp-api-key", api_key.as_str()),
+                    ("User-Agent", "redblue-security-tool"),
+                ],
+            )
+            .map_err(|e| format!("HIBP API error: {}", e))?;
 
         if response.status_code == 404 {
             return Ok(EmailCheckResult {
@@ -209,7 +216,9 @@ fn extract_json_number(json: &str, key: &str) -> Option<u64> {
     if let Some(start) = json.find(&pattern) {
         let value_start = start + pattern.len();
         let rest = json[value_start..].trim_start();
-        let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         rest[..end].parse().ok()
     } else {
         None

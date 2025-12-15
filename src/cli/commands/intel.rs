@@ -10,7 +10,7 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::modules::recon::fingerprint::FingerprintEngine;
 use crate::modules::recon::vuln::{
-    correlator::{CorrelatorConfig, CorrelationReport, VulnCorrelator},
+    correlator::{CorrelationReport, CorrelatorConfig, VulnCorrelator},
     cpe::{generate_cpe, get_all_cpe_mappings, TechCategory},
     exploitdb::ExploitDbClient,
     kev::KevClient,
@@ -82,14 +82,23 @@ impl Command for IntelCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("source", "Vulnerability source (nvd, osv, kev, exploitdb, all)")
-                .with_short('s')
-                .with_default("nvd"),
+            Flag::new(
+                "source",
+                "Vulnerability source (nvd, osv, kev, exploitdb, all)",
+            )
+            .with_short('s')
+            .with_default("nvd"),
             Flag::new("version", "Specific version to check").with_short('v'),
-            Flag::new("ecosystem", "Package ecosystem for OSV (npm, pypi, cargo, etc.)"),
+            Flag::new(
+                "ecosystem",
+                "Package ecosystem for OSV (npm, pypi, cargo, etc.)",
+            ),
             Flag::new("vendor", "Filter by vendor name"),
             Flag::new("product", "Filter by product name"),
-            Flag::new("category", "CPE category filter (webserver, framework, cms, etc.)"),
+            Flag::new(
+                "category",
+                "CPE category filter (webserver, framework, cms, etc.)",
+            ),
             Flag::new("search", "Search term for CPE lookup"),
             Flag::new("stats", "Show statistics"),
             Flag::new("limit", "Maximum results to show").with_default("20"),
@@ -97,24 +106,43 @@ impl Command for IntelCommand {
             Flag::new("deep", "Deep scan (all sources, slower)"),
             Flag::new("json", "Output in JSON format"),
             Flag::new("format", "Output format (text, json, markdown)").with_default("text"),
-            Flag::new("sources", "Vulnerability sources (nvd,osv,kev,exploitdb)").with_default("all"),
+            Flag::new("sources", "Vulnerability sources (nvd,osv,kev,exploitdb)")
+                .with_default("all"),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Search vulnerabilities for nginx", "rb intel vuln search nginx"),
+            (
+                "Search vulnerabilities for nginx",
+                "rb intel vuln search nginx",
+            ),
             ("Search with version", "rb intel vuln search nginx 1.18.0"),
             ("Get CVE details", "rb intel vuln cve CVE-2021-44228"),
             ("Check CISA KEV stats", "rb intel vuln kev --stats"),
             ("KEV by vendor", "rb intel vuln kev --vendor Microsoft"),
-            ("Search Exploit-DB", "rb intel vuln exploit \"Apache Struts\""),
+            (
+                "Search Exploit-DB",
+                "rb intel vuln exploit \"Apache Struts\"",
+            ),
             ("List CPE mappings", "rb intel vuln cpe"),
             ("CPE by category", "rb intel vuln cpe --category webserver"),
-            ("OSV package search", "rb intel vuln search lodash --source osv --ecosystem npm"),
-            ("Correlate URL techs", "rb intel vuln correlate https://example.com"),
-            ("Full vuln scan", "rb intel vuln scan https://target.com --deep"),
-            ("Generate report", "rb intel vuln report https://target.com --format markdown"),
+            (
+                "OSV package search",
+                "rb intel vuln search lodash --source osv --ecosystem npm",
+            ),
+            (
+                "Correlate URL techs",
+                "rb intel vuln correlate https://example.com",
+            ),
+            (
+                "Full vuln scan",
+                "rb intel vuln scan https://target.com --deep",
+            ),
+            (
+                "Generate report",
+                "rb intel vuln report https://target.com --format markdown",
+            ),
         ]
     }
 
@@ -150,7 +178,8 @@ impl IntelCommand {
             ctx.args.get(4).cloned()
         });
         let source = ctx.get_flag_or("source", "nvd");
-        let limit: usize = ctx.get_flag_with_config("limit")
+        let limit: usize = ctx
+            .get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
@@ -177,7 +206,10 @@ impl IntelCommand {
                     match nvd.query_by_cpe(&cpe) {
                         Ok(vulns) => {
                             Output::spinner_done();
-                            Output::success(&format!("Found {} vulnerabilities from NVD", vulns.len()));
+                            Output::success(&format!(
+                                "Found {} vulnerabilities from NVD",
+                                vulns.len()
+                            ));
                             for vuln in vulns {
                                 collection.add(vuln);
                             }
@@ -189,7 +221,10 @@ impl IntelCommand {
                     }
                 } else {
                     Output::spinner_done();
-                    Output::warning(&format!("No CPE mapping found for '{}'. Trying keyword search...", tech));
+                    Output::warning(&format!(
+                        "No CPE mapping found for '{}'. Trying keyword search...",
+                        tech
+                    ));
 
                     // Fallback to keyword search
                     let mut nvd = NvdClient::new();
@@ -205,7 +240,10 @@ impl IntelCommand {
 
                     match nvd.query_by_keyword(&keyword) {
                         Ok(vulns) => {
-                            Output::success(&format!("Found {} vulnerabilities from NVD", vulns.len()));
+                            Output::success(&format!(
+                                "Found {} vulnerabilities from NVD",
+                                vulns.len()
+                            ));
                             for vuln in vulns {
                                 collection.add(vuln);
                             }
@@ -223,7 +261,8 @@ impl IntelCommand {
             "osv" | "all" => {
                 Output::spinner_start("Querying OSV...");
 
-                let ecosystem = ctx.get_flag_with_config("ecosystem")
+                let ecosystem = ctx
+                    .get_flag_with_config("ecosystem")
                     .and_then(|e| parse_ecosystem(&e));
 
                 if let Some(eco) = ecosystem {
@@ -231,7 +270,10 @@ impl IntelCommand {
                     match osv.query_package(tech, version.as_deref(), eco) {
                         Ok(vulns) => {
                             Output::spinner_done();
-                            Output::success(&format!("Found {} vulnerabilities from OSV", vulns.len()));
+                            Output::success(&format!(
+                                "Found {} vulnerabilities from OSV",
+                                vulns.len()
+                            ));
                             for vuln in vulns {
                                 collection.add(vuln);
                             }
@@ -268,9 +310,7 @@ impl IntelCommand {
 
         // Sort by risk score (highest first)
         let mut vulns: Vec<_> = collection.into_iter().collect();
-        vulns.sort_by(|a, b| {
-            b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0))
-        });
+        vulns.sort_by(|a, b| b.risk_score.unwrap_or(0).cmp(&a.risk_score.unwrap_or(0)));
 
         // Display results
         println!();
@@ -279,7 +319,11 @@ impl IntelCommand {
             return Ok(());
         }
 
-        Output::header(&format!("Results ({} total, showing top {})", vulns.len(), limit.min(vulns.len())));
+        Output::header(&format!(
+            "Results ({} total, showing top {})",
+            vulns.len(),
+            limit.min(vulns.len())
+        ));
         println!();
 
         for vuln in vulns.iter().take(limit) {
@@ -295,7 +339,10 @@ impl IntelCommand {
 
         // Validate CVE format
         if !cve_id.to_uppercase().starts_with("CVE-") {
-            return Err(format!("Invalid CVE ID format: {}. Expected: CVE-YYYY-NNNNN", cve_id));
+            return Err(format!(
+                "Invalid CVE ID format: {}. Expected: CVE-YYYY-NNNNN",
+                cve_id
+            ));
         }
 
         Output::header(&format!("CVE Details: {}", cve_id));
@@ -343,7 +390,8 @@ impl IntelCommand {
         let vendor = ctx.get_flag_with_config("vendor");
         let product = ctx.get_flag_with_config("product");
         let show_stats = ctx.has_flag("stats");
-        let limit: usize = ctx.get_flag_with_config("limit")
+        let limit: usize = ctx
+            .get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
@@ -401,7 +449,8 @@ impl IntelCommand {
     /// Search Exploit-DB
     fn search_exploits(&self, ctx: &CliContext) -> Result<(), String> {
         let query = ctx.target.as_ref().ok_or("Missing search query")?;
-        let limit: usize = ctx.get_flag_with_config("limit")
+        let limit: usize = ctx
+            .get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
@@ -455,7 +504,8 @@ impl IntelCommand {
 
         let all_cpes = get_all_cpe_mappings();
 
-        let filtered: Vec<_> = all_cpes.iter()
+        let filtered: Vec<_> = all_cpes
+            .iter()
             .filter(|cpe| {
                 // Filter by category
                 if let Some(ref cat) = category {
@@ -495,7 +545,8 @@ impl IntelCommand {
         println!();
 
         // Group by category
-        let mut by_category: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+        let mut by_category: std::collections::HashMap<String, Vec<_>> =
+            std::collections::HashMap::new();
         for cpe in filtered {
             let cat_name = format!("{:?}", cpe.category);
             by_category.entry(cat_name).or_default().push(cpe);
@@ -624,7 +675,9 @@ impl IntelCommand {
         Output::spinner_done();
 
         if techs.is_empty() {
-            Output::warning("No technologies detected. Try using --deep for more thorough scanning.");
+            Output::warning(
+                "No technologies detected. Try using --deep for more thorough scanning.",
+            );
             return Ok(());
         }
 
@@ -636,7 +689,10 @@ impl IntelCommand {
         for tech in &techs {
             let version_str = tech.version.as_deref().unwrap_or("unknown");
             let conf_str = format!("{:.0}%", tech.confidence * 100.0);
-            Output::item(&tech.name, &format!("{} (confidence: {})", version_str, conf_str));
+            Output::item(
+                &tech.name,
+                &format!("{} (confidence: {})", version_str, conf_str),
+            );
         }
         println!();
 
@@ -677,7 +733,10 @@ impl IntelCommand {
             return Ok(());
         }
 
-        Output::success(&format!("Phase 1 complete: {} technologies detected", techs.len()));
+        Output::success(&format!(
+            "Phase 1 complete: {} technologies detected",
+            techs.len()
+        ));
 
         // Step 2: Correlate
         let sources = if deep { "all" } else { "nvd,kev" };
@@ -774,7 +833,10 @@ impl IntelCommand {
 
         Output::section("Correlation Summary");
         Output::item("Technologies Scanned", &summary.techs_scanned.to_string());
-        Output::item("With Vulnerabilities", &summary.techs_vulnerable.to_string());
+        Output::item(
+            "With Vulnerabilities",
+            &summary.techs_vulnerable.to_string(),
+        );
         Output::item("Total Vulnerabilities", &summary.total_vulns.to_string());
         Output::item("Critical", &summary.critical_count.to_string());
         Output::item("High", &summary.high_count.to_string());
@@ -796,10 +858,14 @@ impl IntelCommand {
                 if corr.vulnerabilities.is_empty() {
                     Output::item(&tech_str, "No vulnerabilities found");
                 } else {
-                    let critical = corr.vulnerabilities.iter()
+                    let critical = corr
+                        .vulnerabilities
+                        .iter()
                         .filter(|v| matches!(v.severity, Severity::Critical))
                         .count();
-                    let high = corr.vulnerabilities.iter()
+                    let high = corr
+                        .vulnerabilities
+                        .iter()
                         .filter(|v| matches!(v.severity, Severity::High))
                         .count();
 
@@ -834,24 +900,42 @@ impl IntelCommand {
         Output::section("Scan Summary");
 
         // Risk breakdown
-        let critical_color = if summary.critical_count > 0 { "\x1b[91m" } else { "" };
-        let high_color = if summary.high_count > 0 { "\x1b[93m" } else { "" };
+        let critical_color = if summary.critical_count > 0 {
+            "\x1b[91m"
+        } else {
+            ""
+        };
+        let high_color = if summary.high_count > 0 {
+            "\x1b[93m"
+        } else {
+            ""
+        };
         let reset = "\x1b[0m";
 
         println!(
             "  {}CRITICAL: {}{}  {}HIGH: {}{}  MEDIUM: {}  LOW: {}",
-            critical_color, summary.critical_count, reset,
-            high_color, summary.high_count, reset,
+            critical_color,
+            summary.critical_count,
+            reset,
+            high_color,
+            summary.high_count,
+            reset,
             summary.medium_count,
             summary.low_count
         );
 
         if summary.kev_count > 0 {
-            Output::warning(&format!("{} vulnerabilities in CISA KEV (actively exploited)", summary.kev_count));
+            Output::warning(&format!(
+                "{} vulnerabilities in CISA KEV (actively exploited)",
+                summary.kev_count
+            ));
         }
 
         if summary.exploitable_count > 0 {
-            Output::warning(&format!("{} vulnerabilities have public exploits", summary.exploitable_count));
+            Output::warning(&format!(
+                "{} vulnerabilities have public exploits",
+                summary.exploitable_count
+            ));
         }
 
         println!();
@@ -863,7 +947,10 @@ impl IntelCommand {
 
         println!("{{");
         println!("  \"total_technologies\": {},", summary.techs_scanned);
-        println!("  \"technologies_with_vulns\": {},", summary.techs_vulnerable);
+        println!(
+            "  \"technologies_with_vulns\": {},",
+            summary.techs_vulnerable
+        );
         println!("  \"total_vulnerabilities\": {},", summary.total_vulns);
         println!("  \"critical\": {},", summary.critical_count);
         println!("  \"high\": {},", summary.high_count);
@@ -931,7 +1018,11 @@ impl IntelCommand {
         let top = report.top_risks(10);
         for vuln in top {
             let kev_badge = if vuln.cisa_kev { " 🔴 **KEV**" } else { "" };
-            let exp_badge = if vuln.has_exploit() { " ⚠️ **Exploit**" } else { "" };
+            let exp_badge = if vuln.has_exploit() {
+                " ⚠️ **Exploit**"
+            } else {
+                ""
+            };
             println!(
                 "### {} (Risk: {}/100){}{}",
                 vuln.id,
@@ -951,12 +1042,7 @@ impl IntelCommand {
     }
 
     /// Output report as text
-    fn output_report_text(
-        &self,
-        url: &str,
-        techs: &[DetectedTech],
-        report: &CorrelationReport,
-    ) {
+    fn output_report_text(&self, url: &str, techs: &[DetectedTech], report: &CorrelationReport) {
         let summary = &report.summary;
 
         Output::header("VULNERABILITY REPORT");
@@ -996,7 +1082,9 @@ impl IntelCommand {
 
         // Make HTTP request to get headers
         let client = HttpClient::new();
-        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client
+            .get(url)
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         // Extract headers into a HashMap
         let mut headers: HashMap<String, String> = HashMap::new();

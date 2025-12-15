@@ -147,10 +147,7 @@ pub fn check_sandbox_processes() -> bool {
 
     #[cfg(target_os = "linux")]
     {
-        if let Ok(output) = std::process::Command::new("ps")
-            .args(["aux"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("ps").args(["aux"]).output() {
             let ps_output = String::from_utf8_lossy(&output.stdout).to_lowercase();
             for proc in &sandbox_processes {
                 if ps_output.contains(proc) {
@@ -162,9 +159,7 @@ pub fn check_sandbox_processes() -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        if let Ok(output) = std::process::Command::new("tasklist")
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("tasklist").output() {
             let tasklist = String::from_utf8_lossy(&output.stdout).to_lowercase();
             for proc in &sandbox_processes {
                 if tasklist.contains(proc) {
@@ -226,10 +221,7 @@ pub fn check_low_resources() -> bool {
         }
 
         // Check disk size (less than 60GB is suspicious)
-        if let Ok(output) = std::process::Command::new("df")
-            .args(["-B1", "/"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("df").args(["-B1", "/"]).output() {
             let df_output = String::from_utf8_lossy(&output.stdout);
             for line in df_output.lines().skip(1) {
                 if let Some(size_str) = line.split_whitespace().nth(1) {
@@ -256,19 +248,8 @@ pub fn check_low_resources() -> bool {
 /// Check for suspicious usernames often used in sandboxes
 pub fn check_suspicious_username() -> bool {
     let suspicious_names = [
-        "sandbox",
-        "malware",
-        "virus",
-        "test",
-        "sample",
-        "user",
-        "admin",
-        "john",
-        "cuckoo",
-        "honey",
-        "virtual",
-        "vmware",
-        "vbox",
+        "sandbox", "malware", "virus", "test", "sample", "user", "admin", "john", "cuckoo",
+        "honey", "virtual", "vmware", "vbox",
     ];
 
     if let Ok(username) = std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {

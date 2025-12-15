@@ -8,16 +8,14 @@
 /// - User enumeration
 /// - Version detection
 /// - Vulnerability correlation
-
 use super::{
-    CmsScanConfig, DetectionResult, PluginInfo, ThemeInfo, UserInfo,
-    Finding, FindingType, VulnSeverity, PluginDetectionMethod, UserDetectionMethod,
-    HttpResponse,
+    CmsScanConfig, DetectionResult, Finding, FindingType, HttpResponse, PluginDetectionMethod,
+    PluginInfo, ThemeInfo, UserDetectionMethod, UserInfo, VulnSeverity,
 };
-use std::net::TcpStream;
-use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 /// Drupal scan result
@@ -107,7 +105,9 @@ impl DrupalScanner {
                 let mut pos = 0;
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
-                    if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                    if let Some(end) = response.body[abs_start..]
+                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                    {
                         let module_name = &response.body[abs_start..abs_start + end];
                         if !module_name.is_empty() && self.is_valid_slug(module_name) {
                             let mut module = PluginInfo::new(module_name);
@@ -151,19 +151,32 @@ impl DrupalScanner {
                         Some(slug) => {
                             // Try Drupal 8+ path first
                             let paths = [
-                                format!("{}/modules/contrib/{}/{}.info.yml", target.trim_end_matches('/'), slug, slug),
-                                format!("{}/sites/all/modules/{}/{}.info", target.trim_end_matches('/'), slug, slug),
+                                format!(
+                                    "{}/modules/contrib/{}/{}.info.yml",
+                                    target.trim_end_matches('/'),
+                                    slug,
+                                    slug
+                                ),
+                                format!(
+                                    "{}/sites/all/modules/{}/{}.info",
+                                    target.trim_end_matches('/'),
+                                    slug,
+                                    slug
+                                ),
                             ];
 
                             for path in paths {
                                 if let Some(response) = fetch_url(&path, &user_agent, timeout) {
                                     if response.status_code == 200 {
                                         let mut module = PluginInfo::new(&slug);
-                                        module.detection_method = PluginDetectionMethod::DirectAccess;
+                                        module.detection_method =
+                                            PluginDetectionMethod::DirectAccess;
                                         module.confidence = 95;
 
                                         // Extract version
-                                        if let Some(version) = extract_drupal_version(&response.body) {
+                                        if let Some(version) =
+                                            extract_drupal_version(&response.body)
+                                        {
                                             module.version = Some(version);
                                         }
 
@@ -209,7 +222,9 @@ impl DrupalScanner {
                 let mut pos = 0;
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
-                    if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                    if let Some(end) = response.body[abs_start..]
+                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                    {
                         let theme_name = &response.body[abs_start..abs_start + end];
                         if !theme_name.is_empty() && self.is_valid_slug(theme_name) {
                             let mut theme = ThemeInfo::new(theme_name);
@@ -249,7 +264,10 @@ impl DrupalScanner {
         }
 
         // Method 2: JSONAPI (Drupal 8+)
-        let jsonapi_url = format!("{}/jsonapi/user/user", self.config.target.trim_end_matches('/'));
+        let jsonapi_url = format!(
+            "{}/jsonapi/user/user",
+            self.config.target.trim_end_matches('/')
+        );
         if let Some(response) = self.fetch(&jsonapi_url) {
             if response.status_code == 200 {
                 users.extend(parse_drupal_jsonapi_users(&response.body));
@@ -274,7 +292,9 @@ impl DrupalScanner {
                 findings.push(Finding {
                     finding_type: FindingType::VersionDisclosure,
                     title: "CHANGELOG.txt Accessible".to_string(),
-                    description: "Drupal CHANGELOG.txt is publicly accessible, exposing version information".to_string(),
+                    description:
+                        "Drupal CHANGELOG.txt is publicly accessible, exposing version information"
+                            .to_string(),
                     url: Some(changelog_url),
                     evidence: None,
                     severity: VulnSeverity::Low,
@@ -290,7 +310,8 @@ impl DrupalScanner {
                 findings.push(Finding {
                     finding_type: FindingType::SensitiveFile,
                     title: "INSTALL.txt Accessible".to_string(),
-                    description: "Drupal installation instructions are publicly accessible".to_string(),
+                    description: "Drupal installation instructions are publicly accessible"
+                        .to_string(),
                     url: Some(install_url),
                     evidence: None,
                     severity: VulnSeverity::Info,
@@ -306,7 +327,8 @@ impl DrupalScanner {
                 findings.push(Finding {
                     finding_type: FindingType::SensitiveFile,
                     title: "update.php Accessible".to_string(),
-                    description: "Drupal update.php may be accessible without authentication".to_string(),
+                    description: "Drupal update.php may be accessible without authentication"
+                        .to_string(),
                     url: Some(update_url),
                     evidence: None,
                     severity: VulnSeverity::High,
@@ -332,7 +354,10 @@ impl DrupalScanner {
         }
 
         // Check private files exposure
-        let private_url = format!("{}/sites/default/files/private", self.config.target.trim_end_matches('/'));
+        let private_url = format!(
+            "{}/sites/default/files/private",
+            self.config.target.trim_end_matches('/')
+        );
         if let Some(response) = self.fetch(&private_url) {
             if response.status_code == 200 || response.status_code == 403 {
                 // Even 403 indicates the path exists
@@ -340,7 +365,9 @@ impl DrupalScanner {
                     findings.push(Finding {
                         finding_type: FindingType::DirectoryListing,
                         title: "Private Files Directory Listing".to_string(),
-                        description: "Private files directory is accessible with directory listing enabled".to_string(),
+                        description:
+                            "Private files directory is accessible with directory listing enabled"
+                                .to_string(),
                         url: Some(private_url),
                         evidence: None,
                         severity: VulnSeverity::High,
@@ -380,24 +407,57 @@ impl DrupalScanner {
 
     /// Check if string is valid module/theme slug
     fn is_valid_slug(&self, s: &str) -> bool {
-        !s.is_empty()
-            && s.len() < 100
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        !s.is_empty() && s.len() < 100 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
     /// Get module wordlist
     fn get_module_wordlist(&self) -> Vec<String> {
         // Top Drupal modules
         vec![
-            "admin_toolbar", "pathauto", "ctools", "token", "metatag",
-            "redirect", "webform", "google_analytics", "xmlsitemap", "captcha",
-            "views_slideshow", "backup_migrate", "media", "colorbox", "entity",
-            "field_group", "link", "libraries", "date", "imce",
-            "rules", "features", "views_bulk_operations", "module_filter", "devel",
-            "admin_menu", "wysiwyg", "entity_reference", "ckeditor", "entityqueue",
-            "paragraphs", "layout_builder", "twig_tweak", "config_split", "simple_sitemap",
-            "recaptcha", "honeypot", "seckit", "security_review", "password_policy",
-        ].into_iter().map(String::from).collect()
+            "admin_toolbar",
+            "pathauto",
+            "ctools",
+            "token",
+            "metatag",
+            "redirect",
+            "webform",
+            "google_analytics",
+            "xmlsitemap",
+            "captcha",
+            "views_slideshow",
+            "backup_migrate",
+            "media",
+            "colorbox",
+            "entity",
+            "field_group",
+            "link",
+            "libraries",
+            "date",
+            "imce",
+            "rules",
+            "features",
+            "views_bulk_operations",
+            "module_filter",
+            "devel",
+            "admin_menu",
+            "wysiwyg",
+            "entity_reference",
+            "ckeditor",
+            "entityqueue",
+            "paragraphs",
+            "layout_builder",
+            "twig_tweak",
+            "config_split",
+            "simple_sitemap",
+            "recaptcha",
+            "honeypot",
+            "seckit",
+            "security_review",
+            "password_policy",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
     }
 
     /// Fetch URL
@@ -486,16 +546,26 @@ fn parse_response(data: &[u8], url: &str) -> Option<HttpResponse> {
             break;
         }
         if let Some(pos) = line.find(':') {
-            headers.push((line[..pos].trim().to_string(), line[pos + 1..].trim().to_string()));
+            headers.push((
+                line[..pos].trim().to_string(),
+                line[pos + 1..].trim().to_string(),
+            ));
         }
     }
 
-    let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+    let body_start = text
+        .find("\r\n\r\n")
+        .map(|p| p + 4)
         .or_else(|| text.find("\n\n").map(|p| p + 2))
         .unwrap_or(text.len());
     let body = text[body_start..].to_string();
 
-    Some(HttpResponse { status_code, headers, body, url: url.to_string() })
+    Some(HttpResponse {
+        status_code,
+        headers,
+        body,
+        url: url.to_string(),
+    })
 }
 
 /// Extract version from Drupal .info or .info.yml

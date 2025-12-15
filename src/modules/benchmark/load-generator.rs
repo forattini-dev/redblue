@@ -724,7 +724,8 @@ fn run_worker_session(
                     let mut extra_headers = Vec::new();
                     let body_vec = body.as_ref().map(|b| b.as_ref().clone());
                     if let Some(ref payload) = body_vec {
-                        extra_headers.push(Header::new("content-length", payload.len().to_string()));
+                        extra_headers
+                            .push(Header::new("content-length", payload.len().to_string()));
                     }
 
                     match h2_pool.execute_request(
@@ -756,7 +757,8 @@ fn run_worker_session(
                                 }
                                 ProtocolPreference::Http2 => {
                                     let ttfb = req_start.elapsed();
-                                    stat = Some(RequestStats::error(req_start.elapsed(), ttfb, err));
+                                    stat =
+                                        Some(RequestStats::error(req_start.elapsed(), ttfb, err));
                                 }
                                 ProtocolPreference::Http1 => {}
                             }
@@ -782,7 +784,8 @@ fn run_worker_session(
                                 }
                                 ProtocolPreference::Http2 => {
                                     let ttfb = req_start.elapsed();
-                                    stat = Some(RequestStats::error(req_start.elapsed(), ttfb, err));
+                                    stat =
+                                        Some(RequestStats::error(req_start.elapsed(), ttfb, err));
                                 }
                                 ProtocolPreference::Http1 => {}
                             }
@@ -792,8 +795,13 @@ fn run_worker_session(
 
                 if stat.is_none() {
                     if let Some(client) = http2_client.as_mut() {
-                        match execute_http2_request(client, &parsed, &method, body.as_ref(), req_start)
-                        {
+                        match execute_http2_request(
+                            client,
+                            &parsed,
+                            &method,
+                            body.as_ref(),
+                            req_start,
+                        ) {
                             Ok(metrics) => {
                                 tracker.record_http2();
                                 stat = Some(RequestStats::success(
@@ -1015,7 +1023,15 @@ impl LoadGenerator {
             let tracker = Arc::clone(&protocol_tracker);
 
             thread_pool.execute(move || {
-                run_worker_session(worker_config, stats, should_stop, pool, http2_pool, tracker, user_id);
+                run_worker_session(
+                    worker_config,
+                    stats,
+                    should_stop,
+                    pool,
+                    http2_pool,
+                    tracker,
+                    user_id,
+                );
 
                 // Decrement active workers counter
                 active_workers.fetch_sub(1, Ordering::Relaxed);
@@ -1101,7 +1117,15 @@ impl LoadGenerator {
             let handle = thread::Builder::new()
                 .stack_size(256 * 1024) // 256KB stack
                 .spawn(move || {
-                    run_worker_session(worker_config, stats, should_stop, pool, http2_pool, tracker, user_id);
+                    run_worker_session(
+                        worker_config,
+                        stats,
+                        should_stop,
+                        pool,
+                        http2_pool,
+                        tracker,
+                        user_id,
+                    );
                 })
                 .expect("Failed to spawn thread");
 
@@ -1424,8 +1448,7 @@ mod tests {
         assert!(!config.use_shared_http2_pool);
 
         // Realistic mode
-        let config =
-            LoadConfig::new("https://test.com".to_string()).with_mode(LoadMode::Realistic);
+        let config = LoadConfig::new("https://test.com".to_string()).with_mode(LoadMode::Realistic);
         assert!(config.use_connection_pool);
         assert_eq!(config.think_time, Duration::from_millis(200));
         assert_eq!(config.new_user_ratio, 0.3);

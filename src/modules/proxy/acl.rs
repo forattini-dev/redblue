@@ -48,10 +48,7 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub enum Rule {
     /// Match by IP address
-    Ip {
-        addr: IpAddr,
-        action: Action,
-    },
+    Ip { addr: IpAddr, action: Action },
     /// Match by CIDR range
     Cidr {
         network: IpAddr,
@@ -59,15 +56,9 @@ pub enum Rule {
         action: Action,
     },
     /// Match by domain pattern (supports wildcards)
-    Domain {
-        pattern: String,
-        action: Action,
-    },
+    Domain { pattern: String, action: Action },
     /// Match by destination port
-    Port {
-        port: u16,
-        action: Action,
-    },
+    Port { port: u16, action: Action },
     /// Match by port range
     PortRange {
         start: u16,
@@ -75,15 +66,9 @@ pub enum Rule {
         action: Action,
     },
     /// Match by process ID (Linux only)
-    Pid {
-        pid: u32,
-        action: Action,
-    },
+    Pid { pid: u32, action: Action },
     /// Match by process name (Linux only)
-    ProcessName {
-        name: String,
-        action: Action,
-    },
+    ProcessName { name: String, action: Action },
 }
 
 impl Rule {
@@ -96,9 +81,10 @@ impl Rule {
     pub fn cidr(cidr: &str, action: Action) -> Self {
         let parts: Vec<&str> = cidr.split('/').collect();
         let network: IpAddr = parts[0].parse().expect("Invalid IP address");
-        let prefix_len: u8 = parts.get(1).map(|p| p.parse().unwrap()).unwrap_or(
-            if network.is_ipv4() { 32 } else { 128 }
-        );
+        let prefix_len: u8 = parts
+            .get(1)
+            .map(|p| p.parse().unwrap())
+            .unwrap_or(if network.is_ipv4() { 32 } else { 128 });
         Self::Cidr {
             network,
             prefix_len,
@@ -183,7 +169,11 @@ impl AccessControl {
     /// Add a rule
     pub fn add_rule(&mut self, rule: Rule) {
         // Track blocked ports for quick lookup
-        if let Rule::Port { port, action: Action::Block } = &rule {
+        if let Rule::Port {
+            port,
+            action: Action::Block,
+        } = &rule
+        {
             self.blocked_ports.insert(*port);
         }
         self.rules.push(rule);
@@ -326,7 +316,11 @@ impl AccessControl {
                     Address::Socket(dst) => dst.ip() == *addr,
                     _ => false,
                 },
-                Rule::Cidr { network, prefix_len, .. } => match dst_addr {
+                Rule::Cidr {
+                    network,
+                    prefix_len,
+                    ..
+                } => match dst_addr {
                     Address::Socket(dst) => self.match_cidr(&dst.ip(), network, *prefix_len),
                     _ => false,
                 },
@@ -339,12 +333,10 @@ impl AccessControl {
                     let p = dst_addr.port();
                     p >= *start && p <= *end
                 }
-                Rule::Pid { pid, .. } => {
-                    process_info.map(|(p, _)| p == pid).unwrap_or(false)
-                }
-                Rule::ProcessName { name, .. } => {
-                    process_info.map(|(_, n)| n.contains(name.as_str())).unwrap_or(false)
-                }
+                Rule::Pid { pid, .. } => process_info.map(|(p, _)| p == pid).unwrap_or(false),
+                Rule::ProcessName { name, .. } => process_info
+                    .map(|(_, n)| n.contains(name.as_str()))
+                    .unwrap_or(false),
             };
 
             if matched {
@@ -385,7 +377,9 @@ fn wildcard_match(text: &str, pattern: &str) -> bool {
     let mut match_idx = 0;
 
     while ti < text_chars.len() {
-        if pi < pattern_chars.len() && (pattern_chars[pi] == '?' || pattern_chars[pi] == text_chars[ti]) {
+        if pi < pattern_chars.len()
+            && (pattern_chars[pi] == '?' || pattern_chars[pi] == text_chars[ti])
+        {
             ti += 1;
             pi += 1;
         } else if pi < pattern_chars.len() && pattern_chars[pi] == '*' {

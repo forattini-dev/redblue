@@ -25,16 +25,16 @@
 //! let results = executor.execute(&query)?;
 //! ```
 
-pub mod filter;
-pub mod sort;
 pub mod executor;
+pub mod filter;
 pub mod similarity;
+pub mod sort;
 
 // Legacy query interface - disabled until engine_legacy is fixed
 // pub mod legacy;
 
 // Re-export common types
-pub use filter::{Filter, FilterOp, Predicate};
-pub use sort::{OrderBy, Direction, SortKey, QueryLimits, NullsOrder};
 pub use executor::{QueryExecutor, QueryPlan, QueryResult};
+pub use filter::{Filter, FilterOp, Predicate};
 pub use similarity::{SimilarityQuery, SimilarityResult};
+pub use sort::{Direction, NullsOrder, OrderBy, QueryLimits, SortKey};

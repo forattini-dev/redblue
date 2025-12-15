@@ -1,3 +1,6 @@
+pub mod breach;
+pub mod email;
+pub mod platforms;
 /// OSINT Module - Username & Email Intelligence
 ///
 /// Replaces: sherlock, maigret, holehe, socialscan
@@ -7,16 +10,12 @@
 /// - Email breach checking (HaveIBeenPwned-style)
 /// - Social media profile discovery
 /// - Identity correlation across platforms
-
 pub mod username;
-pub mod email;
-pub mod platforms;
-pub mod breach;
 
-pub use username::UsernameEnumerator;
+pub use breach::BreachChecker;
 pub use email::EmailIntel;
 pub use platforms::{Platform, PlatformCategory};
-pub use breach::BreachChecker;
+pub use username::UsernameEnumerator;
 
 use std::time::Duration;
 

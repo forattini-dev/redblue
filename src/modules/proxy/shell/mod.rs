@@ -12,12 +12,12 @@
 //! rb mitm intercept shell --port 8080
 //! ```
 
-pub mod state;
 pub mod app;
-pub mod ui;
 pub mod input;
 pub mod interceptor;
+pub mod state;
+pub mod ui;
 
 pub use app::MitmShell;
-pub use state::{HttpExchange, ShellState, RequestFilter, ShellViewMode};
 pub use interceptor::ShellInterceptor;
+pub use state::{HttpExchange, RequestFilter, ShellState, ShellViewMode};

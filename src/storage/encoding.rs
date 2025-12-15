@@ -239,12 +239,29 @@ mod tests {
 
     #[test]
     fn test_varu32_roundtrip() {
-        let values = [0, 1, 127, 128, 255, 256, 16383, 16384, 2097151, 2097152, u32::MAX];
+        let values = [
+            0,
+            1,
+            127,
+            128,
+            255,
+            256,
+            16383,
+            16384,
+            2097151,
+            2097152,
+            u32::MAX,
+        ];
         for &val in &values {
             let mut buf = Vec::new();
             write_varu32(&mut buf, val);
             let mut pos = 0;
-            assert_eq!(read_varu32(&buf, &mut pos).unwrap(), val, "Failed for {}", val);
+            assert_eq!(
+                read_varu32(&buf, &mut pos).unwrap(),
+                val,
+                "Failed for {}",
+                val
+            );
         }
     }
 
@@ -255,7 +272,12 @@ mod tests {
             let mut buf = Vec::new();
             write_varu64(&mut buf, val);
             let mut pos = 0;
-            assert_eq!(read_varu64(&buf, &mut pos).unwrap(), val, "Failed for {}", val);
+            assert_eq!(
+                read_varu64(&buf, &mut pos).unwrap(),
+                val,
+                "Failed for {}",
+                val
+            );
         }
     }
 
@@ -266,7 +288,12 @@ mod tests {
             let mut buf = Vec::new();
             write_vari32(&mut buf, val);
             let mut pos = 0;
-            assert_eq!(read_vari32(&buf, &mut pos).unwrap(), val, "Failed for {}", val);
+            assert_eq!(
+                read_vari32(&buf, &mut pos).unwrap(),
+                val,
+                "Failed for {}",
+                val
+            );
         }
     }
 
@@ -277,7 +304,12 @@ mod tests {
             let mut buf = Vec::new();
             write_vari64(&mut buf, val);
             let mut pos = 0;
-            assert_eq!(read_vari64(&buf, &mut pos).unwrap(), val, "Failed for {}", val);
+            assert_eq!(
+                read_vari64(&buf, &mut pos).unwrap(),
+                val,
+                "Failed for {}",
+                val
+            );
         }
     }
 
@@ -454,7 +486,10 @@ mod tests {
         // Read them back
         let mut pos = 0;
         assert_eq!(read_varu32(&buf, &mut pos).unwrap(), 42);
-        assert_eq!(read_ip(&buf, &mut pos).unwrap(), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+        assert_eq!(
+            read_ip(&buf, &mut pos).unwrap(),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))
+        );
         assert_eq!(read_string(&buf, &mut pos).unwrap(), "test");
         assert_eq!(read_vari32(&buf, &mut pos).unwrap(), -100);
         assert_eq!(pos, buf.len()); // Should have consumed everything

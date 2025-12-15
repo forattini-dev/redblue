@@ -1,5 +1,5 @@
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 pub struct AntiDetection {
     base_delay: Duration,

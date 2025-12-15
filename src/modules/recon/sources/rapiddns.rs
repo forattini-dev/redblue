@@ -4,7 +4,6 @@
 /// Free, no API key required.
 ///
 /// URL: https://rapiddns.io/subdomain/{domain}
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -25,7 +24,11 @@ impl RapidDnsSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -49,7 +52,9 @@ impl RapidDnsSource {
                     if !content.contains(' ')
                         && !content.contains('<')
                         && !content.contains('>')
-                        && content.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-')
+                        && content
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '.' || c == '-')
                         && seen.insert(content.clone())
                     {
                         records.push(SubdomainRecord {

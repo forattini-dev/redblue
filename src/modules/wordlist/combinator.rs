@@ -10,7 +10,7 @@ impl Combinator {
         }
         results
     }
-    
+
     // Lazy iterator version would be better for memory, but requires storing references or cloning.
     // Given the constraints and typical usage (one list might be small), vector is a start.
 }
@@ -24,7 +24,7 @@ mod tests {
         let left = vec!["a".to_string(), "b".to_string()];
         let right = vec!["1".to_string(), "2".to_string()];
         let combined = Combinator::combine(&left, &right);
-        
+
         assert_eq!(combined.len(), 4);
         assert!(combined.contains(&"a1".to_string()));
         assert!(combined.contains(&"a2".to_string()));

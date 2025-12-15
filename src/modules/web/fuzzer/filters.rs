@@ -8,7 +8,6 @@
 /// - Regex filter (-fr)
 ///
 /// Filters can include or exclude results based on response characteristics.
-
 use super::FuzzResult;
 
 /// Filter action result
@@ -28,10 +27,7 @@ pub enum ResponseFilter {
     /// Filter by HTTP status code
     /// - StatusCode(200) - include only 200
     /// - StatusCode(404) with exclude - filter out 404
-    StatusCode {
-        codes: Vec<u16>,
-        exclude: bool,
-    },
+    StatusCode { codes: Vec<u16>, exclude: bool },
 
     /// Filter by response size in bytes
     /// - Size { min: Some(100), max: Some(1000) } - between 100-1000 bytes
@@ -57,10 +53,7 @@ pub enum ResponseFilter {
     },
 
     /// Filter by regex pattern on response body
-    Regex {
-        pattern: String,
-        exclude: bool,
-    },
+    Regex { pattern: String, exclude: bool },
 
     /// Filter by response time
     Time {
@@ -70,10 +63,7 @@ pub enum ResponseFilter {
     },
 
     /// Filter by content type
-    ContentType {
-        types: Vec<String>,
-        exclude: bool,
-    },
+    ContentType { types: Vec<String>, exclude: bool },
 
     /// Simple match by status code (include only this code)
     MatchStatus(u16),
@@ -211,7 +201,11 @@ impl ResponseFilter {
                 }
             }
 
-            ResponseFilter::Time { min_ms, max_ms, exclude } => {
+            ResponseFilter::Time {
+                min_ms,
+                max_ms,
+                exclude,
+            } => {
                 let duration_ms = result.duration.as_millis() as u64;
                 let min = min_ms.unwrap_or(0);
                 let max = max_ms.unwrap_or(u64::MAX);
@@ -229,7 +223,9 @@ impl ResponseFilter {
 
             ResponseFilter::ContentType { types, exclude } => {
                 let matches = if let Some(ref ct) = result.content_type {
-                    types.iter().any(|t| ct.to_lowercase().contains(&t.to_lowercase()))
+                    types
+                        .iter()
+                        .any(|t| ct.to_lowercase().contains(&t.to_lowercase()))
                 } else {
                     false
                 };
@@ -426,7 +422,10 @@ mod tests {
     #[test]
     fn test_simple_pattern() {
         assert!(ResponseFilter::simple_pattern_match("error", "error page"));
-        assert!(ResponseFilter::simple_pattern_match("not*found", "not found"));
+        assert!(ResponseFilter::simple_pattern_match(
+            "not*found",
+            "not found"
+        ));
         assert!(ResponseFilter::simple_pattern_match("*", "anything"));
         assert!(!ResponseFilter::simple_pattern_match("admin", "error page"));
     }

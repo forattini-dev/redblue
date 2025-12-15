@@ -13,20 +13,50 @@ impl JsonExporter {
         json.push_str("{\n");
 
         // Metadata
-        json.push_str(&format!("  \"title\": {},\n", Self::escape_string(&report.title)));
-        json.push_str(&format!("  \"target\": {},\n", Self::escape_string(&report.target)));
-        json.push_str(&format!("  \"scan_date\": {},\n", Self::escape_string(&report.scan_date)));
-        json.push_str(&format!("  \"executive_summary\": {},\n", Self::escape_string(&report.executive_summary)));
+        json.push_str(&format!(
+            "  \"title\": {},\n",
+            Self::escape_string(&report.title)
+        ));
+        json.push_str(&format!(
+            "  \"target\": {},\n",
+            Self::escape_string(&report.target)
+        ));
+        json.push_str(&format!(
+            "  \"scan_date\": {},\n",
+            Self::escape_string(&report.scan_date)
+        ));
+        json.push_str(&format!(
+            "  \"executive_summary\": {},\n",
+            Self::escape_string(&report.executive_summary)
+        ));
 
         // Summary stats
         let counts = report.severity_counts();
         json.push_str("  \"summary\": {\n");
-        json.push_str(&format!("    \"total_findings\": {},\n", report.findings.len()));
-        json.push_str(&format!("    \"critical\": {},\n", counts.get(&Severity::Critical).unwrap_or(&0)));
-        json.push_str(&format!("    \"high\": {},\n", counts.get(&Severity::High).unwrap_or(&0)));
-        json.push_str(&format!("    \"medium\": {},\n", counts.get(&Severity::Medium).unwrap_or(&0)));
-        json.push_str(&format!("    \"low\": {},\n", counts.get(&Severity::Low).unwrap_or(&0)));
-        json.push_str(&format!("    \"info\": {},\n", counts.get(&Severity::Info).unwrap_or(&0)));
+        json.push_str(&format!(
+            "    \"total_findings\": {},\n",
+            report.findings.len()
+        ));
+        json.push_str(&format!(
+            "    \"critical\": {},\n",
+            counts.get(&Severity::Critical).unwrap_or(&0)
+        ));
+        json.push_str(&format!(
+            "    \"high\": {},\n",
+            counts.get(&Severity::High).unwrap_or(&0)
+        ));
+        json.push_str(&format!(
+            "    \"medium\": {},\n",
+            counts.get(&Severity::Medium).unwrap_or(&0)
+        ));
+        json.push_str(&format!(
+            "    \"low\": {},\n",
+            counts.get(&Severity::Low).unwrap_or(&0)
+        ));
+        json.push_str(&format!(
+            "    \"info\": {},\n",
+            counts.get(&Severity::Info).unwrap_or(&0)
+        ));
         json.push_str(&format!("    \"total_hosts\": {}\n", report.hosts.len()));
         json.push_str("  },\n");
 
@@ -34,7 +64,10 @@ impl JsonExporter {
         json.push_str("  \"hosts\": [\n");
         for (i, host) in report.hosts.iter().enumerate() {
             json.push_str("    {\n");
-            json.push_str(&format!("      \"hostname\": {},\n", Self::escape_string(&host.hostname)));
+            json.push_str(&format!(
+                "      \"hostname\": {},\n",
+                Self::escape_string(&host.hostname)
+            ));
             if let Some(ref ip) = host.ip {
                 json.push_str(&format!("      \"ip\": {},\n", Self::escape_string(ip)));
             } else {
@@ -46,10 +79,19 @@ impl JsonExporter {
             for (j, port) in host.ports.iter().enumerate() {
                 json.push_str("        {\n");
                 json.push_str(&format!("          \"port\": {},\n", port.port));
-                json.push_str(&format!("          \"state\": {},\n", Self::escape_string(&port.state)));
-                json.push_str(&format!("          \"service\": {},\n", Self::escape_string(&port.service)));
+                json.push_str(&format!(
+                    "          \"state\": {},\n",
+                    Self::escape_string(&port.state)
+                ));
+                json.push_str(&format!(
+                    "          \"service\": {},\n",
+                    Self::escape_string(&port.service)
+                ));
                 if let Some(ref ver) = port.version {
-                    json.push_str(&format!("          \"version\": {}\n", Self::escape_string(ver)));
+                    json.push_str(&format!(
+                        "          \"version\": {}\n",
+                        Self::escape_string(ver)
+                    ));
                 } else {
                     json.push_str("          \"version\": null\n");
                 }
@@ -83,18 +125,33 @@ impl JsonExporter {
         json.push_str("  \"findings\": [\n");
         for (i, finding) in report.findings.iter().enumerate() {
             json.push_str("    {\n");
-            json.push_str(&format!("      \"title\": {},\n", Self::escape_string(&finding.title)));
-            json.push_str(&format!("      \"severity\": {},\n", Self::escape_string(finding.severity.as_str())));
-            json.push_str(&format!("      \"description\": {},\n", Self::escape_string(&finding.description)));
+            json.push_str(&format!(
+                "      \"title\": {},\n",
+                Self::escape_string(&finding.title)
+            ));
+            json.push_str(&format!(
+                "      \"severity\": {},\n",
+                Self::escape_string(finding.severity.as_str())
+            ));
+            json.push_str(&format!(
+                "      \"description\": {},\n",
+                Self::escape_string(&finding.description)
+            ));
 
             if let Some(ref evidence) = finding.evidence {
-                json.push_str(&format!("      \"evidence\": {},\n", Self::escape_string(evidence)));
+                json.push_str(&format!(
+                    "      \"evidence\": {},\n",
+                    Self::escape_string(evidence)
+                ));
             } else {
                 json.push_str("      \"evidence\": null,\n");
             }
 
             if let Some(ref remediation) = finding.remediation {
-                json.push_str(&format!("      \"remediation\": {},\n", Self::escape_string(remediation)));
+                json.push_str(&format!(
+                    "      \"remediation\": {},\n",
+                    Self::escape_string(remediation)
+                ));
             } else {
                 json.push_str("      \"remediation\": null,\n");
             }
@@ -131,7 +188,11 @@ impl JsonExporter {
         json.push_str("  \"raw_data\": {\n");
         let raw_entries: Vec<_> = report.raw_data.iter().collect();
         for (i, (key, value)) in raw_entries.iter().enumerate() {
-            json.push_str(&format!("    {}: {}", Self::escape_string(key), Self::escape_string(value)));
+            json.push_str(&format!(
+                "    {}: {}",
+                Self::escape_string(key),
+                Self::escape_string(value)
+            ));
             if i < raw_entries.len() - 1 {
                 json.push(',');
             }
@@ -172,8 +233,9 @@ mod tests {
     #[test]
     fn test_json_export() {
         let mut report = Report::new("Test Report", "example.com");
-        report.add_finding(Finding::new("Test Finding", Severity::High)
-            .with_description("This is a test"));
+        report.add_finding(
+            Finding::new("Test Finding", Severity::High).with_description("This is a test"),
+        );
 
         let json = JsonExporter::export(&report);
         assert!(json.contains("\"title\": \"Test Report\""));

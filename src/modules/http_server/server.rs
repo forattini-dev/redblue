@@ -171,7 +171,8 @@ impl HttpServerConfig {
     where
         F: Fn(&HttpRequest) -> HttpResponse + Send + Sync + 'static,
     {
-        self.routes.insert(path.to_string(), Arc::new(Box::new(handler)));
+        self.routes
+            .insert(path.to_string(), Arc::new(Box::new(handler)));
         self
     }
 }
@@ -236,7 +237,7 @@ impl HttpServer {
     pub fn run(&self) -> io::Result<()> {
         let listener = TcpListener::bind(self.config.listen_addr)?;
         listener.set_nonblocking(true)?;
-        
+
         // Update bound address
         if let Ok(addr) = listener.local_addr() {
             *self.bound_addr.lock().unwrap() = Some(addr);
@@ -246,16 +247,16 @@ impl HttpServer {
 
         if self.config.log_requests {
             let addr = self.local_addr().unwrap_or(self.config.listen_addr);
-            eprintln!(
-                "[HTTP] Server listening on http://{}",
-                addr
-            );
+            eprintln!("[HTTP] Server listening on http://{}", addr);
             eprintln!("[HTTP] Serving files from {:?}", self.config.root_dir);
             if self.config.cors {
                 eprintln!("[HTTP] CORS enabled (Access-Control-Allow-Origin: *)");
             }
             if !self.config.routes.is_empty() {
-                eprintln!("[HTTP] Active routes: {:?}", self.config.routes.keys().collect::<Vec<_>>());
+                eprintln!(
+                    "[HTTP] Active routes: {:?}",
+                    self.config.routes.keys().collect::<Vec<_>>()
+                );
             }
         }
 
@@ -330,11 +331,15 @@ fn handle_connection(
     // Check dynamic routes first
     if let Some(handler) = config.routes.get(&request.path) {
         let response = handler(&request);
-        
+
         let bytes = send_response(
             &mut stream,
             response.status_code,
-            response.headers.get("Content-Type").map(|s| s.as_str()).unwrap_or("text/plain"),
+            response
+                .headers
+                .get("Content-Type")
+                .map(|s| s.as_str())
+                .unwrap_or("text/plain"),
             &response.body,
             config,
             request.method == "HEAD",
@@ -405,7 +410,13 @@ fn handle_connection(
         // Try index.html
         let index_path = fs_path.join("index.html");
         if index_path.exists() {
-            return serve_file(&mut stream, &index_path, config, stats, request.method == "HEAD");
+            return serve_file(
+                &mut stream,
+                &index_path,
+                config,
+                stats,
+                request.method == "HEAD",
+            );
         }
 
         // Directory listing
@@ -429,7 +440,13 @@ fn handle_connection(
     }
 
     // Serve file
-    serve_file(&mut stream, &fs_path, config, stats, request.method == "HEAD")
+    serve_file(
+        &mut stream,
+        &fs_path,
+        config,
+        stats,
+        request.method == "HEAD",
+    )
 }
 
 /// Serve a file
@@ -513,10 +530,7 @@ fn parse_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
             break;
         }
         if let Some((key, value)) = trimmed.split_once(':') {
-            headers.insert(
-                key.trim().to_lowercase(),
-                value.trim().to_string(),
-            );
+            headers.insert(key.trim().to_lowercase(), value.trim().to_string());
         }
     }
 
@@ -570,7 +584,10 @@ fn send_response(
          Content-Length: {}\n\
          Connection: close\n\
          Server: redblue\n",
-        status, status_text, content_type, body.len()
+        status,
+        status_text,
+        content_type,
+        body.len()
     );
 
     // Add CORS headers
@@ -609,7 +626,14 @@ fn send_error(
         )
     };
 
-    send_response(stream, status, "text/html; charset=utf-8", body.as_bytes(), config, false)?;
+    send_response(
+        stream,
+        status,
+        "text/html; charset=utf-8",
+        body.as_bytes(),
+        config,
+        false,
+    )?;
     Ok(())
 }
 
@@ -673,9 +697,7 @@ fn generate_directory_listing(dir: &Path, url_path: &str) -> io::Result<String> 
     let template = EmbeddedFiles::directory_listing_template();
 
     let mut entries = String::new();
-    let mut items: Vec<_> = fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut items: Vec<_> = fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
 
     // Sort: directories first, then alphabetically
     items.sort_by(|a, b| {
@@ -732,7 +754,10 @@ fn generate_directory_listing(dir: &Path, url_path: &str) -> io::Result<String> 
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "/".to_string());
-        format!("<p class=\"parent\"><a href=\"{}\">../</a> (parent directory)</p>", parent_path)
+        format!(
+            "<p class=\"parent\"><a href=\"{}\">../</a> (parent directory)</p>",
+            parent_path
+        )
     } else {
         String::new()
     };

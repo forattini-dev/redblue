@@ -4,8 +4,8 @@
 //! Uses a unique nonce per page (stored with the page) and authenticates
 //! the Page ID to prevent page swapping attacks.
 
-use crate::crypto::aes_gcm::{aes256_gcm_encrypt, aes256_gcm_decrypt};
 use super::key::SecureKey;
+use crate::crypto::aes_gcm::{aes256_gcm_decrypt, aes256_gcm_encrypt};
 
 /// Size of the nonce (IV) in bytes
 pub const NONCE_SIZE: usize = 12;
@@ -43,7 +43,11 @@ impl PageEncryptor {
         // AAD is the Page ID (prevents moving pages to different IDs)
         let aad = page_id.to_le_bytes();
 
-        let key: &[u8; 32] = self.key.as_bytes().try_into().expect("Key must be 32 bytes");
+        let key: &[u8; 32] = self
+            .key
+            .as_bytes()
+            .try_into()
+            .expect("Key must be 32 bytes");
 
         // Encrypt: returns Ciphertext || Tag
         let ciphertext_with_tag = aes256_gcm_encrypt(key, &nonce, &aad, plaintext);
@@ -72,7 +76,11 @@ impl PageEncryptor {
         // AAD must match
         let aad = page_id.to_le_bytes();
 
-        let key: &[u8; 32] = self.key.as_bytes().try_into().expect("Key must be 32 bytes");
+        let key: &[u8; 32] = self
+            .key
+            .as_bytes()
+            .try_into()
+            .expect("Key must be 32 bytes");
 
         aes256_gcm_decrypt(key, &nonce_arr, &aad, ciphertext_with_tag)
     }
@@ -86,15 +94,15 @@ mod tests {
     fn test_page_encryption_roundtrip() {
         let key = SecureKey::new(&[0x42u8; 32]);
         let encryptor = PageEncryptor::new(key);
-        
+
         let page_id = 123;
         let plaintext = b"This is a secret page content.";
-        
+
         let encrypted = encryptor.encrypt(page_id, plaintext);
-        
+
         // Size check
         assert_eq!(encrypted.len(), plaintext.len() + OVERHEAD);
-        
+
         // Decrypt
         let decrypted = encryptor.decrypt(page_id, &encrypted).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -104,10 +112,10 @@ mod tests {
     fn test_page_encryption_bad_page_id() {
         let key = SecureKey::new(&[0x42u8; 32]);
         let encryptor = PageEncryptor::new(key);
-        
+
         let plaintext = b"content";
         let encrypted = encryptor.encrypt(100, plaintext);
-        
+
         // Try decrypting with wrong page ID
         let result = encryptor.decrypt(101, &encrypted);
         assert!(result.is_err());
@@ -117,14 +125,14 @@ mod tests {
     fn test_page_encryption_tampering() {
         let key = SecureKey::new(&[0x42u8; 32]);
         let encryptor = PageEncryptor::new(key);
-        
+
         let plaintext = b"content";
         let mut encrypted = encryptor.encrypt(100, plaintext);
-        
+
         // Tamper with the last byte (tag)
         let last = encrypted.len() - 1;
         encrypted[last] ^= 1;
-        
+
         let result = encryptor.decrypt(100, &encrypted);
         assert!(result.is_err());
     }

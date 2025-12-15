@@ -8,15 +8,14 @@
 /// - HTML gallery report
 /// - Technology detection
 /// - HTTP fallback mode
-
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::collection::screenshot::{
-    ScreenshotCapture, ScreenshotConfig, ReportGenerator,
+    ReportGenerator, ScreenshotCapture, ScreenshotConfig,
 };
+use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::fs;
 
 pub struct ScreenshotCommand;
 
@@ -67,17 +66,17 @@ impl Command for ScreenshotCommand {
             Flag::new("timeout", "Page load timeout in seconds")
                 .with_short('t')
                 .with_default("30"),
-            Flag::new("threads", "Number of concurrent captures (batch mode)")
-                .with_default("4"),
-            Flag::new("full-page", "Capture full page screenshot (not just viewport)"),
-            Flag::new("quality", "JPEG quality (0-100)")
-                .with_default("80"),
+            Flag::new("threads", "Number of concurrent captures (batch mode)").with_default("4"),
+            Flag::new(
+                "full-page",
+                "Capture full page screenshot (not just viewport)",
+            ),
+            Flag::new("quality", "JPEG quality (0-100)").with_default("80"),
             Flag::new("report", "Generate HTML report after batch capture"),
             Flag::new("json", "Generate JSON report"),
             Flag::new("csv", "Generate CSV report"),
             Flag::new("chrome", "Path to Chrome/Chromium binary"),
-            Flag::new("port", "Chrome debugging port")
-                .with_default("9222"),
+            Flag::new("port", "Chrome debugging port").with_default("9222"),
         ]
     }
 
@@ -139,31 +138,45 @@ impl Command for ScreenshotCommand {
 impl ScreenshotCommand {
     /// Build configuration from CLI context
     fn build_config(&self, ctx: &CliContext) -> ScreenshotConfig {
-        let output_dir = ctx.flags.get("output")
+        let output_dir = ctx
+            .flags
+            .get("output")
             .map(|s| PathBuf::from(s.as_str()))
             .unwrap_or_else(|| PathBuf::from("./screenshots"));
 
-        let width = ctx.flags.get("width")
+        let width = ctx
+            .flags
+            .get("width")
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap_or(1440);
 
-        let height = ctx.flags.get("height")
+        let height = ctx
+            .flags
+            .get("height")
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap_or(900);
 
-        let timeout = ctx.flags.get("timeout")
+        let timeout = ctx
+            .flags
+            .get("timeout")
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(30);
 
-        let threads = ctx.flags.get("threads")
+        let threads = ctx
+            .flags
+            .get("threads")
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(4);
 
-        let quality = ctx.flags.get("quality")
+        let quality = ctx
+            .flags
+            .get("quality")
             .and_then(|v| v.parse::<u8>().ok())
             .unwrap_or(80);
 
-        let port = ctx.flags.get("port")
+        let port = ctx
+            .flags
+            .get("port")
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or(9222);
 
@@ -204,7 +217,11 @@ impl ScreenshotCommand {
             "Viewport: {}x{} ({})",
             config.viewport_width,
             config.viewport_height,
-            if config.full_page { "full page" } else { "viewport only" }
+            if config.full_page {
+                "full page"
+            } else {
+                "viewport only"
+            }
         ));
         Output::info(&format!("Output: {}", config.output_dir.display()));
         Output::info(&format!("Quality: {}%", config.quality));
@@ -270,8 +287,8 @@ impl ScreenshotCommand {
         }
 
         // Read URLs from file
-        let content = fs::read_to_string(file)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let content =
+            fs::read_to_string(file).map_err(|e| format!("Failed to read file: {}", e))?;
 
         let urls: Vec<String> = content
             .lines()
@@ -316,9 +333,15 @@ impl ScreenshotCommand {
         // Show results
         Output::section("Results");
         Output::item("Total", &results.results.len().to_string());
-        Output::item("Successful", &format!("{} \x1b[32m✓\x1b[0m", results.successful));
+        Output::item(
+            "Successful",
+            &format!("{} \x1b[32m✓\x1b[0m", results.successful),
+        );
         Output::item("Failed", &format!("{} \x1b[31m✗\x1b[0m", results.failed));
-        Output::item("Total Time", &format!("{:.1}s", results.total_time_ms as f64 / 1000.0));
+        Output::item(
+            "Total Time",
+            &format!("{:.1}s", results.total_time_ms as f64 / 1000.0),
+        );
         println!();
 
         // Generate reports if requested
@@ -354,9 +377,7 @@ impl ScreenshotCommand {
         }
 
         // Show failed URLs
-        let failed: Vec<_> = results.results.iter()
-            .filter(|r| !r.success())
-            .collect();
+        let failed: Vec<_> = results.results.iter().filter(|r| !r.success()).collect();
 
         if !failed.is_empty() && failed.len() <= 10 {
             println!();
@@ -409,7 +430,10 @@ impl ScreenshotCommand {
                 300..=399 => "yellow",
                 _ => "red",
             };
-            Output::item("HTTP Status", &Output::colorize(&status.to_string(), status_color));
+            Output::item(
+                "HTTP Status",
+                &Output::colorize(&status.to_string(), status_color),
+            );
         }
         if let Some(ref server) = result.server {
             Output::item("Server", server);

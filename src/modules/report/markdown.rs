@@ -30,12 +30,30 @@ impl MarkdownExporter {
         md.push_str("## Summary\n\n");
         md.push_str("| Severity | Count |\n");
         md.push_str("|----------|-------|\n");
-        md.push_str(&format!("| Critical | {} |\n", counts.get(&Severity::Critical).unwrap_or(&0)));
-        md.push_str(&format!("| High | {} |\n", counts.get(&Severity::High).unwrap_or(&0)));
-        md.push_str(&format!("| Medium | {} |\n", counts.get(&Severity::Medium).unwrap_or(&0)));
-        md.push_str(&format!("| Low | {} |\n", counts.get(&Severity::Low).unwrap_or(&0)));
-        md.push_str(&format!("| Info | {} |\n", counts.get(&Severity::Info).unwrap_or(&0)));
-        md.push_str(&format!("| **Total** | **{}** |\n\n", report.findings.len()));
+        md.push_str(&format!(
+            "| Critical | {} |\n",
+            counts.get(&Severity::Critical).unwrap_or(&0)
+        ));
+        md.push_str(&format!(
+            "| High | {} |\n",
+            counts.get(&Severity::High).unwrap_or(&0)
+        ));
+        md.push_str(&format!(
+            "| Medium | {} |\n",
+            counts.get(&Severity::Medium).unwrap_or(&0)
+        ));
+        md.push_str(&format!(
+            "| Low | {} |\n",
+            counts.get(&Severity::Low).unwrap_or(&0)
+        ));
+        md.push_str(&format!(
+            "| Info | {} |\n",
+            counts.get(&Severity::Info).unwrap_or(&0)
+        ));
+        md.push_str(&format!(
+            "| **Total** | **{}** |\n\n",
+            report.findings.len()
+        ));
 
         // Hosts
         if !report.hosts.is_empty() {
@@ -44,16 +62,20 @@ impl MarkdownExporter {
             md.push_str("|----------|----|-----------|--------------|\n");
 
             for host in &report.hosts {
-                let ports_str = host.ports.iter()
+                let ports_str = host
+                    .ports
+                    .iter()
                     .map(|p| format!("{}/{}", p.port, p.service))
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                md.push_str(&format!("| {} | {} | {} | {} |\n",
+                md.push_str(&format!(
+                    "| {} | {} | {} | {} |\n",
                     Self::escape_md(&host.hostname),
                     host.ip.as_deref().unwrap_or("-"),
                     Self::escape_md(&ports_str),
-                    Self::escape_md(&host.technologies.join(", "))));
+                    Self::escape_md(&host.technologies.join(", "))
+                ));
             }
             md.push('\n');
         }
@@ -68,7 +90,11 @@ impl MarkdownExporter {
         for finding in &sorted_findings {
             let severity_badge = Self::severity_badge(&finding.severity);
 
-            md.push_str(&format!("### {} {}\n\n", severity_badge, Self::escape_md(&finding.title)));
+            md.push_str(&format!(
+                "### {} {}\n\n",
+                severity_badge,
+                Self::escape_md(&finding.title)
+            ));
 
             if !finding.description.is_empty() {
                 md.push_str(&finding.description);
@@ -129,9 +155,7 @@ impl MarkdownExporter {
 
     /// Escape markdown special characters in table cells
     fn escape_md(s: &str) -> String {
-        s.replace('|', "\\|")
-         .replace('\n', " ")
-         .replace('\r', "")
+        s.replace('|', "\\|").replace('\n', " ").replace('\r', "")
     }
 }
 
@@ -143,8 +167,9 @@ mod tests {
     #[test]
     fn test_markdown_export() {
         let mut report = Report::new("Test Report", "example.com");
-        report.add_finding(Finding::new("Test Finding", Severity::High)
-            .with_description("This is a test"));
+        report.add_finding(
+            Finding::new("Test Finding", Severity::High).with_description("This is a test"),
+        );
 
         let md = MarkdownExporter::export(&report);
         assert!(md.contains("# Test Report"));

@@ -29,8 +29,8 @@
 //! └────────────────────────────────────────────────────────────┘
 //! ```
 
-use std::sync::{Arc, RwLock};
 use std::cmp::Ordering;
+use std::sync::{Arc, RwLock};
 
 use super::page::{Page, PageType, HEADER_SIZE, PAGE_SIZE};
 use super::pager::{Pager, PagerError};
@@ -78,8 +78,14 @@ impl std::fmt::Display for BTreeError {
         match self {
             Self::NotFound => write!(f, "Key not found"),
             Self::DuplicateKey => write!(f, "Key already exists"),
-            Self::KeyTooLarge(size) => write!(f, "Key too large: {} bytes (max {})", size, MAX_KEY_SIZE),
-            Self::ValueTooLarge(size) => write!(f, "Value too large: {} bytes (max {})", size, MAX_VALUE_SIZE),
+            Self::KeyTooLarge(size) => {
+                write!(f, "Key too large: {} bytes (max {})", size, MAX_KEY_SIZE)
+            }
+            Self::ValueTooLarge(size) => write!(
+                f,
+                "Value too large: {} bytes (max {})",
+                size, MAX_VALUE_SIZE
+            ),
             Self::Corrupted(msg) => write!(f, "B-tree corrupted: {}", msg),
             Self::Pager(msg) => write!(f, "Pager error: {}", msg),
         }
@@ -529,7 +535,8 @@ impl BTree {
         }
 
         // Need to split interior node
-        let (new_interior, separator) = self.split_interior(&mut parent, key, left_child, right_child)?;
+        let (new_interior, separator) =
+            self.split_interior(&mut parent, key, left_child, right_child)?;
         parent.update_checksum();
         self.pager.write_page(parent_id, parent.clone())?;
 
@@ -1107,7 +1114,10 @@ mod tests {
         for i in 0..100u32 {
             let key = format!("key{:08}", i);
             let expected = format!("value{:08}", i);
-            assert_eq!(tree.get(key.as_bytes()).unwrap(), Some(expected.into_bytes()));
+            assert_eq!(
+                tree.get(key.as_bytes()).unwrap(),
+                Some(expected.into_bytes())
+            );
         }
 
         assert_eq!(tree.count().unwrap(), 100);

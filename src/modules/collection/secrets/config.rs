@@ -14,8 +14,8 @@ pub struct SecretsConfig {
 
 impl SecretsConfig {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content =
-            fs::read_to_string(path).map_err(|e| format!("Failed to read secrets config file: {}", e))?;
+        let content = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read secrets config file: {}", e))?;
         Self::parse_toml(&content)
     }
 
@@ -41,7 +41,7 @@ impl SecretsConfig {
                         .split(',')
                         .map(|s| s.trim().trim_matches('"').to_string())
                         .collect();
-                    
+
                     match key.as_str() {
                         "exclude_patterns" => config.exclude_patterns = values,
                         "exclude_dirs" => config.exclude_dirs = values,
@@ -52,7 +52,7 @@ impl SecretsConfig {
                     continue;
                 }
             }
-            
+
             // Handle key = value
             if let Some((key, value)) = trimmed.split_once('=') {
                 let key = key.trim();
@@ -102,7 +102,10 @@ allowlist = [
 "#;
         let config = SecretsConfig::parse_toml(toml_content).unwrap();
 
-        assert_eq!(config.rules_path, Some("/etc/redblue/secrets_rules.toml".to_string()));
+        assert_eq!(
+            config.rules_path,
+            Some("/etc/redblue/secrets_rules.toml".to_string())
+        );
         assert_eq!(config.min_entropy, Some(3.8));
         assert_eq!(config.max_file_size_mb, Some(10));
         assert!(config.exclude_patterns.contains(&"*.min.js".to_string()));

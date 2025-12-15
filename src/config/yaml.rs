@@ -61,7 +61,7 @@ pub struct YamlConfig {
 impl YamlConfig {
     /// Load config from file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content = 
+        let content =
             fs::read_to_string(path).map_err(|e| format!("Failed to read config: {}", e))?;
 
         Self::parse(&content)
@@ -102,7 +102,7 @@ impl YamlConfig {
     /// Parse YAML content (minimal parser)
     fn parse(content: &str) -> Result<Self, String> {
         let mut config = YamlConfig::default(); // Use default for easier base
-        
+
         let mut current_section: Option<String> = None;
         let mut current_subsection: Option<String> = None; // For credentials/commands sub-sections
         let mut current_map_key: Option<String> = None; // For headers or other maps
@@ -119,7 +119,8 @@ impl YamlConfig {
             let indent_level = line.len() - line.trim_start().len();
 
             // Check for section header (ends with :)
-            if trimmed.ends_with(':') && !trimmed.contains(": ") { // Avoid key: value: like in headers: X-Custom: value
+            if trimmed.ends_with(':') && !trimmed.contains(": ") {
+                // Avoid key: value: like in headers: X-Custom: value
                 let section_name = trimmed.trim_end_matches(':').to_string();
 
                 if indent_level == 0 {
@@ -137,20 +138,33 @@ impl YamlConfig {
                 }
                 continue;
             }
-            
+
             // Handle array values (e.g., url_sources)
             if trimmed.starts_with('-') {
                 // This is an item in a list, like `- item`
-                let item = trimmed.trim_start_matches('-').trim().trim_matches('"').to_string();
-                if current_section.as_deref() == Some("recon") && current_subsection.as_deref() == Some("url_sources") {
+                let item = trimmed
+                    .trim_start_matches('-')
+                    .trim()
+                    .trim_matches('"')
+                    .to_string();
+                if current_section.as_deref() == Some("recon")
+                    && current_subsection.as_deref() == Some("url_sources")
+                {
                     // How to add to a Vec in Config? This needs a Vec in Config.
                     // For now, this parser doesn't collect lists, but a proper YamlConfig would have Vec<String> fields.
                     // We'll add this to custom for now as a workaround for simple config.
-                    config.custom.insert(format!("{}.{}.{}", current_section.as_deref().unwrap_or(""), current_subsection.as_deref().unwrap_or(""), item), "true".to_string());
+                    config.custom.insert(
+                        format!(
+                            "{}.{}.{}",
+                            current_section.as_deref().unwrap_or(""),
+                            current_subsection.as_deref().unwrap_or(""),
+                            item
+                        ),
+                        "true".to_string(),
+                    );
                 }
                 continue;
             }
-
 
             // Parse key-value pairs
             if let Some((key, value)) = Self::parse_key_value(trimmed) {
@@ -165,7 +179,9 @@ impl YamlConfig {
                         "threads" => config.threads = value.parse().ok(),
                         "rate_limit" => config.rate_limit = value.parse().ok(),
                         "auto_persist" | "persist" => config.auto_persist = Self::parse_bool(value),
-                        _ => { config.custom.insert(key.to_string(), value.to_string()); }
+                        _ => {
+                            config.custom.insert(key.to_string(), value.to_string());
+                        }
                     },
                     // Specific sections
                     (Some("network"), None) => match key {
@@ -174,10 +190,17 @@ impl YamlConfig {
                         "request_delay_ms" => config.network_request_delay_ms = value.parse().ok(),
                         "dns_resolver" => config.network_dns_resolver = Some(value.to_string()),
                         "dns_timeout_ms" => config.network_dns_timeout_ms = value.parse().ok(),
-                        _ => { config.custom.insert(format!("network.{}", key), value.to_string()); }
+                        _ => {
+                            config
+                                .custom
+                                .insert(format!("network.{}", key), value.to_string());
+                        }
                     },
-                    (Some("web"), Some("headers")) => { // Specific handling for web.headers map
-                        config.web_headers.insert(key.to_string(), value.to_string());
+                    (Some("web"), Some("headers")) => {
+                        // Specific handling for web.headers map
+                        config
+                            .web_headers
+                            .insert(key.to_string(), value.to_string());
                     }
                     (Some("web"), None) => match key {
                         "user_agent" => config.web_user_agent = Some(value.to_string()),
@@ -185,26 +208,41 @@ impl YamlConfig {
                         "max_redirects" => config.web_max_redirects = value.parse().ok(),
                         "verify_ssl" => config.web_verify_ssl = Self::parse_bool(value),
                         "timeout_secs" => config.web_timeout_secs = value.parse().ok(),
-                        _ => { config.custom.insert(format!("web.{}", key), value.to_string()); }
+                        _ => {
+                            config
+                                .custom
+                                .insert(format!("web.{}", key), value.to_string());
+                        }
                     },
                     (Some("recon"), None) => match key {
-                        "subdomain_wordlist" => config.recon_subdomain_wordlist = Some(value.to_string()),
+                        "subdomain_wordlist" => {
+                            config.recon_subdomain_wordlist = Some(value.to_string())
+                        }
                         "passive_only" => config.recon_passive_only = Self::parse_bool(value),
                         "dns_timeout_ms" => config.recon_dns_timeout_ms = value.parse().ok(),
-                        _ => { config.custom.insert(format!("recon.{}", key), value.to_string()); }
+                        _ => {
+                            config
+                                .custom
+                                .insert(format!("recon.{}", key), value.to_string());
+                        }
                     },
                     (Some("database"), None) => match key {
                         "auto_name" => config.db_auto_name = Self::parse_bool(value),
                         "auto_persist" => config.db_auto_persist = Self::parse_bool(value),
                         "db_dir" => config.db_dir = Some(value.to_string()),
                         "format_version" => config.db_format_version = value.parse().ok(),
-                        _ => { config.custom.insert(format!("database.{}", key), value.to_string()); }
+                        _ => {
+                            config
+                                .custom
+                                .insert(format!("database.{}", key), value.to_string());
+                        }
                     },
                     (Some("wordlists"), None) => {
                         config.wordlists.insert(key.to_string(), value.to_string());
                     }
                     (Some("credentials"), Some(service_name)) => {
-                        config.credentials
+                        config
+                            .credentials
                             .entry(service_name.to_string())
                             .or_insert_with(HashMap::new)
                             .insert(key.to_string(), value.to_string());
@@ -327,9 +365,9 @@ impl YamlConfig {
 
     /// Get a credential value for a given service and key
     pub fn get_credential(&self, service: &str, key: &str) -> Option<String> {
-        self.credentials.get(service).and_then(|service_creds| {
-            service_creds.get(key).cloned()
-        })
+        self.credentials
+            .get(service)
+            .and_then(|service_creds| service_creds.get(key).cloned())
     }
 }
 
@@ -379,7 +417,10 @@ web:
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.web_user_agent, Some("MyCustomUA".to_string()));
         assert_eq!(config.web_follow_redirects, Some(false));
-        assert_eq!(config.web_headers.get("X-API-Key"), Some(&"abc".to_string()));
+        assert_eq!(
+            config.web_headers.get("X-API-Key"),
+            Some(&"abc".to_string())
+        );
     }
 
     #[test]
@@ -407,8 +448,14 @@ credentials:
 #"#;
         let config = YamlConfig::parse(yaml).unwrap();
         assert!(config.credentials.contains_key("hibp"));
-        assert_eq!(config.credentials.get("hibp").unwrap().get("api_key"), Some(&"my_hibp_key".to_string()));
-        assert_eq!(config.get_credential("shodan", "api_key"), Some("my_shodan_key".to_string()));
+        assert_eq!(
+            config.credentials.get("hibp").unwrap().get("api_key"),
+            Some(&"my_hibp_key".to_string())
+        );
+        assert_eq!(
+            config.get_credential("shodan", "api_key"),
+            Some("my_shodan_key".to_string())
+        );
     }
 
     #[test]
@@ -435,8 +482,17 @@ commands:
     rate_limit: 10
 #"#;
         let config = YamlConfig::parse(yaml).unwrap();
-        assert_eq!(config.get_command_flag("recon", "domain", "subdomains", "threads"), Some("50".to_string()));
-        assert_eq!(config.has_command_flag("recon", "domain", "subdomains", "passive_only"), true);
-        assert_eq!(config.get_command_flag("web", "fuzz", "run", "rate_limit"), Some("10".to_string()));
+        assert_eq!(
+            config.get_command_flag("recon", "domain", "subdomains", "threads"),
+            Some("50".to_string())
+        );
+        assert_eq!(
+            config.has_command_flag("recon", "domain", "subdomains", "passive_only"),
+            true
+        );
+        assert_eq!(
+            config.get_command_flag("web", "fuzz", "run", "rate_limit"),
+            Some("10".to_string())
+        );
     }
 }

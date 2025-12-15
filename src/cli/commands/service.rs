@@ -83,10 +83,8 @@ impl Command for ServiceCommand {
             Flag::new("name", "Custom service name")
                 .with_short('n')
                 .with_arg("NAME"),
-            Flag::new("upstream", "Upstream server (for proxy/dns)")
-                .with_arg("HOST:PORT"),
-            Flag::new("root", "Root directory (for http server)")
-                .with_arg("PATH"),
+            Flag::new("upstream", "Upstream server (for proxy/dns)").with_arg("HOST:PORT"),
+            Flag::new("root", "Root directory (for http server)").with_arg("PATH"),
             Flag::new("no-autostart", "Don't start service on boot"),
             Flag::new("no-restart", "Don't restart on failure"),
         ]
@@ -110,10 +108,7 @@ impl Command for ServiceCommand {
                 "Install DNS server",
                 "rb service manage install dns-server --port 5353 --upstream 8.8.8.8",
             ),
-            (
-                "List all services",
-                "rb service manage list",
-            ),
+            ("List all services", "rb service manage list"),
             (
                 "Check service status",
                 "rb service manage status rb-mitm-8080",
@@ -143,7 +138,10 @@ impl Command for ServiceCommand {
                 print_help(self);
                 Ok(())
             }
-            _ => Err(format!("Unknown verb '{}'. Use 'rb service manage help'.", verb)),
+            _ => Err(format!(
+                "Unknown verb '{}'. Use 'rb service manage help'.",
+                verb
+            )),
         }
     }
 }
@@ -151,7 +149,8 @@ impl Command for ServiceCommand {
 impl ServiceCommand {
     fn install(&self, ctx: &CliContext) -> Result<(), String> {
         let service_type_name = ctx.target.as_deref().ok_or_else(|| {
-            "Missing service type. Available: mitm-proxy, http-server, dns-server, listener".to_string()
+            "Missing service type. Available: mitm-proxy, http-server, dns-server, listener"
+                .to_string()
         })?;
 
         let port: u16 = ctx
@@ -310,10 +309,10 @@ impl ServiceCommand {
             Output::header(&format!("Service: {}", name));
 
             let (color, icon) = match status {
-                ServiceStatus::Running => ("\x1b[32m", "●"), // green
-                ServiceStatus::Stopped => ("\x1b[33m", "○"), // yellow
-                ServiceStatus::Failed => ("\x1b[31m", "✗"),  // red
-                ServiceStatus::Unknown => ("\x1b[90m", "?"), // gray
+                ServiceStatus::Running => ("\x1b[32m", "●"),  // green
+                ServiceStatus::Stopped => ("\x1b[33m", "○"),  // yellow
+                ServiceStatus::Failed => ("\x1b[31m", "✗"),   // red
+                ServiceStatus::Unknown => ("\x1b[90m", "?"),  // gray
                 ServiceStatus::NotFound => ("\x1b[31m", "✗"), // red
             };
 
@@ -339,10 +338,7 @@ impl ServiceCommand {
         }
 
         println!();
-        println!(
-            "  {:<25} {:<12} {}",
-            "NAME", "STATUS", "DESCRIPTION"
-        );
+        println!("  {:<25} {:<12} {}", "NAME", "STATUS", "DESCRIPTION");
         println!("  {}", "-".repeat(70));
 
         for service in &services {
@@ -364,7 +360,11 @@ impl ServiceCommand {
 
             println!(
                 "  {:<25} {}{} {:<10}\x1b[0m {}",
-                service.name, color, icon, service.status.as_str(), desc
+                service.name,
+                color,
+                icon,
+                service.status.as_str(),
+                desc
             );
         }
 

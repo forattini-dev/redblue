@@ -1,13 +1,15 @@
 use crate::cli::commands;
 use crate::mcp::embeddings::{load_embeddings, EmbeddingsData, EmbeddingsLoaderConfig};
 use crate::mcp::search::{hybrid_search, SearchConfig, SearchMode};
-use crate::modules::recon::vuln::{
-    generate_cpe, NvdClient, KevClient, ExploitDbClient,
-    VulnCollection, calculate_risk_score, Severity,
-};
-use crate::modules::recon::vuln::osv::{OsvClient, Ecosystem};
 use crate::modules::recon::dnsdumpster::DnsDumpsterClient;
-use crate::modules::recon::massdns::{MassDnsScanner, MassDnsConfig, common_subdomains, load_wordlist};
+use crate::modules::recon::massdns::{
+    common_subdomains, load_wordlist, MassDnsConfig, MassDnsScanner,
+};
+use crate::modules::recon::vuln::osv::{Ecosystem, OsvClient};
+use crate::modules::recon::vuln::{
+    calculate_risk_score, generate_cpe, ExploitDbClient, KevClient, NvdClient, Severity,
+    VulnCollection,
+};
 use crate::modules::web::crawler::{CrawlerConfig, WebCrawler};
 use crate::modules::web::dom::Document;
 use crate::modules::web::extractors;
@@ -1002,29 +1004,59 @@ impl McpServer {
                 .iter()
                 .map(|result| {
                     JsonValue::object(vec![
-                        ("path".to_string(), JsonValue::String(result.document.path.clone())),
-                        ("title".to_string(), JsonValue::String(result.document.title.clone())),
-                        ("section".to_string(), result.document.section.as_ref()
-                            .map(|s| JsonValue::String(s.clone()))
-                            .unwrap_or(JsonValue::Null)),
+                        (
+                            "path".to_string(),
+                            JsonValue::String(result.document.path.clone()),
+                        ),
+                        (
+                            "title".to_string(),
+                            JsonValue::String(result.document.title.clone()),
+                        ),
+                        (
+                            "section".to_string(),
+                            result
+                                .document
+                                .section
+                                .as_ref()
+                                .map(|s| JsonValue::String(s.clone()))
+                                .unwrap_or(JsonValue::Null),
+                        ),
                         ("score".to_string(), JsonValue::Number(result.score as f64)),
-                        ("match_type".to_string(), JsonValue::String(format!("{:?}", result.match_type))),
-                        ("highlights".to_string(), JsonValue::array(
-                            result.highlights.iter()
-                                .map(|h| JsonValue::String(h.clone()))
-                                .collect()
-                        )),
-                        ("category".to_string(), JsonValue::String(result.document.category.clone())),
+                        (
+                            "match_type".to_string(),
+                            JsonValue::String(format!("{:?}", result.match_type)),
+                        ),
+                        (
+                            "highlights".to_string(),
+                            JsonValue::array(
+                                result
+                                    .highlights
+                                    .iter()
+                                    .map(|h| JsonValue::String(h.clone()))
+                                    .collect(),
+                            ),
+                        ),
+                        (
+                            "category".to_string(),
+                            JsonValue::String(result.document.category.clone()),
+                        ),
                     ])
                 })
                 .collect();
 
-            let mut lines = vec![format!("Hybrid search results for '{}' ({} docs indexed):", query, embeddings.documents.len())];
+            let mut lines = vec![format!(
+                "Hybrid search results for '{}' ({} docs indexed):",
+                query,
+                embeddings.documents.len()
+            )];
             if json_hits.is_empty() {
                 lines.push("  - No matches found.".to_string());
             } else {
                 for result in &results {
-                    let section_str = result.document.section.as_ref()
+                    let section_str = result
+                        .document
+                        .section
+                        .as_ref()
                         .map(|s| format!(" > {}", s))
                         .unwrap_or_default();
                     lines.push(format!(
@@ -1046,7 +1078,10 @@ impl McpServer {
                 data: JsonValue::object(vec![
                     ("query".to_string(), JsonValue::String(query.to_string())),
                     ("mode".to_string(), JsonValue::String("hybrid".to_string())),
-                    ("indexed_docs".to_string(), JsonValue::Number(embeddings.documents.len() as f64)),
+                    (
+                        "indexed_docs".to_string(),
+                        JsonValue::Number(embeddings.documents.len() as f64),
+                    ),
                     ("hits".to_string(), JsonValue::array(json_hits)),
                 ]),
             });
@@ -1330,7 +1365,9 @@ impl McpServer {
             .with_max_pages(max_pages)
             .with_same_origin(true);
 
-        let result = crawler.crawl(url).map_err(|e| format!("crawl failed: {}", e))?;
+        let result = crawler
+            .crawl(url)
+            .map_err(|e| format!("crawl failed: {}", e))?;
 
         let pages_json: Vec<JsonValue> = result
             .pages
@@ -1338,11 +1375,22 @@ impl McpServer {
             .map(|page| {
                 JsonValue::object(vec![
                     ("url".to_string(), JsonValue::String(page.url.clone())),
-                    ("title".to_string(), page.meta.title.as_ref()
-                        .map(|t| JsonValue::String(t.clone()))
-                        .unwrap_or(JsonValue::Null)),
-                    ("status".to_string(), JsonValue::Number(page.status_code as f64)),
-                    ("links_count".to_string(), JsonValue::Number(page.links.len() as f64)),
+                    (
+                        "title".to_string(),
+                        page.meta
+                            .title
+                            .as_ref()
+                            .map(|t| JsonValue::String(t.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "status".to_string(),
+                        JsonValue::Number(page.status_code as f64),
+                    ),
+                    (
+                        "links_count".to_string(),
+                        JsonValue::Number(page.links.len() as f64),
+                    ),
                 ])
             })
             .collect();
@@ -1356,9 +1404,18 @@ impl McpServer {
             text,
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
-                ("total_pages".to_string(), JsonValue::Number(result.total_urls as f64)),
-                ("total_links".to_string(), JsonValue::Number(result.total_links as f64)),
-                ("max_depth_reached".to_string(), JsonValue::Number(result.max_depth_reached as f64)),
+                (
+                    "total_pages".to_string(),
+                    JsonValue::Number(result.total_urls as f64),
+                ),
+                (
+                    "total_links".to_string(),
+                    JsonValue::Number(result.total_links as f64),
+                ),
+                (
+                    "max_depth_reached".to_string(),
+                    JsonValue::Number(result.max_depth_reached as f64),
+                ),
                 ("pages".to_string(), JsonValue::array(pages_json)),
             ]),
         })
@@ -1379,7 +1436,9 @@ impl McpServer {
 
         // Fetch the page
         let client = HttpClient::new();
-        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client
+            .get(url)
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         // Parse HTML
         let body_str = String::from_utf8_lossy(&response.body);
@@ -1403,14 +1462,19 @@ impl McpServer {
 
         let text = format!(
             "Extracted {} elements from '{}' using selector '{}'",
-            results.len(), url, selector
+            results.len(),
+            url,
+            selector
         );
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
-                ("selector".to_string(), JsonValue::String(selector.to_string())),
+                (
+                    "selector".to_string(),
+                    JsonValue::String(selector.to_string()),
+                ),
                 ("count".to_string(), JsonValue::Number(results.len() as f64)),
                 ("results".to_string(), JsonValue::array(results)),
             ]),
@@ -1449,15 +1513,15 @@ impl McpServer {
             })
             .collect();
 
-        let text = format!(
-            "Selected {} elements using '{}'",
-            results.len(), selector
-        );
+        let text = format!("Selected {} elements using '{}'", results.len(), selector);
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
-                ("selector".to_string(), JsonValue::String(selector.to_string())),
+                (
+                    "selector".to_string(),
+                    JsonValue::String(selector.to_string()),
+                ),
                 ("count".to_string(), JsonValue::Number(results.len() as f64)),
                 ("results".to_string(), JsonValue::array(results)),
             ]),
@@ -1479,7 +1543,9 @@ impl McpServer {
 
         // Fetch the page
         let client = HttpClient::new();
-        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client
+            .get(url)
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         // Parse HTML
         let body_str = String::from_utf8_lossy(&response.body);
@@ -1515,15 +1581,23 @@ impl McpServer {
 
         let text = format!(
             "Extracted {} {} links from '{}'",
-            links_json.len(), link_type_filter, url
+            links_json.len(),
+            link_type_filter,
+            url
         );
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
-                ("link_type".to_string(), JsonValue::String(link_type_filter.to_string())),
-                ("count".to_string(), JsonValue::Number(links_json.len() as f64)),
+                (
+                    "link_type".to_string(),
+                    JsonValue::String(link_type_filter.to_string()),
+                ),
+                (
+                    "count".to_string(),
+                    JsonValue::Number(links_json.len() as f64),
+                ),
                 ("links".to_string(), JsonValue::array(links_json)),
             ]),
         })
@@ -1540,7 +1614,9 @@ impl McpServer {
 
         // Fetch the page
         let client = HttpClient::new();
-        let response = client.get(url).map_err(|e| format!("HTTP request failed: {}", e))?;
+        let response = client
+            .get(url)
+            .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         // Parse HTML
         let body_str = String::from_utf8_lossy(&response.body);
@@ -1552,18 +1628,20 @@ impl McpServer {
         let tables_json: Vec<JsonValue> = tables
             .iter()
             .map(|table| {
-                let headers_json: Vec<JsonValue> = table.headers
+                let headers_json: Vec<JsonValue> = table
+                    .headers
                     .iter()
                     .map(|h| JsonValue::String(h.clone()))
                     .collect();
 
-                let rows_json: Vec<JsonValue> = table.rows
+                let rows_json: Vec<JsonValue> = table
+                    .rows
                     .iter()
                     .map(|row| {
                         JsonValue::array(
                             row.iter()
                                 .map(|cell| JsonValue::String(cell.clone()))
-                                .collect()
+                                .collect(),
                         )
                     })
                     .collect();
@@ -1571,21 +1649,24 @@ impl McpServer {
                 JsonValue::object(vec![
                     ("headers".to_string(), JsonValue::array(headers_json)),
                     ("rows".to_string(), JsonValue::array(rows_json)),
-                    ("row_count".to_string(), JsonValue::Number(table.rows.len() as f64)),
+                    (
+                        "row_count".to_string(),
+                        JsonValue::Number(table.rows.len() as f64),
+                    ),
                 ])
             })
             .collect();
 
-        let text = format!(
-            "Extracted {} tables from '{}'",
-            tables_json.len(), url
-        );
+        let text = format!("Extracted {} tables from '{}'", tables_json.len(), url);
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
-                ("count".to_string(), JsonValue::Number(tables_json.len() as f64)),
+                (
+                    "count".to_string(),
+                    JsonValue::Number(tables_json.len() as f64),
+                ),
                 ("tables".to_string(), JsonValue::array(tables_json)),
             ]),
         })
@@ -1615,7 +1696,9 @@ impl McpServer {
             .with_same_origin(true)
             .with_har_recording(true);
 
-        let result = crawler.crawl(url).map_err(|e| format!("crawl failed: {}", e))?;
+        let result = crawler
+            .crawl(url)
+            .map_err(|e| format!("crawl failed: {}", e))?;
 
         // Get HAR data
         let har_json = if let Some(recorder) = crawler.har_recorder() {
@@ -1623,13 +1706,23 @@ impl McpServer {
             let har = &guard.har;
 
             let total_time: f64 = har.log.entries.iter().map(|e| e.time).sum();
-            let total_response_size: i64 = har.log.entries.iter().map(|e| e.response.body_size).sum();
+            let total_response_size: i64 =
+                har.log.entries.iter().map(|e| e.response.body_size).sum();
 
             JsonValue::object(vec![
-                ("version".to_string(), JsonValue::String(har.log.version.clone())),
-                ("entries_count".to_string(), JsonValue::Number(har.log.entries.len() as f64)),
+                (
+                    "version".to_string(),
+                    JsonValue::String(har.log.version.clone()),
+                ),
+                (
+                    "entries_count".to_string(),
+                    JsonValue::Number(har.log.entries.len() as f64),
+                ),
                 ("total_time_ms".to_string(), JsonValue::Number(total_time)),
-                ("total_response_bytes".to_string(), JsonValue::Number(total_response_size.max(0) as f64)),
+                (
+                    "total_response_bytes".to_string(),
+                    JsonValue::Number(total_response_size.max(0) as f64),
+                ),
                 ("har_content".to_string(), JsonValue::String(har.to_json())),
             ])
         } else {
@@ -1638,17 +1731,23 @@ impl McpServer {
 
         let text = format!(
             "Recorded HTTP traffic for {} pages from '{}' (HAR entries: {})",
-            result.total_urls, url,
+            result.total_urls,
+            url,
             if let Some(entries) = har_json.get("entries_count").and_then(|v| v.as_f64()) {
                 entries as usize
-            } else { 0 }
+            } else {
+                0
+            }
         );
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
-                ("pages_crawled".to_string(), JsonValue::Number(result.total_urls as f64)),
+                (
+                    "pages_crawled".to_string(),
+                    JsonValue::Number(result.total_urls as f64),
+                ),
                 ("har".to_string(), har_json),
             ]),
         })
@@ -1690,36 +1789,69 @@ impl McpServer {
 
         // Get slowest requests
         let mut sorted_entries: Vec<_> = har.log.entries.iter().collect();
-        sorted_entries.sort_by(|a, b| b.time.partial_cmp(&a.time).unwrap_or(std::cmp::Ordering::Equal));
+        sorted_entries.sort_by(|a, b| {
+            b.time
+                .partial_cmp(&a.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let slowest_json: Vec<JsonValue> = sorted_entries
             .iter()
             .take(5)
             .map(|entry| {
                 JsonValue::object(vec![
-                    ("url".to_string(), JsonValue::String(entry.request.url.clone())),
+                    (
+                        "url".to_string(),
+                        JsonValue::String(entry.request.url.clone()),
+                    ),
                     ("time_ms".to_string(), JsonValue::Number(entry.time)),
-                    ("status".to_string(), JsonValue::Number(entry.response.status as f64)),
+                    (
+                        "status".to_string(),
+                        JsonValue::Number(entry.response.status as f64),
+                    ),
                 ])
             })
             .collect();
 
         let text = format!(
             "HAR Analysis: {} entries, {:.2}ms total time, {} bytes transferred",
-            total_entries, total_time, total_response_size.max(0)
+            total_entries,
+            total_time,
+            total_response_size.max(0)
         );
 
         Ok(ToolResult {
             text,
             data: JsonValue::object(vec![
-                ("version".to_string(), JsonValue::String(har.log.version.clone())),
-                ("creator".to_string(), JsonValue::String(format!("{} {}", har.log.creator.name, har.log.creator.version))),
-                ("total_entries".to_string(), JsonValue::Number(total_entries as f64)),
+                (
+                    "version".to_string(),
+                    JsonValue::String(har.log.version.clone()),
+                ),
+                (
+                    "creator".to_string(),
+                    JsonValue::String(format!(
+                        "{} {}",
+                        har.log.creator.name, har.log.creator.version
+                    )),
+                ),
+                (
+                    "total_entries".to_string(),
+                    JsonValue::Number(total_entries as f64),
+                ),
                 ("total_time_ms".to_string(), JsonValue::Number(total_time)),
-                ("total_request_bytes".to_string(), JsonValue::Number(total_request_size.max(0) as f64)),
-                ("total_response_bytes".to_string(), JsonValue::Number(total_response_size.max(0) as f64)),
+                (
+                    "total_request_bytes".to_string(),
+                    JsonValue::Number(total_request_size.max(0) as f64),
+                ),
+                (
+                    "total_response_bytes".to_string(),
+                    JsonValue::Number(total_response_size.max(0) as f64),
+                ),
                 ("status_codes".to_string(), JsonValue::array(status_json)),
-                ("slowest_requests".to_string(), JsonValue::array(slowest_json)),
+                (
+                    "slowest_requests".to_string(),
+                    JsonValue::array(slowest_json),
+                ),
             ]),
         })
     }
@@ -1733,10 +1865,7 @@ impl McpServer {
             .ok_or_else(|| "argument 'tech' is required".to_string())?;
 
         let version = args.get("version").and_then(|v| v.as_str());
-        let source = args
-            .get("source")
-            .and_then(|v| v.as_str())
-            .unwrap_or("nvd");
+        let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("nvd");
         let limit = args
             .get("limit")
             .and_then(|v| v.as_f64())
@@ -1781,10 +1910,7 @@ impl McpServer {
         // Sort and limit results
         let vulns: Vec<_> = collection.into_sorted().into_iter().take(limit).collect();
 
-        let vulns_json: Vec<JsonValue> = vulns
-            .iter()
-            .map(|v| vuln_to_json(v))
-            .collect();
+        let vulns_json: Vec<JsonValue> = vulns.iter().map(|v| vuln_to_json(v)).collect();
 
         let text = format!(
             "Found {} vulnerabilities for '{}'{} from {}",
@@ -1798,7 +1924,12 @@ impl McpServer {
             text,
             data: JsonValue::object(vec![
                 ("tech".to_string(), JsonValue::String(tech.to_string())),
-                ("version".to_string(), version.map(|v| JsonValue::String(v.to_string())).unwrap_or(JsonValue::Null)),
+                (
+                    "version".to_string(),
+                    version
+                        .map(|v| JsonValue::String(v.to_string()))
+                        .unwrap_or(JsonValue::Null),
+                ),
                 ("source".to_string(), JsonValue::String(source.to_string())),
                 ("count".to_string(), JsonValue::Number(vulns.len() as f64)),
                 ("vulnerabilities".to_string(), JsonValue::array(vulns_json)),
@@ -1814,11 +1945,15 @@ impl McpServer {
 
         // Validate CVE format
         if !cve_id.starts_with("CVE-") {
-            return Err(format!("Invalid CVE ID format: {}. Expected format: CVE-YYYY-NNNNN", cve_id));
+            return Err(format!(
+                "Invalid CVE ID format: {}. Expected format: CVE-YYYY-NNNNN",
+                cve_id
+            ));
         }
 
         let mut nvd_client = NvdClient::new();
-        let mut vuln = nvd_client.query_by_cve(cve_id)?
+        let mut vuln = nvd_client
+            .query_by_cve(cve_id)?
             .ok_or_else(|| format!("CVE not found: {}", cve_id))?;
 
         // Enrich with KEV
@@ -1835,8 +1970,14 @@ impl McpServer {
         let text = format!(
             "{} - {} (CVSS: {}, Risk: {}/100{}{})",
             vuln.id,
-            if vuln.title.is_empty() { "No title" } else { &vuln.title },
-            vuln.best_cvss().map(|s| format!("{:.1}", s)).unwrap_or_else(|| "N/A".to_string()),
+            if vuln.title.is_empty() {
+                "No title"
+            } else {
+                &vuln.title
+            },
+            vuln.best_cvss()
+                .map(|s| format!("{:.1}", s))
+                .unwrap_or_else(|| "N/A".to_string()),
             vuln.risk_score.unwrap_or(0),
             if vuln.cisa_kev { " [KEV]" } else { "" },
             if vuln.has_exploit() { " [EXPLOIT]" } else { "" }
@@ -1877,9 +2018,18 @@ impl McpServer {
             return Ok(ToolResult {
                 text,
                 data: JsonValue::object(vec![
-                    ("total".to_string(), JsonValue::Number(kev_stats.total as f64)),
-                    ("ransomware_count".to_string(), JsonValue::Number(kev_stats.ransomware_count as f64)),
-                    ("top_vendors".to_string(), JsonValue::array(top_vendors_json)),
+                    (
+                        "total".to_string(),
+                        JsonValue::Number(kev_stats.total as f64),
+                    ),
+                    (
+                        "ransomware_count".to_string(),
+                        JsonValue::Number(kev_stats.ransomware_count as f64),
+                    ),
+                    (
+                        "top_vendors".to_string(),
+                        JsonValue::array(top_vendors_json),
+                    ),
                 ]),
             });
         }
@@ -1894,30 +2044,45 @@ impl McpServer {
 
         let entries_json: Vec<JsonValue> = entries
             .iter()
-            .take(50)  // Limit to 50 entries
+            .take(50) // Limit to 50 entries
             .map(|e| {
                 JsonValue::object(vec![
                     ("cve_id".to_string(), JsonValue::String(e.cve_id.clone())),
-                    ("vendor".to_string(), JsonValue::String(e.vendor_project.clone())),
+                    (
+                        "vendor".to_string(),
+                        JsonValue::String(e.vendor_project.clone()),
+                    ),
                     ("product".to_string(), JsonValue::String(e.product.clone())),
-                    ("name".to_string(), JsonValue::String(e.vulnerability_name.clone())),
-                    ("date_added".to_string(), JsonValue::String(e.date_added.clone())),
-                    ("due_date".to_string(), JsonValue::String(e.due_date.clone())),
-                    ("ransomware".to_string(), JsonValue::Bool(e.known_ransomware_use)),
-                    ("description".to_string(), JsonValue::String(e.short_description.clone())),
+                    (
+                        "name".to_string(),
+                        JsonValue::String(e.vulnerability_name.clone()),
+                    ),
+                    (
+                        "date_added".to_string(),
+                        JsonValue::String(e.date_added.clone()),
+                    ),
+                    (
+                        "due_date".to_string(),
+                        JsonValue::String(e.due_date.clone()),
+                    ),
+                    (
+                        "ransomware".to_string(),
+                        JsonValue::Bool(e.known_ransomware_use),
+                    ),
+                    (
+                        "description".to_string(),
+                        JsonValue::String(e.short_description.clone()),
+                    ),
                 ])
             })
             .collect();
 
-        let filter_desc = vendor.map(|v| format!(" for vendor '{}'", v))
+        let filter_desc = vendor
+            .map(|v| format!(" for vendor '{}'", v))
             .or_else(|| product.map(|p| format!(" for product '{}'", p)))
             .unwrap_or_default();
 
-        let text = format!(
-            "CISA KEV Catalog: {} entries{}",
-            entries.len(),
-            filter_desc
-        );
+        let text = format!("CISA KEV Catalog: {} entries{}", entries.len(), filter_desc);
 
         Ok(ToolResult {
             text,
@@ -1951,9 +2116,27 @@ impl McpServer {
                 JsonValue::object(vec![
                     ("id".to_string(), JsonValue::String(e.id.clone())),
                     ("title".to_string(), JsonValue::String(e.title.clone())),
-                    ("platform".to_string(), e.platform.as_ref().map(|p| JsonValue::String(p.clone())).unwrap_or(JsonValue::Null)),
-                    ("exploit_type".to_string(), e.exploit_type.as_ref().map(|t| JsonValue::String(t.clone())).unwrap_or(JsonValue::Null)),
-                    ("date".to_string(), e.date.as_ref().map(|d| JsonValue::String(d.clone())).unwrap_or(JsonValue::Null)),
+                    (
+                        "platform".to_string(),
+                        e.platform
+                            .as_ref()
+                            .map(|p| JsonValue::String(p.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "exploit_type".to_string(),
+                        e.exploit_type
+                            .as_ref()
+                            .map(|t| JsonValue::String(t.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "date".to_string(),
+                        e.date
+                            .as_ref()
+                            .map(|d| JsonValue::String(d.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
                     ("url".to_string(), JsonValue::String(exploit_ref.url)),
                     ("verified".to_string(), JsonValue::Bool(e.verified)),
                 ])
@@ -1970,7 +2153,10 @@ impl McpServer {
             text,
             data: JsonValue::object(vec![
                 ("query".to_string(), JsonValue::String(query.to_string())),
-                ("count".to_string(), JsonValue::Number(exploits.len().min(limit) as f64)),
+                (
+                    "count".to_string(),
+                    JsonValue::Number(exploits.len().min(limit) as f64),
+                ),
                 ("exploits".to_string(), JsonValue::array(exploits_json)),
             ]),
         })
@@ -1982,10 +2168,7 @@ impl McpServer {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "argument 'url' is required".to_string())?;
 
-        let source = args
-            .get("source")
-            .and_then(|v| v.as_str())
-            .unwrap_or("nvd");
+        let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("nvd");
 
         // Fingerprint the URL
         let mut fingerprinter = WebFingerprinter::new();
@@ -2026,7 +2209,9 @@ impl McpServer {
             if source == "osv" || source == "all" {
                 let osv_client = OsvClient::new();
                 let ecosystem = map_tech_to_ecosystem(&tech.name);
-                if let Ok(vulns) = osv_client.query_package(&tech.name, tech.version.as_deref(), ecosystem) {
+                if let Ok(vulns) =
+                    osv_client.query_package(&tech.name, tech.version.as_deref(), ecosystem)
+                {
                     for vuln in vulns {
                         collection.add(vuln);
                     }
@@ -2047,17 +2232,26 @@ impl McpServer {
             .map(|t| {
                 JsonValue::object(vec![
                     ("name".to_string(), JsonValue::String(t.name.clone())),
-                    ("version".to_string(), t.version.as_ref().map(|v| JsonValue::String(v.clone())).unwrap_or(JsonValue::Null)),
-                    ("confidence".to_string(), JsonValue::String(format!("{}", t.confidence))),
-                    ("category".to_string(), JsonValue::String(format!("{:?}", t.category))),
+                    (
+                        "version".to_string(),
+                        t.version
+                            .as_ref()
+                            .map(|v| JsonValue::String(v.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "confidence".to_string(),
+                        JsonValue::String(format!("{}", t.confidence)),
+                    ),
+                    (
+                        "category".to_string(),
+                        JsonValue::String(format!("{:?}", t.category)),
+                    ),
                 ])
             })
             .collect();
 
-        let vulns_json: Vec<JsonValue> = vulns
-            .iter()
-            .map(|v| vuln_to_json(v))
-            .collect();
+        let vulns_json: Vec<JsonValue> = vulns.iter().map(|v| vuln_to_json(v)).collect();
 
         let text = format!(
             "Fingerprint of '{}': {} technologies detected, {} vulnerabilities found",
@@ -2071,7 +2265,10 @@ impl McpServer {
             data: JsonValue::object(vec![
                 ("url".to_string(), JsonValue::String(url.to_string())),
                 ("technologies".to_string(), JsonValue::array(techs_json)),
-                ("vulnerability_count".to_string(), JsonValue::Number(vulns.len() as f64)),
+                (
+                    "vulnerability_count".to_string(),
+                    JsonValue::Number(vulns.len() as f64),
+                ),
                 ("vulnerabilities".to_string(), JsonValue::array(vulns_json)),
             ]),
         })
@@ -2079,7 +2276,8 @@ impl McpServer {
 
     /// Query DNSDumpster for DNS intelligence
     fn tool_recon_dnsdumpster(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
-        let domain = args.get("domain")
+        let domain = args
+            .get("domain")
             .and_then(|v| v.as_str())
             .ok_or("Missing required field: domain")?;
 
@@ -2089,24 +2287,48 @@ impl McpServer {
         let unique_subdomains = result.unique_subdomains();
 
         // Build JSON for DNS records
-        let dns_records_json: Vec<JsonValue> = result.dns_records.iter().map(|r| {
-            JsonValue::object(vec![
-                ("host".to_string(), JsonValue::String(r.host.clone())),
-                ("type".to_string(), JsonValue::String(r.record_type.clone())),
-                ("value".to_string(), JsonValue::String(r.value.clone())),
-                ("ip".to_string(), r.ip.as_ref().map(|i| JsonValue::String(i.clone())).unwrap_or(JsonValue::Null)),
-                ("country".to_string(), r.country.as_ref().map(|c| JsonValue::String(c.clone())).unwrap_or(JsonValue::Null)),
-            ])
-        }).collect();
+        let dns_records_json: Vec<JsonValue> = result
+            .dns_records
+            .iter()
+            .map(|r| {
+                JsonValue::object(vec![
+                    ("host".to_string(), JsonValue::String(r.host.clone())),
+                    ("type".to_string(), JsonValue::String(r.record_type.clone())),
+                    ("value".to_string(), JsonValue::String(r.value.clone())),
+                    (
+                        "ip".to_string(),
+                        r.ip.as_ref()
+                            .map(|i| JsonValue::String(i.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "country".to_string(),
+                        r.country
+                            .as_ref()
+                            .map(|c| JsonValue::String(c.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                ])
+            })
+            .collect();
 
         // Build JSON for MX records
-        let mx_records_json: Vec<JsonValue> = result.mx_records.iter().map(|r| {
-            JsonValue::object(vec![
-                ("host".to_string(), JsonValue::String(r.host.clone())),
-                ("value".to_string(), JsonValue::String(r.value.clone())),
-                ("ip".to_string(), r.ip.as_ref().map(|i| JsonValue::String(i.clone())).unwrap_or(JsonValue::Null)),
-            ])
-        }).collect();
+        let mx_records_json: Vec<JsonValue> = result
+            .mx_records
+            .iter()
+            .map(|r| {
+                JsonValue::object(vec![
+                    ("host".to_string(), JsonValue::String(r.host.clone())),
+                    ("value".to_string(), JsonValue::String(r.value.clone())),
+                    (
+                        "ip".to_string(),
+                        r.ip.as_ref()
+                            .map(|i| JsonValue::String(i.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                ])
+            })
+            .collect();
 
         // Build text summary
         let text = format!(
@@ -2122,21 +2344,38 @@ impl McpServer {
             text,
             data: JsonValue::object(vec![
                 ("domain".to_string(), JsonValue::String(domain.to_string())),
-                ("dns_records".to_string(), JsonValue::array(dns_records_json)),
+                (
+                    "dns_records".to_string(),
+                    JsonValue::array(dns_records_json),
+                ),
                 ("mx_records".to_string(), JsonValue::array(mx_records_json)),
-                ("txt_records".to_string(), JsonValue::array(
-                    result.txt_records.iter().map(|t| JsonValue::String(t.clone())).collect()
-                )),
-                ("subdomains".to_string(), JsonValue::array(
-                    unique_subdomains.iter().map(|s| JsonValue::String(s.clone())).collect()
-                )),
+                (
+                    "txt_records".to_string(),
+                    JsonValue::array(
+                        result
+                            .txt_records
+                            .iter()
+                            .map(|t| JsonValue::String(t.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "subdomains".to_string(),
+                    JsonValue::array(
+                        unique_subdomains
+                            .iter()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .collect(),
+                    ),
+                ),
             ]),
         })
     }
 
     /// High-performance Mass DNS bruteforce
     fn tool_recon_massdns(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
-        let domain = args.get("domain")
+        let domain = args
+            .get("domain")
             .and_then(|v| v.as_str())
             .ok_or("Missing required field: domain")?;
 
@@ -2158,16 +2397,38 @@ impl McpServer {
         let result = scanner.bruteforce(domain, &wordlist)?;
 
         // Build JSON for resolved subdomains
-        let resolved_json: Vec<JsonValue> = result.resolved.iter().map(|r| {
-            JsonValue::object(vec![
-                ("subdomain".to_string(), JsonValue::String(r.subdomain.clone())),
-                ("ips".to_string(), JsonValue::array(
-                    r.ips.iter().map(|ip| JsonValue::String(ip.clone())).collect()
-                )),
-                ("cname".to_string(), r.cname.as_ref().map(|c| JsonValue::String(c.clone())).unwrap_or(JsonValue::Null)),
-                ("resolve_time_ms".to_string(), JsonValue::Number(r.resolve_time_ms as f64)),
-            ])
-        }).collect();
+        let resolved_json: Vec<JsonValue> = result
+            .resolved
+            .iter()
+            .map(|r| {
+                JsonValue::object(vec![
+                    (
+                        "subdomain".to_string(),
+                        JsonValue::String(r.subdomain.clone()),
+                    ),
+                    (
+                        "ips".to_string(),
+                        JsonValue::array(
+                            r.ips
+                                .iter()
+                                .map(|ip| JsonValue::String(ip.clone()))
+                                .collect(),
+                        ),
+                    ),
+                    (
+                        "cname".to_string(),
+                        r.cname
+                            .as_ref()
+                            .map(|c| JsonValue::String(c.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "resolve_time_ms".to_string(),
+                        JsonValue::Number(r.resolve_time_ms as f64),
+                    ),
+                ])
+            })
+            .collect();
 
         // Build text summary
         let text = format!(
@@ -2183,13 +2444,32 @@ impl McpServer {
             text,
             data: JsonValue::object(vec![
                 ("domain".to_string(), JsonValue::String(result.domain)),
-                ("total_attempts".to_string(), JsonValue::Number(result.total_attempts as f64)),
-                ("resolved_count".to_string(), JsonValue::Number(result.resolved.len() as f64)),
-                ("wildcard_detected".to_string(), JsonValue::Bool(result.wildcard_detected)),
-                ("wildcard_ips".to_string(), JsonValue::array(
-                    result.wildcard_ips.iter().map(|ip| JsonValue::String(ip.clone())).collect()
-                )),
-                ("duration_ms".to_string(), JsonValue::Number(result.duration_ms as f64)),
+                (
+                    "total_attempts".to_string(),
+                    JsonValue::Number(result.total_attempts as f64),
+                ),
+                (
+                    "resolved_count".to_string(),
+                    JsonValue::Number(result.resolved.len() as f64),
+                ),
+                (
+                    "wildcard_detected".to_string(),
+                    JsonValue::Bool(result.wildcard_detected),
+                ),
+                (
+                    "wildcard_ips".to_string(),
+                    JsonValue::array(
+                        result
+                            .wildcard_ips
+                            .iter()
+                            .map(|ip| JsonValue::String(ip.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "duration_ms".to_string(),
+                    JsonValue::Number(result.duration_ms as f64),
+                ),
                 ("resolved".to_string(), JsonValue::array(resolved_json)),
             ]),
         })
@@ -2198,13 +2478,20 @@ impl McpServer {
 
 /// Convert a Vulnerability to JSON
 fn vuln_to_json(vuln: &crate::modules::recon::vuln::Vulnerability) -> JsonValue {
-    let exploits_json: Vec<JsonValue> = vuln.exploits
+    let exploits_json: Vec<JsonValue> = vuln
+        .exploits
         .iter()
         .map(|e| {
             JsonValue::object(vec![
                 ("source".to_string(), JsonValue::String(e.source.clone())),
                 ("url".to_string(), JsonValue::String(e.url.clone())),
-                ("title".to_string(), e.title.as_ref().map(|t| JsonValue::String(t.clone())).unwrap_or(JsonValue::Null)),
+                (
+                    "title".to_string(),
+                    e.title
+                        .as_ref()
+                        .map(|t| JsonValue::String(t.clone()))
+                        .unwrap_or(JsonValue::Null),
+                ),
             ])
         })
         .collect();
@@ -2212,28 +2499,76 @@ fn vuln_to_json(vuln: &crate::modules::recon::vuln::Vulnerability) -> JsonValue 
     JsonValue::object(vec![
         ("id".to_string(), JsonValue::String(vuln.id.clone())),
         ("title".to_string(), JsonValue::String(vuln.title.clone())),
-        ("description".to_string(), JsonValue::String(vuln.description.clone())),
-        ("cvss_v3".to_string(), vuln.cvss_v3.map(|s| JsonValue::Number(s as f64)).unwrap_or(JsonValue::Null)),
-        ("severity".to_string(), JsonValue::String(vuln.severity.as_str().to_string())),
-        ("risk_score".to_string(), vuln.risk_score.map(|s| JsonValue::Number(s as f64)).unwrap_or(JsonValue::Null)),
+        (
+            "description".to_string(),
+            JsonValue::String(vuln.description.clone()),
+        ),
+        (
+            "cvss_v3".to_string(),
+            vuln.cvss_v3
+                .map(|s| JsonValue::Number(s as f64))
+                .unwrap_or(JsonValue::Null),
+        ),
+        (
+            "severity".to_string(),
+            JsonValue::String(vuln.severity.as_str().to_string()),
+        ),
+        (
+            "risk_score".to_string(),
+            vuln.risk_score
+                .map(|s| JsonValue::Number(s as f64))
+                .unwrap_or(JsonValue::Null),
+        ),
         ("cisa_kev".to_string(), JsonValue::Bool(vuln.cisa_kev)),
-        ("kev_due_date".to_string(), vuln.kev_due_date.as_ref().map(|d| JsonValue::String(d.clone())).unwrap_or(JsonValue::Null)),
-        ("has_exploit".to_string(), JsonValue::Bool(vuln.has_exploit())),
+        (
+            "kev_due_date".to_string(),
+            vuln.kev_due_date
+                .as_ref()
+                .map(|d| JsonValue::String(d.clone()))
+                .unwrap_or(JsonValue::Null),
+        ),
+        (
+            "has_exploit".to_string(),
+            JsonValue::Bool(vuln.has_exploit()),
+        ),
         ("exploits".to_string(), JsonValue::array(exploits_json)),
-        ("published".to_string(), vuln.published.as_ref().map(|p| JsonValue::String(p.clone())).unwrap_or(JsonValue::Null)),
-        ("cwes".to_string(), JsonValue::array(vuln.cwes.iter().map(|c| JsonValue::String(c.clone())).collect())),
+        (
+            "published".to_string(),
+            vuln.published
+                .as_ref()
+                .map(|p| JsonValue::String(p.clone()))
+                .unwrap_or(JsonValue::Null),
+        ),
+        (
+            "cwes".to_string(),
+            JsonValue::array(
+                vuln.cwes
+                    .iter()
+                    .map(|c| JsonValue::String(c.clone()))
+                    .collect(),
+            ),
+        ),
     ])
 }
 
 /// Map technology name to OSV ecosystem
 fn map_tech_to_ecosystem(tech_name: &str) -> Ecosystem {
     let name_lower = tech_name.to_lowercase();
-    if name_lower.contains("node") || name_lower.contains("npm") || name_lower.contains("express")
-        || name_lower.contains("react") || name_lower.contains("vue") || name_lower.contains("angular")
-        || name_lower.contains("jquery") || name_lower.contains("lodash") {
+    if name_lower.contains("node")
+        || name_lower.contains("npm")
+        || name_lower.contains("express")
+        || name_lower.contains("react")
+        || name_lower.contains("vue")
+        || name_lower.contains("angular")
+        || name_lower.contains("jquery")
+        || name_lower.contains("lodash")
+    {
         Ecosystem::Npm
-    } else if name_lower.contains("python") || name_lower.contains("django") || name_lower.contains("flask")
-        || name_lower.contains("fastapi") {
+    } else if name_lower.contains("python")
+        || name_lower.contains("django")
+        || name_lower.contains("flask")
+        || name_lower.contains("fastapi")
+    {
         Ecosystem::PyPI
     } else if name_lower.contains("rust") || name_lower.contains("cargo") {
         Ecosystem::Cargo
@@ -2241,15 +2576,25 @@ fn map_tech_to_ecosystem(tech_name: &str) -> Ecosystem {
         Ecosystem::RubyGems
     } else if name_lower.contains("go") || name_lower.contains("golang") {
         Ecosystem::Go
-    } else if name_lower.contains("java") || name_lower.contains("maven") || name_lower.contains("spring") {
+    } else if name_lower.contains("java")
+        || name_lower.contains("maven")
+        || name_lower.contains("spring")
+    {
         Ecosystem::Maven
-    } else if name_lower.contains("nuget") || name_lower.contains(".net") || name_lower.contains("dotnet") {
+    } else if name_lower.contains("nuget")
+        || name_lower.contains(".net")
+        || name_lower.contains("dotnet")
+    {
         Ecosystem::NuGet
-    } else if name_lower.contains("php") || name_lower.contains("composer") || name_lower.contains("laravel")
-        || name_lower.contains("wordpress") || name_lower.contains("drupal") {
+    } else if name_lower.contains("php")
+        || name_lower.contains("composer")
+        || name_lower.contains("laravel")
+        || name_lower.contains("wordpress")
+        || name_lower.contains("drupal")
+    {
         Ecosystem::Packagist
     } else {
-        Ecosystem::Npm  // Default to npm for JS-related technologies
+        Ecosystem::Npm // Default to npm for JS-related technologies
     }
 }
 

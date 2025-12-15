@@ -87,8 +87,7 @@ impl DohClient {
         );
 
         // Create request with JSON accept header
-        let request = HttpRequest::get(&url)
-            .with_header("Accept", "application/dns-json");
+        let request = HttpRequest::get(&url).with_header("Accept", "application/dns-json");
 
         let response = self
             .http_client
@@ -141,10 +140,7 @@ impl DohClient {
         // Extract results
         let collected = results.lock().unwrap().drain(..).collect::<Vec<_>>();
 
-        collected
-            .into_iter()
-            .map(|(_, r)| r)
-            .collect()
+        collected.into_iter().map(|(_, r)| r).collect()
     }
 
     /// Parse JSON response from DoH provider
@@ -387,11 +383,7 @@ pub enum PropagationStatus {
 
 impl DohClient {
     /// Check DNS propagation across all providers
-    pub fn check_propagation(
-        &self,
-        domain: &str,
-        record_type: DnsRecordType,
-    ) -> PropagationResult {
+    pub fn check_propagation(&self, domain: &str, record_type: DnsRecordType) -> PropagationResult {
         use std::sync::{Arc, Mutex};
         use std::thread;
 

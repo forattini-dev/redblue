@@ -143,8 +143,12 @@ impl EmbeddedFiles {
     /// Get embedded file by path
     pub fn get(path: &str) -> Option<(&'static str, &'static str)> {
         match path {
-            "/hook.js" | "hook.js" => Some((Self::hook_js(), "application/javascript; charset=utf-8")),
-            "/" | "/index.html" | "index.html" => Some((Self::index_html(), "text/html; charset=utf-8")),
+            "/hook.js" | "hook.js" => {
+                Some((Self::hook_js(), "application/javascript; charset=utf-8"))
+            }
+            "/" | "/index.html" | "index.html" => {
+                Some((Self::index_html(), "text/html; charset=utf-8"))
+            }
             _ => None,
         }
     }

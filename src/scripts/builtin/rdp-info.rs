@@ -1,7 +1,6 @@
 /// RDP Information Script
 ///
 /// Detects RDP services and identifies security configuration issues.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -58,7 +57,10 @@ impl Script for RdpInfoScript {
         // RDP detected
         result.add_finding(
             Finding::new(FindingType::Discovery, "RDP Service Detected")
-                .with_description(&format!("Remote Desktop Protocol service on port {}", ctx.port))
+                .with_description(&format!(
+                    "Remote Desktop Protocol service on port {}",
+                    ctx.port
+                ))
                 .with_severity(FindingSeverity::Info),
         );
 
@@ -74,12 +76,12 @@ impl Script for RdpInfoScript {
                 Finding::new(FindingType::Misconfiguration, "RDP Exposed to Internet")
                     .with_description(
                         "RDP service appears to be exposed to the internet. \
-                         This is a common attack vector for ransomware and brute force attacks."
+                         This is a common attack vector for ransomware and brute force attacks.",
                     )
                     .with_severity(FindingSeverity::High)
                     .with_remediation(
                         "Use VPN or RD Gateway for remote access. \
-                         Do not expose RDP directly to the internet."
+                         Do not expose RDP directly to the internet.",
                     ),
             );
         }
@@ -91,7 +93,7 @@ impl Script for RdpInfoScript {
                     Finding::new(FindingType::Misconfiguration, "NLA Disabled")
                         .with_description(
                             "Network Level Authentication is disabled. \
-                             This allows unauthenticated users to reach the Windows login screen."
+                             This allows unauthenticated users to reach the Windows login screen.",
                         )
                         .with_severity(FindingSeverity::High)
                         .with_remediation("Enable Network Level Authentication (NLA) for RDP"),
@@ -126,17 +128,20 @@ impl Script for RdpInfoScript {
             || data_lower.contains("windows vista")
         {
             result.add_finding(
-                Finding::new(FindingType::Vulnerability, "Potential BlueKeep Vulnerability")
-                    .with_cve("CVE-2019-0708")
-                    .with_description(
-                        "System may be vulnerable to BlueKeep (CVE-2019-0708), \
-                         a critical RCE vulnerability in RDP."
-                    )
-                    .with_severity(FindingSeverity::Critical)
-                    .with_remediation(
-                        "Apply security patches immediately. \
-                         Block RDP at perimeter if patching is not possible."
-                    ),
+                Finding::new(
+                    FindingType::Vulnerability,
+                    "Potential BlueKeep Vulnerability",
+                )
+                .with_cve("CVE-2019-0708")
+                .with_description(
+                    "System may be vulnerable to BlueKeep (CVE-2019-0708), \
+                         a critical RCE vulnerability in RDP.",
+                )
+                .with_severity(FindingSeverity::Critical)
+                .with_remediation(
+                    "Apply security patches immediately. \
+                         Block RDP at perimeter if patching is not possible.",
+                ),
             );
         }
 
@@ -165,7 +170,10 @@ impl Script for RdpInfoScript {
             }
         }
 
-        result.add_output(&format!("RDP analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "RDP analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -188,7 +196,10 @@ mod tests {
         ctx.set_data("rdp_nla", "disabled");
 
         let result = script.run(&ctx).unwrap();
-        let has_nla_issue = result.findings.iter().any(|f| f.title.contains("NLA Disabled"));
+        let has_nla_issue = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("NLA Disabled"));
         assert!(has_nla_issue);
     }
 }

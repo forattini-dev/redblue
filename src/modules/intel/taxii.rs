@@ -37,18 +37,26 @@ impl TaxiiClient {
     }
 
     fn build_url(&self, path: &str) -> String {
-        format!("{}/{}/{}", self.base_url, self.api_root, path.trim_start_matches('/'))
+        format!(
+            "{}/{}/{}",
+            self.base_url,
+            self.api_root,
+            path.trim_start_matches('/')
+        )
     }
 
     pub fn list_collections(&self) -> Result<Vec<Collection>, String> {
         let url = self.build_url("collections/");
-        let request = HttpRequest::get(&url)
-            .with_header("Accept", "application/taxii+json;version=2.1");
+        let request =
+            HttpRequest::get(&url).with_header("Accept", "application/taxii+json;version=2.1");
 
         let response = self.client.send(&request)?;
-        
+
         if !response.is_success() {
-            return Err(format!("TAXII request failed: {} {}", response.status_code, response.status_text));
+            return Err(format!(
+                "TAXII request failed: {} {}",
+                response.status_code, response.status_text
+            ));
         }
 
         let body = response.body_as_string();
@@ -59,13 +67,13 @@ impl TaxiiClient {
     }
 
     pub fn get_objects(
-        &self, 
-        collection_id: &str, 
+        &self,
+        collection_id: &str,
         object_type: Option<&str>,
-        added_after: Option<&str>
+        added_after: Option<&str>,
     ) -> Result<Envelope, String> {
         let mut url = self.build_url(&format!("collections/{}/objects/", collection_id));
-        
+
         // Add query params
         let mut params = Vec::new();
         if let Some(t) = object_type {
@@ -80,18 +88,21 @@ impl TaxiiClient {
             url.push_str(&params.join("&"));
         }
 
-        let request = HttpRequest::get(&url)
-            .with_header("Accept", "application/taxii+json;version=2.1");
+        let request =
+            HttpRequest::get(&url).with_header("Accept", "application/taxii+json;version=2.1");
 
         let response = self.client.send(&request)?;
 
         if !response.is_success() {
-            return Err(format!("TAXII request failed: {} {}", response.status_code, response.status_text));
+            return Err(format!(
+                "TAXII request failed: {} {}",
+                response.status_code, response.status_text
+            ));
         }
 
         let body = response.body_as_string();
-        let envelope: Envelope = serde_json::from_str(&body)
-            .map_err(|e| format!("Failed to parse envelope: {}", e))?;
+        let envelope: Envelope =
+            serde_json::from_str(&body).map_err(|e| format!("Failed to parse envelope: {}", e))?;
 
         Ok(envelope)
     }

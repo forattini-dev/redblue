@@ -698,11 +698,9 @@ mod tests {
     fn test_duplicate_table() {
         let mut registry = SchemaRegistry::new();
 
-        let table1 = TableDef::new("hosts")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table1 = TableDef::new("hosts").add_column(ColumnDef::new("id", DataType::Integer));
 
-        let table2 = TableDef::new("hosts")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table2 = TableDef::new("hosts").add_column(ColumnDef::new("id", DataType::Integer));
 
         assert!(registry.create_table(table1).is_ok());
         assert!(matches!(
@@ -715,8 +713,7 @@ mod tests {
     fn test_drop_table() {
         let mut registry = SchemaRegistry::new();
 
-        let table = TableDef::new("hosts")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table = TableDef::new("hosts").add_column(ColumnDef::new("id", DataType::Integer));
 
         registry.create_table(table).unwrap();
         assert!(registry.table_exists("hosts"));
@@ -730,8 +727,7 @@ mod tests {
     fn test_add_column() {
         let mut registry = SchemaRegistry::new();
 
-        let table = TableDef::new("hosts")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table = TableDef::new("hosts").add_column(ColumnDef::new("id", DataType::Integer));
 
         registry.create_table(table).unwrap();
 
@@ -786,8 +782,7 @@ mod tests {
     fn test_rename_table() {
         let mut registry = SchemaRegistry::new();
 
-        let table = TableDef::new("old_name")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table = TableDef::new("old_name").add_column(ColumnDef::new("id", DataType::Integer));
 
         registry.create_table(table).unwrap();
         assert!(registry.rename_table("old_name", "new_name").is_ok());
@@ -803,12 +798,15 @@ mod tests {
     fn test_migration_history() {
         let mut registry = SchemaRegistry::new();
 
-        let table = TableDef::new("hosts")
-            .add_column(ColumnDef::new("id", DataType::Integer));
+        let table = TableDef::new("hosts").add_column(ColumnDef::new("id", DataType::Integer));
 
         registry.create_table(table).unwrap();
-        registry.add_column("hosts", ColumnDef::new("ip", DataType::IpAddr)).unwrap();
-        registry.create_index("hosts", IndexDef::new("idx_ip", vec!["ip".to_string()])).unwrap();
+        registry
+            .add_column("hosts", ColumnDef::new("ip", DataType::IpAddr))
+            .unwrap();
+        registry
+            .create_index("hosts", IndexDef::new("idx_ip", vec!["ip".to_string()]))
+            .unwrap();
 
         assert_eq!(registry.migrations().len(), 3);
         assert!(matches!(
@@ -832,9 +830,7 @@ mod tests {
         let table1 = TableDef::new("hosts")
             .add_column(ColumnDef::new("id", DataType::UnsignedInteger).not_null())
             .add_column(ColumnDef::new("ip", DataType::IpAddr).not_null())
-            .add_column(
-                ColumnDef::new("embedding", DataType::Vector).with_vector_dim(128),
-            )
+            .add_column(ColumnDef::new("embedding", DataType::Vector).with_vector_dim(128))
             .primary_key(vec!["id".to_string()])
             .add_index(IndexDef::new("idx_ip", vec!["ip".to_string()]).unique())
             .add_index(

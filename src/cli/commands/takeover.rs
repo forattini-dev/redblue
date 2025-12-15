@@ -233,7 +233,9 @@ impl TakeoverCommand {
         );
 
         // Filter by confidence level if specified
-        let min_confidence = ctx.get_flag("confidence").unwrap_or_else(|| "low".to_string());
+        let min_confidence = ctx
+            .get_flag("confidence")
+            .unwrap_or_else(|| "low".to_string());
 
         let filtered: Vec<_> = results
             .iter()

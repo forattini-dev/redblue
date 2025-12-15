@@ -2,7 +2,6 @@
 ///
 /// Detects VNC services and identifies security issues
 /// including weak authentication and known vulnerabilities.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -20,7 +19,11 @@ impl VncInfoScript {
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
                 description: "Detects VNC services and identifies security issues".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Vuln, ScriptCategory::Safe],
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["vnc".to_string(), "rfb".to_string()],
                 ports: vec![5900, 5901, 5902, 5903, 5800],
                 license: "MIT".to_string(),
@@ -62,7 +65,10 @@ impl Script for VncInfoScript {
         // VNC detected
         result.add_finding(
             Finding::new(FindingType::Discovery, "VNC Service Detected")
-                .with_description(&format!("VNC (Remote Framebuffer) service on port {}", ctx.port))
+                .with_description(&format!(
+                    "VNC (Remote Framebuffer) service on port {}",
+                    ctx.port
+                ))
                 .with_severity(FindingSeverity::Info),
         );
 
@@ -97,7 +103,7 @@ impl Script for VncInfoScript {
                 Finding::new(FindingType::Vulnerability, "VNC No Authentication")
                     .with_description(
                         "VNC server allows connections without authentication. \
-                         Anyone can view and control this desktop."
+                         Anyone can view and control this desktop.",
                     )
                     .with_severity(FindingSeverity::Critical)
                     .with_remediation("Enable VNC authentication immediately"),
@@ -153,23 +159,26 @@ impl Script for VncInfoScript {
                 Finding::new(FindingType::Misconfiguration, "VNC Exposed to Internet")
                     .with_description(
                         "VNC service appears to be exposed to the internet. \
-                         VNC traffic is often unencrypted and susceptible to brute force."
+                         VNC traffic is often unencrypted and susceptible to brute force.",
                     )
                     .with_severity(FindingSeverity::High)
                     .with_remediation(
                         "Use VPN or SSH tunneling for remote VNC access. \
-                         Do not expose VNC directly to the internet."
+                         Do not expose VNC directly to the internet.",
                     ),
             );
         }
 
         // Check for encryption indicators
-        if !banner_lower.contains("tls") && !banner_lower.contains("ssl") && !banner_lower.contains("encrypt") {
+        if !banner_lower.contains("tls")
+            && !banner_lower.contains("ssl")
+            && !banner_lower.contains("encrypt")
+        {
             result.add_finding(
                 Finding::new(FindingType::Misconfiguration, "VNC Without Encryption")
                     .with_description(
                         "VNC appears to be running without TLS encryption. \
-                         Screen contents and keystrokes are transmitted in cleartext."
+                         Screen contents and keystrokes are transmitted in cleartext.",
                     )
                     .with_severity(FindingSeverity::Medium)
                     .with_remediation("Enable VNC encryption or tunnel through SSH/VPN"),
@@ -177,7 +186,10 @@ impl Script for VncInfoScript {
         }
 
         result.extract("vnc_banner", banner);
-        result.add_output(&format!("VNC analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "VNC analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -189,28 +201,34 @@ impl VncInfoScript {
                 // CVE-2019-15678 - heap buffer overflow
                 if banner.contains("1.3.") || banner.contains("2.7.") || banner.contains("2.8.") {
                     result.add_finding(
-                        Finding::new(FindingType::Vulnerability, "TightVNC Potential Vulnerability")
-                            .with_cve("CVE-2019-15678")
-                            .with_description(
-                                "TightVNC versions prior to 2.8.63 may be vulnerable to \
-                                 heap buffer overflow (CVE-2019-15678)."
-                            )
-                            .with_severity(FindingSeverity::High)
-                            .with_remediation("Upgrade to TightVNC 2.8.63 or later"),
+                        Finding::new(
+                            FindingType::Vulnerability,
+                            "TightVNC Potential Vulnerability",
+                        )
+                        .with_cve("CVE-2019-15678")
+                        .with_description(
+                            "TightVNC versions prior to 2.8.63 may be vulnerable to \
+                                 heap buffer overflow (CVE-2019-15678).",
+                        )
+                        .with_severity(FindingSeverity::High)
+                        .with_remediation("Upgrade to TightVNC 2.8.63 or later"),
                     );
                 }
             }
             "LibVNC" => {
                 // CVE-2018-7225 - auth bypass
                 result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "LibVNC Authentication Bypass Check")
-                        .with_cve("CVE-2018-7225")
-                        .with_description(
-                            "LibVNC-based servers may be vulnerable to auth bypass \
-                             if not updated to patched versions."
-                        )
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation("Ensure LibVNC is updated to latest version"),
+                    Finding::new(
+                        FindingType::Vulnerability,
+                        "LibVNC Authentication Bypass Check",
+                    )
+                    .with_cve("CVE-2018-7225")
+                    .with_description(
+                        "LibVNC-based servers may be vulnerable to auth bypass \
+                             if not updated to patched versions.",
+                    )
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation("Ensure LibVNC is updated to latest version"),
                 );
             }
             "UltraVNC" => {
@@ -220,7 +238,7 @@ impl VncInfoScript {
                         Finding::new(FindingType::Vulnerability, "Outdated UltraVNC Version")
                             .with_description(
                                 "Older UltraVNC versions have known vulnerabilities \
-                                 including buffer overflows and auth bypasses."
+                                 including buffer overflows and auth bypasses.",
                             )
                             .with_severity(FindingSeverity::High)
                             .with_remediation("Upgrade to latest UltraVNC version"),
@@ -250,7 +268,10 @@ mod tests {
         ctx.set_data("vnc_auth", "none");
 
         let result = script.run(&ctx).unwrap();
-        let has_no_auth = result.findings.iter().any(|f| f.title.contains("No Authentication"));
+        let has_no_auth = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("No Authentication"));
         assert!(has_no_auth);
     }
 }

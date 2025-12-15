@@ -96,7 +96,9 @@ impl InitCommand {
         println!();
         Output::info("Edit this file to customize your redblue settings");
         Output::info("Key features:");
-        Output::info("  • auto_persist: true   → Automatically save all scan results to .rdb files");
+        Output::info(
+            "  • auto_persist: true   → Automatically save all scan results to .rdb files",
+        );
         Output::info("  • threads: 50          → Adjust for faster/slower scans");
         Output::info("  • preset: aggressive   → Use scanning presets");
         println!();
@@ -197,7 +199,10 @@ mod tests {
         let output_flag = flags.iter().find(|f| f.long == "output");
         assert!(output_flag.is_some());
         assert_eq!(output_flag.unwrap().short, Some('o'));
-        assert_eq!(output_flag.unwrap().default, Some(".redblue.yaml".to_string()));
+        assert_eq!(
+            output_flag.unwrap().default,
+            Some(".redblue.yaml".to_string())
+        );
     }
 
     #[test]
@@ -232,9 +237,9 @@ mod tests {
         let config = generate_full_config();
 
         // Verify it looks like valid YAML (not parsing, just structure)
-        assert!(config.starts_with('#'));  // Comments first
-        assert!(config.contains(':'));     // Has key-value pairs
-        assert!(!config.contains('\t'));   // No tabs (YAML best practice)
+        assert!(config.starts_with('#')); // Comments first
+        assert!(config.contains(':')); // Has key-value pairs
+        assert!(!config.contains('\t')); // No tabs (YAML best practice)
     }
 
     #[test]
@@ -269,7 +274,11 @@ mod tests {
     fn test_execute_invalid_verb() {
         let cmd = InitCommand;
         let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string(), "invalid".to_string()],
+            raw: vec![
+                "config".to_string(),
+                "init".to_string(),
+                "invalid".to_string(),
+            ],
             domain: Some("config".to_string()),
             resource: Some("init".to_string()),
             verb: Some("invalid".to_string()),
@@ -296,10 +305,17 @@ mod tests {
 
         let config_path = temp_dir.join("test-config.yaml");
         let mut flags = HashMap::new();
-        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+        flags.insert(
+            "output".to_string(),
+            config_path.to_string_lossy().to_string(),
+        );
 
         let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            raw: vec![
+                "config".to_string(),
+                "init".to_string(),
+                "create".to_string(),
+            ],
             domain: Some("config".to_string()),
             resource: Some("init".to_string()),
             verb: Some("create".to_string()),
@@ -340,10 +356,17 @@ mod tests {
         fs::write(&config_path, "existing content").unwrap();
 
         let mut flags = HashMap::new();
-        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+        flags.insert(
+            "output".to_string(),
+            config_path.to_string_lossy().to_string(),
+        );
 
         let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            raw: vec![
+                "config".to_string(),
+                "init".to_string(),
+                "create".to_string(),
+            ],
             domain: Some("config".to_string()),
             resource: Some("init".to_string()),
             verb: Some("create".to_string()),
@@ -381,11 +404,18 @@ mod tests {
         fs::write(&config_path, "old content").unwrap();
 
         let mut flags = HashMap::new();
-        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+        flags.insert(
+            "output".to_string(),
+            config_path.to_string_lossy().to_string(),
+        );
         flags.insert("force".to_string(), "true".to_string());
 
         let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            raw: vec![
+                "config".to_string(),
+                "init".to_string(),
+                "create".to_string(),
+            ],
             domain: Some("config".to_string()),
             resource: Some("init".to_string()),
             verb: Some("create".to_string()),
@@ -420,10 +450,17 @@ mod tests {
         // Use explicit path for testing (can't reliably change cwd in tests)
         let config_path = temp_dir.join(".redblue.yaml");
         let mut flags = HashMap::new();
-        flags.insert("output".to_string(), config_path.to_string_lossy().to_string());
+        flags.insert(
+            "output".to_string(),
+            config_path.to_string_lossy().to_string(),
+        );
 
         let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string(), "create".to_string()],
+            raw: vec![
+                "config".to_string(),
+                "init".to_string(),
+                "create".to_string(),
+            ],
             domain: Some("config".to_string()),
             resource: Some("init".to_string()),
             verb: Some("create".to_string()),

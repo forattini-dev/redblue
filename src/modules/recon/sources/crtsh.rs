@@ -4,7 +4,6 @@
 /// Free, no API key required, rate limited.
 ///
 /// API: https://crt.sh/?q=%.domain.com&output=json
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -35,7 +34,11 @@ impl CrtShSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -73,7 +76,8 @@ impl CrtShSource {
                     };
 
                     // Validate it belongs to target domain
-                    if (clean_name.ends_with(&format!(".{}", domain_lower)) || clean_name == domain_lower)
+                    if (clean_name.ends_with(&format!(".{}", domain_lower))
+                        || clean_name == domain_lower)
                         && seen.insert(clean_name.to_string())
                     {
                         records.push(SubdomainRecord {

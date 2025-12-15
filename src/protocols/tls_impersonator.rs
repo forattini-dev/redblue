@@ -1,5 +1,5 @@
-use boring::ssl::{SslConnectorBuilder, SslContextBuilder, SslOptions, SslVersion, SslMethod};
 use boring::error::ErrorStack;
+use boring::ssl::{SslConnectorBuilder, SslContextBuilder, SslMethod, SslOptions, SslVersion};
 
 /// Defines which browser fingerprint to mimic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,7 +55,8 @@ impl TlsProfile {
             "AES256-GCM-SHA384",
             "AES128-SHA",
             "AES256-SHA",
-        ].join(":");
+        ]
+        .join(":");
         builder.cfg_set_cipher_list(&cipher_list)?;
 
         builder.cfg_set_groups_list("X25519:P-256:P-384")?;
@@ -85,7 +86,8 @@ impl TlsProfile {
             "ECDHE-RSA-AES256-SHA",
             "AES128-GCM-SHA256",
             "AES256-GCM-SHA384",
-        ].join(":");
+        ]
+        .join(":");
         builder.cfg_set_cipher_list(&cipher_list)?;
 
         builder.cfg_set_groups_list("X25519:P-256:P-384:P-521")?;
@@ -113,7 +115,8 @@ impl TlsProfile {
             "ECDHE-RSA-CHACHA20-POLY1305",
             "AES256-GCM-SHA384",
             "AES128-GCM-SHA256",
-        ].join(":");
+        ]
+        .join(":");
         builder.cfg_set_cipher_list(&cipher_list)?;
 
         builder.cfg_set_groups_list("X25519:P-256:P-384:P-521")?;
@@ -139,31 +142,63 @@ trait TlsConfigurable {
 }
 
 impl TlsConfigurable for SslConnectorBuilder {
-    fn cfg_set_grease_enabled(&mut self, enabled: bool) { self.set_grease_enabled(enabled); }
-    fn cfg_set_min_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> { self.set_min_proto_version(version) }
-    fn cfg_set_max_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> { self.set_max_proto_version(version) }
-    fn cfg_set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> { self.set_cipher_list(cipher_list) }
-    fn cfg_set_groups_list(&mut self, _groups_list: &str) -> Result<(), ErrorStack> { 
-        // self.set_groups_list(groups_list) // Method missing in boring crate
-        Ok(()) 
+    fn cfg_set_grease_enabled(&mut self, enabled: bool) {
+        self.set_grease_enabled(enabled);
     }
-    fn cfg_set_alpn_protos(&mut self, protocols: &[u8]) -> Result<(), ErrorStack> { self.set_alpn_protos(protocols) }
-    fn cfg_enable_ocsp_stapling(&mut self) { self.enable_ocsp_stapling(); }
-    fn cfg_enable_signed_cert_timestamps(&mut self) { self.enable_signed_cert_timestamps(); }
-    fn cfg_set_options(&mut self, option: SslOptions) { self.set_options(option); }
+    fn cfg_set_min_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        self.set_min_proto_version(version)
+    }
+    fn cfg_set_max_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        self.set_max_proto_version(version)
+    }
+    fn cfg_set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> {
+        self.set_cipher_list(cipher_list)
+    }
+    fn cfg_set_groups_list(&mut self, _groups_list: &str) -> Result<(), ErrorStack> {
+        // self.set_groups_list(groups_list) // Method missing in boring crate
+        Ok(())
+    }
+    fn cfg_set_alpn_protos(&mut self, protocols: &[u8]) -> Result<(), ErrorStack> {
+        self.set_alpn_protos(protocols)
+    }
+    fn cfg_enable_ocsp_stapling(&mut self) {
+        self.enable_ocsp_stapling();
+    }
+    fn cfg_enable_signed_cert_timestamps(&mut self) {
+        self.enable_signed_cert_timestamps();
+    }
+    fn cfg_set_options(&mut self, option: SslOptions) {
+        self.set_options(option);
+    }
 }
 
 impl TlsConfigurable for SslContextBuilder {
-    fn cfg_set_grease_enabled(&mut self, enabled: bool) { self.set_grease_enabled(enabled); }
-    fn cfg_set_min_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> { self.set_min_proto_version(version) }
-    fn cfg_set_max_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> { self.set_max_proto_version(version) }
-    fn cfg_set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> { self.set_cipher_list(cipher_list) }
-    fn cfg_set_groups_list(&mut self, _groups_list: &str) -> Result<(), ErrorStack> { 
-        // self.set_groups_list(groups_list) // Method missing in boring crate
-        Ok(()) 
+    fn cfg_set_grease_enabled(&mut self, enabled: bool) {
+        self.set_grease_enabled(enabled);
     }
-    fn cfg_set_alpn_protos(&mut self, protocols: &[u8]) -> Result<(), ErrorStack> { self.set_alpn_protos(protocols) }
-    fn cfg_enable_ocsp_stapling(&mut self) { self.enable_ocsp_stapling(); }
-    fn cfg_enable_signed_cert_timestamps(&mut self) { self.enable_signed_cert_timestamps(); }
-    fn cfg_set_options(&mut self, option: SslOptions) { self.set_options(option); }
+    fn cfg_set_min_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        self.set_min_proto_version(version)
+    }
+    fn cfg_set_max_proto_version(&mut self, version: Option<SslVersion>) -> Result<(), ErrorStack> {
+        self.set_max_proto_version(version)
+    }
+    fn cfg_set_cipher_list(&mut self, cipher_list: &str) -> Result<(), ErrorStack> {
+        self.set_cipher_list(cipher_list)
+    }
+    fn cfg_set_groups_list(&mut self, _groups_list: &str) -> Result<(), ErrorStack> {
+        // self.set_groups_list(groups_list) // Method missing in boring crate
+        Ok(())
+    }
+    fn cfg_set_alpn_protos(&mut self, protocols: &[u8]) -> Result<(), ErrorStack> {
+        self.set_alpn_protos(protocols)
+    }
+    fn cfg_enable_ocsp_stapling(&mut self) {
+        self.enable_ocsp_stapling();
+    }
+    fn cfg_enable_signed_cert_timestamps(&mut self) {
+        self.enable_signed_cert_timestamps();
+    }
+    fn cfg_set_options(&mut self, option: SslOptions) {
+        self.set_options(option);
+    }
 }

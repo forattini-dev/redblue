@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::modules::proxy::{
-    Address, ConnectionId, ConnectionIdGenerator, ConnectionInfo, ConnectionState,
-    FlowStats, Protocol,
+    Address, ConnectionId, ConnectionIdGenerator, ConnectionInfo, ConnectionState, FlowStats,
+    Protocol,
 };
 
 /// Connection tracker for managing active connections
@@ -159,8 +159,14 @@ impl ConnectionTracker {
             total_connections: flow.total_connections,
             total_bytes_sent: flow.total_bytes_sent,
             total_bytes_received: flow.total_bytes_received,
-            tcp_connections: connections.iter().filter(|c| c.protocol == Protocol::Tcp).count(),
-            udp_connections: connections.iter().filter(|c| c.protocol == Protocol::Udp).count(),
+            tcp_connections: connections
+                .iter()
+                .filter(|c| c.protocol == Protocol::Tcp)
+                .count(),
+            udp_connections: connections
+                .iter()
+                .filter(|c| c.protocol == Protocol::Udp)
+                .count(),
         }
     }
 }

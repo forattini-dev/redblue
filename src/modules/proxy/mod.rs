@@ -44,14 +44,14 @@
 //! rb proxy mitm start --port 8080 --ca-cert ca.pem
 //! ```
 
-pub mod socks5;
-pub mod http;
-pub mod relay;
-pub mod tracking;
-pub mod stream;
 pub mod acl;
+pub mod http;
 pub mod mitm;
+pub mod relay;
 pub mod shell;
+pub mod socks5;
+pub mod stream;
+pub mod tracking;
 pub mod transparent;
 
 use std::net::SocketAddr;
@@ -305,7 +305,8 @@ impl FlowStats {
     }
 
     pub fn add_received(&self, bytes: u64) {
-        self.total_bytes_received.fetch_add(bytes, Ordering::Relaxed);
+        self.total_bytes_received
+            .fetch_add(bytes, Ordering::Relaxed);
     }
 
     pub fn summary(&self) -> FlowStatsSummary {

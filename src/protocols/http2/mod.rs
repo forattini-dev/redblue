@@ -20,9 +20,9 @@ pub mod shared_pool;
 pub mod stream;
 
 pub use connection::{Http2Client, Http2Response, Http2ResponseHandler, Http2ResponseHead};
-pub use shared_pool::{SharedHttp2Pool, SharedHttp2PoolConfig, SharedHttp2PoolStats};
 pub use framing::{Frame, FrameType};
 pub use hpack::Header;
+pub use shared_pool::{SharedHttp2Pool, SharedHttp2PoolConfig, SharedHttp2PoolStats};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

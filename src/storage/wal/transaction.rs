@@ -27,9 +27,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::storage::engine::{Page, Pager, PAGE_SIZE};
-use super::writer::WalWriter;
 use super::record::WalRecord;
+use super::writer::WalWriter;
+use crate::storage::engine::{Page, Pager, PAGE_SIZE};
 
 /// Global transaction ID counter
 static NEXT_TX_ID: AtomicU64 = AtomicU64::new(1);
@@ -166,10 +166,8 @@ impl Transaction {
         let mut data = [0u8; PAGE_SIZE];
         data.copy_from_slice(page.as_bytes());
 
-        self.write_set.insert(
-            page_id,
-            BufferedWrite { page_id, data },
-        );
+        self.write_set
+            .insert(page_id, BufferedWrite { page_id, data });
 
         Ok(())
     }
@@ -361,9 +359,9 @@ impl TransactionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::engine::PageType;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use crate::storage::engine::PageType;
 
     fn temp_dir() -> PathBuf {
         let timestamp = SystemTime::now()

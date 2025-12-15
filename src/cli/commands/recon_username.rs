@@ -2,8 +2,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::modules::recon::osint::{
-    UsernameEnumerator, OsintConfig, PlatformCategory,
-    platforms::get_all_platforms,
+    platforms::get_all_platforms, OsintConfig, PlatformCategory, UsernameEnumerator,
 };
 use std::time::Duration;
 
@@ -39,27 +38,41 @@ impl Command for ReconUsernameCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("category", "Filter by category (social, coding, gaming, professional, etc.)")
-                .with_short('c'),
-            Flag::new("platforms", "Specific platforms to check (comma-separated)")
-                .with_short('p'),
-            Flag::new("threads", "Number of concurrent threads")
-                .with_default("20"),
-            Flag::new("timeout", "Timeout per request in ms")
-                .with_default("5000"),
-            Flag::new("max-sites", "Maximum sites to check")
-                .with_default("100"),
+            Flag::new(
+                "category",
+                "Filter by category (social, coding, gaming, professional, etc.)",
+            )
+            .with_short('c'),
+            Flag::new("platforms", "Specific platforms to check (comma-separated)").with_short('p'),
+            Flag::new("threads", "Number of concurrent threads").with_default("20"),
+            Flag::new("timeout", "Timeout per request in ms").with_default("5000"),
+            Flag::new("max-sites", "Maximum sites to check").with_default("100"),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("Search all platforms", "rb recon username search johndoe"),
-            ("Search social sites only", "rb recon username search johndoe --category social"),
-            ("Search coding sites only", "rb recon username search johndoe --category coding"),
-            ("Search gaming sites only", "rb recon username search johndoe --category gaming"),
-            ("Limit number of sites", "rb recon username search johndoe --max-sites 50"),
-            ("Quick check specific platforms", "rb recon username check johndoe --platforms github,twitter"),
+            (
+                "Search social sites only",
+                "rb recon username search johndoe --category social",
+            ),
+            (
+                "Search coding sites only",
+                "rb recon username search johndoe --category coding",
+            ),
+            (
+                "Search gaming sites only",
+                "rb recon username search johndoe --category gaming",
+            ),
+            (
+                "Limit number of sites",
+                "rb recon username search johndoe --max-sites 50",
+            ),
+            (
+                "Quick check specific platforms",
+                "rb recon username check johndoe --platforms github,twitter",
+            ),
         ]
     }
 
@@ -152,7 +165,8 @@ impl ReconUsernameCommand {
 
         // Get total platforms for this category set
         let all_platforms = get_all_platforms();
-        let mut platform_count = all_platforms.iter()
+        let mut platform_count = all_platforms
+            .iter()
             .filter(|p| categories.contains(&p.category))
             .count();
 
@@ -169,7 +183,10 @@ impl ReconUsernameCommand {
         Output::item("Platforms", &format!("{}", platform_count));
         Output::item("Threads", &format!("{}", threads));
 
-        Output::spinner_start(&format!("Searching {} across {} platforms", username, platform_count));
+        Output::spinner_start(&format!(
+            "Searching {} across {} platforms",
+            username, platform_count
+        ));
 
         let enumerator = UsernameEnumerator::new(config);
         let result = enumerator.enumerate(username);
@@ -179,7 +196,9 @@ impl ReconUsernameCommand {
         // Check for JSON output
         let format = ctx.get_output_format();
         if format == crate::cli::format::OutputFormat::Json {
-            let found: Vec<_> = result.by_category.values()
+            let found: Vec<_> = result
+                .by_category
+                .values()
                 .flat_map(|v| v.iter())
                 .filter(|r| r.exists)
                 .collect();
@@ -194,7 +213,10 @@ impl ReconUsernameCommand {
                 println!("    {{");
                 println!("      \"platform\": \"{}\",", profile.platform);
                 println!("      \"category\": \"{:?}\",", profile.category);
-                println!("      \"url\": \"{}\"", profile.url.as_ref().unwrap_or(&String::new()));
+                println!(
+                    "      \"url\": \"{}\"",
+                    profile.url.as_ref().unwrap_or(&String::new())
+                );
                 if i < found.len() - 1 {
                     println!("    }},");
                 } else {
@@ -212,7 +234,10 @@ impl ReconUsernameCommand {
         Output::item("Platforms Checked", &format!("{}", result.total_checked));
         Output::item("Profiles Found", &format!("{}", result.found_count));
         Output::item("Errors", &format!("{}", result.error_count));
-        Output::item("Duration", &format!("{:.2}s", result.duration.as_secs_f64()));
+        Output::item(
+            "Duration",
+            &format!("{:.2}s", result.duration.as_secs_f64()),
+        );
         println!();
 
         if result.found_count == 0 {
@@ -284,15 +309,22 @@ impl ReconUsernameCommand {
         Output::header(&format!("Username Check: {}", username));
         Output::item("Platforms", &platform_names.join(", "));
 
-        Output::spinner_start(&format!("Checking {} on {} platforms", username, platform_names.len()));
+        Output::spinner_start(&format!(
+            "Checking {} on {} platforms",
+            username,
+            platform_names.len()
+        ));
 
         // Filter platforms by name from the full list
         let all_platforms = get_all_platforms();
-        let filtered: Vec<_> = all_platforms.into_iter()
-            .filter(|p| platform_names.iter().any(|name|
-                p.name.eq_ignore_ascii_case(name) ||
-                p.name.to_lowercase().contains(&name.to_lowercase())
-            ))
+        let filtered: Vec<_> = all_platforms
+            .into_iter()
+            .filter(|p| {
+                platform_names.iter().any(|name| {
+                    p.name.eq_ignore_ascii_case(name)
+                        || p.name.to_lowercase().contains(&name.to_lowercase())
+                })
+            })
             .collect();
 
         // Build config for quick check
@@ -337,19 +369,29 @@ impl ReconUsernameCommand {
         for profiles in result.by_category.values() {
             for profile in profiles {
                 // Only show if it matches one of the requested platforms
-                if !platform_names.iter().any(|name|
-                    profile.platform.eq_ignore_ascii_case(name) ||
-                    profile.platform.to_lowercase().contains(&name.to_lowercase())
-                ) {
+                if !platform_names.iter().any(|name| {
+                    profile.platform.eq_ignore_ascii_case(name)
+                        || profile
+                            .platform
+                            .to_lowercase()
+                            .contains(&name.to_lowercase())
+                }) {
                     continue;
                 }
 
                 if profile.exists {
                     found_count += 1;
                     let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
-                    println!("  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m", profile.platform, url);
+                    println!(
+                        "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+                        profile.platform, url
+                    );
                 } else if profile.error.is_some() {
-                    println!("  \x1b[33m?\x1b[0m {} - error: {}", profile.platform, profile.error.as_ref().unwrap());
+                    println!(
+                        "  \x1b[33m?\x1b[0m {} - error: {}",
+                        profile.platform,
+                        profile.error.as_ref().unwrap()
+                    );
                 } else {
                     println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
                 }

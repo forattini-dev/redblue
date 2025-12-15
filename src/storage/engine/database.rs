@@ -44,10 +44,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use super::{Pager, PagerConfig, Page, PageType, BTree, PAGE_SIZE};
+use super::{BTree, Page, PageType, Pager, PagerConfig, PAGE_SIZE};
 use crate::storage::wal::{
-    Checkpointer, CheckpointMode, CheckpointResult, CheckpointError,
-    TransactionManager, Transaction, TxError,
+    CheckpointError, CheckpointMode, CheckpointResult, Checkpointer, Transaction,
+    TransactionManager, TxError,
 };
 
 /// Database configuration
@@ -181,8 +181,8 @@ impl Database {
         };
 
         // Open pager
-        let pager = Pager::open(&path, pager_config)
-            .map_err(|e| DatabaseError::Pager(e.to_string()))?;
+        let pager =
+            Pager::open(&path, pager_config).map_err(|e| DatabaseError::Pager(e.to_string()))?;
         let pager = Arc::new(pager);
 
         // Perform crash recovery if WAL exists
@@ -192,8 +192,7 @@ impl Database {
                 // Log recovery info (in production, use proper logging)
                 eprintln!(
                     "RedDB: Recovered {} transactions, {} pages from WAL",
-                    recovery_result.transactions_processed,
-                    recovery_result.pages_checkpointed
+                    recovery_result.transactions_processed, recovery_result.pages_checkpointed
                 );
             }
         }
@@ -201,7 +200,7 @@ impl Database {
         // Create transaction manager
         let tx_manager = Arc::new(
             TransactionManager::new(Arc::clone(&pager), &wal_path)
-                .map_err(|e| DatabaseError::Io(e))?
+                .map_err(|e| DatabaseError::Io(e))?,
         );
 
         Ok(Self {

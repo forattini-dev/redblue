@@ -257,7 +257,11 @@ impl HttpRequest {
 
     /// Build the full URL from scheme, host, port, and path
     pub fn full_url(&self) -> String {
-        let scheme_str = if self.scheme == Scheme::Https { "https" } else { "http" };
+        let scheme_str = if self.scheme == Scheme::Https {
+            "https"
+        } else {
+            "http"
+        };
         let default_port = self.scheme.default_port();
 
         if self.port == default_port {
@@ -298,7 +302,7 @@ impl HttpRequest {
                     host = value.clone();
                     // Try to parse port from host header
                     if let Some(colon_idx) = host.find(':') {
-                        if let Ok(p) = host[colon_idx+1..].parse() {
+                        if let Ok(p) = host[colon_idx + 1..].parse() {
                             port = p;
                         }
                     }
@@ -309,7 +313,7 @@ impl HttpRequest {
 
         let body_sep = data.windows(4).position(|w| w == b"\r\n\r\n");
         let body = if let Some(pos) = body_sep {
-            data[pos+4..].to_vec()
+            data[pos + 4..].to_vec()
         } else {
             Vec::new()
         };
@@ -386,7 +390,13 @@ impl HttpResponse {
         let mut buf = Vec::new();
 
         // Status line
-        buf.extend_from_slice(format!("{} {} {}\r\n", self.version, self.status_code, self.status_text).as_bytes());
+        buf.extend_from_slice(
+            format!(
+                "{} {} {}\r\n",
+                self.version, self.status_code, self.status_text
+            )
+            .as_bytes(),
+        );
 
         // Headers
         for (key, value) in &self.headers {
@@ -599,11 +609,17 @@ impl std::fmt::Debug for HttpDispatcher {
             .field("connect_timeout", &self.connect_timeout)
             .field("default_headers_timeout", &self.default_headers_timeout)
             .field("default_body_timeout", &self.default_body_timeout)
-            .field("default_max_response_bytes", &self.default_max_response_bytes)
+            .field(
+                "default_max_response_bytes",
+                &self.default_max_response_bytes,
+            )
             .field("default_max_retries", &self.default_max_retries)
             .field("keep_alive_default", &self.keep_alive_default)
             .field("pool", &self.pool)
-            .field("middlewares", &format!("{} middlewares", self.middlewares.len()))
+            .field(
+                "middlewares",
+                &format!("{} middlewares", self.middlewares.len()),
+            )
             .finish()
     }
 }
@@ -947,7 +963,11 @@ impl HttpClient {
     }
 
     /// GET request with custom headers
-    pub fn get_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> Result<HttpResponse, String> {
+    pub fn get_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, String> {
         let mut request = HttpRequest::get(url);
         for (key, value) in headers {
             request = request.with_header(key, value);
@@ -961,7 +981,12 @@ impl HttpClient {
     }
 
     /// POST request with custom headers
-    pub fn post_with_headers(&self, url: &str, body: Vec<u8>, headers: &[(&str, &str)]) -> Result<HttpResponse, String> {
+    pub fn post_with_headers(
+        &self,
+        url: &str,
+        body: Vec<u8>,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, String> {
         let mut request = HttpRequest::post(url).with_body(body);
         for (key, value) in headers {
             request = request.with_header(key, value);
@@ -994,7 +1019,12 @@ impl HttpClient {
     }
 
     /// POST with content type and raw body
-    pub fn post_raw(&self, url: &str, body: &[u8], content_type: &str) -> Result<HttpResponse, String> {
+    pub fn post_raw(
+        &self,
+        url: &str,
+        body: &[u8],
+        content_type: &str,
+    ) -> Result<HttpResponse, String> {
         let request = HttpRequest::post(url)
             .with_body(body.to_vec())
             .with_header("Content-Type", content_type);

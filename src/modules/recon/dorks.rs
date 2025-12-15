@@ -194,7 +194,9 @@ impl DorksSearcher {
 
     /// Search for exposed documents
     fn search_documents(&self, domain: &str) -> Vec<DorkResult> {
-        let filetypes = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv"];
+        let filetypes = [
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv",
+        ];
         let queries: Vec<String> = filetypes
             .iter()
             .map(|ft| format!("site:{} filetype:{}", domain, ft))
@@ -307,12 +309,17 @@ impl DorksSearcher {
         if let Some(at_pos) = text.find(&pattern) {
             // Find the start of the email (word boundary before @)
             let before = &text[..at_pos];
-            let start = before.rfind(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-')
+            let start = before
+                .rfind(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-')
                 .map(|p| p + 1)
                 .unwrap_or(0);
             let local_part = &text[start..at_pos];
 
-            if !local_part.is_empty() && local_part.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-') {
+            if !local_part.is_empty()
+                && local_part
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '.' || c == '_' || c == '-')
+            {
                 return Some(format!("{}@{}", local_part, domain));
             }
         }
@@ -343,11 +350,17 @@ impl DorksSearcher {
         let encoded_query = Self::url_encode(query);
         let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
 
-        let response = match self.http.get_with_headers(&url, &[
-            ("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
-            ("Accept", "text/html,application/xhtml+xml"),
-            ("Accept-Language", "en-US,en;q=0.9"),
-        ]) {
+        let response = match self.http.get_with_headers(
+            &url,
+            &[
+                (
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ),
+                ("Accept", "text/html,application/xhtml+xml"),
+                ("Accept-Language", "en-US,en;q=0.9"),
+            ],
+        ) {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };
@@ -414,7 +427,8 @@ impl DorksSearcher {
                 while let Some(start) = line[pos..].find("http") {
                     let actual_start = pos + start;
                     let rest = &line[actual_start..];
-                    let end = rest.find(|c: char| c.is_whitespace() || c == '"' || c == '<' || c == '>')
+                    let end = rest
+                        .find(|c: char| c.is_whitespace() || c == '"' || c == '<' || c == '>')
                         .unwrap_or(rest.len());
                     let url = &rest[..end];
                     if url.len() > 10 && !urls.contains(&url.to_string()) {
@@ -444,7 +458,9 @@ impl DorksSearcher {
     fn extract_base_domain(host: &str) -> String {
         let parts: Vec<&str> = host.split('.').collect();
         if parts.len() > 2 {
-            let special_tlds = ["co.uk", "com.br", "co.jp", "co.za", "com.mx", "com.ar", "com.au"];
+            let special_tlds = [
+                "co.uk", "com.br", "co.jp", "co.za", "com.mx", "com.ar", "com.au",
+            ];
             let last_two = format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1]);
             if special_tlds.contains(&last_two.as_str()) && parts.len() > 3 {
                 return parts[parts.len() - 3..].join(".");
@@ -459,7 +475,9 @@ impl DorksSearcher {
     }
 
     fn extract_host(url: &str) -> Option<String> {
-        let url = url.trim_start_matches("http://").trim_start_matches("https://");
+        let url = url
+            .trim_start_matches("http://")
+            .trim_start_matches("https://");
         url.split('/').next().map(|s| s.to_string())
     }
 
@@ -488,10 +506,9 @@ impl DorksSearcher {
 
         while i < bytes.len() {
             if bytes[i] == b'%' && i + 2 < bytes.len() {
-                if let Ok(hex) = u8::from_str_radix(
-                    std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?,
-                    16,
-                ) {
+                if let Ok(hex) =
+                    u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?, 16)
+                {
                     result.push(hex);
                     i += 3;
                     continue;

@@ -1,7 +1,6 @@
 /// OS Fingerprint Signature Types
 ///
 /// Shared types for OS fingerprinting signatures.
-
 use std::fmt;
 
 /// OS Signature entry

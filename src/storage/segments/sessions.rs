@@ -70,7 +70,10 @@ impl SessionSegment {
     pub fn push(&mut self, record: SessionRecord) {
         let idx = self.records.len();
         self.id_index.insert(record.id.clone(), idx);
-        self.target_index.entry(record.target.clone()).or_default().push(idx);
+        self.target_index
+            .entry(record.target.clone())
+            .or_default()
+            .push(idx);
         self.records.push(record);
     }
 
@@ -85,7 +88,10 @@ impl SessionSegment {
                     indices.retain(|&i| i != idx);
                 }
                 // Add to new target index
-                self.target_index.entry(record.target.clone()).or_default().push(idx);
+                self.target_index
+                    .entry(record.target.clone())
+                    .or_default()
+                    .push(idx);
             }
             self.records[idx] = record;
         } else {
@@ -213,7 +219,10 @@ impl SessionSegment {
             let idx = records.len();
 
             id_index.insert(id, idx);
-            target_index.entry(record.target.clone()).or_default().push(idx);
+            target_index
+                .entry(record.target.clone())
+                .or_default()
+                .push(idx);
             records.push(record);
         }
 

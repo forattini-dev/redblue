@@ -23,7 +23,11 @@ impl MimeType {
     }
 
     /// Create with charset
-    pub const fn with_charset(type_: &'static str, subtype: &'static str, charset: &'static str) -> Self {
+    pub const fn with_charset(
+        type_: &'static str,
+        subtype: &'static str,
+        charset: &'static str,
+    ) -> Self {
         Self {
             type_,
             subtype,
@@ -133,11 +137,11 @@ impl MimeType {
 
     /// Check if this is a text type (should be served with charset)
     pub fn is_text(&self) -> bool {
-        self.type_ == "text" ||
-        (self.type_ == "application" &&
-         (self.subtype == "javascript" ||
-          self.subtype == "json" ||
-          self.subtype == "xml"))
+        self.type_ == "text"
+            || (self.type_ == "application"
+                && (self.subtype == "javascript"
+                    || self.subtype == "json"
+                    || self.subtype == "xml"))
     }
 }
 
@@ -154,7 +158,8 @@ pub const TEXT_PLAIN: MimeType = MimeType::with_charset("text", "plain", "utf-8"
 pub const TEXT_CSV: MimeType = MimeType::with_charset("text", "csv", "utf-8");
 pub const TEXT_MARKDOWN: MimeType = MimeType::with_charset("text", "markdown", "utf-8");
 
-pub const APPLICATION_JAVASCRIPT: MimeType = MimeType::with_charset("application", "javascript", "utf-8");
+pub const APPLICATION_JAVASCRIPT: MimeType =
+    MimeType::with_charset("application", "javascript", "utf-8");
 pub const APPLICATION_JSON: MimeType = MimeType::with_charset("application", "json", "utf-8");
 pub const APPLICATION_XML: MimeType = MimeType::with_charset("application", "xml", "utf-8");
 pub const APPLICATION_OCTET_STREAM: MimeType = MimeType::new("application", "octet-stream");
@@ -191,11 +196,20 @@ pub const APPLICATION_RAR: MimeType = MimeType::new("application", "x-rar-compre
 
 pub const APPLICATION_PDF: MimeType = MimeType::new("application", "pdf");
 pub const APPLICATION_MSWORD: MimeType = MimeType::new("application", "msword");
-pub const APPLICATION_DOCX: MimeType = MimeType::new("application", "vnd.openxmlformats-officedocument.wordprocessingml.document");
+pub const APPLICATION_DOCX: MimeType = MimeType::new(
+    "application",
+    "vnd.openxmlformats-officedocument.wordprocessingml.document",
+);
 pub const APPLICATION_EXCEL: MimeType = MimeType::new("application", "vnd.ms-excel");
-pub const APPLICATION_XLSX: MimeType = MimeType::new("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+pub const APPLICATION_XLSX: MimeType = MimeType::new(
+    "application",
+    "vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+);
 pub const APPLICATION_PPT: MimeType = MimeType::new("application", "vnd.ms-powerpoint");
-pub const APPLICATION_PPTX: MimeType = MimeType::new("application", "vnd.openxmlformats-officedocument.presentationml.presentation");
+pub const APPLICATION_PPTX: MimeType = MimeType::new(
+    "application",
+    "vnd.openxmlformats-officedocument.presentationml.presentation",
+);
 
 pub const TEXT_RUST: MimeType = MimeType::with_charset("text", "x-rust", "utf-8");
 pub const TEXT_PYTHON: MimeType = MimeType::with_charset("text", "x-python", "utf-8");
@@ -221,19 +235,34 @@ mod tests {
 
     #[test]
     fn test_mime_from_extension() {
-        assert_eq!(MimeType::from_extension("html").as_str(), "text/html; charset=utf-8");
-        assert_eq!(MimeType::from_extension("js").as_str(), "application/javascript; charset=utf-8");
+        assert_eq!(
+            MimeType::from_extension("html").as_str(),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            MimeType::from_extension("js").as_str(),
+            "application/javascript; charset=utf-8"
+        );
         assert_eq!(MimeType::from_extension("png").as_str(), "image/png");
-        assert_eq!(MimeType::from_extension("unknown").as_str(), "application/octet-stream");
+        assert_eq!(
+            MimeType::from_extension("unknown").as_str(),
+            "application/octet-stream"
+        );
     }
 
     #[test]
     fn test_mime_from_path() {
         let path = Path::new("/var/www/index.html");
-        assert_eq!(MimeType::from_path(path).as_str(), "text/html; charset=utf-8");
+        assert_eq!(
+            MimeType::from_path(path).as_str(),
+            "text/html; charset=utf-8"
+        );
 
         let path = Path::new("script.js");
-        assert_eq!(MimeType::from_path(path).as_str(), "application/javascript; charset=utf-8");
+        assert_eq!(
+            MimeType::from_path(path).as_str(),
+            "application/javascript; charset=utf-8"
+        );
     }
 
     #[test]

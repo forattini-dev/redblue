@@ -10,7 +10,6 @@
 /// - Active: Direct target interaction (DNS bruteforce, zone transfers)
 ///
 /// NO external dependencies - all implemented from scratch
-
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -252,34 +251,34 @@ impl AggregatedResults {
 }
 
 // Source implementations
-pub mod crtsh;
-pub mod certspotter;
-pub mod hackertarget;
-pub mod wayback;
 pub mod alienvault;
-pub mod urlscan;
-pub mod rapiddns;
-pub mod dnsdumpster;
-pub mod threatcrowd;
 pub mod bufferover;
+pub mod certspotter;
 pub mod commoncrawl;
+pub mod crtsh;
+pub mod dnsdumpster;
 pub mod github;
+pub mod hackertarget;
+pub mod rapiddns;
 pub mod shodan;
+pub mod threatcrowd;
+pub mod urlscan;
+pub mod wayback;
 
 // Re-export sources
-pub use crtsh::CrtShSource;
-pub use certspotter::CertSpotterSource;
-pub use hackertarget::HackerTargetSource;
-pub use wayback::WaybackSource;
 pub use alienvault::AlienVaultSource;
-pub use urlscan::UrlScanSource;
-pub use rapiddns::RapidDnsSource;
-pub use dnsdumpster::DnsDumpsterSource;
-pub use threatcrowd::ThreatCrowdSource;
 pub use bufferover::BufferOverSource;
+pub use certspotter::CertSpotterSource;
 pub use commoncrawl::CommonCrawlSource;
+pub use crtsh::CrtShSource;
+pub use dnsdumpster::DnsDumpsterSource;
 pub use github::GitHubSource;
+pub use hackertarget::HackerTargetSource;
+pub use rapiddns::RapidDnsSource;
 pub use shodan::ShodanSource;
+pub use threatcrowd::ThreatCrowdSource;
+pub use urlscan::UrlScanSource;
+pub use wayback::WaybackSource;
 
 /// Create all available sources with default configuration
 pub fn create_all_sources() -> Vec<Box<dyn SubdomainSource>> {
@@ -336,7 +335,10 @@ pub fn query_all_sources(
         // Check availability
         if !source.is_available() {
             if let Ok(mut r) = results.lock() {
-                r.add_error(source.name(), SourceError::Unavailable("Not configured".into()));
+                r.add_error(
+                    source.name(),
+                    SourceError::Unavailable("Not configured".into()),
+                );
             }
             continue;
         }
@@ -401,7 +403,11 @@ impl Clone for AggregatedResults {
             subdomains: self.subdomains.clone(),
             records: self.records.clone(),
             source_stats: self.source_stats.clone(),
-            errors: self.errors.iter().map(|(s, e)| (s.clone(), SourceError::Other(e.to_string()))).collect(),
+            errors: self
+                .errors
+                .iter()
+                .map(|(s, e)| (s.clone(), SourceError::Other(e.to_string())))
+                .collect(),
         }
     }
 }

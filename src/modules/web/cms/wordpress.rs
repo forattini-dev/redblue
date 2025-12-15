@@ -8,16 +8,14 @@
 /// - User enumeration (7 methods)
 /// - Version detection
 /// - Vulnerability correlation
-
 use super::{
-    CmsScanConfig, DetectionResult, PluginInfo, ThemeInfo, UserInfo,
-    Finding, FindingType, VulnSeverity, PluginDetectionMethod, UserDetectionMethod,
-    HttpResponse,
+    CmsScanConfig, DetectionResult, Finding, FindingType, HttpResponse, PluginDetectionMethod,
+    PluginInfo, ThemeInfo, UserDetectionMethod, UserInfo, VulnSeverity,
 };
-use std::net::TcpStream;
-use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 /// WordPress scan result
@@ -95,16 +93,15 @@ impl WordPressScanner {
 
         if let Some(response) = self.fetch(&self.config.target) {
             // Look for wp-content/plugins/PLUGIN_NAME patterns
-            let patterns = [
-                "/wp-content/plugins/",
-                "/wp-content/mu-plugins/",
-            ];
+            let patterns = ["/wp-content/plugins/", "/wp-content/mu-plugins/"];
 
             for pattern in patterns {
                 let mut pos = 0;
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
-                    if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                    if let Some(end) = response.body[abs_start..]
+                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                    {
                         let plugin_name = &response.body[abs_start..abs_start + end];
                         if !plugin_name.is_empty() && self.is_valid_slug(plugin_name) {
                             let mut plugin = PluginInfo::new(plugin_name);
@@ -160,7 +157,8 @@ impl WordPressScanner {
                                     plugin.confidence = 95;
 
                                     // Try to extract version from readme
-                                    if let Some(version) = extract_wp_readme_version(&response.body) {
+                                    if let Some(version) = extract_wp_readme_version(&response.body)
+                                    {
                                         plugin.version = Some(version);
                                     }
 
@@ -197,7 +195,9 @@ impl WordPressScanner {
             let mut pos = 0;
             while let Some(start) = response.body[pos..].find(pattern) {
                 let abs_start = pos + start + pattern.len();
-                if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                if let Some(end) = response.body[abs_start..]
+                    .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                {
                     let theme_name = &response.body[abs_start..abs_start + end];
                     if !theme_name.is_empty() && self.is_valid_slug(theme_name) {
                         let mut theme = ThemeInfo::new(theme_name);
@@ -264,7 +264,11 @@ impl WordPressScanner {
         let mut users = Vec::new();
 
         for id in 1..=20 {
-            let url = format!("{}/?author={}", self.config.target.trim_end_matches('/'), id);
+            let url = format!(
+                "{}/?author={}",
+                self.config.target.trim_end_matches('/'),
+                id
+            );
 
             if let Some(response) = self.fetch(&url) {
                 // Check for redirect to author page
@@ -293,7 +297,10 @@ impl WordPressScanner {
     fn enumerate_users_rest_api(&self) -> Vec<UserInfo> {
         let mut users = Vec::new();
 
-        let url = format!("{}/wp-json/wp/v2/users", self.config.target.trim_end_matches('/'));
+        let url = format!(
+            "{}/wp-json/wp/v2/users",
+            self.config.target.trim_end_matches('/')
+        );
 
         if let Some(response) = self.fetch(&url) {
             if response.status_code == 200 {
@@ -314,7 +321,8 @@ impl WordPressScanner {
     fn enumerate_users_oembed(&self) -> Vec<UserInfo> {
         let mut users = Vec::new();
 
-        let url = format!("{}/wp-json/oembed/1.0/embed?url={}",
+        let url = format!(
+            "{}/wp-json/oembed/1.0/embed?url={}",
             self.config.target.trim_end_matches('/'),
             urlencoding(&self.config.target)
         );
@@ -370,7 +378,15 @@ impl WordPressScanner {
     fn enumerate_users_login_errors(&self) -> Vec<UserInfo> {
         let mut users = Vec::new();
 
-        let common_usernames = ["admin", "administrator", "root", "user", "test", "wp", "wordpress"];
+        let common_usernames = [
+            "admin",
+            "administrator",
+            "root",
+            "user",
+            "test",
+            "wp",
+            "wordpress",
+        ];
 
         for username in common_usernames {
             let url = format!("{}/wp-login.php", self.config.target.trim_end_matches('/'));
@@ -380,7 +396,8 @@ impl WordPressScanner {
                 // Check for "Invalid username" vs "incorrect password"
                 if response.body.contains("incorrect password")
                     || response.body.contains("The password you entered")
-                    || !response.body.contains("Invalid username") {
+                    || !response.body.contains("Invalid username")
+                {
                     let mut user = UserInfo::new(username);
                     user.detection_method = UserDetectionMethod::LoginError;
                     users.push(user);
@@ -398,11 +415,14 @@ impl WordPressScanner {
         // Check XML-RPC
         let xmlrpc_url = format!("{}/xmlrpc.php", self.config.target.trim_end_matches('/'));
         if let Some(response) = self.fetch(&xmlrpc_url) {
-            if response.status_code == 200 && response.contains("XML-RPC server accepts POST requests only") {
+            if response.status_code == 200
+                && response.contains("XML-RPC server accepts POST requests only")
+            {
                 findings.push(Finding {
                     finding_type: FindingType::XmlRpcEnabled,
                     title: "XML-RPC Enabled".to_string(),
-                    description: "XML-RPC is enabled, which can be used for brute force attacks".to_string(),
+                    description: "XML-RPC is enabled, which can be used for brute force attacks"
+                        .to_string(),
                     url: Some(xmlrpc_url),
                     evidence: None,
                     severity: VulnSeverity::Medium,
@@ -440,7 +460,10 @@ impl WordPressScanner {
         }
 
         // Check debug.log
-        let debug_url = format!("{}/wp-content/debug.log", self.config.target.trim_end_matches('/'));
+        let debug_url = format!(
+            "{}/wp-content/debug.log",
+            self.config.target.trim_end_matches('/')
+        );
         if let Some(response) = self.fetch(&debug_url) {
             if response.status_code == 200 && response.body.len() > 100 {
                 findings.push(Finding {
@@ -456,7 +479,10 @@ impl WordPressScanner {
         }
 
         // Check user registration
-        let register_url = format!("{}/wp-login.php?action=register", self.config.target.trim_end_matches('/'));
+        let register_url = format!(
+            "{}/wp-login.php?action=register",
+            self.config.target.trim_end_matches('/')
+        );
         if let Some(response) = self.fetch(&register_url) {
             if response.status_code == 200 && response.contains("Register") {
                 findings.push(Finding {
@@ -472,12 +498,17 @@ impl WordPressScanner {
         }
 
         // Check directory listing
-        let dirs = ["/wp-content/uploads/", "/wp-content/plugins/", "/wp-includes/"];
+        let dirs = [
+            "/wp-content/uploads/",
+            "/wp-content/plugins/",
+            "/wp-includes/",
+        ];
         for dir in dirs {
             let url = format!("{}{}", self.config.target.trim_end_matches('/'), dir);
             if let Some(response) = self.fetch(&url) {
-                if response.status_code == 200 &&
-                   (response.contains("Index of") || response.contains("Parent Directory")) {
+                if response.status_code == 200
+                    && (response.contains("Index of") || response.contains("Parent Directory"))
+                {
                     findings.push(Finding {
                         finding_type: FindingType::DirectoryListing,
                         title: "Directory Listing Enabled".to_string(),
@@ -498,25 +529,68 @@ impl WordPressScanner {
     fn is_valid_slug(&self, s: &str) -> bool {
         !s.is_empty()
             && s.len() < 100
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     }
 
     /// Get plugin wordlist
     fn get_plugin_wordlist(&self) -> Vec<String> {
         // Top 100 WordPress plugins
         vec![
-            "akismet", "jetpack", "wordfence", "yoast-seo", "contact-form-7",
-            "elementor", "woocommerce", "wpforms-lite", "classic-editor", "really-simple-ssl",
-            "updraftplus", "duplicate-post", "wp-super-cache", "tinymce-advanced", "all-in-one-wp-migration",
-            "redirection", "wp-mail-smtp", "mailchimp-for-wp", "google-analytics-for-wordpress", "wp-statistics",
-            "all-in-one-seo-pack", "w3-total-cache", "instagram-feed", "wp-smushit", "loginizer",
-            "google-sitemap-generator", "better-wp-security", "wp-fastest-cache", "ninja-forms", "tablepress",
-            "regenerate-thumbnails", "limit-login-attempts-reloaded", "wp-file-manager", "ewww-image-optimizer",
-            "shortcodes-ultimate", "optinmonster", "advanced-custom-fields", "cookiebot", "autoptimize",
-            "easy-table-of-contents", "svg-support", "insert-headers-and-footers", "cookie-notice",
-            "post-smtp", "widget-logic", "header-footer-elementor", "disable-comments", "custom-css-js",
-            "broken-link-checker", "sucuri-scanner",
-        ].into_iter().map(String::from).collect()
+            "akismet",
+            "jetpack",
+            "wordfence",
+            "yoast-seo",
+            "contact-form-7",
+            "elementor",
+            "woocommerce",
+            "wpforms-lite",
+            "classic-editor",
+            "really-simple-ssl",
+            "updraftplus",
+            "duplicate-post",
+            "wp-super-cache",
+            "tinymce-advanced",
+            "all-in-one-wp-migration",
+            "redirection",
+            "wp-mail-smtp",
+            "mailchimp-for-wp",
+            "google-analytics-for-wordpress",
+            "wp-statistics",
+            "all-in-one-seo-pack",
+            "w3-total-cache",
+            "instagram-feed",
+            "wp-smushit",
+            "loginizer",
+            "google-sitemap-generator",
+            "better-wp-security",
+            "wp-fastest-cache",
+            "ninja-forms",
+            "tablepress",
+            "regenerate-thumbnails",
+            "limit-login-attempts-reloaded",
+            "wp-file-manager",
+            "ewww-image-optimizer",
+            "shortcodes-ultimate",
+            "optinmonster",
+            "advanced-custom-fields",
+            "cookiebot",
+            "autoptimize",
+            "easy-table-of-contents",
+            "svg-support",
+            "insert-headers-and-footers",
+            "cookie-notice",
+            "post-smtp",
+            "widget-logic",
+            "header-footer-elementor",
+            "disable-comments",
+            "custom-css-js",
+            "broken-link-checker",
+            "sucuri-scanner",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
     }
 
     /// Fetch URL
@@ -567,7 +641,12 @@ fn fetch_url(url: &str, user_agent: &str, timeout: std::time::Duration) -> Optio
 }
 
 /// POST URL helper
-fn post_url(url: &str, body: &str, user_agent: &str, timeout: std::time::Duration) -> Option<HttpResponse> {
+fn post_url(
+    url: &str,
+    body: &str,
+    user_agent: &str,
+    timeout: std::time::Duration,
+) -> Option<HttpResponse> {
     let (host, port, path, use_tls) = parse_url(url)?;
 
     if use_tls {
@@ -583,7 +662,11 @@ fn post_url(url: &str, body: &str, user_agent: &str, timeout: std::time::Duratio
          Connection: close\r\n\
          \r\n\
          {}",
-        path, host, user_agent, body.len(), body
+        path,
+        host,
+        user_agent,
+        body.len(),
+        body
     );
 
     let addr = format!("{}:{}", host, port);
@@ -648,16 +731,26 @@ fn parse_response(data: &[u8], url: &str) -> Option<HttpResponse> {
             break;
         }
         if let Some(pos) = line.find(':') {
-            headers.push((line[..pos].trim().to_string(), line[pos + 1..].trim().to_string()));
+            headers.push((
+                line[..pos].trim().to_string(),
+                line[pos + 1..].trim().to_string(),
+            ));
         }
     }
 
-    let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+    let body_start = text
+        .find("\r\n\r\n")
+        .map(|p| p + 4)
         .or_else(|| text.find("\n\n").map(|p| p + 2))
         .unwrap_or(text.len());
     let body = text[body_start..].to_string();
 
-    Some(HttpResponse { status_code, headers, body, url: url.to_string() })
+    Some(HttpResponse {
+        status_code,
+        headers,
+        body,
+        url: url.to_string(),
+    })
 }
 
 /// Extract version from readme.txt
@@ -764,9 +857,7 @@ fn extract_json_number(json: &str, field: &str) -> Option<u64> {
         let after = &json[pos + pattern.len()..];
         let after = after.trim_start();
 
-        let num_str: String = after.chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
 
         if !num_str.is_empty() {
             return num_str.parse().ok();

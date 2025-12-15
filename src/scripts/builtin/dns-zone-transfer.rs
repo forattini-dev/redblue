@@ -2,7 +2,6 @@
 ///
 /// Checks for misconfigured DNS servers that allow zone transfers.
 /// This is a common misconfiguration that can expose all DNS records.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,7 +18,8 @@ impl DnsZoneTransferScript {
                 name: "DNS Zone Transfer Check".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Checks if DNS server allows unauthorized zone transfers (AXFR)".to_string(),
+                description: "Checks if DNS server allows unauthorized zone transfers (AXFR)"
+                    .to_string(),
                 categories: vec![ScriptCategory::Vuln, ScriptCategory::Safe],
                 protocols: vec!["dns".to_string()],
                 ports: vec![53],
@@ -70,12 +70,12 @@ impl Script for DnsZoneTransferScript {
                 Finding::new(FindingType::Vulnerability, "DNS Zone Transfer Allowed")
                     .with_description(
                         "DNS server allows zone transfers to unauthorized clients. \
-                         This exposes all DNS records including internal hostnames."
+                         This exposes all DNS records including internal hostnames.",
                     )
                     .with_severity(FindingSeverity::High)
                     .with_remediation(
                         "Restrict zone transfers to authorized secondary DNS servers only. \
-                         Configure 'allow-transfer' in BIND or equivalent in other DNS software."
+                         Configure 'allow-transfer' in BIND or equivalent in other DNS software.",
                     ),
             );
 
@@ -84,7 +84,10 @@ impl Script for DnsZoneTransferScript {
             if record_count > 0 {
                 result.add_finding(
                     Finding::new(FindingType::InfoLeak, "DNS Records Exposed")
-                        .with_description(&format!("{} DNS records exposed via zone transfer", record_count))
+                        .with_description(&format!(
+                            "{} DNS records exposed via zone transfer",
+                            record_count
+                        ))
                         .with_severity(FindingSeverity::Medium),
                 );
                 result.extract("axfr_record_count", &record_count.to_string());
@@ -101,7 +104,10 @@ impl Script for DnsZoneTransferScript {
                 );
             }
 
-            if records_lower.contains("internal") || records_lower.contains("intranet") || records_lower.contains("private") {
+            if records_lower.contains("internal")
+                || records_lower.contains("intranet")
+                || records_lower.contains("private")
+            {
                 result.add_finding(
                     Finding::new(FindingType::InfoLeak, "Internal Hostnames Exposed")
                         .with_description("Zone transfer reveals internal/private hostnames")
@@ -109,15 +115,20 @@ impl Script for DnsZoneTransferScript {
                 );
             }
 
-            if records_lower.contains("admin") || records_lower.contains("management") || records_lower.contains("vpn") {
+            if records_lower.contains("admin")
+                || records_lower.contains("management")
+                || records_lower.contains("vpn")
+            {
                 result.add_finding(
                     Finding::new(FindingType::InfoLeak, "Sensitive Hostnames Exposed")
                         .with_description("Zone transfer reveals admin/management/VPN hostnames")
                         .with_severity(FindingSeverity::Medium),
                 );
             }
-
-        } else if result_lower.contains("refused") || result_lower.contains("denied") || result_lower.contains("not authorized") {
+        } else if result_lower.contains("refused")
+            || result_lower.contains("denied")
+            || result_lower.contains("not authorized")
+        {
             result.add_finding(
                 Finding::new(FindingType::Discovery, "Zone Transfer Properly Restricted")
                     .with_description("DNS server correctly refuses zone transfers")
@@ -126,12 +137,17 @@ impl Script for DnsZoneTransferScript {
         } else if result_lower.contains("timeout") || result_lower.contains("no response") {
             result.add_finding(
                 Finding::new(FindingType::Discovery, "Zone Transfer Test Inconclusive")
-                    .with_description("Could not determine zone transfer status (timeout/no response)")
+                    .with_description(
+                        "Could not determine zone transfer status (timeout/no response)",
+                    )
                     .with_severity(FindingSeverity::Info),
             );
         }
 
-        result.add_output(&format!("DNS zone transfer check complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "DNS zone transfer check complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -152,11 +168,17 @@ mod tests {
         let script = DnsZoneTransferScript::new();
         let mut ctx = ScriptContext::new("ns1.example.com", 53);
         ctx.set_data("axfr_result", "Transfer successful");
-        ctx.set_data("axfr_records", "example.com. IN A 1.2.3.4\nadmin.example.com. IN A 1.2.3.5");
+        ctx.set_data(
+            "axfr_records",
+            "example.com. IN A 1.2.3.4\nadmin.example.com. IN A 1.2.3.5",
+        );
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        let has_vuln = result.findings.iter().any(|f| f.title.contains("Zone Transfer Allowed"));
+        let has_vuln = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Zone Transfer Allowed"));
         assert!(has_vuln);
     }
 
@@ -167,7 +189,10 @@ mod tests {
         ctx.set_data("axfr_result", "Transfer refused");
 
         let result = script.run(&ctx).unwrap();
-        let has_restricted = result.findings.iter().any(|f| f.title.contains("Properly Restricted"));
+        let has_restricted = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Properly Restricted"));
         assert!(has_restricted);
     }
 }

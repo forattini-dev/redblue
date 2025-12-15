@@ -10,7 +10,7 @@
 //! - **Service Banners**: SSH, SMTP, FTP banners
 //! - **HTML Content**: Meta generator tags, framework indicators
 
-use crate::modules::recon::vuln::{generate_cpe, TechCategory, DetectedTech};
+use crate::modules::recon::vuln::{generate_cpe, DetectedTech, TechCategory};
 use std::collections::HashMap;
 
 /// Fingerprint extraction engine
@@ -22,7 +22,9 @@ pub struct FingerprintEngine {
 impl FingerprintEngine {
     /// Create a new fingerprint engine
     pub fn new() -> Self {
-        Self { results: Vec::new() }
+        Self {
+            results: Vec::new(),
+        }
     }
 
     /// Extract fingerprints from HTTP headers
@@ -38,13 +40,31 @@ impl FingerprintEngine {
         }
 
         // X-AspNet-Version - .NET specific
-        if let Some(aspnet) = headers.get("x-aspnet-version").or(headers.get("X-AspNet-Version")) {
-            self.add_detection("asp.net", Some(aspnet), TechCategory::Runtime, 0.9, "http_header");
+        if let Some(aspnet) = headers
+            .get("x-aspnet-version")
+            .or(headers.get("X-AspNet-Version"))
+        {
+            self.add_detection(
+                "asp.net",
+                Some(aspnet),
+                TechCategory::Runtime,
+                0.9,
+                "http_header",
+            );
         }
 
         // X-AspNetMvc-Version - ASP.NET MVC
-        if let Some(mvc) = headers.get("x-aspnetmvc-version").or(headers.get("X-AspNetMvc-Version")) {
-            self.add_detection("asp.net_mvc", Some(mvc), TechCategory::Framework, 0.9, "http_header");
+        if let Some(mvc) = headers
+            .get("x-aspnetmvc-version")
+            .or(headers.get("X-AspNetMvc-Version"))
+        {
+            self.add_detection(
+                "asp.net_mvc",
+                Some(mvc),
+                TechCategory::Framework,
+                0.9,
+                "http_header",
+            );
         }
 
         // X-Generator - CMS/Framework
@@ -53,8 +73,10 @@ impl FingerprintEngine {
         }
 
         // X-Drupal-Cache or X-Drupal-Dynamic-Cache
-        if headers.contains_key("x-drupal-cache") || headers.contains_key("X-Drupal-Cache")
-            || headers.contains_key("x-drupal-dynamic-cache") || headers.contains_key("X-Drupal-Dynamic-Cache")
+        if headers.contains_key("x-drupal-cache")
+            || headers.contains_key("X-Drupal-Cache")
+            || headers.contains_key("x-drupal-dynamic-cache")
+            || headers.contains_key("X-Drupal-Dynamic-Cache")
         {
             self.add_detection("drupal", None, TechCategory::Cms, 0.85, "http_header");
         }
@@ -98,25 +120,61 @@ impl FingerprintEngine {
 
         // nginx/1.18.0
         if let Some(version) = self.extract_version(&lower, "nginx") {
-            self.add_detection("nginx", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "nginx",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("nginx") {
             self.add_detection("nginx", None, TechCategory::WebServer, 0.9, "http_header");
         }
 
         // Apache/2.4.41 (Ubuntu)
         if let Some(version) = self.extract_version(&lower, "apache") {
-            self.add_detection("apache", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "apache",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
             // Try to extract OS from parentheses
             if let Some(os) = self.extract_parentheses_content(value) {
                 let os_lower = os.to_lowercase();
                 if os_lower.contains("ubuntu") {
-                    self.add_detection("ubuntu", None, TechCategory::OperatingSystem, 0.7, "http_header");
+                    self.add_detection(
+                        "ubuntu",
+                        None,
+                        TechCategory::OperatingSystem,
+                        0.7,
+                        "http_header",
+                    );
                 } else if os_lower.contains("debian") {
-                    self.add_detection("debian", None, TechCategory::OperatingSystem, 0.7, "http_header");
+                    self.add_detection(
+                        "debian",
+                        None,
+                        TechCategory::OperatingSystem,
+                        0.7,
+                        "http_header",
+                    );
                 } else if os_lower.contains("centos") {
-                    self.add_detection("centos", None, TechCategory::OperatingSystem, 0.7, "http_header");
+                    self.add_detection(
+                        "centos",
+                        None,
+                        TechCategory::OperatingSystem,
+                        0.7,
+                        "http_header",
+                    );
                 } else if os_lower.contains("win") || os_lower.contains("windows") {
-                    self.add_detection("windows_server", None, TechCategory::OperatingSystem, 0.7, "http_header");
+                    self.add_detection(
+                        "windows_server",
+                        None,
+                        TechCategory::OperatingSystem,
+                        0.7,
+                        "http_header",
+                    );
                 }
             }
         } else if lower.contains("apache") {
@@ -125,16 +183,34 @@ impl FingerprintEngine {
 
         // Microsoft-IIS/10.0
         if let Some(version) = self.extract_version(&lower, "microsoft-iis") {
-            self.add_detection("iis", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "iis",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("iis") || lower.contains("microsoft-iis") {
             self.add_detection("iis", None, TechCategory::WebServer, 0.9, "http_header");
         }
 
         // LiteSpeed
         if let Some(version) = self.extract_version(&lower, "litespeed") {
-            self.add_detection("litespeed", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "litespeed",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("litespeed") {
-            self.add_detection("litespeed", None, TechCategory::WebServer, 0.9, "http_header");
+            self.add_detection(
+                "litespeed",
+                None,
+                TechCategory::WebServer,
+                0.9,
+                "http_header",
+            );
         }
 
         // Caddy
@@ -144,16 +220,34 @@ impl FingerprintEngine {
 
         // OpenResty (nginx-based)
         if let Some(version) = self.extract_version(&lower, "openresty") {
-            self.add_detection("nginx", Some(version.as_str()), TechCategory::WebServer, 0.9, "http_header");
+            self.add_detection(
+                "nginx",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.9,
+                "http_header",
+            );
         } else if lower.contains("openresty") {
             self.add_detection("nginx", None, TechCategory::WebServer, 0.85, "http_header");
         }
 
         // gunicorn/20.0.4
         if let Some(version) = self.extract_version(&lower, "gunicorn") {
-            self.add_detection("gunicorn", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "gunicorn",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("gunicorn") {
-            self.add_detection("gunicorn", None, TechCategory::WebServer, 0.9, "http_header");
+            self.add_detection(
+                "gunicorn",
+                None,
+                TechCategory::WebServer,
+                0.9,
+                "http_header",
+            );
         }
 
         // uvicorn
@@ -164,12 +258,24 @@ impl FingerprintEngine {
         // Tomcat
         if lower.contains("tomcat") {
             let version = self.extract_version(&lower, "tomcat");
-            self.add_detection("tomcat", version.as_deref(), TechCategory::WebServer, 0.9, "http_header");
+            self.add_detection(
+                "tomcat",
+                version.as_deref(),
+                TechCategory::WebServer,
+                0.9,
+                "http_header",
+            );
         }
 
         // Jetty
         if let Some(version) = self.extract_version(&lower, "jetty") {
-            self.add_detection("jetty", Some(version.as_str()), TechCategory::WebServer, 0.95, "http_header");
+            self.add_detection(
+                "jetty",
+                Some(version.as_str()),
+                TechCategory::WebServer,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("jetty") {
             self.add_detection("jetty", None, TechCategory::WebServer, 0.9, "http_header");
         }
@@ -191,7 +297,13 @@ impl FingerprintEngine {
 
         // PHP/7.4.3
         if let Some(version) = self.extract_version(&lower, "php") {
-            self.add_detection("php", Some(version.as_str()), TechCategory::Runtime, 0.95, "http_header");
+            self.add_detection(
+                "php",
+                Some(version.as_str()),
+                TechCategory::Runtime,
+                0.95,
+                "http_header",
+            );
         } else if lower.contains("php") {
             self.add_detection("php", None, TechCategory::Runtime, 0.9, "http_header");
         }
@@ -221,7 +333,13 @@ impl FingerprintEngine {
 
         // Ruby on Rails
         if lower.contains("phusion passenger") || lower.contains("mod_rack") {
-            self.add_detection("ruby_on_rails", None, TechCategory::Framework, 0.8, "http_header");
+            self.add_detection(
+                "ruby_on_rails",
+                None,
+                TechCategory::Framework,
+                0.8,
+                "http_header",
+            );
         }
 
         // Servlet
@@ -252,19 +370,37 @@ impl FingerprintEngine {
         // WordPress
         if lower.contains("wordpress") {
             let version = self.extract_version(&lower, "wordpress");
-            self.add_detection("wordpress", version.as_deref(), TechCategory::Cms, 0.95, "http_header");
+            self.add_detection(
+                "wordpress",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "http_header",
+            );
         }
 
         // Drupal
         if lower.contains("drupal") {
             let version = self.extract_version(&lower, "drupal");
-            self.add_detection("drupal", version.as_deref(), TechCategory::Cms, 0.95, "http_header");
+            self.add_detection(
+                "drupal",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "http_header",
+            );
         }
 
         // Joomla
         if lower.contains("joomla") {
             let version = self.extract_version(&lower, "joomla");
-            self.add_detection("joomla", version.as_deref(), TechCategory::Cms, 0.95, "http_header");
+            self.add_detection(
+                "joomla",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "http_header",
+            );
         }
     }
 
@@ -279,12 +415,23 @@ impl FingerprintEngine {
             self.add_detection("squid", None, TechCategory::Proxy, 0.8, "http_header");
         }
         if lower.contains("cloudfront") {
-            self.add_detection("aws_cloudfront", None, TechCategory::Cdn, 0.9, "http_header");
+            self.add_detection(
+                "aws_cloudfront",
+                None,
+                TechCategory::Cdn,
+                0.9,
+                "http_header",
+            );
         }
     }
 
     /// Extract fingerprints from TLS certificate information
-    pub fn extract_from_tls(&mut self, _subject: Option<&str>, issuer: Option<&str>, san: &[String]) {
+    pub fn extract_from_tls(
+        &mut self,
+        _subject: Option<&str>,
+        issuer: Option<&str>,
+        san: &[String],
+    ) {
         if let Some(issuer_str) = issuer {
             let lower = issuer_str.to_lowercase();
 
@@ -340,20 +487,53 @@ impl FingerprintEngine {
                 // SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.1
                 if lower.contains("openssh") {
                     let version = self.extract_version(&lower, "openssh");
-                    self.add_detection("openssh", version.as_deref(), TechCategory::Other, 0.95, "banner");
+                    self.add_detection(
+                        "openssh",
+                        version.as_deref(),
+                        TechCategory::Other,
+                        0.95,
+                        "banner",
+                    );
 
                     // Extract OS from SSH banner
                     if lower.contains("ubuntu") {
-                        self.add_detection("ubuntu", None, TechCategory::OperatingSystem, 0.8, "banner");
+                        self.add_detection(
+                            "ubuntu",
+                            None,
+                            TechCategory::OperatingSystem,
+                            0.8,
+                            "banner",
+                        );
                     } else if lower.contains("debian") {
-                        self.add_detection("debian", None, TechCategory::OperatingSystem, 0.8, "banner");
-                    } else if lower.contains("centos") || lower.contains("el7") || lower.contains("el8") {
-                        self.add_detection("centos", None, TechCategory::OperatingSystem, 0.8, "banner");
+                        self.add_detection(
+                            "debian",
+                            None,
+                            TechCategory::OperatingSystem,
+                            0.8,
+                            "banner",
+                        );
+                    } else if lower.contains("centos")
+                        || lower.contains("el7")
+                        || lower.contains("el8")
+                    {
+                        self.add_detection(
+                            "centos",
+                            None,
+                            TechCategory::OperatingSystem,
+                            0.8,
+                            "banner",
+                        );
                     }
                 }
                 if lower.contains("dropbear") {
                     let version = self.extract_version(&lower, "dropbear");
-                    self.add_detection("dropbear", version.as_deref(), TechCategory::Other, 0.95, "banner");
+                    self.add_detection(
+                        "dropbear",
+                        version.as_deref(),
+                        TechCategory::Other,
+                        0.95,
+                        "banner",
+                    );
                 }
             }
 
@@ -364,7 +544,13 @@ impl FingerprintEngine {
                 }
                 if lower.contains("exim") {
                     let version = self.extract_version(&lower, "exim");
-                    self.add_detection("exim", version.as_deref(), TechCategory::Other, 0.9, "banner");
+                    self.add_detection(
+                        "exim",
+                        version.as_deref(),
+                        TechCategory::Other,
+                        0.9,
+                        "banner",
+                    );
                 }
                 if lower.contains("sendmail") {
                     self.add_detection("sendmail", None, TechCategory::Other, 0.9, "banner");
@@ -378,11 +564,23 @@ impl FingerprintEngine {
             21 => {
                 if lower.contains("vsftpd") {
                     let version = self.extract_version(&lower, "vsftpd");
-                    self.add_detection("vsftpd", version.as_deref(), TechCategory::Other, 0.95, "banner");
+                    self.add_detection(
+                        "vsftpd",
+                        version.as_deref(),
+                        TechCategory::Other,
+                        0.95,
+                        "banner",
+                    );
                 }
                 if lower.contains("proftpd") {
                     let version = self.extract_version(&lower, "proftpd");
-                    self.add_detection("proftpd", version.as_deref(), TechCategory::Other, 0.95, "banner");
+                    self.add_detection(
+                        "proftpd",
+                        version.as_deref(),
+                        TechCategory::Other,
+                        0.95,
+                        "banner",
+                    );
                 }
                 if lower.contains("pure-ftpd") {
                     self.add_detection("pureftpd", None, TechCategory::Other, 0.95, "banner");
@@ -396,11 +594,23 @@ impl FingerprintEngine {
             3306 => {
                 if lower.contains("mysql") {
                     let version = self.extract_version(&lower, "mysql");
-                    self.add_detection("mysql", version.as_deref(), TechCategory::Database, 0.95, "banner");
+                    self.add_detection(
+                        "mysql",
+                        version.as_deref(),
+                        TechCategory::Database,
+                        0.95,
+                        "banner",
+                    );
                 }
                 if lower.contains("mariadb") {
                     let version = self.extract_version(&lower, "mariadb");
-                    self.add_detection("mariadb", version.as_deref(), TechCategory::Database, 0.95, "banner");
+                    self.add_detection(
+                        "mariadb",
+                        version.as_deref(),
+                        TechCategory::Database,
+                        0.95,
+                        "banner",
+                    );
                 }
             }
 
@@ -416,7 +626,13 @@ impl FingerprintEngine {
             6379 => {
                 if lower.contains("redis") {
                     let version = self.extract_version(&lower, "redis");
-                    self.add_detection("redis", version.as_deref(), TechCategory::Database, 0.95, "banner");
+                    self.add_detection(
+                        "redis",
+                        version.as_deref(),
+                        TechCategory::Database,
+                        0.95,
+                        "banner",
+                    );
                 }
             }
 
@@ -431,7 +647,13 @@ impl FingerprintEngine {
             9200 | 9300 => {
                 if lower.contains("elasticsearch") || lower.contains("elastic") {
                     let version = self.extract_version(&lower, "elasticsearch");
-                    self.add_detection("elasticsearch", version.as_deref(), TechCategory::Database, 0.9, "banner");
+                    self.add_detection(
+                        "elasticsearch",
+                        version.as_deref(),
+                        TechCategory::Database,
+                        0.9,
+                        "banner",
+                    );
                 }
             }
 
@@ -471,7 +693,10 @@ impl FingerprintEngine {
         }
 
         // React
-        if lower.contains("react-root") || lower.contains("data-reactroot") || lower.contains("__next") {
+        if lower.contains("react-root")
+            || lower.contains("data-reactroot")
+            || lower.contains("__next")
+        {
             self.add_detection("react", None, TechCategory::JsLibrary, 0.8, "html");
         }
 
@@ -481,14 +706,23 @@ impl FingerprintEngine {
         }
 
         // Angular
-        if lower.contains("ng-app") || lower.contains("ng-controller") || lower.contains("_ngcontent") {
+        if lower.contains("ng-app")
+            || lower.contains("ng-controller")
+            || lower.contains("_ngcontent")
+        {
             self.add_detection("angular", None, TechCategory::JsLibrary, 0.8, "html");
         }
 
         // jQuery
         if lower.contains("jquery") {
             let version = self.extract_jquery_version(html);
-            self.add_detection("jquery", version.as_deref(), TechCategory::JsLibrary, 0.7, "html");
+            self.add_detection(
+                "jquery",
+                version.as_deref(),
+                TechCategory::JsLibrary,
+                0.7,
+                "html",
+            );
         }
 
         // Bootstrap
@@ -503,13 +737,31 @@ impl FingerprintEngine {
 
         if lower.contains("wordpress") {
             let version = self.extract_version(&lower, "wordpress");
-            self.add_detection("wordpress", version.as_deref(), TechCategory::Cms, 0.95, "meta_generator");
+            self.add_detection(
+                "wordpress",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "meta_generator",
+            );
         } else if lower.contains("drupal") {
             let version = self.extract_version(&lower, "drupal");
-            self.add_detection("drupal", version.as_deref(), TechCategory::Cms, 0.95, "meta_generator");
+            self.add_detection(
+                "drupal",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "meta_generator",
+            );
         } else if lower.contains("joomla") {
             let version = self.extract_version(&lower, "joomla");
-            self.add_detection("joomla", version.as_deref(), TechCategory::Cms, 0.95, "meta_generator");
+            self.add_detection(
+                "joomla",
+                version.as_deref(),
+                TechCategory::Cms,
+                0.95,
+                "meta_generator",
+            );
         } else if lower.contains("typo3") {
             self.add_detection("typo3", None, TechCategory::Cms, 0.95, "meta_generator");
         } else if lower.contains("magento") {
@@ -519,7 +771,13 @@ impl FingerprintEngine {
         } else if lower.contains("wix") {
             self.add_detection("wix", None, TechCategory::Cms, 0.95, "meta_generator");
         } else if lower.contains("squarespace") {
-            self.add_detection("squarespace", None, TechCategory::Cms, 0.95, "meta_generator");
+            self.add_detection(
+                "squarespace",
+                None,
+                TechCategory::Cms,
+                0.95,
+                "meta_generator",
+            );
         }
     }
 
@@ -577,7 +835,7 @@ impl FingerprintEngine {
             format!("{} ", product),
             format!("{}-", product),
             format!("{}:", product),
-            format!("{}_", product),  // OpenSSH_8.2p1 pattern
+            format!("{}_", product), // OpenSSH_8.2p1 pattern
         ];
 
         for pattern in patterns {
@@ -617,8 +875,7 @@ impl FingerprintEngine {
     ) {
         // Check for duplicate (same tech + version)
         let existing = self.results.iter().position(|t| {
-            t.name.to_lowercase() == tech_name.to_lowercase()
-                && t.version.as_deref() == version
+            t.name.to_lowercase() == tech_name.to_lowercase() && t.version.as_deref() == version
         });
 
         if let Some(idx) = existing {
@@ -689,7 +946,9 @@ mod tests {
 
         let results = engine.results();
         assert!(!results.is_empty());
-        assert!(results.iter().any(|t| t.name == "nginx" && t.version == Some("1.18.0".to_string())));
+        assert!(results
+            .iter()
+            .any(|t| t.name == "nginx" && t.version == Some("1.18.0".to_string())));
     }
 
     #[test]
@@ -701,7 +960,9 @@ mod tests {
         engine.extract_from_http_headers(&headers);
 
         let results = engine.results();
-        assert!(results.iter().any(|t| t.name == "apache" && t.version == Some("2.4.41".to_string())));
+        assert!(results
+            .iter()
+            .any(|t| t.name == "apache" && t.version == Some("2.4.41".to_string())));
         assert!(results.iter().any(|t| t.name == "ubuntu"));
     }
 
@@ -714,7 +975,9 @@ mod tests {
         engine.extract_from_http_headers(&headers);
 
         let results = engine.results();
-        assert!(results.iter().any(|t| t.name == "php" && t.version == Some("7.4.3".to_string())));
+        assert!(results
+            .iter()
+            .any(|t| t.name == "php" && t.version == Some("7.4.3".to_string())));
     }
 
     #[test]
@@ -735,7 +998,9 @@ mod tests {
         engine.extract_from_banner(22, "SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.1");
 
         let results = engine.results();
-        assert!(results.iter().any(|t| t.name == "openssh" && t.version == Some("8.2".to_string())));
+        assert!(results
+            .iter()
+            .any(|t| t.name == "openssh" && t.version == Some("8.2".to_string())));
         assert!(results.iter().any(|t| t.name == "ubuntu"));
     }
 
@@ -747,7 +1012,9 @@ mod tests {
         engine.extract_from_html(html);
 
         let results = engine.results();
-        assert!(results.iter().any(|t| t.name == "wordpress" && t.version == Some("5.8".to_string())));
+        assert!(results
+            .iter()
+            .any(|t| t.name == "wordpress" && t.version == Some("5.8".to_string())));
     }
 
     #[test]
@@ -762,7 +1029,10 @@ mod tests {
         assert!(!results.is_empty());
 
         let nginx = results.iter().find(|t| t.name == "nginx").unwrap();
-        assert_eq!(nginx.cpe, Some("cpe:2.3:a:f5:nginx:1.18.0:*:*:*:*:*:*:*".to_string()));
+        assert_eq!(
+            nginx.cpe,
+            Some("cpe:2.3:a:f5:nginx:1.18.0:*:*:*:*:*:*:*".to_string())
+        );
     }
 
     #[test]
@@ -781,7 +1051,9 @@ mod tests {
 
         // Should have two nginx entries (one without version, one with)
         let results = engine.results();
-        let nginx_with_version = results.iter().find(|t| t.name == "nginx" && t.version.is_some());
+        let nginx_with_version = results
+            .iter()
+            .find(|t| t.name == "nginx" && t.version.is_some());
         assert!(nginx_with_version.is_some());
         assert!(nginx_with_version.unwrap().confidence >= 0.9);
     }

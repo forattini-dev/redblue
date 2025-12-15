@@ -23,7 +23,6 @@
 ///
 /// **IMPORTANT**: These playbooks are for authorized security testing ONLY.
 /// Unauthorized use is illegal and unethical.
-
 use super::types::*;
 use crate::scripts::FindingSeverity;
 
@@ -52,8 +51,8 @@ pub fn all_apt_playbooks() -> Vec<Playbook> {
 pub fn get_apt_playbook(name: &str) -> Option<Playbook> {
     let name_lower = name.to_lowercase();
     all_apt_playbooks().into_iter().find(|p| {
-        p.metadata.id.to_lowercase() == name_lower ||
-        p.metadata.name.to_lowercase().contains(&name_lower)
+        p.metadata.id.to_lowercase() == name_lower
+            || p.metadata.name.to_lowercase().contains(&name_lower)
     })
 }
 
@@ -77,7 +76,6 @@ pub fn list_apt_groups() -> Vec<(&'static str, &'static str)> {
         ("wizard-spider", "Wizard Spider"),
     ]
 }
-
 
 // =============================================================================
 // APT28 Playbook
@@ -205,7 +203,6 @@ pub fn apt28() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // APT29 Playbook
 // =============================================================================
@@ -331,7 +328,6 @@ pub fn apt29() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // APT3 Playbook
@@ -459,7 +455,6 @@ pub fn apt3() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // APT32 Playbook
 // =============================================================================
@@ -585,7 +580,6 @@ pub fn apt32() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // APT41 Playbook
@@ -713,7 +707,6 @@ pub fn apt41() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // FIN7 Playbook
 // =============================================================================
@@ -839,7 +832,6 @@ pub fn fin7() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // Kimsuky Playbook
@@ -967,7 +959,6 @@ pub fn kimsuky() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // Lazarus Group Playbook
 // =============================================================================
@@ -1093,7 +1084,6 @@ pub fn lazarus_group() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // MuddyWater Playbook
@@ -1221,7 +1211,6 @@ pub fn muddywater() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // OilRig Playbook
 // =============================================================================
@@ -1347,7 +1336,6 @@ pub fn oilrig() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // Sandworm Team Playbook
@@ -1475,7 +1463,6 @@ pub fn sandworm_team() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // Scattered Spider Playbook
 // =============================================================================
@@ -1601,7 +1588,6 @@ pub fn scattered_spider() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 // =============================================================================
 // Turla Playbook
@@ -1729,7 +1715,6 @@ pub fn turla() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // Volt Typhoon Playbook
 // =============================================================================
@@ -1856,7 +1841,6 @@ pub fn volt_typhoon() -> Playbook {
         )
 }
 
-
 // =============================================================================
 // Wizard Spider Playbook
 // =============================================================================
@@ -1982,7 +1966,6 @@ pub fn wizard_spider() -> Playbook {
             ).with_fix("Improve SOC playbooks and response procedures")
         )
 }
-
 
 #[cfg(test)]
 mod tests {

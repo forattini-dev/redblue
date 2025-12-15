@@ -1,13 +1,12 @@
+use super::cdp::CdpClient;
 /// Screenshot Capture Engine
 ///
 /// Multi-threaded screenshot capture with Chrome DevTools Protocol
-
-use super::{ScreenshotConfig, ScreenshotResult, BatchResult};
-use super::cdp::CdpClient;
+use super::{BatchResult, ScreenshotConfig, ScreenshotResult};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
 use std::thread;
 use std::time::Instant;
 
@@ -46,7 +45,8 @@ impl ScreenshotCapture {
         }
 
         // Set viewport and user agent
-        if let Err(e) = client.set_viewport(self.config.viewport_width, self.config.viewport_height) {
+        if let Err(e) = client.set_viewport(self.config.viewport_width, self.config.viewport_height)
+        {
             result.error = Some(e);
             return result;
         }
@@ -278,9 +278,12 @@ impl ScreenshotCapture {
     }
 
     /// Fetch page via HTTP
-    fn fetch_page(&self, url: &str) -> Result<(u16, Vec<(String, String)>, String, Option<String>), String> {
-        use std::net::TcpStream;
+    fn fetch_page(
+        &self,
+        url: &str,
+    ) -> Result<(u16, Vec<(String, String)>, String, Option<String>), String> {
         use std::io::{Read, Write};
+        use std::net::TcpStream;
 
         let (host, port, path, use_tls) = parse_url(url)?;
 
@@ -300,12 +303,16 @@ impl ScreenshotCapture {
 
         let addr = format!("{}:{}", host, port);
         let mut stream = TcpStream::connect_timeout(
-            &addr.parse().map_err(|e| format!("Invalid address: {}", e))?,
+            &addr
+                .parse()
+                .map_err(|e| format!("Invalid address: {}", e))?,
             self.config.timeout,
-        ).map_err(|e| format!("Connection failed: {}", e))?;
+        )
+        .map_err(|e| format!("Connection failed: {}", e))?;
 
         stream.set_read_timeout(Some(self.config.timeout)).ok();
-        stream.write_all(request.as_bytes())
+        stream
+            .write_all(request.as_bytes())
             .map_err(|e| format!("Request failed: {}", e))?;
 
         let mut response = Vec::new();
@@ -340,7 +347,9 @@ impl ScreenshotCapture {
         }
 
         // Body
-        let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+        let body_start = text
+            .find("\r\n\r\n")
+            .map(|p| p + 4)
             .or_else(|| text.find("\n\n").map(|p| p + 2))
             .unwrap_or(text.len());
         let body = text[body_start..].to_string();
@@ -368,7 +377,10 @@ fn parse_url(url: &str) -> Result<(String, u16, String, bool), String> {
     };
 
     let (host, port) = match host_port.find(':') {
-        Some(pos) => (&host_port[..pos], host_port[pos + 1..].parse().unwrap_or(default_port)),
+        Some(pos) => (
+            &host_port[..pos],
+            host_port[pos + 1..].parse().unwrap_or(default_port),
+        ),
         None => (host_port, default_port),
     };
 

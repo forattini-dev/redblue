@@ -2,7 +2,6 @@
 ///
 /// Detects Redis servers and identifies potential security issues
 /// including unauthenticated access.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,15 @@ impl RedisInfoScript {
                 name: "Redis Server Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects Redis servers and identifies version and security configuration".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description:
+                    "Detects Redis servers and identifies version and security configuration"
+                        .to_string(),
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["redis".to_string()],
                 ports: vec![6379, 6380, 6381],
                 license: "MIT".to_string(),
@@ -59,7 +65,10 @@ impl Script for RedisInfoScript {
         let combined = format!("{} {}", banner, info_response);
         let combined_lower = combined.to_lowercase();
 
-        if combined_lower.contains("redis") || combined_lower.contains("-err") || combined_lower.contains("+pong") {
+        if combined_lower.contains("redis")
+            || combined_lower.contains("-err")
+            || combined_lower.contains("+pong")
+        {
             result.add_finding(
                 Finding::new(FindingType::Discovery, "Redis Server Detected")
                     .with_evidence(&combined)
@@ -88,7 +97,9 @@ impl Script for RedisInfoScript {
                     Finding::new(FindingType::Vulnerability, "Redis Unauthenticated Access")
                         .with_description("Redis server appears to allow unauthenticated access")
                         .with_severity(FindingSeverity::Critical)
-                        .with_remediation("Enable Redis authentication with 'requirepass' directive"),
+                        .with_remediation(
+                            "Enable Redis authentication with 'requirepass' directive",
+                        ),
                 );
             }
         }
@@ -96,24 +107,34 @@ impl Script for RedisInfoScript {
         // Check for dangerous commands
         if combined_lower.contains("config") || combined_lower.contains("debug") {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Dangerous Commands May Be Enabled")
-                    .with_description("Redis CONFIG and DEBUG commands may allow RCE")
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Rename or disable dangerous commands in redis.conf"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Dangerous Commands May Be Enabled",
+                )
+                .with_description("Redis CONFIG and DEBUG commands may allow RCE")
+                .with_severity(FindingSeverity::High)
+                .with_remediation("Rename or disable dangerous commands in redis.conf"),
             );
         }
 
         // Check for protected mode
-        if combined_lower.contains("protected-mode:no") || combined_lower.contains("protected_mode:0") {
+        if combined_lower.contains("protected-mode:no")
+            || combined_lower.contains("protected_mode:0")
+        {
             result.add_finding(
                 Finding::new(FindingType::Misconfiguration, "Protected Mode Disabled")
-                    .with_description("Redis protected mode is disabled, allowing remote connections")
+                    .with_description(
+                        "Redis protected mode is disabled, allowing remote connections",
+                    )
                     .with_severity(FindingSeverity::High)
                     .with_remediation("Enable protected mode or configure proper authentication"),
             );
         }
 
-        result.add_output(&format!("Redis analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "Redis analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -159,7 +180,9 @@ impl RedisInfoScript {
             result.add_finding(
                 Finding::new(FindingType::Vulnerability, "Redis Lua Sandbox Escape")
                     .with_cve("CVE-2022-24735")
-                    .with_description("Redis before 6.2.7 and 7.0.0 vulnerable to Lua sandbox escape")
+                    .with_description(
+                        "Redis before 6.2.7 and 7.0.0 vulnerable to Lua sandbox escape",
+                    )
                     .with_severity(FindingSeverity::High)
                     .with_remediation("Upgrade to Redis 6.2.7+ or 7.0.1+"),
             );
@@ -188,14 +211,16 @@ impl RedisInfoScript {
     }
 
     fn version_lt(&self, version: &str, target: &str) -> bool {
-        let parse = |s: &str| -> Vec<u32> {
-            s.split('.').filter_map(|p| p.parse().ok()).collect()
-        };
+        let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
         let v1 = parse(version);
         let v2 = parse(target);
         for (a, b) in v1.iter().zip(v2.iter()) {
-            if a < b { return true; }
-            if a > b { return false; }
+            if a < b {
+                return true;
+            }
+            if a > b {
+                return false;
+            }
         }
         v1.len() < v2.len()
     }
@@ -224,7 +249,10 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        let has_unauth = result.findings.iter().any(|f| f.title.contains("Unauthenticated"));
+        let has_unauth = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Unauthenticated"));
         assert!(has_unauth);
     }
 }

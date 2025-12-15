@@ -77,24 +77,27 @@ impl Command for WordlistCommand {
         vec![
             Flag::new("embedded", "Show only embedded wordlists"),
             Flag::new("cached", "Show only cached wordlists"),
-            Flag::new("category", "Filter by category (passwords, subdomains, dirs, usernames)")
-                .with_short('c'),
+            Flag::new(
+                "category",
+                "Filter by category (passwords, subdomains, dirs, usernames)",
+            )
+            .with_short('c'),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("List installed wordlists", "rb wordlist collection list"),
-            ("List downloadable sources", "rb wordlist collection sources"),
+            (
+                "List downloadable sources",
+                "rb wordlist collection sources",
+            ),
             (
                 "List password wordlists",
                 "rb wordlist collection sources --category passwords",
             ),
             ("Search for wordlists", "rb wordlist collection search rock"),
-            (
-                "Download rockyou.txt",
-                "rb wordlist collection get rockyou",
-            ),
+            ("Download rockyou.txt", "rb wordlist collection get rockyou"),
             (
                 "Download common passwords",
                 "rb wordlist collection get common-passwords",
@@ -106,10 +109,7 @@ impl Command for WordlistCommand {
                 "rb wordlist collection install seclists",
             ),
             ("Update SecLists", "rb wordlist collection update seclists"),
-            (
-                "Remove wordlist",
-                "rb wordlist collection remove rockyou",
-            ),
+            ("Remove wordlist", "rb wordlist collection remove rockyou"),
         ]
     }
 
@@ -423,16 +423,10 @@ impl WordlistCommand {
         let print_section = |title: &str, items: &[&crate::wordlists::WordlistSource]| {
             if !items.is_empty() {
                 Output::section(title);
-                println!(
-                    "  {:<20} {:<10} {}",
-                    "NAME", "SIZE", "DESCRIPTION"
-                );
+                println!("  {:<20} {:<10} {}", "NAME", "SIZE", "DESCRIPTION");
                 println!("  {}", "─".repeat(70));
                 for s in items {
-                    println!(
-                        "  {:<20} {:<10} {}",
-                        s.name, s.size_hint, s.description
-                    );
+                    println!("  {:<20} {:<10} {}", s.name, s.size_hint, s.description);
                 }
                 println!();
             }
@@ -646,46 +640,47 @@ impl Command for WordlistFileCommand {
 
 impl WordlistFileCommand {
     fn info(&self, ctx: &CliContext) -> Result<(), String> {
-        let path_str = ctx.target.as_ref().ok_or(
-            "Missing wordlist path.\nUsage: rb wordlist file info <path>",
-        )?;
+        let path_str = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing wordlist path.\nUsage: rb wordlist file info <path>")?;
         let path = std::path::Path::new(path_str);
 
         if !path.exists() {
             return Err(format!("File not found: {}", path_str));
         }
 
-        use crate::modules::wordlist::loader::Loader;
         use crate::modules::wordlist::analysis::Analyzer;
+        use crate::modules::wordlist::loader::Loader;
         use std::io::{BufRead, BufReader};
 
         Output::header(&format!("Wordlist Analysis: {}", path_str));
 
         let reader = Loader::open(path).map_err(|e| e.to_string())?;
         let buf_reader = BufReader::new(reader);
-        
-        // Load into memory for analysis? 
-        // Analyzer::analyze takes &[String]. 
-        // For huge files this is bad. 
+
+        // Load into memory for analysis?
+        // Analyzer::analyze takes &[String].
+        // For huge files this is bad.
         // But our Analyzer implementation handles &[String].
-        // Ideally we should stream. 
+        // Ideally we should stream.
         // For now, let's load line by line and accumulate stats manually or collect if small enough?
-        // Let's implement a streaming analysis in WordlistFileCommand for now, 
+        // Let's implement a streaming analysis in WordlistFileCommand for now,
         // or update Analyzer to accept iterator.
-        
+
         // Simpler: Read lines and analyze.
         let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
         let lines = lines.map_err(|e| e.to_string())?;
-        
+
         let stats = Analyzer::analyze(&lines);
-        
+
         Output::item("Lines", &stats.line_count.to_string());
         Output::item("Unique", &stats.unique_count.to_string());
         Output::item("Avg Length", &format!("{:.1}", stats.avg_length));
         Output::item("Min Length", &stats.min_length.to_string());
         Output::item("Max Length", &stats.max_length.to_string());
         Output::item("Charset", &stats.charset);
-        
+
         // Preview
         Output::section("Preview (first 10)");
         for line in lines.iter().take(10) {
@@ -694,40 +689,41 @@ impl WordlistFileCommand {
 
         Ok(())
     }
-    
+
     fn filter(&self, ctx: &CliContext) -> Result<(), String> {
-        let path_str = ctx.target.as_ref().ok_or(
-            "Missing wordlist path.\nUsage: rb wordlist file filter <path>",
-        )?;
+        let path_str = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing wordlist path.\nUsage: rb wordlist file filter <path>")?;
         let path = std::path::Path::new(path_str);
-        
-        use crate::modules::wordlist::loader::Loader;
+
         use crate::modules::wordlist::filter::Filter;
+        use crate::modules::wordlist::loader::Loader;
         use std::io::{BufRead, BufReader};
-        
+
         let reader = Loader::open(path).map_err(|e| e.to_string())?;
         let buf_reader = BufReader::new(reader);
         let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
         let mut words = lines.map_err(|e| e.to_string())?;
-        
+
         // Apply length filter
         let min = ctx.get_flag("min").and_then(|s| s.parse().ok());
         let max = ctx.get_flag("max").and_then(|s| s.parse().ok());
-        
+
         if min.is_some() || max.is_some() {
             words = Filter::by_length(words, min, max);
         }
-        
+
         // Apply pattern filter
         if let Some(pattern) = ctx.get_flag("pattern") {
             let inverse = ctx.has_flag("inverse");
             words = Filter::by_pattern(words, &pattern, inverse);
         }
-        
+
         for w in words {
             println!("{}", w);
         }
-        
+
         Ok(())
     }
 }

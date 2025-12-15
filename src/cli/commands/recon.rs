@@ -1,37 +1,35 @@
 /// Recon/domain command - Information gathering and OSINT
 use crate::cli::commands::{build_partition_attributes, print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
-use crate::ui::{ReconTreeBuilder, TreeRenderer, TreeNode};
+use crate::modules::network::scanner::PortScanner;
+use crate::modules::recon::asn::AsnClient;
+use crate::modules::recon::breach::BreachClient;
+use crate::modules::recon::dnsdumpster::{DnsDumpsterClient, DnsDumpsterResult};
+use crate::modules::recon::dorks::{DorksSearchResult, DorksSearcher};
 use crate::modules::recon::harvester::Harvester;
+use crate::modules::recon::massdns::common_subdomains;
+use crate::modules::recon::massdns::MassDnsScanner;
+use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
+use crate::modules::recon::secrets::{SecretSeverity, SecretsScanner, WebSecretFinding};
+use crate::modules::recon::social::{SocialMapper, SocialMappingResult, SocialProfile};
 use crate::modules::recon::subdomain::{
     load_wordlist_from_file, EnumerationSource, SubdomainEnumerator,
 };
 use crate::modules::recon::urlharvest::UrlHarvester;
+use crate::modules::recon::vuln::osv::{Ecosystem, OsvClient};
 use crate::modules::recon::vuln::{
-    generate_cpe, NvdClient, KevClient, ExploitDbClient,
-    VulnCollection, calculate_risk_score,
+    calculate_risk_score, generate_cpe, ExploitDbClient, KevClient, NvdClient, VulnCollection,
 };
-use crate::modules::recon::vuln::osv::{OsvClient, Ecosystem};
-use crate::modules::recon::asn::AsnClient;
-use crate::modules::recon::breach::BreachClient;
-use crate::modules::recon::dorks::{DorksSearcher, DorksSearchResult};
-use crate::modules::recon::dnsdumpster::{DnsDumpsterClient, DnsDumpsterResult};
-use crate::modules::recon::massdns::MassDnsScanner;
-use crate::modules::recon::secrets::{SecretSeverity, SecretsScanner, WebSecretFinding};
-use crate::modules::recon::social::{SocialMapper, SocialMappingResult, SocialProfile};
-use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
 use crate::modules::web::fingerprinter::WebFingerprinter;
-use crate::protocols::rdap::{RdapClient, RdapIpResponse, RdapDomainResponse};
+use crate::protocols::dns::{DnsClient, DnsRdata, DnsRecordType};
+use crate::protocols::rdap::{RdapClient, RdapDomainResponse, RdapIpResponse};
 use crate::protocols::whois::WhoisClient;
+use crate::storage::records::{PortScanRecord, Severity, SubdomainSource, VulnerabilityRecord};
 use crate::storage::service::StorageService;
-use crate::storage::records::{PortScanRecord, Severity, VulnerabilityRecord, SubdomainSource};
+use crate::ui::{ReconTreeBuilder, TreeNode, TreeRenderer};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Duration;
-use crate::protocols::dns::{DnsClient, DnsRecordType, DnsRdata};
-use crate::modules::network::scanner::PortScanner;
-use crate::modules::recon::massdns::common_subdomains;
-
 
 pub struct ReconCommand;
 
@@ -94,7 +92,8 @@ impl Command for ReconCommand {
             },
             Route {
                 verb: "email",
-                summary: "Email intelligence - provider detection, service registrations (holehe-style)",
+                summary:
+                    "Email intelligence - provider detection, service registrations (holehe-style)",
                 usage: "rb recon domain email <email>",
             },
             Route {
@@ -176,9 +175,12 @@ impl Command for ReconCommand {
             ),
             Flag::new("persist", "Save results to binary database (.rdb file)"),
             Flag::new("no-persist", "Don't save results (overrides config)"),
-            Flag::new("source", "Vulnerability source for vuln command (nvd, osv, all)")
-                .with_short('s')
-                .with_default("nvd"),
+            Flag::new(
+                "source",
+                "Vulnerability source for vuln command (nvd, osv, all)",
+            )
+            .with_short('s')
+            .with_default("nvd"),
             Flag::new("limit", "Maximum vulnerabilities to show").with_default("20"),
             Flag::new("api-key", "NVD API key for higher rate limits"),
             Flag::new("hibp-key", "HIBP API key for email breach checks"),
@@ -193,11 +195,16 @@ impl Command for ReconCommand {
             // MassDNS flags
             Flag::new("resolvers", "Comma-separated DNS resolvers for massdns")
                 .with_default("8.8.8.8,1.1.1.1,9.9.9.9"),
-            Flag::new("timeout-ms", "DNS query timeout in milliseconds for massdns")
-                .with_default("2000"),
-            Flag::new("delay", "Delay between queries in ms for rate limiting")
-                .with_default("10"),
-            Flag::new("filter-wildcards", "Enable wildcard detection and filtering (for subdomains command)"),
+            Flag::new(
+                "timeout-ms",
+                "DNS query timeout in milliseconds for massdns",
+            )
+            .with_default("2000"),
+            Flag::new("delay", "Delay between queries in ms for rate limiting").with_default("10"),
+            Flag::new(
+                "filter-wildcards",
+                "Enable wildcard detection and filtering (for subdomains command)",
+            ),
             Flag::new("depth", "Maximum tree depth for graph command").with_default("5"),
             Flag::new("no-color", "Disable colored output in graph"),
         ]
@@ -237,14 +244,8 @@ impl Command for ReconCommand {
                 "rb recon domain urls example.com --extensions js,php,asp",
             ),
             // ASN lookup
-            (
-                "ASN lookup for IP",
-                "rb recon domain asn 8.8.8.8",
-            ),
-            (
-                "ASN lookup for hostname",
-                "rb recon domain asn google.com",
-            ),
+            ("ASN lookup for IP", "rb recon domain asn 8.8.8.8"),
+            ("ASN lookup for hostname", "rb recon domain asn google.com"),
             // Breach checking
             (
                 "Check password breach (HIBP)",
@@ -428,8 +429,8 @@ impl ReconCommand {
 
         // Common ports preset
         let common_ports: Vec<u16> = vec![
-            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995,
-            1723, 3306, 3389, 5432, 5900, 8080, 8443, 8888
+            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389,
+            5432, 5900, 8080, 8443, 8888,
         ];
 
         let mut port_results = Vec::new();
@@ -441,7 +442,10 @@ impl ReconCommand {
             // Resolve domain
             let dns_client = DnsClient::new("8.8.8.8"); // Use default resolver
             if let Ok(ips) = dns_client.query(target, DnsRecordType::A).map(|answers| {
-                answers.into_iter().filter_map(|ans| ans.as_ip().and_then(|ip_str| ip_str.parse::<IpAddr>().ok())).collect::<Vec<_>>()
+                answers
+                    .into_iter()
+                    .filter_map(|ans| ans.as_ip().and_then(|ip_str| ip_str.parse::<IpAddr>().ok()))
+                    .collect::<Vec<_>>()
             }) {
                 if let Some(ip) = ips.first() {
                     resolved_ip = Some(*ip);
@@ -450,9 +454,7 @@ impl ReconCommand {
         }
 
         if let Some(ip) = resolved_ip {
-            let scanner = PortScanner::new(ip)
-                .with_threads(200)
-                .with_timeout(1000); // Expects u64 millis
+            let scanner = PortScanner::new(ip).with_threads(200).with_timeout(1000); // Expects u64 millis
 
             let results = scanner.scan_ports(&common_ports);
             let open_count = results.iter().filter(|r| r.is_open).count();
@@ -470,7 +472,11 @@ impl ReconCommand {
                             .as_secs() as u32,
                     };
                     port_results.push(record.clone());
-                    let _ = store.ports().insert(ip, result.port, crate::storage::records::PortStatus::Open); // Use the RedDb API
+                    let _ = store.ports().insert(
+                        ip,
+                        result.port,
+                        crate::storage::records::PortStatus::Open,
+                    ); // Use the RedDb API
                 }
             }
 
@@ -478,7 +484,8 @@ impl ReconCommand {
             println!("  ✓ Found {} open ports", open_count);
 
             if open_count > 0 {
-                let ports_str: Vec<String> = port_results.iter().map(|p| p.port.to_string()).collect();
+                let ports_str: Vec<String> =
+                    port_results.iter().map(|p| p.port.to_string()).collect();
                 println!("    Ports: {}", ports_str.join(", "));
             }
         } else {
@@ -496,10 +503,18 @@ impl ReconCommand {
             let dns_client = DnsClient::new("8.8.8.8"); // Use default resolver
 
             // Get A records
-            let a_records = dns_client.query(target, DnsRecordType::A).map(|answers| {
-                answers.into_iter().filter_map(|ans| ans.as_ip().and_then(|ip_str| ip_str.parse::<IpAddr>().ok())).collect::<Vec<_>>()
-            }).unwrap_or_default();
-            
+            let a_records = dns_client
+                .query(target, DnsRecordType::A)
+                .map(|answers| {
+                    answers
+                        .into_iter()
+                        .filter_map(|ans| {
+                            ans.as_ip().and_then(|ip_str| ip_str.parse::<IpAddr>().ok())
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
             // Get MX records
             let mx_response = dns_client.query(target, DnsRecordType::MX);
             let mx_count = mx_response.map(|r| r.len()).unwrap_or(0);
@@ -527,7 +542,9 @@ impl ReconCommand {
         println!();
         println!("\x1b[1;36m[3/4] Web Fingerprinting\x1b[0m");
 
-        let has_web = port_results.iter().any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
+        let has_web = port_results
+            .iter()
+            .any(|p| matches!(p.port, 80 | 443 | 8080 | 8443));
 
         // Store fingerprints as simple structs (not persisted to DB in this implementation)
         #[derive(Clone)]
@@ -633,7 +650,8 @@ impl ReconCommand {
                                 discovered_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .unwrap_or_default()
-                                    .as_secs() as u32,
+                                    .as_secs()
+                                    as u32,
                                 source: "nvd".to_string(),
                             };
                             vulns.push(record.clone());
@@ -648,8 +666,14 @@ impl ReconCommand {
             if vulns.is_empty() {
                 println!("  ✓ No known vulnerabilities found");
             } else {
-                let critical = vulns.iter().filter(|v| matches!(v.severity, Severity::Critical)).count();
-                let high = vulns.iter().filter(|v| matches!(v.severity, Severity::High)).count();
+                let critical = vulns
+                    .iter()
+                    .filter(|v| matches!(v.severity, Severity::Critical))
+                    .count();
+                let high = vulns
+                    .iter()
+                    .filter(|v| matches!(v.severity, Severity::High))
+                    .count();
 
                 println!("  ⚠ Found {} vulnerabilities", vulns.len());
                 if critical > 0 {
@@ -661,7 +685,11 @@ impl ReconCommand {
 
                 // Show top CVEs
                 let mut sorted = vulns.clone();
-                sorted.sort_by(|a, b| b.cvss.partial_cmp(&a.cvss).unwrap_or(std::cmp::Ordering::Equal));
+                sorted.sort_by(|a, b| {
+                    b.cvss
+                        .partial_cmp(&a.cvss)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
                 for v in sorted.iter().take(3) {
                     println!("    • {} (CVSS {:.1})", v.cve_id, v.cvss);
                 }
@@ -714,7 +742,7 @@ impl ReconCommand {
                 println!();
                 Output::info("Run reconnaissance first:");
                 println!("  \x1b[1;36mrb recon domain full {}\x1b[0m", target);
-                return Ok(())
+                return Ok(());
             }
         };
 
@@ -746,7 +774,8 @@ impl ReconCommand {
         } else {
             Vec::new()
         };
-        let open_ports: Vec<_> = ports.iter()
+        let open_ports: Vec<_> = ports
+            .iter()
             .filter(|p| p.status == crate::storage::records::PortStatus::Open)
             .collect();
 
@@ -774,15 +803,22 @@ impl ReconCommand {
                     8443 => "HTTPS-Alt",
                     _ => "Unknown",
                 };
-                println!("  \x1b[32m●\x1b[0m {} ({}) - {}", port.port, service, port.ip);
+                println!(
+                    "  \x1b[32m●\x1b[0m {} ({}) - {}",
+                    port.port, service, port.ip
+                );
             }
         }
 
         // === OS DETECTION ===
-        let detected_os = if open_ports.iter().any(|p| p.port == 3389) ||
-            (open_ports.iter().any(|p| p.port == 445) && !open_ports.iter().any(|p| p.port == 22)) {
+        let detected_os = if open_ports.iter().any(|p| p.port == 3389)
+            || (open_ports.iter().any(|p| p.port == 445)
+                && !open_ports.iter().any(|p| p.port == 22))
+        {
             Some("Windows")
-        } else if open_ports.iter().any(|p| p.port == 22) && !open_ports.iter().any(|p| p.port == 445) {
+        } else if open_ports.iter().any(|p| p.port == 22)
+            && !open_ports.iter().any(|p| p.port == 445)
+        {
             Some("Linux")
         } else {
             None
@@ -800,9 +836,7 @@ impl ReconCommand {
 
         // Technologies are inferred from vulnerabilities (since we don't have a fingerprints table)
         let vulns = store.vulns().all().unwrap_or_default();
-        let unique_techs: HashSet<&String> = vulns.iter()
-            .map(|v| &v.technology)
-            .collect();
+        let unique_techs: HashSet<&String> = vulns.iter().map(|v| &v.technology).collect();
 
         if unique_techs.is_empty() {
             println!("  No technologies detected (run full recon to detect)");
@@ -820,12 +854,25 @@ impl ReconCommand {
         } else {
             // Sort by CVSS
             let mut sorted = vulns.clone();
-            sorted.sort_by(|a, b| b.cvss.partial_cmp(&a.cvss).unwrap_or(std::cmp::Ordering::Equal));
+            sorted.sort_by(|a, b| {
+                b.cvss
+                    .partial_cmp(&a.cvss)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             // Stats
-            let critical = sorted.iter().filter(|v| matches!(v.severity, Severity::Critical)).count();
-            let high = sorted.iter().filter(|v| matches!(v.severity, Severity::High)).count();
-            let medium = sorted.iter().filter(|v| matches!(v.severity, Severity::Medium)).count();
+            let critical = sorted
+                .iter()
+                .filter(|v| matches!(v.severity, Severity::Critical))
+                .count();
+            let high = sorted
+                .iter()
+                .filter(|v| matches!(v.severity, Severity::High))
+                .count();
+            let medium = sorted
+                .iter()
+                .filter(|v| matches!(v.severity, Severity::Medium))
+                .count();
 
             println!("  Found {} vulnerabilities:", sorted.len());
             if critical > 0 {
@@ -847,8 +894,10 @@ impl ReconCommand {
                     Severity::Medium => "\x1b[33m",
                     _ => "\x1b[0m",
                 };
-                println!("  {}• {}\x1b[0m (CVSS {:.1}) - {}",
-                    sev_color, v.cve_id, v.cvss, v.technology);
+                println!(
+                    "  {}• {}\x1b[0m (CVSS {:.1}) - {}",
+                    sev_color, v.cve_id, v.cvss, v.technology
+                );
             }
             if sorted.len() > 10 {
                 println!("  ... and {} more", sorted.len() - 10);
@@ -955,7 +1004,11 @@ impl ReconCommand {
             }
             println!("  \"name_servers\": [");
             for (i, ns) in result.name_servers.iter().enumerate() {
-                let comma = if i < result.name_servers.len() - 1 { "," } else { "" };
+                let comma = if i < result.name_servers.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
                 println!("    \"{}\"{}", ns, comma);
             }
             println!("  ],");
@@ -1128,7 +1181,10 @@ impl ReconCommand {
                 println!("  \"events\": [");
                 for (i, event) in result.events.iter().enumerate() {
                     let comma = if i < result.events.len() - 1 { "," } else { "" };
-                    println!("    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}", event.action, event.date, comma);
+                    println!(
+                        "    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}",
+                        event.action, event.date, comma
+                    );
                 }
                 println!("  ]");
                 println!("}}");
@@ -1194,7 +1250,11 @@ impl ReconCommand {
             if !result.entities.is_empty() {
                 Output::subheader("Entities");
                 for entity in &result.entities {
-                    let name = entity.name.as_deref().or(entity.organization.as_deref()).unwrap_or("Unknown");
+                    let name = entity
+                        .name
+                        .as_deref()
+                        .or(entity.organization.as_deref())
+                        .unwrap_or("Unknown");
                     let roles = entity.roles.join(", ");
                     println!("  {} ({})", name, roles);
                 }
@@ -1230,14 +1290,21 @@ impl ReconCommand {
                 println!("  ],");
                 println!("  \"nameservers\": [");
                 for (i, ns) in result.nameservers.iter().enumerate() {
-                    let comma = if i < result.nameservers.len() - 1 { "," } else { "" };
+                    let comma = if i < result.nameservers.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
                     println!("    \"{}\"{}", ns, comma);
                 }
                 println!("  ],");
                 println!("  \"events\": [");
                 for (i, event) in result.events.iter().enumerate() {
                     let comma = if i < result.events.len() - 1 { "," } else { "" };
-                    println!("    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}", event.action, event.date, comma);
+                    println!(
+                        "    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}",
+                        event.action, event.date, comma
+                    );
                 }
                 println!("  ]");
                 println!("}}");
@@ -1251,7 +1318,8 @@ impl ReconCommand {
                 // RdapDomainResponse doesn't have handle, start_address, end_address, ip_version, name, country
                 // So, removed these lines from here
                 println!("name: {}", result.domain); // Using domain as name for now
-                if let Some(ref registrar) = result.registrar { // Using registrar as country for now
+                if let Some(ref registrar) = result.registrar {
+                    // Using registrar as country for now
                     println!("country: {}", registrar);
                 }
                 println!("status:");
@@ -1364,7 +1432,7 @@ impl ReconCommand {
             let wordlist = load_wordlist_from_file(&wordlist_path)?;
             enumerator = enumerator.with_wordlist(wordlist);
         }
-        
+
         // Apply wildcard filtering flag
         let filter_wildcards = ctx.has_flag("filter-wildcards");
         enumerator = enumerator.with_wildcard_filtering(filter_wildcards);
@@ -1373,9 +1441,9 @@ impl ReconCommand {
 
         // Run enumeration
         let results = if passive_only {
-            enumerator.enumerate_ct_logs()? 
+            enumerator.enumerate_ct_logs()?
         } else {
-            enumerator.enumerate_all()? 
+            enumerator.enumerate_all()?
         };
 
         // JSON output
@@ -1396,7 +1464,11 @@ impl ReconCommand {
                 println!("      ],");
                 println!("      \"cname_chain\": [");
                 for (j, cname) in result.cname_chain.iter().enumerate() {
-                    let cname_comma = if j < result.cname_chain.len() - 1 { "," } else { "" };
+                    let cname_comma = if j < result.cname_chain.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
                     println!("        \"{}\"{}", cname, cname_comma);
                 }
                 println!("      ],");
@@ -1469,10 +1541,7 @@ impl ReconCommand {
 
             // Show CNAME chain if present
             if !result.cname_chain.is_empty() {
-                println!(
-                    "    └─ CNAME: {}",
-                    result.cname_chain.join(" → ")
-                );
+                println!("    └─ CNAME: {}", result.cname_chain.join(" → "));
             }
         }
 
@@ -1578,7 +1647,7 @@ impl ReconCommand {
         }
 
         println!();
-        let total = 
+        let total =
             result.emails.len() + result.subdomains.len() + result.ips.len() + result.urls.len();
         Output::success(&format!("Harvested {} total items", total));
 
@@ -1738,15 +1807,26 @@ impl ReconCommand {
             }
             println!("  \"services\": [");
             for (i, service) in result.services.iter().enumerate() {
-                let comma = if i < result.services.len() - 1 { "," } else { "" };
+                let comma = if i < result.services.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
                 println!("    \"{}\"{}", service, comma);
             }
             println!("  ],");
             println!("  \"social_profiles\": [");
             for (i, profile) in result.social_profiles.iter().enumerate() {
                 let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("");
-                let comma = if i < result.social_profiles.len() - 1 { "," } else { "" };
-                println!("    {{ \"platform\": \"{}\", \"url\": \"{}\" }}{}", profile.platform, url, comma);
+                let comma = if i < result.social_profiles.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!(
+                    "    {{ \"platform\": \"{}\", \"url\": \"{}\" }}{}",
+                    profile.platform, url, comma
+                );
             }
             println!("  ]");
             println!("}}");
@@ -1779,10 +1859,16 @@ impl ReconCommand {
         // Social profiles linked
         if !result.social_profiles.is_empty() {
             println!();
-            Output::subheader(&format!("Social Profiles ({})", result.social_profiles.len()));
+            Output::subheader(&format!(
+                "Social Profiles ({})",
+                result.social_profiles.len()
+            ));
             for profile in &result.social_profiles {
                 let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
-                println!("  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m", profile.platform, url);
+                println!(
+                    "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+                    profile.platform, url
+                );
             }
         }
 
@@ -1802,7 +1888,10 @@ impl ReconCommand {
         // Extract username and suggest related search
         if let Some(username) = intel.extract_username(target) {
             println!();
-            Output::info(&format!("Tip: Try 'rb recon username search {}' for broader search", username));
+            Output::info(&format!(
+                "Tip: Try 'rb recon username search {}' for broader search",
+                username
+            ));
         }
 
         Ok(())
@@ -1916,7 +2005,9 @@ impl ReconCommand {
             "Missing password or email.\nUsage: rb recon domain breach <PASSWORD|EMAIL> [--type password|email]",
         )?;
 
-        let check_type = ctx.get_flag("type").unwrap_or_else(|| "password".to_string());
+        let check_type = ctx
+            .get_flag("type")
+            .unwrap_or_else(|| "password".to_string());
         let format = ctx.get_output_format();
 
         let mut client = BreachClient::new();
@@ -1953,10 +2044,7 @@ impl ReconCommand {
                 println!();
 
                 if result.pwned {
-                    Output::error(&format!(
-                        "Password found in {} breaches!",
-                        result.count
-                    ));
+                    Output::error(&format!("Password found in {} breaches!", result.count));
                     println!();
                     Output::warning("This password has been exposed in data breaches.");
                     Output::warning("Do NOT use this password anywhere!");
@@ -1999,7 +2087,11 @@ impl ReconCommand {
                     println!("  \"breach_count\": {},", result.breach_count);
                     println!("  \"breaches\": [");
                     for (i, breach) in result.breaches.iter().enumerate() {
-                        let comma = if i < result.breaches.len() - 1 { "," } else { "" };
+                        let comma = if i < result.breaches.len() - 1 {
+                            ","
+                        } else {
+                            ""
+                        };
                         println!("    {{");
                         println!("      \"name\": \"{}\",", breach.name);
                         println!("      \"domain\": \"{}\",", breach.domain);
@@ -2017,10 +2109,7 @@ impl ReconCommand {
                 println!();
 
                 if result.pwned {
-                    Output::error(&format!(
-                        "Email found in {} breaches!",
-                        result.breach_count
-                    ));
+                    Output::error(&format!("Email found in {} breaches!", result.breach_count));
                     println!();
 
                     Output::subheader("Breaches");
@@ -2046,7 +2135,10 @@ impl ReconCommand {
                 }
             }
             _ => {
-                return Err(format!("Invalid check type: {}. Use 'password' or 'email'.", check_type));
+                return Err(format!(
+                    "Invalid check type: {}. Use 'password' or 'email'.",
+                    check_type
+                ));
             }
         }
 
@@ -2075,7 +2167,7 @@ impl ReconCommand {
 
         if results.is_empty() {
             Output::info("No secrets found.");
-            return Ok(())
+            return Ok(());
         }
 
         // Sort results by severity
@@ -2100,8 +2192,12 @@ impl ReconCommand {
                 SecretSeverity::Low => "LOW",
             };
 
-            println!("  {}{}● {} [{}]\x1b[0m", severity_color, severity_color, result.matched, severity_str); // Corrected: result.matched
-            if let Some(line) = result.line { // Corrected: result.line is Option<usize>
+            println!(
+                "  {}{}● {} [{}]\x1b[0m",
+                severity_color, severity_color, result.matched, severity_str
+            ); // Corrected: result.matched
+            if let Some(line) = result.line {
+                // Corrected: result.line is Option<usize>
                 println!("    └─ Line: {}", line);
             }
             println!("    └─ Type: {}", result.secret_type);
@@ -2130,13 +2226,17 @@ impl ReconCommand {
         Output::spinner_done();
         // let results = results?; // Removed as it returns DorksSearchResult directly
 
-        if results.summary.total_results == 0 { // Corrected check for empty results
+        if results.summary.total_results == 0 {
+            // Corrected check for empty results
             Output::info("No results found.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
-        Output::subheader(&format!("Found {} potential leaks/intel:", results.summary.total_results)); // Corrected
+        Output::subheader(&format!(
+            "Found {} potential leaks/intel:",
+            results.summary.total_results
+        )); // Corrected
         println!();
 
         // Display results by category
@@ -2211,8 +2311,10 @@ impl ReconCommand {
             println!();
         }
 
-
-        Output::success(&format!("Found {} potential leaks/intel", results.summary.total_results));
+        Output::success(&format!(
+            "Found {} potential leaks/intel",
+            results.summary.total_results
+        ));
 
         Ok(())
     }
@@ -2234,22 +2336,33 @@ impl ReconCommand {
         Output::spinner_done();
         // let results = results?; // Removed as it returns SocialMappingResult directly
 
-        if results.profiles.is_empty() { // Corrected check for empty results
+        if results.profiles.is_empty() {
+            // Corrected check for empty results
             Output::info("No social media profiles found.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
-        Output::subheader(&format!("Found {} social media profiles:", results.profiles.len())); // Corrected
+        Output::subheader(&format!(
+            "Found {} social media profiles:",
+            results.profiles.len()
+        )); // Corrected
         println!();
 
-        for profile in results.profiles.values() { // Iterate over values directly
+        for profile in results.profiles.values() {
+            // Iterate over values directly
             if profile.found {
-                println!("  \x1b[36m{}\x1b[0m - \x1b[1m{}\x1b[0m", profile.platform, profile.url);
+                println!(
+                    "  \x1b[36m{}\x1b[0m - \x1b[1m{}\x1b[0m",
+                    profile.platform, profile.url
+                );
             }
         }
 
-        Output::success(&format!("Found {} social media profiles", results.profiles.len()));
+        Output::success(&format!(
+            "Found {} social media profiles",
+            results.profiles.len()
+        ));
 
         Ok(())
     }
@@ -2265,7 +2378,11 @@ impl ReconCommand {
         }
 
         let source = ctx.get_flag("source").unwrap_or_else(|| "nvd".to_string());
-        let limit: usize = ctx.get_flag("limit").unwrap_or_else(|| "20".to_string()).parse().unwrap_or(20);
+        let limit: usize = ctx
+            .get_flag("limit")
+            .unwrap_or_else(|| "20".to_string())
+            .parse()
+            .unwrap_or(20);
 
         Output::header(&format!("Vulnerability Scan: {}", target));
         Output::item("Source", &source);
@@ -2287,11 +2404,14 @@ impl ReconCommand {
 
         if fingerprint_result.technologies.is_empty() {
             Output::warning("No technologies detected on target.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
-        Output::subheader(&format!("Detected Technologies ({})", fingerprint_result.technologies.len()));
+        Output::subheader(&format!(
+            "Detected Technologies ({})",
+            fingerprint_result.technologies.len()
+        ));
         for tech in &fingerprint_result.technologies {
             let conf = match tech.confidence {
                 crate::modules::web::fingerprinter::Confidence::High => "High",
@@ -2347,16 +2467,22 @@ impl ReconCommand {
         all_vulns.sort_by(|a, b| {
             let cvss_a = a.cvss_v3.or(a.cvss_v2).unwrap_or(0.0);
             let cvss_b = b.cvss_v3.or(b.cvss_v2).unwrap_or(0.0);
-            cvss_b.partial_cmp(&cvss_a).unwrap_or(std::cmp::Ordering::Equal)
+            cvss_b
+                .partial_cmp(&cvss_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         if all_vulns.is_empty() {
             Output::info("No known vulnerabilities found for detected technologies.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
-        Output::subheader(&format!("Found {} Vulnerabilities (Top {})", all_vulns.len(), limit));
+        Output::subheader(&format!(
+            "Found {} Vulnerabilities (Top {})",
+            all_vulns.len(),
+            limit
+        ));
         println!();
 
         for vuln in all_vulns.iter().take(limit) {
@@ -2374,14 +2500,23 @@ impl ReconCommand {
                 _ => "\x1b[36m",
             };
 
-            println!("  {}{}● {} (CVSS {:.1})\x1b[0m", severity_color, severity_color, vuln.id, cvss_score);
-            println!("    └─ {}", vuln.description.chars().take(100).collect::<String>());
+            println!(
+                "  {}{}● {} (CVSS {:.1})\x1b[0m",
+                severity_color, severity_color, vuln.id, cvss_score
+            );
+            println!(
+                "    └─ {}",
+                vuln.description.chars().take(100).collect::<String>()
+            );
             // Removed exploit_available and in_kev as they are not fields of Vulnerability
             println!();
         }
 
         if all_vulns.len() > limit {
-            println!("  ... and {} more vulnerabilities found.\n", all_vulns.len() - limit);
+            println!(
+                "  ... and {} more vulnerabilities found.\n",
+                all_vulns.len() - limit
+            );
         }
 
         Output::success(&format!("Found {} vulnerabilities", all_vulns.len()));
@@ -2407,21 +2542,31 @@ impl ReconCommand {
 
         if results.dns_records.is_empty() && results.host_records.is_empty() {
             Output::info("No DNS records found.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
-        Output::subheader(&format!("DNS Records ({})", results.dns_records.len() + results.host_records.len()));
+        Output::subheader(&format!(
+            "DNS Records ({})",
+            results.dns_records.len() + results.host_records.len()
+        ));
         println!();
 
         for record in &results.dns_records {
             println!("  \x1b[1m{}: {}\x1b[0m", record.record_type, record.value);
         }
         for record in &results.host_records {
-            println!("  \x1b[1mHost: {}\x1b[0m ({})", record.host, record.ip.as_deref().unwrap_or("N/A"));
+            println!(
+                "  \x1b[1mHost: {}\x1b[0m ({})",
+                record.host,
+                record.ip.as_deref().unwrap_or("N/A")
+            );
         }
 
-        Output::success(&format!("Found {} DNS records", results.dns_records.len() + results.host_records.len()));
+        Output::success(&format!(
+            "Found {} DNS records",
+            results.dns_records.len() + results.host_records.len()
+        ));
 
         Ok(())
     }
@@ -2434,10 +2579,27 @@ impl ReconCommand {
         Validator::validate_domain(domain)?;
 
         let wordlist_path = ctx.get_flag("wordlist");
-        let threads: usize = ctx.get_flag("threads").unwrap_or_else(|| "10".to_string()).parse().unwrap_or(10);
-        let resolvers: Vec<String> = ctx.get_flag("resolvers").unwrap_or_else(|| "8.8.8.8,1.1.1.1,9.9.9.9".to_string()).split(',').map(|s| s.to_string()).collect();
-        let timeout_ms: u64 = ctx.get_flag("timeout-ms").unwrap_or_else(|| "2000".to_string()).parse().unwrap_or(2000);
-        let delay: u64 = ctx.get_flag("delay").unwrap_or_else(|| "10".to_string()).parse().unwrap_or(10);
+        let threads: usize = ctx
+            .get_flag("threads")
+            .unwrap_or_else(|| "10".to_string())
+            .parse()
+            .unwrap_or(10);
+        let resolvers: Vec<String> = ctx
+            .get_flag("resolvers")
+            .unwrap_or_else(|| "8.8.8.8,1.1.1.1,9.9.9.9".to_string())
+            .split(',')
+            .map(|s| s.to_string())
+            .collect();
+        let timeout_ms: u64 = ctx
+            .get_flag("timeout-ms")
+            .unwrap_or_else(|| "2000".to_string())
+            .parse()
+            .unwrap_or(2000);
+        let delay: u64 = ctx
+            .get_flag("delay")
+            .unwrap_or_else(|| "10".to_string())
+            .parse()
+            .unwrap_or(10);
 
         Output::header(&format!("MassDNS Subdomain Enumeration: {}", domain));
         Output::item("Threads", &threads.to_string());
@@ -2468,16 +2630,18 @@ impl ReconCommand {
         let results = scanner.bruteforce(domain, &wordlist)?; // Corrected: call bruteforce
         Output::spinner_done();
 
-        if results.resolved.is_empty() { // Check resolved subdomains
+        if results.resolved.is_empty() {
+            // Check resolved subdomains
             Output::info("No subdomains found.");
-            return Ok(())
+            return Ok(());
         }
 
         println!();
         Output::subheader(&format!("Found {} Subdomains", results.resolved.len()));
         println!();
 
-        for result in &results.resolved { // Iterate over resolved subdomains
+        for result in &results.resolved {
+            // Iterate over resolved subdomains
             let ips = result.ips.join(", ");
             println!("  \x1b[32m●\x1b[0m {} ({})", result.subdomain, ips);
         }
@@ -2494,7 +2658,8 @@ impl ReconCommand {
         )?;
 
         let db_path = StorageService::db_path(domain);
-        let mut store = crate::storage::RedDb::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut store = crate::storage::RedDb::open(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Output::header(&format!("Listing Subdomains for {}", domain));
         Output::item("Database", &db_path.to_string_lossy());
@@ -2504,7 +2669,7 @@ impl ReconCommand {
 
         if subdomains.is_empty() {
             Output::info("No subdomains found in the database.");
-            return Ok(())
+            return Ok(());
         }
 
         println!("  {:<40} {:<15} {}", "SUBDOMAIN", "SOURCE", "IP ADDRESSES");
@@ -2518,8 +2683,16 @@ impl ReconCommand {
                 SubdomainSource::WebCrawl => "Web Crawl",
                 _ => "Unknown", // Default case
             };
-            let ips_str = subdomain.ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
-            println!("  {:<40} {:<15} {}", subdomain.subdomain, source_str, ips_str);
+            let ips_str = subdomain
+                .ips
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "  {:<40} {:<15} {}",
+                subdomain.subdomain, source_str, ips_str
+            );
         }
 
         Output::success(&format!("Found {} subdomains", subdomains.len()));
@@ -2543,23 +2716,27 @@ impl ReconCommand {
             }
         };
 
-
         let db_path = StorageService::db_path(&domain_for_db); // Use extracted domain for db_path
-        let mut store = crate::storage::RedDb::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut store = crate::storage::RedDb::open(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Output::header(&format!("Getting Subdomain Info: {}", subdomain_target));
         Output::item("Database", &db_path.to_string_lossy());
         println!();
 
         // Get all subdomains for the base domain and filter for the specific subdomain
-        let all_subdomains_for_domain = store.subdomains().get_by_domain(&domain_for_db).unwrap_or_default();
-        let subdomain_info: Vec<_> = all_subdomains_for_domain.into_iter()
+        let all_subdomains_for_domain = store
+            .subdomains()
+            .get_by_domain(&domain_for_db)
+            .unwrap_or_default();
+        let subdomain_info: Vec<_> = all_subdomains_for_domain
+            .into_iter()
             .filter(|rec| rec.subdomain.as_str() == subdomain_target) // Corrected comparison
             .collect();
 
         if subdomain_info.is_empty() {
             Output::info("Subdomain not found in the database.");
-            return Ok(())
+            return Ok(());
         }
 
         // Assuming only one entry for a given subdomain name after filtering
@@ -2572,7 +2749,12 @@ impl ReconCommand {
             SubdomainSource::WebCrawl => "Web Crawl",
             _ => "Unknown", // Default case
         };
-        let ips_str = info.ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+        let ips_str = info
+            .ips
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
 
         println!("  Subdomain: {}", info.subdomain);
         // Removed `println!("  Domain: {}", info.domain);` as SubdomainRecord doesn't have a direct 'domain' field.
@@ -2588,7 +2770,8 @@ impl ReconCommand {
         )?;
 
         let db_path = StorageService::db_path(domain);
-        let mut store = crate::storage::RedDb::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut store = crate::storage::RedDb::open(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Output::header(&format!("Describing Domain: {}", domain));
         Output::item("Database", &db_path.to_string_lossy());
@@ -2617,9 +2800,16 @@ impl ReconCommand {
             println!();
             println!("  Top 5 Vulnerabilities:");
             let mut sorted_vulns = vulns;
-            sorted_vulns.sort_by(|a, b| b.cvss.partial_cmp(&a.cvss).unwrap_or(std::cmp::Ordering::Equal));
+            sorted_vulns.sort_by(|a, b| {
+                b.cvss
+                    .partial_cmp(&a.cvss)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             for vuln in sorted_vulns.iter().take(5) {
-                println!("    • {} (CVSS {:.1}) - {}", vuln.cve_id, vuln.cvss, vuln.technology);
+                println!(
+                    "    • {} (CVSS {:.1}) - {}",
+                    vuln.cve_id, vuln.cvss, vuln.technology
+                );
             }
             if sorted_vulns.len() > 5 {
                 println!("    ... and {} more", sorted_vulns.len() - 5);
@@ -2635,10 +2825,15 @@ impl ReconCommand {
         )?;
 
         let db_path = StorageService::db_path(domain);
-        let depth: u8 = ctx.get_flag("depth").unwrap_or_else(|| "5".to_string()).parse().unwrap_or(5);
+        let depth: u8 = ctx
+            .get_flag("depth")
+            .unwrap_or_else(|| "5".to_string())
+            .parse()
+            .unwrap_or(5);
         let no_color = ctx.has_flag("no-color");
 
-        let mut store = crate::storage::RedDb::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut store = crate::storage::RedDb::open(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Output::header(&format!("Domain Graph: {}", domain));
         Output::item("Database", &db_path.to_string_lossy());
@@ -2664,11 +2859,17 @@ impl ReconCommand {
         for port_record in all_ports {
             // Find parent node for the IP
             if let Some(ip_node) = builder.root_mut().find_mut(&port_record.ip.to_string()) {
-                ip_node.add_child(TreeNode::port(port_record.port, Some(&format!("{:?}", port_record.status))));
+                ip_node.add_child(TreeNode::port(
+                    port_record.port,
+                    Some(&format!("{:?}", port_record.status)),
+                ));
             } else {
                 // If IP node doesn't exist, create it under root domain and add port
                 let mut ip_node = TreeNode::ip(port_record.ip);
-                ip_node.add_child(TreeNode::port(port_record.port, Some(&format!("{:?}", port_record.status))));
+                ip_node.add_child(TreeNode::port(
+                    port_record.port,
+                    Some(&format!("{:?}", port_record.status)),
+                ));
                 builder.root_mut().add_child(ip_node);
             }
         }
@@ -2677,13 +2878,16 @@ impl ReconCommand {
         let dns_records = store.dns().get_by_domain(domain).unwrap_or_default();
         for dns_rec in dns_records {
             if dns_rec.record_type == crate::storage::records::DnsRecordType::NS {
-                builder.root_mut().add_child(TreeNode::nameserver(dns_rec.value));
+                builder
+                    .root_mut()
+                    .add_child(TreeNode::nameserver(dns_rec.value));
             } else if dns_rec.record_type == crate::storage::records::DnsRecordType::MX {
                 // Assuming priority is not stored directly in dns_rec, just pass None
-                builder.root_mut().add_child(TreeNode::mail_server(dns_rec.value, None));
+                builder
+                    .root_mut()
+                    .add_child(TreeNode::mail_server(dns_rec.value, None));
             }
         }
-
 
         // Set depth limit for the TreeRenderer, as ReconTreeBuilder doesn't have it
         let mut renderer = TreeRenderer::new();
@@ -2691,7 +2895,7 @@ impl ReconCommand {
         renderer = renderer.collapse_after(depth as usize); // Use depth for collapse threshold
 
         let tree = builder.build(); // build() returns TreeNode directly
-        
+
         // Need to display the tree, not just return it as a string
         renderer.display(&tree);
 

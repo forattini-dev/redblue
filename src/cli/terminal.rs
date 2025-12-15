@@ -434,9 +434,7 @@ fn parse_csi_sequence(seq: &[u8]) -> io::Result<Key> {
                 21 => Ok(Key::F(10)),
                 23 => Ok(Key::F(11)),
                 24 => Ok(Key::F(12)),
-                _ => Ok(Key::Unknown(
-                    [&[27u8, b'['], seq].concat(),
-                )),
+                _ => Ok(Key::Unknown([&[27u8, b'['], seq].concat())),
             }
         }
         _ => Ok(Key::Unknown([&[27u8, b'['], seq].concat())),
@@ -591,7 +589,12 @@ impl History {
 
     /// Save history to file
     pub fn save_to_file(&self, path: &str) -> io::Result<()> {
-        let content: String = self.entries.iter().rev().map(|s| format!("{}\n", s)).collect();
+        let content: String = self
+            .entries
+            .iter()
+            .rev()
+            .map(|s| format!("{}\n", s))
+            .collect();
         std::fs::write(path, content)
     }
 }

@@ -2,7 +2,6 @@
 ///
 /// Checks for presence and configuration of security headers.
 /// Identifies missing headers that could lead to vulnerabilities.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,14 @@ impl HttpSecurityScript {
                 name: "HTTP Security Headers Check".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Analyzes HTTP response for security headers and identifies missing protections".to_string(),
-                categories: vec![ScriptCategory::Vuln, ScriptCategory::Safe, ScriptCategory::Default],
+                description:
+                    "Analyzes HTTP response for security headers and identifies missing protections"
+                        .to_string(),
+                categories: vec![
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["http".to_string(), "https".to_string()],
                 ports: vec![80, 443, 8080, 8443],
                 license: "MIT".to_string(),
@@ -58,7 +63,8 @@ impl Script for HttpSecurityScript {
         result.success = true;
 
         // Parse headers into a map
-        let mut headers: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut headers: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for line in headers_data.lines() {
             if let Some((key, value)) = line.split_once(':') {
                 headers.insert(key.trim().to_lowercase(), value.trim().to_string());
@@ -160,7 +166,9 @@ impl Script for HttpSecurityScript {
             if csp_lower.contains("'unsafe-eval'") {
                 result.add_finding(
                     Finding::new(FindingType::Misconfiguration, "CSP Allows unsafe-eval")
-                        .with_description("Content-Security-Policy contains 'unsafe-eval' which allows eval()")
+                        .with_description(
+                            "Content-Security-Policy contains 'unsafe-eval' which allows eval()",
+                        )
                         .with_evidence(csp)
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Remove 'unsafe-eval' to prevent code injection"),
@@ -170,7 +178,9 @@ impl Script for HttpSecurityScript {
             if csp_lower.contains("*") && !csp_lower.contains("*.") {
                 result.add_finding(
                     Finding::new(FindingType::Misconfiguration, "CSP Contains Wildcard")
-                        .with_description("Content-Security-Policy contains wildcard (*) which allows any source")
+                        .with_description(
+                            "Content-Security-Policy contains wildcard (*) which allows any source",
+                        )
                         .with_evidence(csp)
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Replace wildcards with specific domains"),
@@ -207,11 +217,14 @@ impl Script for HttpSecurityScript {
 
             if !hsts.contains("includeSubDomains") {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "HSTS Missing includeSubDomains")
-                        .with_description("HSTS does not include subdomains")
-                        .with_evidence(hsts)
-                        .with_severity(FindingSeverity::Low)
-                        .with_remediation("Add includeSubDomains directive"),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        "HSTS Missing includeSubDomains",
+                    )
+                    .with_description("HSTS does not include subdomains")
+                    .with_evidence(hsts)
+                    .with_severity(FindingSeverity::Low)
+                    .with_remediation("Add includeSubDomains directive"),
                 );
             }
         }
@@ -221,7 +234,9 @@ impl Script for HttpSecurityScript {
             if cors == "*" {
                 result.add_finding(
                     Finding::new(FindingType::Misconfiguration, "CORS Allows Any Origin")
-                        .with_description("Access-Control-Allow-Origin is set to * allowing any origin")
+                        .with_description(
+                            "Access-Control-Allow-Origin is set to * allowing any origin",
+                        )
                         .with_evidence(cors)
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Restrict CORS to specific trusted origins"),

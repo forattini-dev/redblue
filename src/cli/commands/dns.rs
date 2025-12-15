@@ -99,7 +99,10 @@ impl Command for DnsCommand {
             Flag::new("threads", "Number of threads").with_default("50"),
             Flag::new("save", "Force save to database (overrides config)"),
             Flag::new("no-save", "Disable auto-save for this command"),
-            Flag::new("db-password", "Database encryption password (overrides keyring)"),
+            Flag::new(
+                "db-password",
+                "Database encryption password (overrides keyring)",
+            ),
             Flag::new(
                 "intel",
                 "Perform DNS server fingerprinting using VERSION.BIND query",
@@ -147,10 +150,7 @@ impl Command for DnsCommand {
                 "Check DNS propagation",
                 "rb dns record propagation example.com --type A",
             ),
-            (
-                "Check email security",
-                "rb dns record email example.com",
-            ),
+            ("Check email security", "rb dns record email example.com"),
             // RESTful examples
             (
                 "List all saved DNS records",
@@ -870,7 +870,11 @@ impl DnsCommand {
             println!("  ],");
             println!("  \"providers\": [");
             for (i, pr) in result.results.iter().enumerate() {
-                let comma = if i < result.results.len() - 1 { "," } else { "" };
+                let comma = if i < result.results.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
                 let status_str = match pr.status {
                     PropagationStatus::Success => "success",
                     PropagationStatus::NoRecords => "no_records",
@@ -1036,36 +1040,30 @@ impl DnsCommand {
 
         // Check SPF record (TXT record at domain)
         let spf_result = client.query(domain, DnsRecordType::TXT);
-        let spf_record = spf_result
-            .as_ref()
-            .ok()
-            .and_then(|answers| {
-                answers.iter().find_map(|a| {
-                    let val = a.display_value();
-                    if val.to_lowercase().starts_with("v=spf1") {
-                        Some(val)
-                    } else {
-                        None
-                    }
-                })
-            });
+        let spf_record = spf_result.as_ref().ok().and_then(|answers| {
+            answers.iter().find_map(|a| {
+                let val = a.display_value();
+                if val.to_lowercase().starts_with("v=spf1") {
+                    Some(val)
+                } else {
+                    None
+                }
+            })
+        });
 
         // Check DMARC record (TXT record at _dmarc.domain)
         let dmarc_domain = format!("_dmarc.{}", domain);
         let dmarc_result = client.query(&dmarc_domain, DnsRecordType::TXT);
-        let dmarc_record = dmarc_result
-            .as_ref()
-            .ok()
-            .and_then(|answers| {
-                answers.iter().find_map(|a| {
-                    let val = a.display_value();
-                    if val.to_lowercase().starts_with("v=dmarc1") {
-                        Some(val)
-                    } else {
-                        None
-                    }
-                })
-            });
+        let dmarc_record = dmarc_result.as_ref().ok().and_then(|answers| {
+            answers.iter().find_map(|a| {
+                let val = a.display_value();
+                if val.to_lowercase().starts_with("v=dmarc1") {
+                    Some(val)
+                } else {
+                    None
+                }
+            })
+        });
 
         // Check MX records to get mail servers
         let mx_result = client.query(domain, DnsRecordType::MX);
@@ -1076,24 +1074,30 @@ impl DnsCommand {
             .unwrap_or_default();
 
         // Try common DKIM selectors
-        let common_selectors = ["default", "selector1", "selector2", "google", "k1", "mail", "dkim"];
+        let common_selectors = [
+            "default",
+            "selector1",
+            "selector2",
+            "google",
+            "k1",
+            "mail",
+            "dkim",
+        ];
         let mut dkim_results: Vec<(String, Option<String>)> = Vec::new();
 
         for selector in &common_selectors {
             let dkim_domain = format!("{}._domainkey.{}", selector, domain);
             let dkim_result = client.query(&dkim_domain, DnsRecordType::TXT);
-            let dkim_record = dkim_result
-                .ok()
-                .and_then(|answers| {
-                    answers.iter().find_map(|a| {
-                        let val = a.display_value();
-                        if val.to_lowercase().contains("v=dkim1") || val.contains("k=rsa") {
-                            Some(val)
-                        } else {
-                            None
-                        }
-                    })
-                });
+            let dkim_record = dkim_result.ok().and_then(|answers| {
+                answers.iter().find_map(|a| {
+                    let val = a.display_value();
+                    if val.to_lowercase().contains("v=dkim1") || val.contains("k=rsa") {
+                        Some(val)
+                    } else {
+                        None
+                    }
+                })
+            });
 
             if dkim_record.is_some() {
                 dkim_results.push((selector.to_string(), dkim_record));
@@ -1294,9 +1298,7 @@ impl DnsCommand {
             if spf.contains("-all") {
                 println!("  Policy: \x1b[32mStrict (-all)\x1b[0m - Reject unauthorized senders");
             } else if spf.contains("~all") {
-                println!(
-                    "  Policy: \x1b[33mSoft fail (~all)\x1b[0m - Mark but don't reject"
-                );
+                println!("  Policy: \x1b[33mSoft fail (~all)\x1b[0m - Mark but don't reject");
             } else if spf.contains("?all") {
                 println!("  Policy: \x1b[33mNeutral (?all)\x1b[0m - No policy");
             } else if spf.contains("+all") {
@@ -1314,7 +1316,10 @@ impl DnsCommand {
         println!("  \x1b[1mDKIM (DomainKeys Identified Mail)\x1b[0m");
         println!("  {}", "─".repeat(50));
         if !dkim_results.is_empty() {
-            println!("  Status: \x1b[32m✓ FOUND\x1b[0m ({} selector(s))", dkim_results.len());
+            println!(
+                "  Status: \x1b[32m✓ FOUND\x1b[0m ({} selector(s))",
+                dkim_results.len()
+            );
             for (selector, record) in &dkim_results {
                 println!("  Selector: {}", selector);
                 if let Some(r) = record {
@@ -1349,13 +1354,9 @@ impl DnsCommand {
             if dmarc.contains("p=reject") {
                 println!("  Policy: \x1b[32mReject\x1b[0m - Unauthorized mail is rejected");
             } else if dmarc.contains("p=quarantine") {
-                println!(
-                    "  Policy: \x1b[33mQuarantine\x1b[0m - Unauthorized mail goes to spam"
-                );
+                println!("  Policy: \x1b[33mQuarantine\x1b[0m - Unauthorized mail goes to spam");
             } else if dmarc.contains("p=none") {
-                println!(
-                    "  Policy: \x1b[33mNone\x1b[0m - Monitoring only, no enforcement"
-                );
+                println!("  Policy: \x1b[33mNone\x1b[0m - Monitoring only, no enforcement");
             }
 
             // Check for reporting

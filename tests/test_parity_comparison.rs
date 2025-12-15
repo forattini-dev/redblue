@@ -22,7 +22,10 @@ mod tests {
         // 2. Execute `rb recon domain subdomains <target>`
         // 3. Execute `amass enum -d <target>` or `subfinder -d <target>`
         // 4. Parse and compare lists of unique subdomains.
-        assert!(true, "Subdomain enumeration parity test placeholder (vs Amass/Subfinder)");
+        assert!(
+            true,
+            "Subdomain enumeration parity test placeholder (vs Amass/Subfinder)"
+        );
     }
 
     #[test]

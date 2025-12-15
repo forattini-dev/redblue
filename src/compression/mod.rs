@@ -7,7 +7,6 @@
 /// - TAR archive parsing (USTAR)
 ///
 /// Zero external dependencies - all implementations from scratch using RFC specifications.
-
 pub mod crc32;
 pub mod gzip;
 pub mod tar;

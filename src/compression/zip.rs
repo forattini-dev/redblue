@@ -1,5 +1,5 @@
-use std::io::{self, Read};
 use std::fs::File;
+use std::io::{self, Read};
 use std::path::Path;
 
 // Minimal ZIP parser for extracting file contents without external crates.
@@ -13,7 +13,7 @@ pub struct ZipEntry {
     pub uncompressed_size: u32,
     pub compressed_size: u32,
     pub compression_method: u16, // 0 = stored, 8 = deflate
-    pub offset: u32, // Offset of local file header
+    pub offset: u32,             // Offset of local file header
 }
 
 pub struct ZipReader<R: Read> {
@@ -26,19 +26,27 @@ impl<R: Read> ZipReader<R> {
         // Find Central Directory End Record (EOCD) to locate Central Directory
         // For simplicity, we assume small files and read from start.
         // A robust reader would start from end to find EOCD.
-        
-        Ok(Self { reader, current_offset: 0 })
+
+        Ok(Self {
+            reader,
+            current_offset: 0,
+        })
     }
 
     /// Read the next entry from the ZIP archive (local file header).
     /// Returns `None` if end of archive.
     pub fn next_entry(&mut self) -> io::Result<Option<ZipEntry>> {
         let mut signature_buf = [0u8; 4];
-        
+
         match self.read_exact_or_eof(&mut signature_buf)? {
             0 => return Ok(None), // EOF, no more entries
-            4 => {},
-            _ => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Incomplete signature")),
+            4 => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "Incomplete signature",
+                ))
+            }
         }
         self.current_offset += 4;
 
@@ -54,8 +62,18 @@ impl<R: Read> ZipReader<R> {
         self.current_offset += 26;
 
         let compression_method = u16::from_le_bytes([header_buf[4], header_buf[5]]);
-        let compressed_size = u32::from_le_bytes([header_buf[14], header_buf[15], header_buf[16], header_buf[17]]);
-        let uncompressed_size = u32::from_le_bytes([header_buf[18], header_buf[19], header_buf[20], header_buf[21]]);
+        let compressed_size = u32::from_le_bytes([
+            header_buf[14],
+            header_buf[15],
+            header_buf[16],
+            header_buf[17],
+        ]);
+        let uncompressed_size = u32::from_le_bytes([
+            header_buf[18],
+            header_buf[19],
+            header_buf[20],
+            header_buf[21],
+        ]);
         let file_name_len = u16::from_le_bytes([header_buf[22], header_buf[23]]);
         let extra_field_len = u16::from_le_bytes([header_buf[24], header_buf[25]]);
 
@@ -63,11 +81,18 @@ impl<R: Read> ZipReader<R> {
         self.reader.read_exact(&mut file_name_buf)?;
         self.current_offset += file_name_len as u32;
 
-        let name = String::from_utf8(file_name_buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Invalid UTF-8 filename: {}", e)))?;
-        
+        let name = String::from_utf8(file_name_buf).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid UTF-8 filename: {}", e),
+            )
+        })?;
+
         // Skip extra field
-        io::copy(&mut self.reader.by_ref().take(extra_field_len as u64), &mut io::sink())?;
+        io::copy(
+            &mut self.reader.by_ref().take(extra_field_len as u64),
+            &mut io::sink(),
+        )?;
         self.current_offset += extra_field_len as u32;
 
         let entry_offset = self.current_offset; // Data starts here
@@ -87,17 +112,30 @@ impl<R: Read> ZipReader<R> {
         let mut data = vec![0u8; entry.compressed_size as usize];
         self.reader.read_exact(&mut data)?;
         self.current_offset += entry.compressed_size;
-        
+
         // Handle decompression if necessary
         match entry.compression_method {
-            0 => { // Stored (uncompressed)
+            0 => {
+                // Stored (uncompressed)
                 Ok(data)
-            },
-            8 => { // Deflate
+            }
+            8 => {
+                // Deflate
                 use crate::compression::gzip::decompress_flate; // Assuming deflate decompressor is available
-                decompress_flate(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Deflate decompression failed: {}", e)))
-            },
-            _ => Err(io::Error::new(io::ErrorKind::Unsupported, format!("Unsupported ZIP compression method: {}", entry.compression_method))),
+                decompress_flate(&data).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Deflate decompression failed: {}", e),
+                    )
+                })
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "Unsupported ZIP compression method: {}",
+                    entry.compression_method
+                ),
+            )),
         }
     }
 
@@ -128,7 +166,7 @@ mod tests {
     #[test]
     fn test_zip_stored_entry() -> io::Result<()> {
         let mut file = File::create("/tmp/test_stored.zip")?;
-        
+
         // Write Local File Header for a stored entry
         file.write_all(&0x04034b50u32.to_le_bytes())?; // Local file header signature
         file.write_all(&0x000Au16.to_le_bytes())?; // Version
@@ -153,7 +191,7 @@ mod tests {
 
         let data = reader.read_entry_data(&entry)?;
         assert_eq!(data, b"Hello");
-        
+
         std::fs::remove_file("/tmp/test_stored.zip")?;
         Ok(())
     }

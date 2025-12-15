@@ -110,16 +110,20 @@ impl SubdomainEnumerator {
         let resolver_addr = config::get().network.dns_resolver.clone();
         let client = DnsClient::new(&resolver_addr).with_timeout(self.timeout_ms);
 
-        for i in 0..3 { // Probe a few times
+        for i in 0..3 {
+            // Probe a few times
             // Simple pseudo-random string using time and loop counter
             let seed = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(i as u64);
-            let rand_prefix: String = (0..10).enumerate()
+            let rand_prefix: String = (0..10)
+                .enumerate()
                 .map(|(j, _)| {
                     // Simple LCG-style random
-                    let v = (seed.wrapping_mul(6364136223846793005).wrapping_add(j as u64)) as u8;
+                    let v = (seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(j as u64)) as u8;
                     ((v % 26) + b'a') as char
                 })
                 .collect();
@@ -140,10 +144,13 @@ impl SubdomainEnumerator {
             return results;
         }
 
-        results.into_iter().filter(|res| {
-            // Keep result if it has no IPs or if none of its IPs are wildcard IPs
-            res.ips.is_empty() || !res.ips.iter().any(|ip| self.wildcard_ips.contains(ip))
-        }).collect()
+        results
+            .into_iter()
+            .filter(|res| {
+                // Keep result if it has no IPs or if none of its IPs are wildcard IPs
+                res.ips.is_empty() || !res.ips.iter().any(|ip| self.wildcard_ips.contains(ip))
+            })
+            .collect()
     }
 
     /// Run all enumeration methods with recursive queue-based discovery
@@ -235,7 +242,10 @@ impl SubdomainEnumerator {
                     .iter()
                     .filter(|r| !all_found.contains(&r.subdomain))
                     .count();
-                println!("  │  ✅ Found {} new subdomains from ThreatCrowd", new_count);
+                println!(
+                    "  │  ✅ Found {} new subdomains from ThreatCrowd",
+                    new_count
+                );
                 for result in filtered_results {
                     if all_found.insert(result.subdomain.clone()) {
                         queue.push_back(result.subdomain.clone());
@@ -369,7 +379,6 @@ impl SubdomainEnumerator {
         println!("\n✅ Total unique subdomains discovered: {}", results.len());
         Ok(results)
     }
-
 
     /// Enumerate via HackerTarget API (passive, free, no key required)
     pub fn enumerate_hackertarget(&self) -> Result<Vec<SubdomainResult>, String> {
@@ -661,7 +670,9 @@ impl SubdomainEnumerator {
 
                                 if !ips.is_empty() {
                                     // Apply wildcard filtering
-                                    if !wildcard_ips_filter.is_empty() && ips.iter().any(|ip| wildcard_ips_filter.contains(ip)) {
+                                    if !wildcard_ips_filter.is_empty()
+                                        && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
+                                    {
                                         continue; // Skip if any IP matches a wildcard IP
                                     }
 
@@ -754,7 +765,9 @@ impl SubdomainEnumerator {
 
                                 if !ips.is_empty() {
                                     // Apply wildcard filtering
-                                    if !wildcard_ips_filter.is_empty() && ips.iter().any(|ip| wildcard_ips_filter.contains(ip)) {
+                                    if !wildcard_ips_filter.is_empty()
+                                        && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
+                                    {
                                         continue; // Skip if any IP matches a wildcard IP
                                     }
 

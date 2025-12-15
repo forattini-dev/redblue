@@ -8,16 +8,16 @@ use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
 use crate::storage::segments::dns::DnsSegmentView;
 use crate::storage::segments::hosts::HostSegmentView;
 use crate::storage::segments::http::HttpSegmentView;
+use crate::storage::segments::iocs::IocSegmentView;
+use crate::storage::segments::mitre::MitreSegmentView;
+use crate::storage::segments::playbooks::PlaybookSegmentView;
 use crate::storage::segments::ports::PortSegmentView;
 use crate::storage::segments::proxy::ProxySegmentView;
+use crate::storage::segments::sessions::SessionSegmentView; // Import
 use crate::storage::segments::subdomains::SubdomainSegmentView;
 use crate::storage::segments::tls::TlsSegmentView;
-use crate::storage::segments::whois::WhoisSegmentView;
-use crate::storage::segments::mitre::MitreSegmentView;
-use crate::storage::segments::iocs::IocSegmentView;
 use crate::storage::segments::vuln::VulnSegmentView;
-use crate::storage::segments::sessions::SessionSegmentView; // Import
-use crate::storage::segments::playbooks::PlaybookSegmentView; // Import
+use crate::storage::segments::whois::WhoisSegmentView; // Import
 
 pub struct RedDbView {
     subdomains: Option<SubdomainSegmentView>,
@@ -31,7 +31,7 @@ pub struct RedDbView {
     mitre: Option<MitreSegmentView>,
     iocs: Option<IocSegmentView>,
     vulns: Option<VulnSegmentView>,
-    sessions: Option<SessionSegmentView>, // New field
+    sessions: Option<SessionSegmentView>,   // New field
     playbooks: Option<PlaybookSegmentView>, // New field
 }
 
@@ -176,7 +176,7 @@ impl RedDbView {
             mitre: mitre_view,
             iocs: iocs_view,
             vulns: vulns_view,
-            sessions: sessions_view, // New
+            sessions: sessions_view,   // New
             playbooks: playbooks_view, // New
         })
     }
@@ -224,7 +224,7 @@ impl RedDbView {
     pub fn vulns(&self) -> Option<&VulnSegmentView> {
         self.vulns.as_ref()
     }
-    
+
     pub fn sessions(&self) -> Option<&SessionSegmentView> {
         self.sessions.as_ref()
     }
@@ -241,10 +241,10 @@ fn decode_err_to_io(err: DecodeError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::records::PortStatus;
+    use crate::storage::reddb::RedDb;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
-    use crate::storage::reddb::RedDb;
-    use crate::storage::records::PortStatus;
 
     struct FileGuard {
         path: PathBuf,
@@ -307,8 +307,20 @@ mod tests {
         {
             let mut db = RedDb::open(&path).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-            db.save_subdomain("example.com", "api.example.com", vec![ip], crate::storage::records::SubdomainSource::DnsBruteforce).unwrap();
-            db.save_subdomain("example.com", "www.example.com", vec![ip], crate::storage::records::SubdomainSource::CertTransparency).unwrap();
+            db.save_subdomain(
+                "example.com",
+                "api.example.com",
+                vec![ip],
+                crate::storage::records::SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
+            db.save_subdomain(
+                "example.com",
+                "www.example.com",
+                vec![ip],
+                crate::storage::records::SubdomainSource::CertTransparency,
+            )
+            .unwrap();
             db.flush().unwrap();
         }
 

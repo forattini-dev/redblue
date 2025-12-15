@@ -6,8 +6,7 @@
 /// - Known breach database lookups
 /// - Paste site monitoring
 /// - Credential leak intelligence
-
-use super::{BreachInfo, PasteInfo, OsintConfig};
+use super::{BreachInfo, OsintConfig, PasteInfo};
 use crate::protocols::http::HttpClient;
 use std::time::Duration;
 
@@ -69,9 +68,7 @@ impl BreachChecker {
         result.breaches.dedup_by(|a, b| a.name == b.name);
 
         result.found_in_breaches = !result.breaches.is_empty();
-        result.total_pwned_accounts = result.breaches.iter()
-            .filter_map(|b| b.accounts)
-            .sum();
+        result.total_pwned_accounts = result.breaches.iter().filter_map(|b| b.accounts).sum();
 
         result
     }
@@ -83,9 +80,7 @@ impl BreachChecker {
             urlencoded(email)
         );
 
-        let mut headers = vec![
-            ("hibp-api-key", self.hibp_api_key.as_deref().unwrap_or("")),
-        ];
+        let mut headers = vec![("hibp-api-key", self.hibp_api_key.as_deref().unwrap_or(""))];
 
         if self.hibp_api_key.is_none() {
             // Without API key, HIBP returns 401
@@ -144,8 +139,7 @@ impl BreachChecker {
         let sensitive = extract_json_bool(json, "IsSensitive").unwrap_or(false);
 
         // Extract data classes
-        let data_types = extract_json_array(json, "DataClasses")
-            .unwrap_or_default();
+        let data_types = extract_json_array(json, "DataClasses").unwrap_or_default();
 
         Some(BreachInfo {
             name,
@@ -212,9 +206,7 @@ impl BreachChecker {
         let url = "https://haveibeenpwned.com/api/v3/breaches";
 
         match self.http.get(url) {
-            Ok(resp) if resp.status_code == 200 => {
-                self.parse_hibp_response(&resp.body).breaches
-            }
+            Ok(resp) if resp.status_code == 200 => self.parse_hibp_response(&resp.body).breaches,
             _ => Vec::new(),
         }
     }
@@ -359,7 +351,9 @@ fn extract_json_number(json: &str, key: &str) -> Option<u64> {
     let trimmed = after.trim_start();
 
     // Parse number
-    let end = trimmed.find(|c: char| !c.is_ascii_digit()).unwrap_or(trimmed.len());
+    let end = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(trimmed.len());
     trimmed[..end].parse().ok()
 }
 
@@ -460,8 +454,14 @@ mod tests {
     #[test]
     fn test_json_string_extraction() {
         let json = r#"{"Name": "TestBreach", "Date": "2023-01-01"}"#;
-        assert_eq!(extract_json_string(json, "Name"), Some("TestBreach".to_string()));
-        assert_eq!(extract_json_string(json, "Date"), Some("2023-01-01".to_string()));
+        assert_eq!(
+            extract_json_string(json, "Name"),
+            Some("TestBreach".to_string())
+        );
+        assert_eq!(
+            extract_json_string(json, "Date"),
+            Some("2023-01-01".to_string())
+        );
         assert_eq!(extract_json_string(json, "Missing"), None);
     }
 

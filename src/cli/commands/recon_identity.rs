@@ -6,12 +6,10 @@
 /// - Breach checking
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::recon::osint::{
-    UsernameEnumerator, OsintConfig, PlatformCategory,
-    platforms::get_all_platforms,
-    EmailIntel,
-};
 use crate::modules::recon::breach::BreachClient;
+use crate::modules::recon::osint::{
+    platforms::get_all_platforms, EmailIntel, OsintConfig, PlatformCategory, UsernameEnumerator,
+};
 use std::time::Duration;
 
 pub struct ReconIdentityCommand;
@@ -38,7 +36,8 @@ impl Command for ReconIdentityCommand {
             },
             Route {
                 verb: "email",
-                summary: "Email intelligence - provider detection, service registrations (holehe-style)",
+                summary:
+                    "Email intelligence - provider detection, service registrations (holehe-style)",
                 usage: "rb recon identity email <email>",
             },
             Route {
@@ -52,16 +51,15 @@ impl Command for ReconIdentityCommand {
     fn flags(&self) -> Vec<Flag> {
         vec![
             // Username flags
-            Flag::new("category", "Filter by category (social, coding, gaming, professional, etc.)")
-                .with_short('c'),
-            Flag::new("platforms", "Specific platforms to check (comma-separated)")
-                .with_short('p'),
-            Flag::new("threads", "Number of concurrent threads")
-                .with_default("50"),
-            Flag::new("timeout", "Timeout per request in ms")
-                .with_default("10000"),
-            Flag::new("max-sites", "Maximum sites to check (0 = unlimited)")
-                .with_default("0"),
+            Flag::new(
+                "category",
+                "Filter by category (social, coding, gaming, professional, etc.)",
+            )
+            .with_short('c'),
+            Flag::new("platforms", "Specific platforms to check (comma-separated)").with_short('p'),
+            Flag::new("threads", "Number of concurrent threads").with_default("50"),
+            Flag::new("timeout", "Timeout per request in ms").with_default("10000"),
+            Flag::new("max-sites", "Maximum sites to check (0 = unlimited)").with_default("0"),
             // Breach flags
             Flag::new("type", "Breach check type: email or password")
                 .with_short('t')
@@ -73,17 +71,44 @@ impl Command for ReconIdentityCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             // Username examples
-            ("Search username across all platforms", "rb recon identity username johndoe"),
-            ("Search social sites only", "rb recon identity username johndoe --category social"),
-            ("Search coding sites only", "rb recon identity username johndoe --category coding"),
-            ("Search gaming sites only", "rb recon identity username johndoe --category gaming"),
-            ("Limit number of sites", "rb recon identity username johndoe --max-sites 100"),
-            ("Check specific platforms", "rb recon identity username johndoe --platforms github,twitter"),
+            (
+                "Search username across all platforms",
+                "rb recon identity username johndoe",
+            ),
+            (
+                "Search social sites only",
+                "rb recon identity username johndoe --category social",
+            ),
+            (
+                "Search coding sites only",
+                "rb recon identity username johndoe --category coding",
+            ),
+            (
+                "Search gaming sites only",
+                "rb recon identity username johndoe --category gaming",
+            ),
+            (
+                "Limit number of sites",
+                "rb recon identity username johndoe --max-sites 100",
+            ),
+            (
+                "Check specific platforms",
+                "rb recon identity username johndoe --platforms github,twitter",
+            ),
             // Email examples
-            ("Email intelligence", "rb recon identity email user@example.com"),
+            (
+                "Email intelligence",
+                "rb recon identity email user@example.com",
+            ),
             // Breach examples
-            ("Check password breach", "rb recon identity breach password123"),
-            ("Check email breach", "rb recon identity breach user@example.com --type email --hibp-key KEY"),
+            (
+                "Check password breach",
+                "rb recon identity breach password123",
+            ),
+            (
+                "Check email breach",
+                "rb recon identity breach user@example.com --type email --hibp-key KEY",
+            ),
         ]
     }
 
@@ -99,7 +124,10 @@ impl Command for ReconIdentityCommand {
             "breach" => self.breach_check(ctx),
             _ => {
                 print_help(self);
-                Err(format!("Unknown verb '{}'. Valid: username, email, breach", verb))
+                Err(format!(
+                    "Unknown verb '{}'. Valid: username, email, breach",
+                    verb
+                ))
             }
         }
     }
@@ -169,7 +197,8 @@ impl ReconIdentityCommand {
 
         // Get total platforms for this category set
         let all_platforms = get_all_platforms();
-        let mut platform_count = all_platforms.iter()
+        let mut platform_count = all_platforms
+            .iter()
             .filter(|p| categories.contains(&p.category))
             .count();
 
@@ -186,7 +215,10 @@ impl ReconIdentityCommand {
         Output::item("Platforms", &format!("{}", platform_count));
         Output::item("Threads", &format!("{}", threads));
 
-        Output::spinner_start(&format!("Searching {} across {} platforms", username, platform_count));
+        Output::spinner_start(&format!(
+            "Searching {} across {} platforms",
+            username, platform_count
+        ));
 
         let enumerator = UsernameEnumerator::new(config);
         let result = enumerator.enumerate(username);
@@ -196,7 +228,9 @@ impl ReconIdentityCommand {
         // Check for JSON output
         let format = ctx.get_output_format();
         if format == crate::cli::format::OutputFormat::Json {
-            let found: Vec<_> = result.by_category.values()
+            let found: Vec<_> = result
+                .by_category
+                .values()
                 .flat_map(|v| v.iter())
                 .filter(|r| r.exists)
                 .collect();
@@ -211,7 +245,10 @@ impl ReconIdentityCommand {
                 println!("    {{");
                 println!("      \"platform\": \"{}\",", profile.platform);
                 println!("      \"category\": \"{:?}\",", profile.category);
-                println!("      \"url\": \"{}\"", profile.url.as_ref().unwrap_or(&String::new()));
+                println!(
+                    "      \"url\": \"{}\"",
+                    profile.url.as_ref().unwrap_or(&String::new())
+                );
                 if i < found.len() - 1 {
                     println!("    }},");
                 } else {
@@ -229,7 +266,10 @@ impl ReconIdentityCommand {
         Output::item("Platforms Checked", &format!("{}", result.total_checked));
         Output::item("Profiles Found", &format!("{}", result.found_count));
         Output::item("Errors", &format!("{}", result.error_count));
-        Output::item("Duration", &format!("{:.2}s", result.duration.as_secs_f64()));
+        Output::item(
+            "Duration",
+            &format!("{:.2}s", result.duration.as_secs_f64()),
+        );
         println!();
 
         if result.found_count == 0 {
@@ -267,21 +307,33 @@ impl ReconIdentityCommand {
         Ok(())
     }
 
-    fn username_check(&self, ctx: &CliContext, username: &str, platforms_str: &str) -> Result<(), String> {
+    fn username_check(
+        &self,
+        ctx: &CliContext,
+        username: &str,
+        platforms_str: &str,
+    ) -> Result<(), String> {
         let platform_names: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
 
         Output::header(&format!("Username Check: {}", username));
         Output::item("Platforms", &platform_names.join(", "));
 
-        Output::spinner_start(&format!("Checking {} on {} platforms", username, platform_names.len()));
+        Output::spinner_start(&format!(
+            "Checking {} on {} platforms",
+            username,
+            platform_names.len()
+        ));
 
         // Filter platforms by name from the full list
         let all_platforms = get_all_platforms();
-        let filtered: Vec<_> = all_platforms.into_iter()
-            .filter(|p| platform_names.iter().any(|name|
-                p.name.eq_ignore_ascii_case(name) ||
-                p.name.to_lowercase().contains(&name.to_lowercase())
-            ))
+        let filtered: Vec<_> = all_platforms
+            .into_iter()
+            .filter(|p| {
+                platform_names.iter().any(|name| {
+                    p.name.eq_ignore_ascii_case(name)
+                        || p.name.to_lowercase().contains(&name.to_lowercase())
+                })
+            })
             .collect();
 
         // Build config for quick check
@@ -325,19 +377,29 @@ impl ReconIdentityCommand {
         let mut found_count = 0;
         for profiles in result.by_category.values() {
             for profile in profiles {
-                if !platform_names.iter().any(|name|
-                    profile.platform.eq_ignore_ascii_case(name) ||
-                    profile.platform.to_lowercase().contains(&name.to_lowercase())
-                ) {
+                if !platform_names.iter().any(|name| {
+                    profile.platform.eq_ignore_ascii_case(name)
+                        || profile
+                            .platform
+                            .to_lowercase()
+                            .contains(&name.to_lowercase())
+                }) {
                     continue;
                 }
 
                 if profile.exists {
                     found_count += 1;
                     let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
-                    println!("  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m", profile.platform, url);
+                    println!(
+                        "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+                        profile.platform, url
+                    );
                 } else if profile.error.is_some() {
-                    println!("  \x1b[33m?\x1b[0m {} - error: {}", profile.platform, profile.error.as_ref().unwrap());
+                    println!(
+                        "  \x1b[33m?\x1b[0m {} - error: {}",
+                        profile.platform,
+                        profile.error.as_ref().unwrap()
+                    );
                 } else {
                     println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
                 }
@@ -406,7 +468,13 @@ impl ReconIdentityCommand {
         // Display results
         println!();
         Output::item("Email", email);
-        Output::item("Provider", &result.provider.clone().unwrap_or_else(|| "Unknown".to_string()));
+        Output::item(
+            "Provider",
+            &result
+                .provider
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
+        );
         Output::item("Valid", if result.valid { "Yes" } else { "No" });
         println!();
 
@@ -419,9 +487,16 @@ impl ReconIdentityCommand {
         }
 
         if !result.social_profiles.is_empty() {
-            Output::subheader(&format!("Social Profiles ({})", result.social_profiles.len()));
+            Output::subheader(&format!(
+                "Social Profiles ({})",
+                result.social_profiles.len()
+            ));
             for profile in &result.social_profiles {
-                println!("  • {} - \x1b[36m{}\x1b[0m", profile.platform, profile.url.as_deref().unwrap_or("N/A"));
+                println!(
+                    "  • {} - \x1b[36m{}\x1b[0m",
+                    profile.platform,
+                    profile.url.as_deref().unwrap_or("N/A")
+                );
             }
             println!();
         }
@@ -448,7 +523,9 @@ impl ReconIdentityCommand {
             "Missing target.\nUsage: rb recon identity breach <email|password>\nExample: rb recon identity breach password123",
         )?;
 
-        let check_type = ctx.get_flag("type").unwrap_or_else(|| "password".to_string());
+        let check_type = ctx
+            .get_flag("type")
+            .unwrap_or_else(|| "password".to_string());
         let hibp_key = ctx.get_flag("hibp-key");
 
         Output::header("Breach Check (HIBP)");
@@ -468,16 +545,16 @@ impl ReconIdentityCommand {
             "email" => {
                 let result = client.check_email(target)?;
                 if result.pwned {
-                    Output::warning(&format!(
-                        "PWNED! Found in {} breaches",
-                        result.breach_count
-                    ));
+                    Output::warning(&format!("PWNED! Found in {} breaches", result.breach_count));
 
                     if !result.breaches.is_empty() {
                         println!();
                         Output::subheader("Breaches");
                         for breach in result.breaches.iter().take(10) {
-                            println!("  • {} - {} ({} accounts)", breach.name, breach.breach_date, breach.pwn_count);
+                            println!(
+                                "  • {} - {} ({} accounts)",
+                                breach.name, breach.breach_date, breach.pwn_count
+                            );
                         }
                         if result.breaches.len() > 10 {
                             Output::dim(&format!("  ... and {} more", result.breaches.len() - 10));

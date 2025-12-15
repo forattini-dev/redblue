@@ -2,7 +2,6 @@
 ///
 /// Grabs and analyzes SSH banners for version detection
 /// and potential vulnerability identification.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -20,7 +19,12 @@ impl SshBannerScript {
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
                 description: "Grabs SSH banner and identifies version information".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Safe, ScriptCategory::Default],
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["ssh".to_string()],
                 ports: vec![22, 2222, 22222],
                 license: "MIT".to_string(),
@@ -109,13 +113,16 @@ impl Script for SshBannerScript {
         if let Some(version_info) = self.parse_ssh_version(banner) {
             // Main finding
             result.add_finding(
-                Finding::new(FindingType::Version, &format!("{} Detected", version_info.software))
-                    .with_description(&format!(
-                        "SSH Software: {}\nVersion: {}\nProtocol: SSH-{}",
-                        version_info.software, version_info.version, version_info.protocol
-                    ))
-                    .with_evidence(banner)
-                    .with_severity(FindingSeverity::Info),
+                Finding::new(
+                    FindingType::Version,
+                    &format!("{} Detected", version_info.software),
+                )
+                .with_description(&format!(
+                    "SSH Software: {}\nVersion: {}\nProtocol: SSH-{}",
+                    version_info.software, version_info.version, version_info.protocol
+                ))
+                .with_evidence(banner)
+                .with_severity(FindingSeverity::Info),
             );
 
             // Extract data
@@ -181,11 +188,14 @@ impl SshBannerScript {
             // CVE-2023-38408 - PKCS#11 feature
             if self.version_lt(ver, "9.3") {
                 result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "Potential PKCS#11 Vulnerability")
-                        .with_cve("CVE-2023-38408")
-                        .with_description("OpenSSH before 9.3p2 has PKCS#11 feature vulnerabilities")
-                        .with_severity(FindingSeverity::High)
-                        .with_remediation("Upgrade to OpenSSH 9.3p2 or later"),
+                    Finding::new(
+                        FindingType::Vulnerability,
+                        "Potential PKCS#11 Vulnerability",
+                    )
+                    .with_cve("CVE-2023-38408")
+                    .with_description("OpenSSH before 9.3p2 has PKCS#11 feature vulnerabilities")
+                    .with_severity(FindingSeverity::High)
+                    .with_remediation("Upgrade to OpenSSH 9.3p2 or later"),
                 );
             }
 
@@ -194,7 +204,9 @@ impl SshBannerScript {
                 result.add_finding(
                     Finding::new(FindingType::Vulnerability, "Username Enumeration Possible")
                         .with_cve("CVE-2016-20012")
-                        .with_description("OpenSSH before 8.0 allows username enumeration via timing")
+                        .with_description(
+                            "OpenSSH before 8.0 allows username enumeration via timing",
+                        )
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Upgrade to OpenSSH 8.0 or later"),
                 );
@@ -206,7 +218,9 @@ impl SshBannerScript {
             if self.version_lt(ver, "2022.83") {
                 result.add_finding(
                     Finding::new(FindingType::Vulnerability, "Outdated Dropbear SSH")
-                        .with_description("Dropbear versions before 2022.83 have known vulnerabilities")
+                        .with_description(
+                            "Dropbear versions before 2022.83 have known vulnerabilities",
+                        )
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Upgrade to Dropbear 2022.83 or later"),
                 );
@@ -260,8 +274,14 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("ssh_software"), Some(&"OpenSSH".to_string()));
-        assert_eq!(result.extracted.get("ssh_version"), Some(&"8.4p1".to_string()));
+        assert_eq!(
+            result.extracted.get("ssh_software"),
+            Some(&"OpenSSH".to_string())
+        );
+        assert_eq!(
+            result.extracted.get("ssh_version"),
+            Some(&"8.4p1".to_string())
+        );
     }
 
     #[test]
@@ -272,7 +292,10 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("ssh_software"), Some(&"dropbear".to_string()));
+        assert_eq!(
+            result.extracted.get("ssh_software"),
+            Some(&"dropbear".to_string())
+        );
     }
 
     #[test]

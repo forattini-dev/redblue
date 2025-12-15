@@ -45,33 +45,17 @@
 //! println!("Extracted {} IOCs", collection.len());
 //! ```
 
+pub mod attack_database;
 pub mod ioc;
 pub mod mapper;
 pub mod navigator;
-pub mod attack_database;
-pub mod taxii;
 pub mod stix;
+pub mod taxii;
 
 pub use mapper::{
-    Confidence,
-    Findings,
-    MappedTechnique,
-    MappingResult,
-    MappingSource,
-    TechniqueMapper,
+    Confidence, Findings, MappedTechnique, MappingResult, MappingSource, TechniqueMapper,
 };
 
-pub use navigator::{
-    NavigatorLayer,
-    TechniqueAnnotation,
-    create_layer_from_techniques,
-};
+pub use navigator::{create_layer_from_techniques, NavigatorLayer, TechniqueAnnotation};
 
-pub use ioc::{
-    Ioc,
-    IocCollection,
-    IocConfidence,
-    IocExtractor,
-    IocSource,
-    IocType,
-};
+pub use ioc::{Ioc, IocCollection, IocConfidence, IocExtractor, IocSource, IocType};

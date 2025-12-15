@@ -115,7 +115,8 @@ pub fn save_to_keyring(password: &str) -> Result<(), String> {
 
     // Ensure parent directory exists
     if let Some(parent) = keyring_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create keyring directory: {}", e))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create keyring directory: {}", e))?;
     }
 
     let key = derive_keyring_key();
@@ -153,8 +154,7 @@ pub fn clear_keyring() -> Result<(), String> {
     let keyring_path = get_keyring_path().ok_or("Failed to determine keyring path")?;
 
     if keyring_path.exists() {
-        fs::remove_file(&keyring_path)
-            .map_err(|e| format!("Failed to remove keyring: {}", e))?;
+        fs::remove_file(&keyring_path).map_err(|e| format!("Failed to remove keyring: {}", e))?;
     }
 
     Ok(())
@@ -169,7 +169,11 @@ pub fn has_keyring_password() -> bool {
 fn get_keyring_path() -> Option<PathBuf> {
     // Try XDG config directory first
     if let Ok(config_dir) = std::env::var("XDG_CONFIG_HOME") {
-        return Some(PathBuf::from(config_dir).join(SERVICE_NAME).join(KEYRING_FILE));
+        return Some(
+            PathBuf::from(config_dir)
+                .join(SERVICE_NAME)
+                .join(KEYRING_FILE),
+        );
     }
 
     // Fall back to ~/.config
@@ -251,15 +255,27 @@ mod tests {
     fn test_password_source_name() {
         assert_eq!(PasswordSource::Flag("".to_string()).source_name(), "flag");
         assert_eq!(PasswordSource::EnvVar("".to_string()).source_name(), "env");
-        assert_eq!(PasswordSource::Keyring("".to_string()).source_name(), "keyring");
+        assert_eq!(
+            PasswordSource::Keyring("".to_string()).source_name(),
+            "keyring"
+        );
         assert_eq!(PasswordSource::None.source_name(), "none");
     }
 
     #[test]
     fn test_password_source_password() {
-        assert_eq!(PasswordSource::Flag("mypass".to_string()).password(), Some("mypass"));
-        assert_eq!(PasswordSource::EnvVar("envpass".to_string()).password(), Some("envpass"));
-        assert_eq!(PasswordSource::Keyring("ringpass".to_string()).password(), Some("ringpass"));
+        assert_eq!(
+            PasswordSource::Flag("mypass".to_string()).password(),
+            Some("mypass")
+        );
+        assert_eq!(
+            PasswordSource::EnvVar("envpass".to_string()).password(),
+            Some("envpass")
+        );
+        assert_eq!(
+            PasswordSource::Keyring("ringpass".to_string()).password(),
+            Some("ringpass")
+        );
         assert_eq!(PasswordSource::None.password(), None);
     }
 

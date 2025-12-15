@@ -3,7 +3,7 @@
 //! Wraps collection::secrets module with additional types for recon CLI.
 //! Adds URL scanning capability for web reconnaissance.
 
-pub use crate::modules::collection::secrets::{SecretScanner, SecretFinding, SecretRule};
+pub use crate::modules::collection::secrets::{SecretFinding, SecretRule, SecretScanner};
 use crate::protocols::http::HttpClient;
 
 /// Secret severity levels for classification
@@ -71,11 +71,17 @@ impl SecretsScanner {
     }
 
     /// Scan text content for secrets
-    pub fn scan_content(&self, content: &str, location: &str) -> Result<Vec<WebSecretFinding>, String> {
+    pub fn scan_content(
+        &self,
+        content: &str,
+        location: &str,
+    ) -> Result<Vec<WebSecretFinding>, String> {
         let mut findings = Vec::new();
 
         for (line_num, line) in content.lines().enumerate() {
-            let line_findings = self.file_scanner.scan_line_internal(location, line_num + 1, line);
+            let line_findings = self
+                .file_scanner
+                .scan_line_internal(location, line_num + 1, line);
             for finding in line_findings {
                 let severity = Self::classify_severity(&finding.rule_id);
                 findings.push(WebSecretFinding {
@@ -102,9 +108,15 @@ impl SecretsScanner {
 
     fn classify_severity(rule_id: &str) -> SecretSeverity {
         match rule_id {
-            "private-key" | "aws-secret-access-key" | "database-connection" => SecretSeverity::Critical,
-            "aws-access-key-id" | "github-token" | "slack-token" | "jwt-token" => SecretSeverity::High,
-            "generic-api-key" | "generic-secret" | "bearer-token" | "oauth-token" => SecretSeverity::Medium,
+            "private-key" | "aws-secret-access-key" | "database-connection" => {
+                SecretSeverity::Critical
+            }
+            "aws-access-key-id" | "github-token" | "slack-token" | "jwt-token" => {
+                SecretSeverity::High
+            }
+            "generic-api-key" | "generic-secret" | "bearer-token" | "oauth-token" => {
+                SecretSeverity::Medium
+            }
             "password" | _ => SecretSeverity::Low,
         }
     }

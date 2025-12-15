@@ -2,7 +2,6 @@
 ///
 /// Detects MongoDB servers and identifies security issues
 /// including unauthenticated access.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,15 @@ impl MongodbInfoScript {
                 name: "MongoDB Server Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects MongoDB servers and identifies version and security configuration".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description:
+                    "Detects MongoDB servers and identifies version and security configuration"
+                        .to_string(),
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["mongodb".to_string()],
                 ports: vec![27017, 27018, 27019, 28017],
                 license: "MIT".to_string(),
@@ -59,7 +65,10 @@ impl Script for MongodbInfoScript {
         let combined_lower = combined.to_lowercase();
 
         // Detect MongoDB
-        if combined_lower.contains("mongodb") || combined_lower.contains("ismaster") || combined_lower.contains("mongod") {
+        if combined_lower.contains("mongodb")
+            || combined_lower.contains("ismaster")
+            || combined_lower.contains("mongod")
+        {
             result.add_finding(
                 Finding::new(FindingType::Discovery, "MongoDB Server Detected")
                     .with_evidence(&combined)
@@ -96,15 +105,21 @@ impl Script for MongodbInfoScript {
         // Check for HTTP interface (deprecated and insecure)
         if ctx.port == 28017 || combined_lower.contains("http interface") {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "MongoDB HTTP Interface Enabled")
-                    .with_description("MongoDB HTTP interface is enabled (deprecated and insecure)")
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Disable HTTP interface with net.http.enabled: false"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "MongoDB HTTP Interface Enabled",
+                )
+                .with_description("MongoDB HTTP interface is enabled (deprecated and insecure)")
+                .with_severity(FindingSeverity::High)
+                .with_remediation("Disable HTTP interface with net.http.enabled: false"),
             );
         }
 
         // Check for exposed databases
-        if combined_lower.contains("admin") || combined_lower.contains("local") || combined_lower.contains("config") {
+        if combined_lower.contains("admin")
+            || combined_lower.contains("local")
+            || combined_lower.contains("config")
+        {
             result.add_finding(
                 Finding::new(FindingType::InfoLeak, "MongoDB System Databases Accessible")
                     .with_description("MongoDB system databases may be accessible")
@@ -112,7 +127,10 @@ impl Script for MongodbInfoScript {
             );
         }
 
-        result.add_output(&format!("MongoDB analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "MongoDB analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -127,14 +145,24 @@ impl MongodbInfoScript {
                 if let Some(start) = line.find('"') {
                     if let Some(end) = line[start + 1..].find('"') {
                         let version = &line[start + 1..start + 1 + end];
-                        if version.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                        if version
+                            .chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit())
+                            .unwrap_or(false)
+                        {
                             return Some(version.to_string());
                         }
                     }
                 }
                 if let Some(colon) = line.find(':') {
                     let after = line[colon + 1..].trim().trim_matches('"');
-                    if after.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                    if after
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                    {
                         return Some(after.split_whitespace().next().unwrap_or(after).to_string());
                     }
                 }
@@ -179,14 +207,16 @@ impl MongodbInfoScript {
     }
 
     fn version_lt(&self, version: &str, target: &str) -> bool {
-        let parse = |s: &str| -> Vec<u32> {
-            s.split('.').filter_map(|p| p.parse().ok()).collect()
-        };
+        let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
         let v1 = parse(version);
         let v2 = parse(target);
         for (a, b) in v1.iter().zip(v2.iter()) {
-            if a < b { return true; }
-            if a > b { return false; }
+            if a < b {
+                return true;
+            }
+            if a > b {
+                return false;
+            }
         }
         v1.len() < v2.len()
     }

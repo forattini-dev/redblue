@@ -194,7 +194,11 @@ impl SparseVector {
     pub fn new(dim: usize, indices: Vec<u32>, values: Vec<f32>) -> Self {
         debug_assert_eq!(indices.len(), values.len());
         debug_assert!(indices.iter().all(|&i| (i as usize) < dim));
-        Self { dim, indices, values }
+        Self {
+            dim,
+            indices,
+            values,
+        }
     }
 
     /// Create from dense vector (keeping only non-zero values)
@@ -319,7 +323,11 @@ impl SparseVector {
             offset += 4;
         }
 
-        Some(Self { dim, indices, values })
+        Some(Self {
+            dim,
+            indices,
+            values,
+        })
     }
 
     /// Compute L2 norm
@@ -394,7 +402,10 @@ impl PartialOrd for SearchResult {
 impl Ord for SearchResult {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reverse ordering for max-heap (we want smallest distances first)
-        other.distance.partial_cmp(&self.distance).unwrap_or(std::cmp::Ordering::Equal)
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -544,9 +555,9 @@ mod tests {
         let second = heap.pop().unwrap();
         let third = heap.pop().unwrap();
 
-        assert_eq!(first.id, 2);  // 0.3 (smallest)
+        assert_eq!(first.id, 2); // 0.3 (smallest)
         assert_eq!(second.id, 1); // 0.5
-        assert_eq!(third.id, 3);  // 0.7 (largest)
+        assert_eq!(third.id, 3); // 0.7 (largest)
     }
 
     #[test]

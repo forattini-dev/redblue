@@ -13,8 +13,8 @@
 
 pub mod linux;
 pub mod macos;
-pub mod windows;
 pub mod templates;
+pub mod windows;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,35 +43,20 @@ impl ListenerProtocol {
 #[derive(Debug, Clone)]
 pub enum ServiceType {
     /// MITM proxy service
-    MitmProxy {
-        port: u16,
-        upstream: Option<String>,
-    },
+    MitmProxy { port: u16, upstream: Option<String> },
     /// HTTP file server
-    HttpServer {
-        port: u16,
-        root: PathBuf,
-    },
+    HttpServer { port: u16, root: PathBuf },
     /// DNS server
-    DnsServer {
-        port: u16,
-        upstream: String,
-    },
+    DnsServer { port: u16, upstream: String },
     /// Reverse shell listener
     Listener {
         port: u16,
         protocol: ListenerProtocol,
     },
     /// Hooks/scripts server
-    HooksServer {
-        port: u16,
-        scripts_dir: PathBuf,
-    },
+    HooksServer { port: u16, scripts_dir: PathBuf },
     /// Custom command
-    Custom {
-        command: String,
-        args: Vec<String>,
-    },
+    Custom { command: String, args: Vec<String> },
 }
 
 impl ServiceType {
@@ -170,10 +155,18 @@ impl ServiceType {
                 format!("DNS Server on port {} (upstream: {})", port, upstream)
             }
             ServiceType::Listener { port, protocol } => {
-                format!("{} Listener on port {}", protocol.as_str().to_uppercase(), port)
+                format!(
+                    "{} Listener on port {}",
+                    protocol.as_str().to_uppercase(),
+                    port
+                )
             }
             ServiceType::HooksServer { port, scripts_dir } => {
-                format!("Hooks Server on port {} (scripts: {})", port, scripts_dir.display())
+                format!(
+                    "Hooks Server on port {} (scripts: {})",
+                    port,
+                    scripts_dir.display()
+                )
             }
             ServiceType::Custom { command, args } => {
                 format!("Custom: {} {}", command, args.join(" "))

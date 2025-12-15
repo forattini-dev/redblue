@@ -117,8 +117,8 @@ impl RdapClient {
 
         // Query the RDAP server
         let url = format!("{}/domain/{}", server.trim_end_matches('/'), domain);
-        let request = HttpRequest::get(&url)
-            .with_header("Accept", "application/rdap+json, application/json");
+        let request =
+            HttpRequest::get(&url).with_header("Accept", "application/rdap+json, application/json");
 
         let response = self
             .http_client
@@ -146,8 +146,8 @@ impl RdapClient {
 
         // Query the RDAP server
         let url = format!("{}/ip/{}", server.trim_end_matches('/'), ip);
-        let request = HttpRequest::get(&url)
-            .with_header("Accept", "application/rdap+json, application/json");
+        let request =
+            HttpRequest::get(&url).with_header("Accept", "application/rdap+json, application/json");
 
         let response = self
             .http_client

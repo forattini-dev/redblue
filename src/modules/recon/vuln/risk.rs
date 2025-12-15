@@ -86,21 +86,19 @@ fn impact_modifier_from_cwes(cwes: &[String]) -> f32 {
     let mut modifier = 0.0f32;
 
     for cwe in cwes {
-        let cwe_num: Option<u32> = cwe
-            .strip_prefix("CWE-")
-            .and_then(|s| s.parse().ok());
+        let cwe_num: Option<u32> = cwe.strip_prefix("CWE-").and_then(|s| s.parse().ok());
 
         if let Some(num) = cwe_num {
             modifier += match num {
                 // Remote Code Execution related
-                94 | 95 | 96 | 78 | 77 | 20 => 20.0,  // Code injection, command injection
-                502 => 20.0,  // Deserialization
-                434 => 18.0,  // Unrestricted file upload
+                94 | 95 | 96 | 78 | 77 | 20 => 20.0, // Code injection, command injection
+                502 => 20.0,                         // Deserialization
+                434 => 18.0,                         // Unrestricted file upload
 
                 // Authentication/Authorization bypass
-                287 | 288 | 290 | 863 | 862 => 15.0,  // Auth bypass
-                306 => 15.0,  // Missing authentication
-                269 | 266 | 250 => 12.0,  // Privilege escalation
+                287 | 288 | 290 | 863 | 862 => 15.0, // Auth bypass
+                306 => 15.0,                         // Missing authentication
+                269 | 266 | 250 => 12.0,             // Privilege escalation
 
                 // SQL Injection
                 89 => 15.0,
@@ -205,11 +203,11 @@ fn is_leap_year(year: i32) -> bool {
 /// Risk level classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RiskLevel {
-    Critical,  // 80-100
-    High,      // 60-79
-    Medium,    // 40-59
-    Low,       // 20-39
-    Info,      // 0-19
+    Critical, // 80-100
+    High,     // 60-79
+    Medium,   // 40-59
+    Low,      // 20-39
+    Info,     // 0-19
 }
 
 impl RiskLevel {

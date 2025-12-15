@@ -1,14 +1,13 @@
+use std::io::{BufRead, BufReader, Read, Write};
 /// Chrome DevTools Protocol Client
 ///
 /// Communicates with Chrome/Chromium via DevTools Protocol
 /// for headless screenshot capture
-
 use std::net::TcpStream;
-use std::io::{Read, Write, BufRead, BufReader};
-use std::time::Duration;
-use std::process::{Command, Child, Stdio};
-use std::thread;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
+use std::time::Duration;
 
 /// CDP client for browser communication
 pub struct CdpClient {
@@ -146,9 +145,12 @@ impl CdpClient {
         // Connect via TCP
         let addr = format!("{}:{}", host, port);
         let stream = TcpStream::connect_timeout(
-            &addr.parse().map_err(|e| format!("Invalid address: {}", e))?,
+            &addr
+                .parse()
+                .map_err(|e| format!("Invalid address: {}", e))?,
             Duration::from_secs(5),
-        ).map_err(|e| format!("Connection failed: {}", e))?;
+        )
+        .map_err(|e| format!("Connection failed: {}", e))?;
 
         stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
         stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
@@ -165,9 +167,12 @@ impl CdpClient {
     fn get_websocket_url(&self) -> Result<String, String> {
         let addr = format!("127.0.0.1:{}", self.port);
         let mut stream = TcpStream::connect_timeout(
-            &addr.parse().map_err(|e| format!("Invalid address: {}", e))?,
+            &addr
+                .parse()
+                .map_err(|e| format!("Invalid address: {}", e))?,
             Duration::from_secs(5),
-        ).map_err(|e| format!("Failed to connect to DevTools: {}", e))?;
+        )
+        .map_err(|e| format!("Failed to connect to DevTools: {}", e))?;
 
         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
 
@@ -179,11 +184,13 @@ impl CdpClient {
             self.port
         );
 
-        stream.write_all(request.as_bytes())
+        stream
+            .write_all(request.as_bytes())
             .map_err(|e| format!("Failed to send request: {}", e))?;
 
         let mut response = Vec::new();
-        stream.read_to_end(&mut response)
+        stream
+            .read_to_end(&mut response)
             .map_err(|e| format!("Failed to read response: {}", e))?;
 
         let response_str = String::from_utf8_lossy(&response);
@@ -211,7 +218,10 @@ impl CdpClient {
         };
 
         let (host, port) = match host_port.find(':') {
-            Some(pos) => (&host_port[..pos], host_port[pos + 1..].parse().unwrap_or(9222)),
+            Some(pos) => (
+                &host_port[..pos],
+                host_port[pos + 1..].parse().unwrap_or(9222),
+            ),
             None => (host_port, 9222),
         };
 
@@ -219,7 +229,12 @@ impl CdpClient {
     }
 
     /// Perform WebSocket handshake
-    fn websocket_handshake(&self, mut stream: TcpStream, host: &str, path: &str) -> Result<TcpStream, String> {
+    fn websocket_handshake(
+        &self,
+        mut stream: TcpStream,
+        host: &str,
+        path: &str,
+    ) -> Result<TcpStream, String> {
         // Generate WebSocket key
         let key = self.generate_ws_key();
 
@@ -234,13 +249,15 @@ impl CdpClient {
             path, host, key
         );
 
-        stream.write_all(request.as_bytes())
+        stream
+            .write_all(request.as_bytes())
             .map_err(|e| format!("Failed to send handshake: {}", e))?;
 
         // Read response
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut response_line = String::new();
-        reader.read_line(&mut response_line)
+        reader
+            .read_line(&mut response_line)
             .map_err(|e| format!("Failed to read handshake response: {}", e))?;
 
         if !response_line.contains("101") {
@@ -310,7 +327,8 @@ impl CdpClient {
 
         // Now borrow stream mutably
         let stream = self.stream.as_mut().unwrap();
-        stream.write_all(&frame)
+        stream
+            .write_all(&frame)
             .map_err(|e| format!("Failed to send message: {}", e))?;
 
         Ok(id)
@@ -318,12 +336,15 @@ impl CdpClient {
 
     /// Receive CDP response
     pub fn receive(&mut self) -> Result<CdpResponse, String> {
-        let stream = self.stream.as_mut()
+        let stream = self
+            .stream
+            .as_mut()
             .ok_or_else(|| "Not connected".to_string())?;
 
         // Read WebSocket frame
         let mut header = [0u8; 2];
-        stream.read_exact(&mut header)
+        stream
+            .read_exact(&mut header)
             .map_err(|e| format!("Failed to read frame header: {}", e))?;
 
         let opcode = header[0] & 0x0F;
@@ -352,7 +373,8 @@ impl CdpClient {
 
         // Read payload
         let mut payload = vec![0u8; payload_len as usize];
-        stream.read_exact(&mut payload)
+        stream
+            .read_exact(&mut payload)
             .map_err(|e| format!("Failed to read payload: {}", e))?;
 
         // Unmask if needed
@@ -410,7 +432,9 @@ impl CdpClient {
         // Extract id
         if let Some(id_pos) = json.find("\"id\":") {
             let after = &json[id_pos + 5..];
-            let num_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+            let num_end = after
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(after.len());
             response.id = after[..num_end].parse().unwrap_or(0);
         }
 
@@ -475,7 +499,10 @@ impl CdpClient {
     /// Take screenshot
     pub fn capture_screenshot(&mut self, full_page: bool, quality: u8) -> Result<Vec<u8>, String> {
         let params = if full_page {
-            format!(r#"{{"format":"jpeg","quality":{},"captureBeyondViewport":true}}"#, quality)
+            format!(
+                r#"{{"format":"jpeg","quality":{},"captureBeyondViewport":true}}"#,
+                quality
+            )
         } else {
             format!(r#"{{"format":"jpeg","quality":{}}}"#, quality)
         };
@@ -602,14 +629,12 @@ fn base64_encode(data: &[u8]) -> String {
 /// Base64 decode
 fn base64_decode(data: &str) -> Result<Vec<u8>, String> {
     const DECODE: [i8; 128] = [
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-        52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-        -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-        -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-        41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+        -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1,
+        -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4,
+        5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1,
+        -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
     ];
 
     let data = data.trim_end_matches('=');

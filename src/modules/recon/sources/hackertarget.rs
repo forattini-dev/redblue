@@ -4,7 +4,6 @@
 /// Free: 10 queries/day, Pro: unlimited with API key.
 ///
 /// API: https://api.hackertarget.com/hostsearch/?q=example.com
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -35,14 +34,20 @@ impl HackerTargetSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
 
         // Check for error messages
         if body.contains("error check") || body.contains("API count exceeded") {
-            return Err(SourceError::RateLimited(std::time::Duration::from_secs(86400)));
+            return Err(SourceError::RateLimited(std::time::Duration::from_secs(
+                86400,
+            )));
         }
 
         // Format: subdomain.domain.com,IP

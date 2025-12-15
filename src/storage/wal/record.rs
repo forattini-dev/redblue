@@ -1,5 +1,5 @@
-use std::io::{self, Read, Write};
 use crate::storage::engine::crc32::{crc32, crc32_update};
+use std::io::{self, Read, Write};
 
 /// WAL file magic bytes (RDBW)
 pub const WAL_MAGIC: &[u8; 4] = b"RDBW";
@@ -41,7 +41,11 @@ pub enum WalRecord {
     /// Rollback of a transaction
     Rollback { tx_id: u64 },
     /// Write of a page
-    PageWrite { tx_id: u64, page_id: u32, data: Vec<u8> },
+    PageWrite {
+        tx_id: u64,
+        page_id: u32,
+        data: Vec<u8>,
+    },
     /// Checkpoint marker (indicates up to which LSN pages are flushed)
     Checkpoint { lsn: u64 },
 }
@@ -50,7 +54,7 @@ impl WalRecord {
     /// Serialize record to bytes (including checksum)
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        
+
         // Layout:
         // [Type: 1]
         // [TxID: 8] (or LSN for Checkpoint)
@@ -58,7 +62,7 @@ impl WalRecord {
         // [DataLen: 4] (only for PageWrite)
         // [Data: N] (only for PageWrite)
         // [Checksum: 4]
-        
+
         match self {
             WalRecord::Begin { tx_id } => {
                 buf.push(RecordType::Begin as u8);
@@ -72,7 +76,11 @@ impl WalRecord {
                 buf.push(RecordType::Rollback as u8);
                 buf.extend_from_slice(&tx_id.to_le_bytes());
             }
-            WalRecord::PageWrite { tx_id, page_id, data } => {
+            WalRecord::PageWrite {
+                tx_id,
+                page_id,
+                data,
+            } => {
                 buf.push(RecordType::PageWrite as u8);
                 buf.extend_from_slice(&tx_id.to_le_bytes());
                 buf.extend_from_slice(&page_id.to_le_bytes());
@@ -84,14 +92,14 @@ impl WalRecord {
                 buf.extend_from_slice(&lsn.to_le_bytes());
             }
         }
-        
+
         // Calculate and append checksum
         let checksum = crc32(&buf);
         buf.extend_from_slice(&checksum.to_le_bytes());
-        
+
         buf
     }
-    
+
     /// Read a record from a reader
     pub fn read<R: Read>(reader: &mut R) -> io::Result<Option<WalRecord>> {
         // Read type byte
@@ -101,20 +109,20 @@ impl WalRecord {
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
             Err(e) => return Err(e),
         };
-        
+
         let record_type = RecordType::from_u8(type_buf[0])
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid record type"))?;
-            
+
         // Start checksum calculation
         let mut running_crc = crc32_update(0, &type_buf);
-        
+
         let record = match record_type {
             RecordType::Begin | RecordType::Commit | RecordType::Rollback => {
                 let mut buf = [0u8; 8];
                 reader.read_exact(&mut buf)?;
                 running_crc = crc32_update(running_crc, &buf);
                 let tx_id = u64::from_le_bytes(buf);
-                
+
                 match record_type {
                     RecordType::Begin => WalRecord::Begin { tx_id },
                     RecordType::Commit => WalRecord::Commit { tx_id },
@@ -128,25 +136,29 @@ impl WalRecord {
                 reader.read_exact(&mut tx_buf)?;
                 running_crc = crc32_update(running_crc, &tx_buf);
                 let tx_id = u64::from_le_bytes(tx_buf);
-                
+
                 // Read PageID
                 let mut page_buf = [0u8; 4];
                 reader.read_exact(&mut page_buf)?;
                 running_crc = crc32_update(running_crc, &page_buf);
                 let page_id = u32::from_le_bytes(page_buf);
-                
+
                 // Read Length
                 let mut len_buf = [0u8; 4];
                 reader.read_exact(&mut len_buf)?;
                 running_crc = crc32_update(running_crc, &len_buf);
                 let len = u32::from_le_bytes(len_buf) as usize;
-                
+
                 // Read Data
                 let mut data = vec![0u8; len];
                 reader.read_exact(&mut data)?;
                 running_crc = crc32_update(running_crc, &data);
-                
-                WalRecord::PageWrite { tx_id, page_id, data }
+
+                WalRecord::PageWrite {
+                    tx_id,
+                    page_id,
+                    data,
+                }
             }
             RecordType::Checkpoint => {
                 let mut buf = [0u8; 8];
@@ -156,12 +168,12 @@ impl WalRecord {
                 WalRecord::Checkpoint { lsn }
             }
         };
-        
+
         // Verify checksum
         let mut crc_buf = [0u8; 4];
         reader.read_exact(&mut crc_buf)?;
         let stored_crc = u32::from_le_bytes(crc_buf);
-        
+
         // Note: Our crc32_update takes the previous CRC value (not raw accumulator)
         // But our `crc32_update` implementation expects the *previous computed CRC* as input.
         // Wait, `crc32_update` in `crc32.rs` is:
@@ -169,11 +181,14 @@ impl WalRecord {
         // So passing 0 starts a new one. Passing the result of a previous call continues it.
         // HOWEVER, `crc32(&buf)` is equivalent to `crc32_update(0, &buf)`.
         // So `running_crc` here should be correct.
-        
+
         if running_crc != stored_crc {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "WAL record checksum mismatch"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WAL record checksum mismatch",
+            ));
         }
-        
+
         Ok(Some(record))
     }
 }

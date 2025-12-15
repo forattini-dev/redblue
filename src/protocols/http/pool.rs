@@ -1,7 +1,9 @@
 use crate::protocols::http::body::{analyze_headers, chunked_body_complete, BodyStrategy};
-use crate::protocols::tls_impersonator::TlsProfile;
 use crate::protocols::http::build_default_ssl_connector;
-use boring::ssl::{Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion};
+use crate::protocols::tls_impersonator::TlsProfile;
+use boring::ssl::{
+    Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
+};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -117,7 +119,11 @@ impl ConnectionPool {
     }
 
     /// Get or create an SSL context for the given host with session caching enabled
-    fn get_or_create_ssl_context(&self, host: &str, profile: Option<TlsProfile>) -> Result<SslContext, String> {
+    fn get_or_create_ssl_context(
+        &self,
+        host: &str,
+        profile: Option<TlsProfile>,
+    ) -> Result<SslContext, String> {
         let mut contexts = self.ssl_contexts.lock().unwrap();
 
         if let Some(ctx) = contexts.get(host) {
@@ -185,8 +191,8 @@ impl ConnectionPool {
             let _ = tcp_stream.set_write_timeout(Some(default_timeout));
 
             // Create SSL instance from cached context (enables session reuse)
-            let mut ssl = Ssl::new(&ctx)
-                .map_err(|e| format!("Failed to create SSL instance: {}", e))?;
+            let mut ssl =
+                Ssl::new(&ctx).map_err(|e| format!("Failed to create SSL instance: {}", e))?;
             ssl.set_hostname(host)
                 .map_err(|e| format!("Failed to set SNI hostname: {}", e))?;
 

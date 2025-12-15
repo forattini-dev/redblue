@@ -11,7 +11,8 @@ impl Reporter {
     /// Placeholder for HTML report generation.
     /// This is more feasible by generating simple HTML strings.
     pub fn generate_html_report(title: &str, content_html: &str) -> String {
-        format!(r#"
+        format!(
+            r#"
 <!DOCTYPE html>
 <html>
 <head>
@@ -29,6 +30,8 @@ impl Reporter {
     </div>
 </body>
 </html>
-"#, title, title, content_html)
+"#,
+            title, title, content_html
+        )
     }
 }

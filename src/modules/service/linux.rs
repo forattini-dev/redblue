@@ -3,8 +3,7 @@
 //! Implements service installation via systemd (preferred) or cron fallback.
 
 use super::{
-    dirs, find_rb_binary, InstalledService, ServiceConfig, ServiceManager, ServiceStatus,
-    templates,
+    dirs, find_rb_binary, templates, InstalledService, ServiceConfig, ServiceManager, ServiceStatus,
 };
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -109,7 +108,9 @@ impl LinuxServiceManager {
     /// Install using cron @reboot
     fn install_cron(&self, config: &ServiceConfig) -> Result<InstalledService, String> {
         let rb_path = find_rb_binary()?;
-        let (cmd, args) = config.service_type.to_command(rb_path.to_str().unwrap_or("rb"));
+        let (cmd, args) = config
+            .service_type
+            .to_command(rb_path.to_str().unwrap_or("rb"));
         let full_command = format!("{} {}", cmd, args.join(" "));
 
         // Read current crontab
@@ -126,10 +127,7 @@ impl LinuxServiceManager {
         }
 
         // Add new entry
-        let new_entry = format!(
-            "{}\n@reboot {} # {}\n",
-            marker, full_command, config.name
-        );
+        let new_entry = format!("{}\n@reboot {} # {}\n", marker, full_command, config.name);
 
         let new_crontab = format!("{}\n{}", current.trim(), new_entry);
 
@@ -290,9 +288,7 @@ impl ServiceManager for LinuxServiceManager {
 
         // Disable service
         let disable_cmd = if self.is_root() {
-            Command::new("systemctl")
-                .args(["disable", name])
-                .output()
+            Command::new("systemctl").args(["disable", name]).output()
         } else {
             Command::new("systemctl")
                 .args(["--user", "disable", name])
@@ -326,9 +322,7 @@ impl ServiceManager for LinuxServiceManager {
         }
 
         let output = if self.is_root() {
-            Command::new("systemctl")
-                .args(["start", name])
-                .output()
+            Command::new("systemctl").args(["start", name]).output()
         } else {
             Command::new("systemctl")
                 .args(["--user", "start", name])
@@ -368,9 +362,7 @@ impl ServiceManager for LinuxServiceManager {
         }
 
         let output = if self.is_root() {
-            Command::new("systemctl")
-                .args(["is-active", name])
-                .output()
+            Command::new("systemctl").args(["is-active", name]).output()
         } else {
             Command::new("systemctl")
                 .args(["--user", "is-active", name])

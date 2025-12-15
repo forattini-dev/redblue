@@ -7,16 +7,16 @@
 //!
 //! Zero external dependencies - all templating done with Rust std.
 
-pub mod json;
 pub mod html;
+pub mod json;
 pub mod markdown;
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-pub use json::JsonExporter;
 pub use html::HtmlExporter;
+pub use json::JsonExporter;
 pub use markdown::MarkdownExporter;
 
 /// Severity levels for findings
@@ -177,8 +177,18 @@ impl Report {
 
         let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
         let days_in_months: [i64; 12] = [
-            31, if is_leap { 29 } else { 28 }, 31, 30, 31, 30,
-            31, 31, 30, 31, 30, 31
+            31,
+            if is_leap { 29 } else { 28 },
+            31,
+            30,
+            31,
+            30,
+            31,
+            31,
+            30,
+            31,
+            30,
+            31,
         ];
 
         let mut month = 1;
@@ -191,7 +201,10 @@ impl Report {
         }
         let day = remaining_days + 1;
 
-        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            year, month, day, hours, minutes, seconds
+        )
     }
 
     pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
@@ -245,7 +258,6 @@ impl Report {
             _ => return Err("Unknown file format. Use .json, .html, or .md".to_string()),
         };
 
-        fs::write(path, content)
-            .map_err(|e| format!("Failed to write report: {}", e))
+        fs::write(path, content).map_err(|e| format!("Failed to write report: {}", e))
     }
 }

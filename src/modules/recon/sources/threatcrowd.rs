@@ -4,7 +4,6 @@
 /// Free, no API key required.
 ///
 /// API: https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=example.com
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -28,7 +27,11 @@ impl ThreatCrowdSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -62,7 +65,8 @@ impl ThreatCrowdSource {
                             if in_string {
                                 let subdomain = current.trim().to_lowercase();
 
-                                if (subdomain.ends_with(&format!(".{}", domain_lower)) || subdomain == domain_lower)
+                                if (subdomain.ends_with(&format!(".{}", domain_lower))
+                                    || subdomain == domain_lower)
                                     && seen.insert(subdomain.clone())
                                 {
                                     records.push(SubdomainRecord {

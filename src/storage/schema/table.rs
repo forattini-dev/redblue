@@ -376,8 +376,7 @@ impl ColumnDef {
             return Err(TableDefError::TruncatedData);
         }
 
-        let data_type =
-            DataType::from_byte(data[offset]).ok_or(TableDefError::InvalidDataType)?;
+        let data_type = DataType::from_byte(data[offset]).ok_or(TableDefError::InvalidDataType)?;
         offset += 1;
 
         let nullable = data[offset] != 0;
@@ -519,7 +518,8 @@ impl IndexDef {
             return Err(TableDefError::TruncatedData);
         }
 
-        let index_type = IndexType::from_byte(data[offset]).ok_or(TableDefError::InvalidIndexType)?;
+        let index_type =
+            IndexType::from_byte(data[offset]).ok_or(TableDefError::InvalidIndexType)?;
         offset += 1;
 
         let unique = data[offset] != 0;
@@ -665,8 +665,8 @@ impl Constraint {
             return Err(TableDefError::TruncatedData);
         }
 
-        let constraint_type = ConstraintType::from_byte(data[offset])
-            .ok_or(TableDefError::InvalidConstraintType)?;
+        let constraint_type =
+            ConstraintType::from_byte(data[offset]).ok_or(TableDefError::InvalidConstraintType)?;
         offset += 1;
 
         let (col_count, varint_len) = read_varint(&data[offset..])?;
@@ -889,10 +889,7 @@ mod tests {
             .add_column(ColumnDef::new("ip", DataType::IpAddr))
             .primary_key(vec!["id".to_string()])
             .add_index(IndexDef::new("idx_domain", vec!["domain".to_string()]))
-            .add_index(
-                IndexDef::new("idx_subdomain", vec!["subdomain".to_string()])
-                    .unique()
-            );
+            .add_index(IndexDef::new("idx_subdomain", vec!["subdomain".to_string()]).unique());
 
         assert_eq!(table.indexes.len(), 2);
         assert!(table.indexes[1].unique);
@@ -951,9 +948,7 @@ mod tests {
             .add_column(ColumnDef::new("ip", DataType::IpAddr).not_null())
             .add_column(ColumnDef::new("hostname", DataType::Text))
             .add_column(ColumnDef::new("last_seen", DataType::Timestamp))
-            .add_column(
-                ColumnDef::new("fingerprint", DataType::Vector).with_vector_dim(128),
-            )
+            .add_column(ColumnDef::new("fingerprint", DataType::Vector).with_vector_dim(128))
             .primary_key(vec!["id".to_string()])
             .add_index(IndexDef::new("idx_ip", vec!["ip".to_string()]).unique())
             .add_index(
@@ -991,7 +986,10 @@ mod tests {
             .with_metadata("description", "Target IP address")
             .with_metadata("indexed", "true");
 
-        assert_eq!(col.metadata.get("description"), Some(&"Target IP address".to_string()));
+        assert_eq!(
+            col.metadata.get("description"),
+            Some(&"Target IP address".to_string())
+        );
         assert_eq!(col.metadata.get("indexed"), Some(&"true".to_string()));
     }
 

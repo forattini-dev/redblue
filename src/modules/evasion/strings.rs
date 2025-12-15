@@ -124,7 +124,9 @@ impl SensitiveStrings {
 
     /// PowerShell with hidden window
     pub fn powershell_hidden() -> EncryptedString {
-        EncryptedString::from_plaintext("powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass")
+        EncryptedString::from_plaintext(
+            "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass",
+        )
     }
 
     /// Windows Script Host

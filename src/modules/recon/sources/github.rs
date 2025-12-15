@@ -6,7 +6,6 @@
 /// Free: 10 searches/min unauthenticated, 30/min with token
 ///
 /// API: https://api.github.com/search/code?q=example.com
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -37,7 +36,11 @@ impl GitHubSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -123,7 +126,9 @@ impl GitHubSource {
         }
 
         // Must contain only valid characters
-        subdomain.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '.')
+        subdomain
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '.')
             && !subdomain.starts_with('.')
             && !subdomain.starts_with('-')
             && !subdomain.contains("..")

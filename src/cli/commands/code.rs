@@ -2,6 +2,9 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
+use crate::modules::collection::secrets::git_scanner::GitScanner;
+use std::fs;
+use std::process::Command as ProcessCommand;
 
 pub struct CodeCommand;
 
@@ -22,7 +25,7 @@ impl Command for CodeCommand {
         vec![Route {
             verb: "scan",
             summary: "Scan directory or file for secrets",
-            usage: "rb code secrets scan <path>",
+            usage: "rb code secrets scan <path|url>",
         }]
     }
 
@@ -33,6 +36,7 @@ impl Command for CodeCommand {
             Flag::new("output", "Output format: text or json")
                 .with_short('o')
                 .with_default("text"),
+            Flag::new("history", "Scan git history (full log) for remote repos").with_default("true"),
         ]
     }
 
@@ -41,6 +45,10 @@ impl Command for CodeCommand {
             (
                 "Scan current directory for secrets",
                 "rb code secrets scan .",
+            ),
+            (
+                "Scan remote git repository",
+                "rb code secrets scan https://github.com/owner/repo.git",
             ),
             (
                 "Scan specific directory",
@@ -72,7 +80,8 @@ impl Command for CodeCommand {
 impl CodeCommand {
     fn scan(&self, ctx: &CliContext) -> Result<(), String> {
         let target = ctx.target.as_ref().ok_or_else(|| {
-            "Missing target path. Syntax: rb code secrets scan <path>".to_string()
+            "Missing target path. Syntax: rb code secrets scan <path>"
+                .to_string()
         })?;
 
         Output::header("Secret Scanner (Gitleaks)");
@@ -86,15 +95,21 @@ impl CodeCommand {
             .map(|s| s.as_str())
             .unwrap_or("text");
 
-        Output::spinner_start(&format!("Scanning {} for secrets", target));
+        // Check if target is a URL
+        let is_url = target.starts_with("http://")
+            || target.starts_with("https://")
+            || target.starts_with("git@");
 
-        // Create scanner
-        let scanner = SecretScanner::new();
-
-        // Scan the directory
-        let findings = scanner.scan_directory(target)?;
-
-        Output::spinner_done();
+        let findings = if is_url {
+            self.scan_remote_repo(target, ctx)?
+        } else {
+            // Local scan
+            Output::spinner_start(&format!("Scanning {} for secrets", target));
+            let scanner = SecretScanner::new();
+            let res = scanner.scan_directory(target)?;
+            Output::spinner_done();
+            res
+        };
 
         // Display results based on output format
         match output_format {
@@ -103,6 +118,42 @@ impl CodeCommand {
         }
 
         Ok(())
+    }
+
+    fn scan_remote_repo(&self, url: &str, _ctx: &CliContext) -> Result<Vec<SecretFinding>, String> {
+        let temp_dir = std::env::temp_dir().join(format!("redblue-scan-{}", uuid::Uuid::new_v4()));
+        let temp_path = temp_dir.to_string_lossy().to_string();
+
+        Output::info(&format!("Cloning {} to temporary directory...", url));
+        
+        let status = ProcessCommand::new("git")
+            .arg("clone")
+            .arg(url)
+            .arg(&temp_path)
+            .status()
+            .map_err(|e| format!("Failed to execute git clone: {}", e))?;
+
+        if !status.success() {
+            return Err("Git clone failed".to_string());
+        }
+
+        Output::success("Repository cloned successfully");
+        Output::spinner_start("Scanning git history for secrets...");
+
+        let git_scanner = GitScanner::new();
+        // Use scan_history for remote repos to catch secrets in commits
+        let findings = git_scanner.scan_history(&temp_path);
+
+        Output::spinner_done();
+
+        // Cleanup
+        if let Err(e) = fs::remove_dir_all(&temp_path) {
+            Output::error(&format!("Failed to clean up temporary directory {}: {}", temp_path, e));
+        } else {
+            Output::info("Temporary directory cleaned up");
+        }
+
+        findings
     }
 
     fn display_text(&self, findings: &[SecretFinding], target: &str) -> Result<(), String> {
@@ -141,9 +192,14 @@ impl CodeCommand {
                     "  \x1b[33m{}\x1b[0m ({})",
                     finding.description, finding.rule_id
                 );
-                println!("    Line {}, Column {}",
-                    finding.line.map(|l| l.to_string()).unwrap_or_else(|| "?".to_string()),
-                    finding.column);
+                println!(
+                    "    Line {}, Column {}",
+                    finding
+                        .line
+                        .map(|l| l.to_string())
+                        .unwrap_or_else(|| "?".to_string()),
+                    finding.column
+                );
 
                 // Display entropy if available
                 if let Some(entropy) = finding.entropy {
@@ -195,7 +251,13 @@ impl CodeCommand {
 
             println!("    {{");
             println!("      \"file\": \"{}\",", Self::escape_json(&finding.file));
-            println!("      \"line\": {},", finding.line.map(|l| l.to_string()).unwrap_or_else(|| "null".to_string()));
+            println!(
+                "      \"line\": {},",
+                finding
+                    .line
+                    .map(|l| l.to_string())
+                    .unwrap_or_else(|| "null".to_string())
+            );
             println!("      \"column\": {},", finding.column);
             println!(
                 "      \"rule_id\": \"{}\",",

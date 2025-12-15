@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use super::crc32::crc32;
 use super::freelist::FreeList;
-use super::page::{Page, PageType, PageError, PAGE_SIZE, HEADER_SIZE, MAGIC_BYTES, DB_VERSION};
+use super::page::{Page, PageError, PageType, DB_VERSION, HEADER_SIZE, MAGIC_BYTES, PAGE_SIZE};
 use super::page_cache::PageCache;
 
 /// Default cache size (pages)
@@ -178,11 +178,15 @@ impl Pager {
         let exists = path.exists();
 
         if !exists && !config.create {
-            return Err(PagerError::InvalidDatabase("Database does not exist".into()));
+            return Err(PagerError::InvalidDatabase(
+                "Database does not exist".into(),
+            ));
         }
 
         if !exists && config.read_only {
-            return Err(PagerError::InvalidDatabase("Cannot create read-only database".into()));
+            return Err(PagerError::InvalidDatabase(
+                "Cannot create read-only database".into(),
+            ));
         }
 
         // Open file
@@ -364,9 +368,12 @@ impl Pager {
         data[HEADER_SIZE + 4..HEADER_SIZE + 8].copy_from_slice(&header.version.to_le_bytes());
         data[HEADER_SIZE + 8..HEADER_SIZE + 12].copy_from_slice(&header.page_size.to_le_bytes());
         data[HEADER_SIZE + 12..HEADER_SIZE + 16].copy_from_slice(&header.page_count.to_le_bytes());
-        data[HEADER_SIZE + 16..HEADER_SIZE + 20].copy_from_slice(&header.freelist_head.to_le_bytes());
-        data[HEADER_SIZE + 20..HEADER_SIZE + 24].copy_from_slice(&header.schema_version.to_le_bytes());
-        data[HEADER_SIZE + 24..HEADER_SIZE + 32].copy_from_slice(&header.checkpoint_lsn.to_le_bytes());
+        data[HEADER_SIZE + 16..HEADER_SIZE + 20]
+            .copy_from_slice(&header.freelist_head.to_le_bytes());
+        data[HEADER_SIZE + 20..HEADER_SIZE + 24]
+            .copy_from_slice(&header.schema_version.to_le_bytes());
+        data[HEADER_SIZE + 24..HEADER_SIZE + 32]
+            .copy_from_slice(&header.checkpoint_lsn.to_le_bytes());
 
         page.update_checksum();
 

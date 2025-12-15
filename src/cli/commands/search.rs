@@ -56,14 +56,16 @@ impl Command for SearchCommand {
             Flag::new("db", "Specific database file to search")
                 .with_short('d')
                 .with_arg("FILE"),
-            Flag::new("type", "Filter by data type: subdomains, ports, dns, whois, tls, hosts, http")
-                .with_short('t')
-                .with_arg("TYPE"),
+            Flag::new(
+                "type",
+                "Filter by data type: subdomains, ports, dns, whois, tls, hosts, http",
+            )
+            .with_short('t')
+            .with_arg("TYPE"),
             Flag::new("output", "Output format: human, json, yaml")
                 .with_short('o')
                 .with_default("human"),
-            Flag::new("all", "Search all databases in current directory")
-                .with_short('a'),
+            Flag::new("all", "Search all databases in current directory").with_short('a'),
         ]
     }
 
@@ -81,10 +83,7 @@ impl Command for SearchCommand {
                 "Search in specific database",
                 "rb search data query example.com --db google.com.rdb",
             ),
-            (
-                "List available databases",
-                "rb search data list",
-            ),
+            ("List available databases", "rb search data list"),
             (
                 "Show database statistics",
                 "rb search data stats google.com.rdb",
@@ -106,10 +105,7 @@ impl Command for SearchCommand {
                 crate::cli::commands::print_help(self);
                 Ok(())
             }
-            _ => Err(format!(
-                "Unknown verb '{}'. Use: query, list, stats",
-                verb
-            )),
+            _ => Err(format!("Unknown verb '{}'. Use: query, list, stats", verb)),
         }
     }
 }
@@ -140,13 +136,11 @@ impl SearchCommand {
         };
 
         if databases.is_empty() {
-            return Err(
-                "No database files found.\n\n\
+            return Err("No database files found.\n\n\
                  Run a scan with --persist first:\n  \
                  rb recon domain subdomains example.com --persist\n  \
                  rb recon domain whois example.com --persist"
-                    .to_string(),
-            );
+                .to_string());
         }
 
         let mut all_results = SearchResults::new(pattern.to_string());
@@ -159,7 +153,13 @@ impl SearchCommand {
 
             match QueryManager::open(db_path) {
                 Ok(mut qm) => {
-                    self.search_in_database(&mut qm, pattern, data_type.as_deref(), db_name, &mut all_results)?;
+                    self.search_in_database(
+                        &mut qm,
+                        pattern,
+                        data_type.as_deref(),
+                        db_name,
+                        &mut all_results,
+                    )?;
                 }
                 Err(e) => {
                     if output_format == OutputFormat::Human {
@@ -218,7 +218,11 @@ impl SearchCommand {
                     if record_str.to_lowercase().contains(&pattern_lower)
                         || record.domain.to_lowercase().contains(&pattern_lower)
                     {
-                        results.add_dns(db_name, &record.domain, &format!("{:?}", record.record_type));
+                        results.add_dns(
+                            db_name,
+                            &record.domain,
+                            &format!("{:?}", record.record_type),
+                        );
                     }
                 }
             }
@@ -244,7 +248,9 @@ impl SearchCommand {
                 for host in hosts {
                     let ip_str = host.ip.to_string();
                     let os_str = host.os_family.as_deref().unwrap_or("");
-                    if ip_str.contains(&pattern_lower) || os_str.to_lowercase().contains(&pattern_lower) {
+                    if ip_str.contains(&pattern_lower)
+                        || os_str.to_lowercase().contains(&pattern_lower)
+                    {
                         results.add_host(db_name, &ip_str, os_str);
                     }
                 }
@@ -259,22 +265,17 @@ impl SearchCommand {
                     // Build searchable string from available TLS fields
                     let version_str = scan.negotiated_version.as_deref().unwrap_or("");
                     let cipher_str = scan.negotiated_cipher.as_deref().unwrap_or("");
-                    let cert_subject = scan.certificate_chain.first()
+                    let cert_subject = scan
+                        .certificate_chain
+                        .first()
                         .map(|c| c.subject.as_str())
                         .unwrap_or("");
                     let scan_str = format!(
                         "{} {} {} {}",
-                        scan.host,
-                        version_str,
-                        cipher_str,
-                        cert_subject
+                        scan.host, version_str, cipher_str, cert_subject
                     );
                     if scan_str.to_lowercase().contains(&pattern_lower) {
-                        results.add_tls(
-                            db_name,
-                            &scan.host,
-                            cert_subject,
-                        );
+                        results.add_tls(db_name, &scan.host, cert_subject);
                     }
                 }
             }
@@ -368,7 +369,9 @@ impl SearchCommand {
         } else if let Some(db_flag) = ctx.get_flag("db") {
             db_flag
         } else {
-            return Err("Missing database path.\n\nUsage: rb search data stats <database.rdb>".to_string());
+            return Err(
+                "Missing database path.\n\nUsage: rb search data stats <database.rdb>".to_string(),
+            );
         };
 
         let path = PathBuf::from(&db_path);
@@ -392,7 +395,8 @@ impl SearchCommand {
             .unwrap_or("unknown");
         let domain = db_name.trim_end_matches(".rdb");
 
-        let mut qm = QueryManager::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut qm =
+            QueryManager::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
 
         let mut stats = DbStats::new(db_name.to_string());
 
@@ -440,7 +444,8 @@ impl SearchCommand {
 
     /// Find all .rdb files in current directory
     fn find_all_databases(&self) -> Result<Vec<PathBuf>, String> {
-        let cwd = env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
+        let cwd =
+            env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
 
         let mut databases = Vec::new();
         if let Ok(entries) = fs::read_dir(&cwd) {
@@ -708,13 +713,13 @@ impl SearchResults {
         }
 
         if !self.subdomains.is_empty() {
-            println!(
-                "\x1b[1;36mSubdomains ({})\x1b[0m",
-                self.subdomains.len()
-            );
+            println!("\x1b[1;36mSubdomains ({})\x1b[0m", self.subdomains.len());
             println!("{}", "─".repeat(50));
             for m in &self.subdomains {
-                println!("  \x1b[32m{}\x1b[0m  \x1b[2m({})\x1b[0m", m.value, m.database);
+                println!(
+                    "  \x1b[32m{}\x1b[0m  \x1b[2m({})\x1b[0m",
+                    m.value, m.database
+                );
             }
             println!();
         }
@@ -791,7 +796,11 @@ impl SearchResults {
             println!();
         }
 
-        Output::success(&format!("Found {} match(es) across {} data type(s)", total, self.count_types()));
+        Output::success(&format!(
+            "Found {} match(es) across {} data type(s)",
+            total,
+            self.count_types()
+        ));
     }
 
     fn count_types(&self) -> usize {

@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 /// Script Types and Definitions
 ///
 /// Core types for redblue's scripting engine.
@@ -12,14 +13,12 @@
 /// - `safe`: Non-intrusive, read-only scripts
 /// - `intrusive`: May cause service disruption
 /// - `exploit`: Active exploitation (requires explicit consent)
-
 use std::collections::HashMap;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 
 /// Helper for serializing Duration as seconds
 mod duration_serde {
-    use serde::{Serializer, Deserializer, Deserialize};
+    use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
 
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
@@ -544,7 +543,10 @@ mod tests {
     fn test_category_parsing() {
         assert_eq!(ScriptCategory::from_str("vuln"), Some(ScriptCategory::Vuln));
         assert_eq!(ScriptCategory::from_str("VULN"), Some(ScriptCategory::Vuln));
-        assert_eq!(ScriptCategory::from_str("exploit"), Some(ScriptCategory::Exploit));
+        assert_eq!(
+            ScriptCategory::from_str("exploit"),
+            Some(ScriptCategory::Exploit)
+        );
         assert_eq!(ScriptCategory::from_str("unknown"), None);
     }
 

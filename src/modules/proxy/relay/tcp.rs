@@ -20,8 +20,8 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::modules::proxy::FlowStats;
 use crate::debug;
+use crate::modules::proxy::FlowStats;
 
 /// Default buffer size for relay (8KB)
 const BUFFER_SIZE: usize = 8192;
@@ -147,7 +147,10 @@ pub fn relay_bidirectional(
         } else {
             idle_count += 1;
             if idle_count >= max_idle_iterations {
-                debug!("Connection idle timeout after {} seconds", IDLE_TIMEOUT.as_secs());
+                debug!(
+                    "Connection idle timeout after {} seconds",
+                    IDLE_TIMEOUT.as_secs()
+                );
                 break;
             }
         }
@@ -173,10 +176,7 @@ pub fn relay_bidirectional(
 /// # Returns
 ///
 /// Total bytes copied
-pub fn relay_one_way<R: Read, W: Write>(
-    reader: &mut R,
-    writer: &mut W,
-) -> io::Result<u64> {
+pub fn relay_one_way<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<u64> {
     let mut buf = [0u8; BUFFER_SIZE];
     let mut total: u64 = 0;
 

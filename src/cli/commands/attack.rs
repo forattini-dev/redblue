@@ -13,16 +13,13 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::playbooks::{
-    PlaybookRecommender, ReconFindings, DetectedOS, PlaybookRecommendation,
-    PlaybookExecutor, PlaybookContext,
-    get_playbook, get_apt_playbook, list_apt_groups, all_playbooks,
-    RiskLevel,
+    all_playbooks, get_apt_playbook, get_playbook, list_apt_groups, DetectedOS, PlaybookContext,
+    PlaybookExecutor, PlaybookRecommendation, PlaybookRecommender, ReconFindings, RiskLevel,
+};
+use crate::storage::records::{
+    PortScanRecord, PortStatus, Severity as StorageSeverity, VulnerabilityRecord,
 };
 use crate::storage::service::StorageService;
-use crate::storage::records::{
-    PortScanRecord, PortStatus, VulnerabilityRecord,
-    Severity as StorageSeverity,
-};
 use crate::storage::RedDb;
 use std::net::IpAddr;
 
@@ -68,13 +65,14 @@ impl Command for AttackCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("risk", "Maximum risk level (passive|low|medium|high|critical)")
-                .with_short('r')
-                .with_default("high"),
-            Flag::new("min-score", "Minimum recommendation score (0-100)")
-                .with_default("20"),
-            Flag::new("limit", "Maximum recommendations to show")
-                .with_default("10"),
+            Flag::new(
+                "risk",
+                "Maximum risk level (passive|low|medium|high|critical)",
+            )
+            .with_short('r')
+            .with_default("high"),
+            Flag::new("min-score", "Minimum recommendation score (0-100)").with_default("20"),
+            Flag::new("limit", "Maximum recommendations to show").with_default("10"),
             Flag::new("apt", "Show only APT playbooks"),
             Flag::new("dry-run", "Show what would be executed without running"),
         ]
@@ -82,8 +80,14 @@ impl Command for AttackCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Get playbook recommendations", "rb attack target plan example.com"),
-            ("Show only high-confidence matches", "rb attack target plan example.com --min-score 60"),
+            (
+                "Get playbook recommendations",
+                "rb attack target plan example.com",
+            ),
+            (
+                "Show only high-confidence matches",
+                "rb attack target plan example.com --min-score 60",
+            ),
             ("Run a playbook", "rb attack target run apt29 example.com"),
             ("List all playbooks", "rb attack target playbooks"),
             ("Show APT playbooks", "rb attack target apt"),
@@ -106,7 +110,10 @@ impl Command for AttackCommand {
                 print_help(self);
                 Ok(())
             }
-            _ => Err(format!("Unknown verb '{}'. Use: rb attack target help", verb)),
+            _ => Err(format!(
+                "Unknown verb '{}'. Use: rb attack target help",
+                verb
+            )),
         }
     }
 }
@@ -127,23 +134,24 @@ impl AttackCommand {
                 Output::spinner_start("Loading reconnaissance data...");
 
                 // Get target IP for port lookup
-                let target_ip: Option<std::net::IpAddr> = if target.parse::<std::net::IpAddr>().is_ok() {
-                    target.parse().ok()
-                } else {
-                    // Try to resolve domain
-                    let dns = crate::protocols::dns::DnsClient::new("8.8.8.8");
-                    dns.query(target, crate::protocols::dns::DnsRecordType::A)
-                        .ok()
-                        .and_then(|answers| {
-                            answers.into_iter().find_map(|ans| {
-                                if let crate::protocols::dns::DnsRdata::A(ip_str) = ans.data {
-                                    ip_str.parse::<std::net::IpAddr>().ok()
-                                } else {
-                                    None
-                                }
+                let target_ip: Option<std::net::IpAddr> =
+                    if target.parse::<std::net::IpAddr>().is_ok() {
+                        target.parse().ok()
+                    } else {
+                        // Try to resolve domain
+                        let dns = crate::protocols::dns::DnsClient::new("8.8.8.8");
+                        dns.query(target, crate::protocols::dns::DnsRecordType::A)
+                            .ok()
+                            .and_then(|answers| {
+                                answers.into_iter().find_map(|ans| {
+                                    if let crate::protocols::dns::DnsRdata::A(ip_str) = ans.data {
+                                        ip_str.parse::<std::net::IpAddr>().ok()
+                                    } else {
+                                        None
+                                    }
+                                })
                             })
-                        })
-                };
+                    };
 
                 let ports = if let Some(ip) = target_ip {
                     store.ports().get_by_ip(ip).unwrap_or_default()
@@ -158,7 +166,8 @@ impl AttackCommand {
                 let detected_os = self.detect_os_from_ports(&ports);
 
                 // Get unique technologies from vulnerability data
-                let fp_strings: Vec<String> = vulns.iter()
+                let fp_strings: Vec<String> = vulns
+                    .iter()
                     .map(|v| {
                         let ver = v.version.as_deref().unwrap_or("");
                         format!("{} {}", v.technology, ver)
@@ -197,15 +206,18 @@ impl AttackCommand {
         self.display_findings_summary(&findings);
 
         // Get recommendations
-        let max_risk = ctx.get_flag("risk")
+        let max_risk = ctx
+            .get_flag("risk")
             .map(|r| self.parse_risk_level(&r))
             .unwrap_or(RiskLevel::High);
 
-        let min_score: u8 = ctx.get_flag("min-score")
+        let min_score: u8 = ctx
+            .get_flag("min-score")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
-        let max_results: usize = ctx.get_flag("limit")
+        let max_results: usize = ctx
+            .get_flag("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
@@ -228,13 +240,15 @@ impl AttackCommand {
 
     /// Execute a playbook
     fn run_playbook(&self, ctx: &CliContext) -> Result<(), String> {
-        let playbook_id = ctx.target.as_ref().ok_or(
-            "Missing playbook ID.\nUsage: rb attack target run <playbook-id> <target>"
-        )?;
+        let playbook_id = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing playbook ID.\nUsage: rb attack target run <playbook-id> <target>")?;
 
-        let target = ctx.args.get(0).ok_or(
-            "Missing target.\nUsage: rb attack target run <playbook-id> <target>"
-        )?;
+        let target = ctx
+            .args
+            .get(0)
+            .ok_or("Missing target.\nUsage: rb attack target run <playbook-id> <target>")?;
 
         // Find playbook (standard or APT)
         let playbook = get_playbook(playbook_id)
@@ -247,9 +261,16 @@ impl AttackCommand {
             })?;
 
         let is_apt = get_apt_playbook(playbook_id).is_some();
-        let apt_badge = if is_apt { " \x1b[1;35m[APT]\x1b[0m" } else { "" };
+        let apt_badge = if is_apt {
+            " \x1b[1;35m[APT]\x1b[0m"
+        } else {
+            ""
+        };
 
-        Output::header(&format!("Executing: {}{}", playbook.metadata.name, apt_badge));
+        Output::header(&format!(
+            "Executing: {}{}",
+            playbook.metadata.name, apt_badge
+        ));
         println!();
 
         Output::item("Target", target);
@@ -271,7 +292,8 @@ impl AttackCommand {
             println!();
 
             for step in &playbook.steps {
-                println!("  {}. \x1b[1m{}\x1b[0m [{}]",
+                println!(
+                    "  {}. \x1b[1m{}\x1b[0m [{}]",
                     step.number,
                     step.name,
                     step.phase.as_str()
@@ -317,11 +339,9 @@ impl AttackCommand {
                 _ => "•",
             };
 
-            println!("  {} Step {}: {} - {}",
-                status_icon,
-                step.step_number,
-                step.step_name,
-                step.status
+            println!(
+                "  {} Step {}: {} - {}",
+                status_icon, step.step_number, step.step_name, step.status
             );
 
             for line in &step.output {
@@ -340,7 +360,10 @@ impl AttackCommand {
         Output::item("Steps completed", &result.steps_completed.to_string());
         Output::item("Steps skipped", &result.steps_skipped.to_string());
         Output::item("Steps failed", &result.steps_failed.to_string());
-        Output::item("Duration", &format!("{:.2}s", result.duration.as_secs_f64()));
+        Output::item(
+            "Duration",
+            &format!("{:.2}s", result.duration.as_secs_f64()),
+        );
 
         Ok(())
     }
@@ -360,7 +383,8 @@ impl AttackCommand {
 
         for pb in all_playbooks() {
             let risk_color = self.risk_color(&pb.metadata.risk_level);
-            println!("  \x1b[1m{:<25}\x1b[0m {}{:?}\x1b[0m  {} steps",
+            println!(
+                "  \x1b[1m{:<25}\x1b[0m {}{:?}\x1b[0m  {} steps",
                 pb.metadata.id,
                 risk_color,
                 pb.metadata.risk_level,
@@ -371,7 +395,10 @@ impl AttackCommand {
 
         // APT playbooks summary
         println!();
-        println!("\x1b[1;35m🎭 APT Adversary Emulation ({} groups)\x1b[0m", list_apt_groups().len());
+        println!(
+            "\x1b[1;35m🎭 APT Adversary Emulation ({} groups)\x1b[0m",
+            list_apt_groups().len()
+        );
         println!();
 
         for (id, name) in list_apt_groups() {
@@ -392,7 +419,10 @@ impl AttackCommand {
         if let Some(id) = group_id {
             // Show specific APT playbook
             let playbook = get_apt_playbook(id).ok_or_else(|| {
-                format!("APT group '{}' not found. Use 'rb attack target apt' to list groups.", id)
+                format!(
+                    "APT group '{}' not found. Use 'rb attack target apt' to list groups.",
+                    id
+                )
             })?;
 
             Output::header(&format!("APT Playbook: {}", playbook.metadata.name));
@@ -419,7 +449,8 @@ impl AttackCommand {
             for step in &playbook.steps {
                 let phase_color = self.phase_color(&step.phase);
                 println!();
-                println!("  \x1b[1m{}. {}\x1b[0m {}[{}]\x1b[0m",
+                println!(
+                    "  \x1b[1m{}. {}\x1b[0m {}[{}]\x1b[0m",
                     step.number,
                     step.name,
                     phase_color,
@@ -452,7 +483,6 @@ impl AttackCommand {
 
             println!();
             Output::info(&format!("Run: rb attack target run {} <target>", id));
-
         } else {
             // List all APT groups
             Output::header("APT Adversary Emulation Playbooks");
@@ -507,12 +537,15 @@ impl AttackCommand {
         Output::section("Reconnaissance Summary");
 
         // Ports
-        let open_ports: Vec<_> = findings.ports.iter()
+        let open_ports: Vec<_> = findings
+            .ports
+            .iter()
             .filter(|p| p.status == PortStatus::Open)
             .collect();
 
         if !open_ports.is_empty() {
-            let port_list: Vec<String> = open_ports.iter()
+            let port_list: Vec<String> = open_ports
+                .iter()
                 .take(10)
                 .map(|p| p.port.to_string())
                 .collect();
@@ -533,7 +566,9 @@ impl AttackCommand {
 
         // Fingerprints
         if !findings.fingerprints.is_empty() {
-            let fp_list: String = findings.fingerprints.iter()
+            let fp_list: String = findings
+                .fingerprints
+                .iter()
                 .take(5)
                 .cloned()
                 .collect::<Vec<_>>()
@@ -548,18 +583,40 @@ impl AttackCommand {
 
         // Vulnerabilities
         if !findings.vulns.is_empty() {
-            let critical = findings.vulns.iter().filter(|v| v.severity == StorageSeverity::Critical).count();
-            let high = findings.vulns.iter().filter(|v| v.severity == StorageSeverity::High).count();
-            let medium = findings.vulns.iter().filter(|v| v.severity == StorageSeverity::Medium).count();
+            let critical = findings
+                .vulns
+                .iter()
+                .filter(|v| v.severity == StorageSeverity::Critical)
+                .count();
+            let high = findings
+                .vulns
+                .iter()
+                .filter(|v| v.severity == StorageSeverity::High)
+                .count();
+            let medium = findings
+                .vulns
+                .iter()
+                .filter(|v| v.severity == StorageSeverity::Medium)
+                .count();
 
-            Output::item("Vulnerabilities", &format!(
-                "{} total (\x1b[31m{} critical\x1b[0m, \x1b[33m{} high\x1b[0m, {} medium)",
-                findings.vulns.len(), critical, high, medium
-            ));
+            Output::item(
+                "Vulnerabilities",
+                &format!(
+                    "{} total (\x1b[31m{} critical\x1b[0m, \x1b[33m{} high\x1b[0m, {} medium)",
+                    findings.vulns.len(),
+                    critical,
+                    high,
+                    medium
+                ),
+            );
 
             // Show top CVEs
             let mut sorted_vulns = findings.vulns.clone();
-            sorted_vulns.sort_by(|a, b| b.cvss.partial_cmp(&a.cvss).unwrap_or(std::cmp::Ordering::Equal));
+            sorted_vulns.sort_by(|a, b| {
+                b.cvss
+                    .partial_cmp(&a.cvss)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
 
             for vuln in sorted_vulns.iter().take(3) {
                 let sev_color = match vuln.severity {
@@ -568,7 +625,10 @@ impl AttackCommand {
                     StorageSeverity::Medium => "\x1b[33m",
                     _ => "\x1b[0m",
                 };
-                println!("    {}• {} (CVSS {:.1})\x1b[0m", sev_color, vuln.cve_id, vuln.cvss);
+                println!(
+                    "    {}• {} (CVSS {:.1})\x1b[0m",
+                    sev_color, vuln.cve_id, vuln.cvss
+                );
             }
         } else {
             Output::item("Vulnerabilities", "None found");
@@ -584,19 +644,28 @@ impl AttackCommand {
         }
     }
 
-    fn display_recommendations(&self, result: &crate::playbooks::RecommendationResult, target: &str) {
+    fn display_recommendations(
+        &self,
+        result: &crate::playbooks::RecommendationResult,
+        target: &str,
+    ) {
         println!();
         Output::section("Playbook Recommendations");
 
         // Summary
         Output::item("Total matches", &result.summary.total_matched.to_string());
         if result.summary.apt_playbooks_matched > 0 {
-            Output::item("APT playbooks", &result.summary.apt_playbooks_matched.to_string());
+            Output::item(
+                "APT playbooks",
+                &result.summary.apt_playbooks_matched.to_string(),
+            );
         }
 
         if result.summary.has_critical_findings {
             println!();
-            Output::warning("⚠️  Critical vulnerabilities detected - prioritize high-risk playbooks");
+            Output::warning(
+                "⚠️  Critical vulnerabilities detected - prioritize high-risk playbooks",
+            );
         }
 
         if result.recommendations.is_empty() {
@@ -607,9 +676,21 @@ impl AttackCommand {
         }
 
         // Group by score
-        let strong: Vec<_> = result.recommendations.iter().filter(|r| r.score >= 70).collect();
-        let moderate: Vec<_> = result.recommendations.iter().filter(|r| r.score >= 40 && r.score < 70).collect();
-        let weak: Vec<_> = result.recommendations.iter().filter(|r| r.score < 40).collect();
+        let strong: Vec<_> = result
+            .recommendations
+            .iter()
+            .filter(|r| r.score >= 70)
+            .collect();
+        let moderate: Vec<_> = result
+            .recommendations
+            .iter()
+            .filter(|r| r.score >= 40 && r.score < 70)
+            .collect();
+        let weak: Vec<_> = result
+            .recommendations
+            .iter()
+            .filter(|r| r.score < 40)
+            .collect();
 
         if !strong.is_empty() {
             println!();
@@ -643,17 +724,30 @@ impl AttackCommand {
             println!();
             Output::section("Recommended Next Step");
             println!("  Run the top playbook:");
-            println!("  \x1b[1;36mrb attack target run {} {}\x1b[0m", top.playbook_id, target);
+            println!(
+                "  \x1b[1;36mrb attack target run {} {}\x1b[0m",
+                top.playbook_id, target
+            );
         }
     }
 
     fn display_recommendation(&self, rec: &PlaybookRecommendation) {
         let risk_color = self.risk_color(&rec.risk_level);
-        let apt_badge = if rec.is_apt_playbook { " \x1b[35m[APT]\x1b[0m" } else { "" };
+        let apt_badge = if rec.is_apt_playbook {
+            " \x1b[35m[APT]\x1b[0m"
+        } else {
+            ""
+        };
 
         println!();
-        println!("  \x1b[1m{}\x1b[0m{} (Score: {}/100)", rec.playbook_name, apt_badge, rec.score);
-        println!("    ID: {}  Risk: {}{:?}\x1b[0m", rec.playbook_id, risk_color, rec.risk_level);
+        println!(
+            "  \x1b[1m{}\x1b[0m{} (Score: {}/100)",
+            rec.playbook_name, apt_badge, rec.score
+        );
+        println!(
+            "    ID: {}  Risk: {}{:?}\x1b[0m",
+            rec.playbook_id, risk_color, rec.risk_level
+        );
 
         if !rec.reasons.is_empty() {
             for reason in rec.reasons.iter().take(3) {
@@ -663,9 +757,15 @@ impl AttackCommand {
     }
 
     fn detect_os_from_ports(&self, ports: &[PortScanRecord]) -> Option<DetectedOS> {
-        let has_ssh = ports.iter().any(|p| p.port == 22 && p.status == PortStatus::Open);
-        let has_smb = ports.iter().any(|p| (p.port == 445 || p.port == 139) && p.status == PortStatus::Open);
-        let has_rdp = ports.iter().any(|p| p.port == 3389 && p.status == PortStatus::Open);
+        let has_ssh = ports
+            .iter()
+            .any(|p| p.port == 22 && p.status == PortStatus::Open);
+        let has_smb = ports
+            .iter()
+            .any(|p| (p.port == 445 || p.port == 139) && p.status == PortStatus::Open);
+        let has_rdp = ports
+            .iter()
+            .any(|p| p.port == 3389 && p.status == PortStatus::Open);
 
         if has_rdp || (has_smb && !has_ssh) {
             Some(DetectedOS::Windows)
@@ -693,19 +793,15 @@ impl AttackCommand {
     fn is_internal_target(&self, target: &str) -> bool {
         if let Ok(ip) = target.parse::<IpAddr>() {
             match ip {
-                IpAddr::V4(ipv4) => {
-                    ipv4.is_private() || ipv4.is_loopback()
-                }
-                IpAddr::V6(ipv6) => {
-                    ipv6.is_loopback()
-                }
+                IpAddr::V4(ipv4) => ipv4.is_private() || ipv4.is_loopback(),
+                IpAddr::V6(ipv6) => ipv6.is_loopback(),
             }
         } else {
             // Check for common internal domain patterns
-            target.ends_with(".local") ||
-            target.ends_with(".internal") ||
-            target.ends_with(".corp") ||
-            target.ends_with(".lan")
+            target.ends_with(".local")
+                || target.ends_with(".internal")
+                || target.ends_with(".corp")
+                || target.ends_with(".lan")
         }
     }
 

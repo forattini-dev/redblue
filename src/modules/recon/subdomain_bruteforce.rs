@@ -1,9 +1,9 @@
+use crate::cli::output::ProgressBar;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
-use std::collections::HashSet;
-use crate::cli::output::ProgressBar; // Import ProgressBar
+use std::time::{Duration, Instant}; // Import ProgressBar
 
 #[derive(Debug, Clone)]
 pub struct BruteforceResult {
@@ -34,12 +34,20 @@ pub struct SubdomainBruteforcer {
 impl SubdomainBruteforcer {
     pub fn new(domain: &str, wordlist: Vec<String>) -> Self {
         let default_resolvers = vec![
-            "8.8.8.8:53", "1.1.1.1:53", "9.9.9.9:53",
-            "208.67.222.222:53", "8.8.4.4:53"
+            "8.8.8.8:53",
+            "1.1.1.1:53",
+            "9.9.9.9:53",
+            "208.67.222.222:53",
+            "8.8.4.4:53",
         ];
-        
-        let states = default_resolvers.iter()
-            .map(|r| ResolverState { addr: r.to_string(), failures: 0, active: true })
+
+        let states = default_resolvers
+            .iter()
+            .map(|r| ResolverState {
+                addr: r.to_string(),
+                failures: 0,
+                active: true,
+            })
             .collect();
 
         Self {
@@ -54,8 +62,13 @@ impl SubdomainBruteforcer {
     }
 
     pub fn with_resolvers(mut self, resolvers: Vec<String>) -> Self {
-        let states = resolvers.iter()
-            .map(|r| ResolverState { addr: r.to_string(), failures: 0, active: true })
+        let states = resolvers
+            .iter()
+            .map(|r| ResolverState {
+                addr: r.to_string(),
+                failures: 0,
+                active: true,
+            })
             .collect();
         self.resolvers = Arc::new(Mutex::new(states));
         self
@@ -82,12 +95,17 @@ impl SubdomainBruteforcer {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos() as u64;
-        let rand_prefix: String = (0..10).enumerate().map(|(i, _)| {
-            let x = seed.wrapping_mul(6364136223846793005u64).wrapping_add(i as u64 * 1442695040888963407u64);
-            ((x >> 32) as u8 % 26 + b'a') as char
-        }).collect();
+        let rand_prefix: String = (0..10)
+            .enumerate()
+            .map(|(i, _)| {
+                let x = seed
+                    .wrapping_mul(6364136223846793005u64)
+                    .wrapping_add(i as u64 * 1442695040888963407u64);
+                ((x >> 32) as u8 % 26 + b'a') as char
+            })
+            .collect();
         let probe_domain = format!("{}.{}", rand_prefix, self.domain);
-        
+
         // Try to resolve a random subdomain
         let resolvers = self.resolvers.lock().unwrap();
         if let Some(resolver) = resolvers.first() {
@@ -100,7 +118,7 @@ impl SubdomainBruteforcer {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -108,8 +126,10 @@ impl SubdomainBruteforcer {
     fn get_resolver(&self, index: usize) -> Option<String> {
         let mut resolvers = self.resolvers.lock().unwrap();
         let count = resolvers.len();
-        if count == 0 { return None; }
-        
+        if count == 0 {
+            return None;
+        }
+
         // Simple attempt to find an active one starting from index
         for i in 0..count {
             let idx = (index + i) % count;
@@ -137,7 +157,7 @@ impl SubdomainBruteforcer {
         let wordlist = self.wordlist.clone();
         let chunk_size = (wordlist.len() + self.threads - 1) / self.threads;
         let chunks: Vec<Vec<String>> = wordlist.chunks(chunk_size).map(|c| c.to_vec()).collect();
-        
+
         let wildcard_ips = self.wildcard_ips.clone();
         let domain = self.domain.clone();
         let retries = self.retries;
@@ -183,17 +203,17 @@ impl SubdomainBruteforcer {
                 for (i, prefix) in chunk.iter().enumerate() {
                     let subdomain = format!("{}.{}", prefix, domain);
                     let mut attempts = 0;
-                    
+
                     while attempts <= retries {
                         if let Some(resolver) = get_res(thread_idx + i + attempts) {
                             let client = DnsClient::new(&resolver);
                             let start = Instant::now();
-                            
+
                             match client.query(&subdomain, DnsRecordType::A) {
                                 Ok(answers) => {
                                     let mut ips = Vec::new();
                                     let mut cnames = Vec::new();
-                                    
+
                                     for ans in answers {
                                         if let Some(ip) = ans.as_ip() {
                                             if !wildcard_ips.contains(&ip) {
@@ -201,7 +221,7 @@ impl SubdomainBruteforcer {
                                             }
                                         }
                                     }
-                                    
+
                                     if !ips.is_empty() {
                                         let result = BruteforceResult {
                                             subdomain: subdomain.clone(),
@@ -210,7 +230,7 @@ impl SubdomainBruteforcer {
                                             resolved_by: resolver.clone(),
                                             latency: start.elapsed(),
                                         };
-                                        
+
                                         if let Ok(mut res) = results.lock() {
                                             res.push(result);
                                         }

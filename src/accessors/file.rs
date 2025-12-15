@@ -1,10 +1,10 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use std::collections::HashMap;
-use serde_json::{json, Value};
-use std::fs;
-use std::path::Path;
-use std::io::Read;
 use crate::crypto::{md5, sha1, sha256};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::fs;
+use std::io::Read;
+use std::path::Path;
 
 pub struct FileAccessor;
 
@@ -30,11 +30,16 @@ impl FileAccessor {
                     if let Ok(entry) = entry {
                         let path = entry.path();
                         let metadata = entry.metadata().ok();
-                        
-                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+                        let name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         let is_dir = path.is_dir();
                         let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
-                        let modified = metadata.as_ref()
+                        let modified = metadata
+                            .as_ref()
                             .and_then(|m| m.modified().ok())
                             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                             .map(|d| d.as_secs())
@@ -50,15 +55,15 @@ impl FileAccessor {
                     }
                 }
                 AccessorResult::success(Value::Array(files))
-            },
-            Err(e) => AccessorResult::error(&format!("Failed to list directory: {}", e))
+            }
+            Err(e) => AccessorResult::error(&format!("Failed to list directory: {}", e)),
         }
     }
 
     fn read(&self, path_str: &str) -> AccessorResult {
         match fs::read_to_string(path_str) {
             Ok(content) => AccessorResult::success(Value::String(content)),
-            Err(e) => AccessorResult::error(&format!("Failed to read file: {}", e))
+            Err(e) => AccessorResult::error(&format!("Failed to read file: {}", e)),
         }
     }
 
@@ -76,17 +81,31 @@ impl FileAccessor {
         let hash = match algorithm.to_lowercase().as_str() {
             "md5" => {
                 let digest = md5::md5(&buffer);
-                digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-            },
+                digest
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            }
             "sha1" => {
                 let digest = sha1::sha1(&buffer);
-                digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-            },
+                digest
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            }
             "sha256" => {
                 let digest = sha256::sha256(&buffer);
-                digest.iter().map(|b| format!("{:02x}", b)).collect::<String>()
-            },
-            _ => return AccessorResult::error(&format!("Unknown hash algorithm: {}. Supported: md5, sha1, sha256", algorithm)),
+                digest
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+            }
+            _ => {
+                return AccessorResult::error(&format!(
+                    "Unknown hash algorithm: {}. Supported: md5, sha1, sha256",
+                    algorithm
+                ))
+            }
         };
 
         AccessorResult::success(json!({
@@ -104,7 +123,7 @@ impl FileAccessor {
 
         let mut matches = Vec::new();
         self.recursive_search(path, pattern, &mut matches);
-        
+
         AccessorResult::success(Value::Array(matches))
     }
 
@@ -140,10 +159,10 @@ impl Accessor for FileAccessor {
             name: "File Accessor".to_string(),
             description: "Interact with the file system (list, read, hash, search)".to_string(),
             methods: vec![
-                "list (path)".to_string(), 
-                "read (path)".to_string(), 
+                "list (path)".to_string(),
+                "read (path)".to_string(),
                 "hash (path, algorithm)".to_string(),
-                "search (path, pattern)".to_string()
+                "search (path, pattern)".to_string(),
             ],
         }
     }
@@ -151,36 +170,48 @@ impl Accessor for FileAccessor {
     fn execute(&self, method: &str, args: &HashMap<String, String>) -> AccessorResult {
         match method {
             "list" => {
-                let path = args.get("path").or(args.get("arg0")).map(|s| s.as_str()).unwrap_or(".");
+                let path = args
+                    .get("path")
+                    .or(args.get("arg0"))
+                    .map(|s| s.as_str())
+                    .unwrap_or(".");
                 self.list(path)
-            },
+            }
             "read" => {
                 if let Some(path) = args.get("path").or(args.get("arg0")) {
                     self.read(path)
                 } else {
                     AccessorResult::error("Missing 'path' argument")
                 }
-            },
+            }
             "hash" => {
                 let path = args.get("path").or(args.get("arg0"));
-                let algo = args.get("algorithm").or(args.get("arg1")).map(|s| s.as_str()).unwrap_or("sha256");
-                
+                let algo = args
+                    .get("algorithm")
+                    .or(args.get("arg1"))
+                    .map(|s| s.as_str())
+                    .unwrap_or("sha256");
+
                 if let Some(p) = path {
                     self.hash(p, algo)
                 } else {
                     AccessorResult::error("Missing 'path' argument")
                 }
-            },
+            }
             "search" => {
-                let path = args.get("path").or(args.get("arg0")).map(|s| s.as_str()).unwrap_or(".");
+                let path = args
+                    .get("path")
+                    .or(args.get("arg0"))
+                    .map(|s| s.as_str())
+                    .unwrap_or(".");
                 let pattern = args.get("pattern").or(args.get("arg1"));
-                
+
                 if let Some(pat) = pattern {
                     self.search(path, pat)
                 } else {
                     AccessorResult::error("Missing 'pattern' argument")
                 }
-            },
+            }
             _ => AccessorResult::error(&format!("Unknown method: {}", method)),
         }
     }

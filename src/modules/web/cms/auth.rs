@@ -1,12 +1,11 @@
 /// Authentication Testing Module
 ///
 /// Tests CMS authentication mechanisms for weaknesses
-
-use super::{CmsType, CmsScanConfig, Finding, FindingType, VulnSeverity, HttpResponse};
-use std::net::TcpStream;
+use super::{CmsScanConfig, CmsType, Finding, FindingType, HttpResponse, VulnSeverity};
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+use std::net::TcpStream;
 use std::thread;
+use std::time::{Duration, Instant};
 
 /// Authentication tester
 pub struct AuthTester {
@@ -85,7 +84,8 @@ impl AuthTester {
             result.findings.push(Finding {
                 finding_type: FindingType::WeakPasswordPolicy,
                 title: "No Rate Limiting Detected".to_string(),
-                description: "Login endpoint does not appear to rate limit failed attempts".to_string(),
+                description: "Login endpoint does not appear to rate limit failed attempts"
+                    .to_string(),
                 url: Some(login_url.clone()),
                 evidence: None,
                 severity: VulnSeverity::Medium,
@@ -123,11 +123,12 @@ impl AuthTester {
                     ),
                     url: Some(login_url.clone()),
                     evidence: Some(
-                        result.default_creds_found
+                        result
+                            .default_creds_found
                             .iter()
                             .map(|(u, _)| u.clone())
                             .collect::<Vec<_>>()
-                            .join(", ")
+                            .join(", "),
                     ),
                     severity: VulnSeverity::Critical,
                     confidence: 100,
@@ -141,33 +142,13 @@ impl AuthTester {
     /// Find login endpoint based on CMS type
     fn find_login_endpoint(&self) -> Option<String> {
         let endpoints = match self.cms_type {
-            CmsType::WordPress => vec![
-                "/wp-login.php",
-                "/wp-admin/",
-            ],
-            CmsType::Drupal => vec![
-                "/user/login",
-                "/user",
-            ],
-            CmsType::Joomla => vec![
-                "/administrator/",
-                "/administrator/index.php",
-            ],
-            CmsType::Magento => vec![
-                "/admin/",
-                "/admin/index/index/",
-            ],
-            CmsType::TYPO3 => vec![
-                "/typo3/",
-            ],
-            CmsType::Ghost => vec![
-                "/ghost/",
-            ],
-            _ => vec![
-                "/admin/",
-                "/login/",
-                "/admin/login/",
-            ],
+            CmsType::WordPress => vec!["/wp-login.php", "/wp-admin/"],
+            CmsType::Drupal => vec!["/user/login", "/user"],
+            CmsType::Joomla => vec!["/administrator/", "/administrator/index.php"],
+            CmsType::Magento => vec!["/admin/", "/admin/index/index/"],
+            CmsType::TYPO3 => vec!["/typo3/"],
+            CmsType::Ghost => vec!["/ghost/"],
+            _ => vec!["/admin/", "/login/", "/admin/login/"],
         };
 
         for endpoint in endpoints {
@@ -206,7 +187,8 @@ impl AuthTester {
     /// Test for username enumeration
     fn test_username_enumeration(&self, login_url: &str) -> bool {
         // Test with known-bad username
-        let bad_response = self.attempt_login(login_url, "definitely_not_a_user_12345", "wrongpass");
+        let bad_response =
+            self.attempt_login(login_url, "definitely_not_a_user_12345", "wrongpass");
 
         // Test with likely username
         let likely_response = self.attempt_login(login_url, "admin", "wrongpass");
@@ -226,7 +208,8 @@ impl AuthTester {
             let bad_lower = bad.body.to_lowercase();
             let likely_lower = likely.body.to_lowercase();
 
-            if bad_lower.contains("invalid username") && !likely_lower.contains("invalid username") {
+            if bad_lower.contains("invalid username") && !likely_lower.contains("invalid username")
+            {
                 return true;
             }
 
@@ -430,7 +413,12 @@ impl AuthTester {
     }
 
     /// Attempt login and return response
-    fn attempt_login(&self, login_url: &str, username: &str, password: &str) -> Option<HttpResponse> {
+    fn attempt_login(
+        &self,
+        login_url: &str,
+        username: &str,
+        password: &str,
+    ) -> Option<HttpResponse> {
         let body = self.build_login_body(username, password);
         self.post(login_url, &body)
     }
@@ -552,7 +540,11 @@ fn post_url(url: &str, body: &str, user_agent: &str, timeout: Duration) -> Optio
          Connection: close\r\n\
          \r\n\
          {}",
-        path, host, user_agent, body.len(), body
+        path,
+        host,
+        user_agent,
+        body.len(),
+        body
     );
 
     let addr = format!("{}:{}", host, port);
@@ -617,14 +609,24 @@ fn parse_response(data: &[u8], url: &str) -> Option<HttpResponse> {
             break;
         }
         if let Some(pos) = line.find(':') {
-            headers.push((line[..pos].trim().to_string(), line[pos + 1..].trim().to_string()));
+            headers.push((
+                line[..pos].trim().to_string(),
+                line[pos + 1..].trim().to_string(),
+            ));
         }
     }
 
-    let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+    let body_start = text
+        .find("\r\n\r\n")
+        .map(|p| p + 4)
         .or_else(|| text.find("\n\n").map(|p| p + 2))
         .unwrap_or(text.len());
     let body = text[body_start..].to_string();
 
-    Some(HttpResponse { status_code, headers, body, url: url.to_string() })
+    Some(HttpResponse {
+        status_code,
+        headers,
+        body,
+        url: url.to_string(),
+    })
 }

@@ -9,8 +9,10 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::intel::attack_database::{self, AttackTechnique, ThreatGroup, Tactic, Software};
-use crate::modules::intel::{TechniqueMapper, Findings, Confidence, NavigatorLayer};
+use crate::modules::intel::attack_database::{
+    self, AttackTechnique, Software, Tactic, ThreatGroup,
+};
+use crate::modules::intel::{Confidence, Findings, NavigatorLayer, TechniqueMapper};
 
 pub struct IntelMitreCommand;
 
@@ -82,7 +84,8 @@ impl Command for IntelMitreCommand {
             Route {
                 verb: "map",
                 summary: "Map findings (ports, CVEs, fingerprints) to ATT&CK techniques",
-                usage: "rb intel mitre map [ports=22,80,443] [cves=CVE-2021-44228] [tech=wordpress]",
+                usage:
+                    "rb intel mitre map [ports=22,80,443] [cves=CVE-2021-44228] [tech=wordpress]",
             },
             Route {
                 verb: "ports",
@@ -103,14 +106,15 @@ impl Command for IntelMitreCommand {
                 .with_short('m')
                 .with_default("enterprise"),
             Flag::new("full", "Show full details including description"),
-            Flag::new("limit", "Maximum results to show")
-                .with_default("20"),
+            Flag::new("limit", "Maximum results to show").with_default("20"),
             Flag::new("json", "Output in JSON format"),
-            Flag::new("ports", "Comma-separated list of ports to map")
-                .with_short('p'),
+            Flag::new("ports", "Comma-separated list of ports to map").with_short('p'),
             Flag::new("cves", "Comma-separated list of CVE IDs to map"),
-            Flag::new("tech", "Comma-separated list of technologies/fingerprints to map")
-                .with_short('t'),
+            Flag::new(
+                "tech",
+                "Comma-separated list of technologies/fingerprints to map",
+            )
+            .with_short('t'),
             Flag::new("banner", "Service banner to analyze"),
         ]
     }
@@ -170,14 +174,19 @@ impl Command for IntelMitreCommand {
 impl IntelMitreCommand {
     /// Get technique details
     fn get_technique(&self, ctx: &CliContext) -> Result<(), String> {
-        let tech_id = ctx.target.as_ref().ok_or("Missing technique ID (e.g., T1059)")?;
+        let tech_id = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing technique ID (e.g., T1059)")?;
 
         Output::header(&format!("MITRE ATT&CK Technique: {}", tech_id));
         println!();
 
         Output::spinner_start("Fetching ATT&CK data...");
         let db = attack_database::db();
-        let tech = db.get_technique(tech_id).or_else(|| db.get_technique_by_name(tech_id));
+        let tech = db
+            .get_technique(tech_id)
+            .or_else(|| db.get_technique_by_name(tech_id));
         Output::spinner_done();
 
         match tech {
@@ -199,14 +208,19 @@ impl IntelMitreCommand {
 
     /// Get threat group details
     fn get_group(&self, ctx: &CliContext) -> Result<(), String> {
-        let group_id = ctx.target.as_ref().ok_or("Missing group ID or name (e.g., G0016 or APT29)")?;
+        let group_id = ctx
+            .target
+            .as_ref()
+            .ok_or("Missing group ID or name (e.g., G0016 or APT29)")?;
 
         Output::header(&format!("MITRE ATT&CK Threat Group: {}", group_id));
         println!();
 
         Output::spinner_start("Fetching ATT&CK data...");
         let db = attack_database::db();
-        let group = db.get_group(group_id).or_else(|| db.get_group_by_name(group_id));
+        let group = db
+            .get_group(group_id)
+            .or_else(|| db.get_group_by_name(group_id));
         Output::spinner_done();
 
         match group {
@@ -229,7 +243,8 @@ impl IntelMitreCommand {
     /// Search ATT&CK
     fn search(&self, ctx: &CliContext) -> Result<(), String> {
         let query = ctx.target.as_ref().ok_or("Missing search query")?;
-        let limit: usize = ctx.get_flag_with_config("limit")
+        let limit: usize = ctx
+            .get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
@@ -247,7 +262,10 @@ impl IntelMitreCommand {
             return Ok(());
         }
 
-        Output::success(&format!("Found {} results", techniques.len() + groups.len()));
+        Output::success(&format!(
+            "Found {} results",
+            techniques.len() + groups.len()
+        ));
         println!();
 
         if !techniques.is_empty() {
@@ -322,22 +340,25 @@ impl IntelMitreCommand {
                 continue;
             }
             for tactic in &tech.tactics {
-                tactic_counts.entry(tactic.as_str())
-                    .or_default()
-                    .push(tech);
+                tactic_counts.entry(tactic.as_str()).or_default().push(tech);
             }
         }
 
         let show_full = ctx.has_flag("full");
-        let limit: usize = ctx.get_flag_with_config("limit")
+        let limit: usize = ctx
+            .get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(5);
 
         // Show statistics summary first
-        let total_techniques = db.techniques.values()
+        let total_techniques = db
+            .techniques
+            .values()
             .filter(|t| !t.deprecated && !t.revoked)
             .count();
-        let parent_techniques = db.techniques.values()
+        let parent_techniques = db
+            .techniques
+            .values()
             .filter(|t| !t.deprecated && !t.revoked && !t.is_subtechnique)
             .count();
         let subtechniques = total_techniques - parent_techniques;
@@ -353,22 +374,20 @@ impl IntelMitreCommand {
         Output::section("Tactics Coverage (techniques per tactic)");
         println!();
 
-        let max_count = tactic_counts.values()
-            .map(|v| v.len())
-            .max()
-            .unwrap_or(1);
+        let max_count = tactic_counts.values().map(|v| v.len()).max().unwrap_or(1);
 
         // Column width for the bar chart
         let bar_width = 40;
 
         for (tactic_key, tactic_id, display_name) in &tactics_order {
-            let techs = tactic_counts.get(*tactic_key).map(|v| v.as_slice()).unwrap_or(&[]);
+            let techs = tactic_counts
+                .get(*tactic_key)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
             let count = techs.len();
 
             // Count only parent techniques for display
-            let parent_count = techs.iter()
-                .filter(|t| !t.is_subtechnique)
-                .count();
+            let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
 
             // Calculate bar length proportional to count
             let bar_len = if max_count > 0 {
@@ -389,14 +408,10 @@ impl IntelMitreCommand {
                 "\x1b[32m" // Green
             };
 
-            println!("  {:<14} {:<7} {}{}{}  {:>3} ({} parent)",
-                display_name,
-                tactic_id,
-                color,
-                bar,
-                "\x1b[0m",
-                count,
-                parent_count);
+            println!(
+                "  {:<14} {:<7} {}{}{}  {:>3} ({} parent)",
+                display_name, tactic_id, color, bar, "\x1b[0m", count, parent_count
+            );
         }
 
         println!();
@@ -418,18 +433,25 @@ impl IntelMitreCommand {
 
                 // Sort: parent techniques first, then subtechniques
                 let mut sorted_techs: Vec<_> = techs.iter().collect();
-                sorted_techs.sort_by(|a, b| {
-                    match (a.is_subtechnique, b.is_subtechnique) {
-                        (false, true) => std::cmp::Ordering::Less,
-                        (true, false) => std::cmp::Ordering::Greater,
-                        _ => a.technique_id.cmp(&b.technique_id),
-                    }
+                sorted_techs.sort_by(|a, b| match (a.is_subtechnique, b.is_subtechnique) {
+                    (false, true) => std::cmp::Ordering::Less,
+                    (true, false) => std::cmp::Ordering::Greater,
+                    _ => a.technique_id.cmp(&b.technique_id),
                 });
 
-                println!("  \x1b[1m{} ({})\x1b[0m - {} techniques", display_name, tactic_id, techs.len());
+                println!(
+                    "  \x1b[1m{} ({})\x1b[0m - {} techniques",
+                    display_name,
+                    tactic_id,
+                    techs.len()
+                );
 
                 for tech in sorted_techs.iter().take(limit) {
-                    let prefix = if tech.is_subtechnique { "  └" } else { "  ├" };
+                    let prefix = if tech.is_subtechnique {
+                        "  └"
+                    } else {
+                        "  ├"
+                    };
                     println!("    {} {} - {}", prefix, tech.technique_id, tech.name);
                 }
 
@@ -497,8 +519,11 @@ impl IntelMitreCommand {
         }
 
         // Check if any findings were provided
-        if findings.ports.is_empty() && findings.cves.is_empty()
-            && findings.fingerprints.is_empty() && findings.banners.is_empty() {
+        if findings.ports.is_empty()
+            && findings.cves.is_empty()
+            && findings.fingerprints.is_empty()
+            && findings.banners.is_empty()
+        {
             Output::warning("No findings provided. Use flags to specify what to analyze:");
             println!();
             Output::info("  ports=22,80,443        Map open ports");
@@ -513,16 +538,26 @@ impl IntelMitreCommand {
         // Show what we're analyzing
         Output::section("Input Findings");
         if !findings.ports.is_empty() {
-            Output::item("Ports", &findings.ports.iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "Ports",
+                &findings
+                    .ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.cves.is_empty() {
-            Output::item("CVEs", &findings.cves.iter()
-                .map(|(id, _)| id.as_str())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "CVEs",
+                &findings
+                    .cves
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.fingerprints.is_empty() {
             Output::item("Technologies", &findings.fingerprints.join(", "));
@@ -566,8 +601,17 @@ impl IntelMitreCommand {
         let coverage_pct = (covered_tactics as f64 / total_tactics as f64) * 100.0;
 
         Output::section("Coverage Summary");
-        Output::item("Techniques Mapped", &result.unique_technique_ids().len().to_string());
-        Output::item("Tactics Covered", &format!("{}/{} ({:.0}%)", covered_tactics, total_tactics, coverage_pct));
+        Output::item(
+            "Techniques Mapped",
+            &result.unique_technique_ids().len().to_string(),
+        );
+        Output::item(
+            "Tactics Covered",
+            &format!(
+                "{}/{} ({:.0}%)",
+                covered_tactics, total_tactics, coverage_pct
+            ),
+        );
         println!();
 
         // Display tactic coverage bar chart
@@ -577,7 +621,9 @@ impl IntelMitreCommand {
         let bar_width = 30;
 
         for (tactic_name, tactic_id) in &tactics_order {
-            let tech_count = result.by_tactic.get(*tactic_name)
+            let tech_count = result
+                .by_tactic
+                .get(*tactic_name)
                 .map(|v| v.len())
                 .unwrap_or(0);
 
@@ -605,12 +651,10 @@ impl IntelMitreCommand {
                 "Not covered".to_string()
             };
 
-            println!("  {:<22} {:<7} {}{}  {}\x1b[0m",
-                tactic_name,
-                tactic_id,
-                color,
-                bar,
-                status);
+            println!(
+                "  {:<22} {:<7} {}{}  {}\x1b[0m",
+                tactic_name, tactic_id, color, bar, status
+            );
         }
 
         println!();
@@ -628,11 +672,10 @@ impl IntelMitreCommand {
                         Confidence::Medium => "\x1b[33m●\x1b[0m",
                         Confidence::Low => "\x1b[90m●\x1b[0m",
                     };
-                    println!("    {} {} - {} (from {})",
-                        conf_badge,
-                        tech.technique_id,
-                        tech.name,
-                        tech.original_value);
+                    println!(
+                        "    {} {} - {} (from {})",
+                        conf_badge, tech.technique_id, tech.name, tech.original_value
+                    );
                 }
                 println!();
             }
@@ -648,7 +691,8 @@ impl IntelMitreCommand {
             Output::info("Low tactic coverage. Limited attack surface mapped.");
         }
 
-        let uncovered: Vec<_> = tactics_order.iter()
+        let uncovered: Vec<_> = tactics_order
+            .iter()
             .filter(|(name, _)| !result.by_tactic.contains_key(*name))
             .map(|(name, _)| *name)
             .collect();
@@ -676,7 +720,9 @@ impl IntelMitreCommand {
 
         Output::spinner_start("Fetching technique data...");
         let db = attack_database::db();
-        let tech = db.get_technique(tech_id).or_else(|| db.get_technique_by_name(tech_id));
+        let tech = db
+            .get_technique(tech_id)
+            .or_else(|| db.get_technique_by_name(tech_id));
         Output::spinner_done();
 
         // Clone technique ID before borrowing again
@@ -843,12 +889,18 @@ impl IntelMitreCommand {
 
         if !group.associated_techniques.is_empty() {
             println!();
-            Output::section(&format!("Techniques ({})", group.associated_techniques.len()));
+            Output::section(&format!(
+                "Techniques ({})",
+                group.associated_techniques.len()
+            ));
             for tech in group.associated_techniques.iter().take(15) {
                 println!("  • {}", tech);
             }
             if group.associated_techniques.len() > 15 {
-                Output::info(&format!("  ... and {} more", group.associated_techniques.len() - 15));
+                Output::info(&format!(
+                    "  ... and {} more",
+                    group.associated_techniques.len() - 15
+                ));
             }
         }
     }
@@ -922,8 +974,11 @@ impl IntelMitreCommand {
         }
 
         // Check if any findings were provided
-        if findings.ports.is_empty() && findings.cves.is_empty()
-            && findings.fingerprints.is_empty() && findings.banners.is_empty() {
+        if findings.ports.is_empty()
+            && findings.cves.is_empty()
+            && findings.fingerprints.is_empty()
+            && findings.banners.is_empty()
+        {
             Output::warning("No findings provided. Use flags to specify what to map:");
             println!();
             Output::info("  ports=22,80,443        Map open ports");
@@ -938,16 +993,26 @@ impl IntelMitreCommand {
         // Show what we're mapping
         Output::section("Input Findings");
         if !findings.ports.is_empty() {
-            Output::item("Ports", &findings.ports.iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "Ports",
+                &findings
+                    .ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.cves.is_empty() {
-            Output::item("CVEs", &findings.cves.iter()
-                .map(|(id, _)| id.as_str())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "CVEs",
+                &findings
+                    .cves
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.fingerprints.is_empty() {
             Output::item("Technologies", &findings.fingerprints.join(", "));
@@ -968,7 +1033,8 @@ impl IntelMitreCommand {
         }
 
         // Show results
-        Output::success(&format!("Mapped {} techniques across {} tactics",
+        Output::success(&format!(
+            "Mapped {} techniques across {} tactics",
             result.unique_technique_ids().len(),
             result.by_tactic.len()
         ));
@@ -980,7 +1046,10 @@ impl IntelMitreCommand {
                 continue;
             }
 
-            Output::section(&format!("{} ({} techniques, {:.0}%)", tactic, count, percentage));
+            Output::section(&format!(
+                "{} ({} techniques, {:.0}%)",
+                tactic, count, percentage
+            ));
 
             if let Some(techs) = result.by_tactic.get(tactic) {
                 for tech in techs {
@@ -1010,7 +1079,8 @@ impl IntelMitreCommand {
 
         // Check if a specific port was requested
         if let Some(port_str) = ctx.target.as_ref() {
-            let port: u16 = port_str.parse()
+            let port: u16 = port_str
+                .parse()
                 .map_err(|_| format!("Invalid port number: {}", port_str))?;
 
             Output::header(&format!("ATT&CK Mapping for Port {}", port));
@@ -1056,9 +1126,11 @@ impl IntelMitreCommand {
         for port in &ports {
             let techs = mapper.map_port(*port);
             for tech in techs {
-                by_tactic.entry(tech.tactic.clone())
-                    .or_default()
-                    .push((*port, tech.technique_id, tech.name));
+                by_tactic.entry(tech.tactic.clone()).or_default().push((
+                    *port,
+                    tech.technique_id,
+                    tech.name,
+                ));
             }
         }
 
@@ -1120,44 +1192,45 @@ impl IntelMitreCommand {
         let mut layer_name = String::from("redblue Findings");
 
         // Helper to parse a key=value pair
-        let parse_kv = |arg: &str, findings: &mut Findings, output: &mut Option<String>, name: &mut String| {
-            if let Some(eq_pos) = arg.find('=') {
-                let (key, value) = arg.split_at(eq_pos);
-                let value = &value[1..]; // Skip the '='
+        let parse_kv =
+            |arg: &str, findings: &mut Findings, output: &mut Option<String>, name: &mut String| {
+                if let Some(eq_pos) = arg.find('=') {
+                    let (key, value) = arg.split_at(eq_pos);
+                    let value = &value[1..]; // Skip the '='
 
-                match key {
-                    "output" | "o" | "file" => {
-                        *output = Some(value.to_string());
-                    }
-                    "name" | "layer" => {
-                        *name = value.to_string();
-                    }
-                    "ports" | "p" => {
-                        for part in value.split(',') {
-                            if let Ok(port) = part.trim().parse::<u16>() {
-                                findings.ports.push(port);
+                    match key {
+                        "output" | "o" | "file" => {
+                            *output = Some(value.to_string());
+                        }
+                        "name" | "layer" => {
+                            *name = value.to_string();
+                        }
+                        "ports" | "p" => {
+                            for part in value.split(',') {
+                                if let Ok(port) = part.trim().parse::<u16>() {
+                                    findings.ports.push(port);
+                                }
                             }
                         }
-                    }
-                    "cves" | "cve" => {
-                        for cve in value.split(',') {
-                            let cve = cve.trim().to_string();
-                            let desc = format!("{} vulnerability", cve);
-                            findings.cves.push((cve, desc));
+                        "cves" | "cve" => {
+                            for cve in value.split(',') {
+                                let cve = cve.trim().to_string();
+                                let desc = format!("{} vulnerability", cve);
+                                findings.cves.push((cve, desc));
+                            }
                         }
-                    }
-                    "tech" | "t" | "fingerprint" | "fp" => {
-                        for tech in value.split(',') {
-                            findings.fingerprints.push(tech.trim().to_string());
+                        "tech" | "t" | "fingerprint" | "fp" => {
+                            for tech in value.split(',') {
+                                findings.fingerprints.push(tech.trim().to_string());
+                            }
                         }
+                        "banner" | "b" => {
+                            findings.banners.push(value.to_string());
+                        }
+                        _ => {} // Ignore unknown keys
                     }
-                    "banner" | "b" => {
-                        findings.banners.push(value.to_string());
-                    }
-                    _ => {} // Ignore unknown keys
                 }
-            }
-        };
+            };
 
         // Parse key=value pairs from target (first positional after verb)
         if let Some(ref target) = ctx.target {
@@ -1170,8 +1243,11 @@ impl IntelMitreCommand {
         }
 
         // Check if any findings were provided
-        if findings.ports.is_empty() && findings.cves.is_empty()
-            && findings.fingerprints.is_empty() && findings.banners.is_empty() {
+        if findings.ports.is_empty()
+            && findings.cves.is_empty()
+            && findings.fingerprints.is_empty()
+            && findings.banners.is_empty()
+        {
             Output::warning("No findings provided. Use flags to specify what to export:");
             println!();
             Output::info("  output=file.json       Output file path (required)");
@@ -1191,16 +1267,26 @@ impl IntelMitreCommand {
         // Show what we're mapping
         Output::section("Input Findings");
         if !findings.ports.is_empty() {
-            Output::item("Ports", &findings.ports.iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "Ports",
+                &findings
+                    .ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.cves.is_empty() {
-            Output::item("CVEs", &findings.cves.iter()
-                .map(|(id, _)| id.as_str())
-                .collect::<Vec<_>>()
-                .join(", "));
+            Output::item(
+                "CVEs",
+                &findings
+                    .cves
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
         if !findings.fingerprints.is_empty() {
             Output::item("Technologies", &findings.fingerprints.join(", "));
@@ -1220,7 +1306,8 @@ impl IntelMitreCommand {
             return Ok(());
         }
 
-        Output::success(&format!("Mapped {} techniques across {} tactics",
+        Output::success(&format!(
+            "Mapped {} techniques across {} tactics",
             result.unique_technique_ids().len(),
             result.by_tactic.len()
         ));

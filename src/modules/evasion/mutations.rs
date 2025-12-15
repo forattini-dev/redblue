@@ -54,7 +54,7 @@ macro_rules! obfuscated {
     ($s:expr) => {{
         // At runtime, deobfuscate using the build key
         $crate::modules::evasion::mutations::deobfuscate_string(
-            &$crate::modules::evasion::mutations::obfuscate_bytes($s.as_bytes())
+            &$crate::modules::evasion::mutations::obfuscate_bytes($s.as_bytes()),
         )
     }};
 }

@@ -386,12 +386,12 @@ impl StorageService {
         // Let's rely on PersistenceManager::resolve_db_path if it exists or implement it.
         // Checking src/storage/client/mod.rs ...
         // It seems PersistenceManager::new handles it.
-        
+
         // For CLI tools, we usually just use target.rdb in current dir or specific logic.
         // Let's implement a safe default here matching TuiApp logic:
         // 1. If target ends with .rdb, use it
         // 2. Else use target.rdb
-        
+
         if target.ends_with(".rdb") {
             PathBuf::from(target)
         } else {
@@ -424,8 +424,8 @@ fn decode_err_to_io(err: DecodeError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::reddb::RedDb;
     use crate::storage::records::PortStatus;
+    use crate::storage::reddb::RedDb;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
 
@@ -552,7 +552,10 @@ mod tests {
 
         assert_eq!(meta.attributes.len(), 3);
         assert_eq!(meta.attributes.get("category"), Some(&"scan".to_string()));
-        assert_eq!(meta.attributes.get("target"), Some(&"192.168.1.1".to_string()));
+        assert_eq!(
+            meta.attributes.get("target"),
+            Some(&"192.168.1.1".to_string())
+        );
     }
 
     #[test]
@@ -691,9 +694,8 @@ mod tests {
             .with_attribute("category", "scan"),
         );
 
-        let scan_partitions = registry.filter(|meta| {
-            meta.attributes.get("category") == Some(&"scan".to_string())
-        });
+        let scan_partitions =
+            registry.filter(|meta| meta.attributes.get("category") == Some(&"scan".to_string()));
 
         assert_eq!(scan_partitions.len(), 2);
     }
@@ -708,15 +710,21 @@ mod tests {
                 .with_attribute("initial", "value"),
         );
 
-        registry.merge_attributes(&key, vec![
-            ("new_key".to_string(), "new_value".to_string()),
-            ("another".to_string(), "attr".to_string()),
-        ]);
+        registry.merge_attributes(
+            &key,
+            vec![
+                ("new_key".to_string(), "new_value".to_string()),
+                ("another".to_string(), "attr".to_string()),
+            ],
+        );
 
         let meta = registry.get(&key).unwrap();
         assert_eq!(meta.attributes.len(), 3);
         assert_eq!(meta.attributes.get("initial"), Some(&"value".to_string()));
-        assert_eq!(meta.attributes.get("new_key"), Some(&"new_value".to_string()));
+        assert_eq!(
+            meta.attributes.get("new_key"),
+            Some(&"new_value".to_string())
+        );
         assert!(meta.last_refreshed.is_some());
     }
 
@@ -725,7 +733,12 @@ mod tests {
         let mut registry = PartitionRegistry::new();
         let key = PartitionKey::Target("test".to_string());
 
-        registry.upsert(PartitionMetadata::new(key.clone(), "label", "/path", vec![]));
+        registry.upsert(PartitionMetadata::new(
+            key.clone(),
+            "label",
+            "/path",
+            vec![],
+        ));
 
         // Empty merge should not change anything
         registry.merge_attributes(&key, vec![]);
@@ -745,7 +758,12 @@ mod tests {
         );
 
         // Upsert with empty attributes should preserve existing
-        registry.upsert(PartitionMetadata::new(key.clone(), "new_label", "/new_path", vec![]));
+        registry.upsert(PartitionMetadata::new(
+            key.clone(),
+            "new_label",
+            "/new_path",
+            vec![],
+        ));
 
         let meta = registry.get(&key).unwrap();
         assert_eq!(meta.attributes.get("preserved"), Some(&"yes".to_string()));
@@ -821,19 +839,15 @@ mod tests {
         let service = StorageService::new();
         let key = PartitionKey::Target("test".to_string());
 
-        service.register_partition(PartitionMetadata::new(
-            key.clone(),
-            "test",
-            "/path",
-            vec![],
-        ));
+        service.register_partition(PartitionMetadata::new(key.clone(), "test", "/path", vec![]));
 
-        service.annotate_partition(&key, vec![
-            ("annotation".to_string(), "value".to_string()),
-        ]);
+        service.annotate_partition(&key, vec![("annotation".to_string(), "value".to_string())]);
 
         let meta = service.partition(&key).unwrap();
-        assert_eq!(meta.attributes.get("annotation"), Some(&"value".to_string()));
+        assert_eq!(
+            meta.attributes.get("annotation"),
+            Some(&"value".to_string())
+        );
     }
 
     #[test]
@@ -842,9 +856,7 @@ mod tests {
         let key = PartitionKey::Target("nonexistent".to_string());
 
         // Should not panic
-        service.annotate_partition(&key, vec![
-            ("key".to_string(), "value".to_string()),
-        ]);
+        service.annotate_partition(&key, vec![("key".to_string(), "value".to_string())]);
 
         // Should still be none
         assert!(service.partition(&key).is_none());
@@ -932,9 +944,8 @@ mod tests {
             .with_attribute("type", "recon"),
         );
 
-        let scan_partitions = service.partitions_filtered(|meta| {
-            meta.attributes.get("type") == Some(&"scan".to_string())
-        });
+        let scan_partitions = service
+            .partitions_filtered(|meta| meta.attributes.get("type") == Some(&"scan".to_string()));
 
         assert_eq!(scan_partitions.len(), 1);
         assert_eq!(scan_partitions[0].label, "t1");
@@ -980,33 +991,18 @@ mod tests {
         let service = StorageService::new();
 
         service.register_partition(
-            PartitionMetadata::new(
-                PartitionKey::Target("t1".to_string()),
-                "t1",
-                "/t1",
-                vec![],
-            )
-            .with_attribute("env", "prod"),
+            PartitionMetadata::new(PartitionKey::Target("t1".to_string()), "t1", "/t1", vec![])
+                .with_attribute("env", "prod"),
         );
 
         service.register_partition(
-            PartitionMetadata::new(
-                PartitionKey::Target("t2".to_string()),
-                "t2",
-                "/t2",
-                vec![],
-            )
-            .with_attribute("env", "dev"),
+            PartitionMetadata::new(PartitionKey::Target("t2".to_string()), "t2", "/t2", vec![])
+                .with_attribute("env", "dev"),
         );
 
         service.register_partition(
-            PartitionMetadata::new(
-                PartitionKey::Target("t3".to_string()),
-                "t3",
-                "/t3",
-                vec![],
-            )
-            .with_attribute("env", "prod"),
+            PartitionMetadata::new(PartitionKey::Target("t3".to_string()), "t3", "/t3", vec![])
+                .with_attribute("env", "prod"),
         );
 
         let prod_partitions = service.partitions_with_attribute("env", "prod");

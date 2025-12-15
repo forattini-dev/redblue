@@ -5,7 +5,6 @@
 /// - Type 0: Stored (uncompressed)
 /// - Type 1: Fixed Huffman codes
 /// - Type 2: Dynamic Huffman codes
-
 use std::io::Read;
 
 use super::bitread::BitReader;
@@ -301,15 +300,9 @@ mod tests {
         // Binary: 1 00 (aligned) 05 00 FA FF H e l l o
         let data = [
             0b00000001, // bfinal=1, btype=00
-            0x05,
-            0x00, // len=5
-            0xFA,
-            0xFF, // nlen=!5
-            b'H',
-            b'e',
-            b'l',
-            b'l',
-            b'o',
+            0x05, 0x00, // len=5
+            0xFA, 0xFF, // nlen=!5
+            b'H', b'e', b'l', b'l', b'o',
         ];
 
         let deflate = Deflate::new(&data[..]);

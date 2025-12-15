@@ -1,7 +1,7 @@
+use crate::playbooks::PlaybookContext;
+use chrono::Local;
 use std::collections::HashMap;
 use std::env;
-use chrono::Local;
-use crate::playbooks::PlaybookContext;
 
 /// Template engine for playbook variable substitution
 pub struct TemplateEngine;
@@ -29,10 +29,10 @@ impl TemplateEngine {
                     if next_c == '{' {
                         // Found '{{', parse variable
                         chars.next(); // Consume second '{'
-                        
+
                         let mut var_name = String::new();
                         let mut closed = false;
-                        
+
                         while let Some(vc) = chars.next() {
                             if vc == '}' {
                                 if let Some(&next_vc) = chars.peek() {
@@ -93,7 +93,7 @@ impl TemplateEngine {
             s if s.starts_with("env:") => {
                 let env_var = &s[4..];
                 env::var(env_var).ok()
-            },
+            }
             // Add more built-ins as needed
             _ => None,
         }
@@ -101,9 +101,7 @@ impl TemplateEngine {
 
     /// Render a list of strings
     pub fn render_list(&self, list: &[String], context: &PlaybookContext) -> Vec<String> {
-        list.iter()
-            .map(|s| self.render(s, context))
-            .collect()
+        list.iter().map(|s| self.render(s, context)).collect()
     }
 }
 
@@ -122,10 +120,7 @@ mod tests {
             engine.render("Target is {{ target }}", &ctx),
             "Target is 192.168.1.1"
         );
-        assert_eq!(
-            engine.render("Port is {{ port }}", &ctx),
-            "Port is 8080"
-        );
+        assert_eq!(engine.render("Port is {{ port }}", &ctx), "Port is 8080");
         assert_eq!(
             engine.render("User is {{ username }}", &ctx),
             "User is admin"
@@ -140,23 +135,23 @@ mod tests {
     fn test_advanced_variables() {
         let engine = TemplateEngine::new();
         let ctx = PlaybookContext::new("127.0.0.1");
-        
+
         // Test session_id
         let rendered_session = engine.render("Session: {{ session_id }}", &ctx);
         assert!(rendered_session.starts_with("Session: "));
         assert_ne!(rendered_session, "Session: {{ session_id }}");
-        
+
         // Test timestamp
         let rendered_time = engine.render("Time: {{ timestamp }}", &ctx);
         assert!(rendered_time.starts_with("Time: 20")); // Assuming year 20xx
-        
+
         // Test env var
         env::set_var("REDBLUE_TEST_VAR", "secret_value");
         assert_eq!(
             engine.render("Env: {{ env:REDBLUE_TEST_VAR }}", &ctx),
             "Env: secret_value"
         );
-        
+
         // Test missing env var
         assert_eq!(
             engine.render("Missing: {{ env:NON_EXISTENT_VAR }}", &ctx),

@@ -3,10 +3,10 @@ use std::net::IpAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::storage::records::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus, SubdomainRecord,
-    SubdomainSource, TlsScanRecord, WhoisRecord,
-    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
-    SessionRecord, PlaybookRunRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PlaybookRunRecord, PortScanRecord,
+    PortStatus, ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord,
+    ProxyWebSocketRecord, SessionRecord, SubdomainRecord, SubdomainSource, TlsScanRecord,
+    WhoisRecord,
 };
 use crate::storage::store::Database;
 
@@ -280,7 +280,8 @@ impl<'a> ProxyTable<'a> {
     }
 
     pub fn websocket_messages(&mut self, connection_id: u64) -> Vec<ProxyWebSocketRecord> {
-        self.db.proxy_websocket_messages(connection_id)
+        self.db
+            .proxy_websocket_messages(connection_id)
             .into_iter()
             .cloned()
             .collect()
@@ -290,11 +291,17 @@ impl<'a> ProxyTable<'a> {
         Ok(self.db.proxy_connections_for_host(host))
     }
 
-    pub fn requests_for_connection(&mut self, connection_id: u64) -> io::Result<Vec<ProxyHttpRequestRecord>> {
+    pub fn requests_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> io::Result<Vec<ProxyHttpRequestRecord>> {
         Ok(self.db.proxy_requests_for_connection(connection_id))
     }
 
-    pub fn responses_for_connection(&mut self, connection_id: u64) -> io::Result<Vec<ProxyHttpResponseRecord>> {
+    pub fn responses_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> io::Result<Vec<ProxyHttpResponseRecord>> {
         Ok(self.db.proxy_responses_for_connection(connection_id))
     }
 
@@ -321,7 +328,10 @@ impl<'a> MitreTable<'a> {
         Ok(())
     }
 
-    pub fn get_by_technique(&mut self, technique_id: &str) -> io::Result<Vec<crate::storage::records::MitreAttackRecord>> {
+    pub fn get_by_technique(
+        &mut self,
+        technique_id: &str,
+    ) -> io::Result<Vec<crate::storage::records::MitreAttackRecord>> {
         Ok(self.db.mitre_records_by_technique(technique_id))
     }
 
@@ -344,7 +354,10 @@ impl<'a> IocTable<'a> {
         Ok(())
     }
 
-    pub fn get_by_type(&mut self, ioc_type: crate::storage::records::IocType) -> io::Result<Vec<crate::storage::records::IocRecord>> {
+    pub fn get_by_type(
+        &mut self,
+        ioc_type: crate::storage::records::IocType,
+    ) -> io::Result<Vec<crate::storage::records::IocRecord>> {
         Ok(self.db.ioc_records_by_type(ioc_type))
     }
 
@@ -362,7 +375,10 @@ impl<'a> VulnTable<'a> {
         Self { db }
     }
 
-    pub fn insert(&mut self, record: crate::storage::records::VulnerabilityRecord) -> io::Result<()> {
+    pub fn insert(
+        &mut self,
+        record: crate::storage::records::VulnerabilityRecord,
+    ) -> io::Result<()> {
         self.db.insert_vulnerability(record);
         Ok(())
     }
@@ -438,9 +454,9 @@ impl<'a> PlaybookTable<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::records::{DnsRecordType, TlsCipherStrength};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::path::PathBuf;
-    use crate::storage::records::{DnsRecordType, TlsCipherStrength};
 
     struct FileGuard {
         path: PathBuf,
@@ -453,7 +469,8 @@ mod tests {
     }
 
     fn temp_db(name: &str) -> (FileGuard, PathBuf) {
-        let path = std::env::temp_dir().join(format!("rb_tables_{}_{}.db", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rb_tables_{}_{}.db", name, std::process::id()));
         let guard = FileGuard { path: path.clone() };
         let _ = std::fs::remove_file(&path);
         (guard, path)
@@ -589,7 +606,14 @@ mod tests {
         let mut table = SubdomainTable::new(&mut db);
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))];
-        table.insert("example.com", "www.example.com", ips, SubdomainSource::DnsBruteforce).unwrap();
+        table
+            .insert(
+                "example.com",
+                "www.example.com",
+                ips,
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
 
         let all = table.get_all().unwrap();
         assert_eq!(all.len(), 1);
@@ -602,9 +626,30 @@ mod tests {
         let mut table = SubdomainTable::new(&mut db);
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
-        table.insert("example.com", "api.example.com", ips.clone(), SubdomainSource::DnsBruteforce).unwrap();
-        table.insert("example.com", "www.example.com", ips.clone(), SubdomainSource::CertTransparency).unwrap();
-        table.insert("other.com", "www.other.com", ips, SubdomainSource::DnsBruteforce).unwrap();
+        table
+            .insert(
+                "example.com",
+                "api.example.com",
+                ips.clone(),
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
+        table
+            .insert(
+                "example.com",
+                "www.example.com",
+                ips.clone(),
+                SubdomainSource::CertTransparency,
+            )
+            .unwrap();
+        table
+            .insert(
+                "other.com",
+                "www.other.com",
+                ips,
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
 
         let results = table.get_by_domain("example.com").unwrap();
         assert_eq!(results.len(), 2);
@@ -617,14 +662,39 @@ mod tests {
         let mut table = SubdomainTable::new(&mut db);
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
-        table.insert("example.com", "dns.example.com", ips.clone(), SubdomainSource::DnsBruteforce).unwrap();
-        table.insert("example.com", "ct.example.com", ips.clone(), SubdomainSource::CertTransparency).unwrap();
-        table.insert("example.com", "dns2.example.com", ips, SubdomainSource::DnsBruteforce).unwrap();
+        table
+            .insert(
+                "example.com",
+                "dns.example.com",
+                ips.clone(),
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
+        table
+            .insert(
+                "example.com",
+                "ct.example.com",
+                ips.clone(),
+                SubdomainSource::CertTransparency,
+            )
+            .unwrap();
+        table
+            .insert(
+                "example.com",
+                "dns2.example.com",
+                ips,
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
 
-        let bruteforce = table.get_by_source("example.com", SubdomainSource::DnsBruteforce).unwrap();
+        let bruteforce = table
+            .get_by_source("example.com", SubdomainSource::DnsBruteforce)
+            .unwrap();
         assert_eq!(bruteforce.len(), 2);
 
-        let ct = table.get_by_source("example.com", SubdomainSource::CertTransparency).unwrap();
+        let ct = table
+            .get_by_source("example.com", SubdomainSource::CertTransparency)
+            .unwrap();
         assert_eq!(ct.len(), 1);
     }
 
@@ -635,9 +705,30 @@ mod tests {
         let mut table = SubdomainTable::new(&mut db);
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
-        table.insert("example.com", "www.example.com", ips.clone(), SubdomainSource::DnsBruteforce).unwrap();
-        table.insert("example.com", "www.example.com", ips.clone(), SubdomainSource::CertTransparency).unwrap();
-        table.insert("example.com", "api.example.com", ips, SubdomainSource::DnsBruteforce).unwrap();
+        table
+            .insert(
+                "example.com",
+                "www.example.com",
+                ips.clone(),
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
+        table
+            .insert(
+                "example.com",
+                "www.example.com",
+                ips.clone(),
+                SubdomainSource::CertTransparency,
+            )
+            .unwrap();
+        table
+            .insert(
+                "example.com",
+                "api.example.com",
+                ips,
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
 
         let unique = table.get_unique("example.com").unwrap();
         assert_eq!(unique.len(), 2);
@@ -652,8 +743,22 @@ mod tests {
         let mut table = SubdomainTable::new(&mut db);
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))];
-        table.insert("example.com", "a.example.com", ips.clone(), SubdomainSource::DnsBruteforce).unwrap();
-        table.insert("test.com", "b.test.com", ips, SubdomainSource::CertTransparency).unwrap();
+        table
+            .insert(
+                "example.com",
+                "a.example.com",
+                ips.clone(),
+                SubdomainSource::DnsBruteforce,
+            )
+            .unwrap();
+        table
+            .insert(
+                "test.com",
+                "b.test.com",
+                ips,
+                SubdomainSource::CertTransparency,
+            )
+            .unwrap();
 
         let all = table.get_all().unwrap();
         assert_eq!(all.len(), 2);
@@ -667,7 +772,15 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
         let mut table = WhoisTable::new(&mut db);
 
-        table.insert("example.com", "MarkMonitor Inc.", 1234567890, 1734567890, vec!["ns1.example.com".to_string()]).unwrap();
+        table
+            .insert(
+                "example.com",
+                "MarkMonitor Inc.",
+                1234567890,
+                1734567890,
+                vec!["ns1.example.com".to_string()],
+            )
+            .unwrap();
 
         let result = table.get("example.com", 86400).unwrap();
         assert!(result.is_some());
@@ -680,7 +793,15 @@ mod tests {
         let mut table = WhoisTable::new(&mut db);
 
         let nameservers = vec!["ns1.example.com".to_string(), "ns2.example.com".to_string()];
-        table.insert("test.io", "GoDaddy", 1600000000, 1700000000, nameservers.clone()).unwrap();
+        table
+            .insert(
+                "test.io",
+                "GoDaddy",
+                1600000000,
+                1700000000,
+                nameservers.clone(),
+            )
+            .unwrap();
 
         let result = table.get("test.io", 0).unwrap().unwrap();
         assert_eq!(result.domain, "test.io");
@@ -814,9 +935,19 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
         let mut table = DnsTable::new(&mut db);
 
-        table.insert(make_dns_record("example.com", DnsRecordType::A, "1.2.3.4")).unwrap();
-        table.insert(make_dns_record("example.com", DnsRecordType::MX, "mail.example.com")).unwrap();
-        table.insert(make_dns_record("other.com", DnsRecordType::A, "5.6.7.8")).unwrap();
+        table
+            .insert(make_dns_record("example.com", DnsRecordType::A, "1.2.3.4"))
+            .unwrap();
+        table
+            .insert(make_dns_record(
+                "example.com",
+                DnsRecordType::MX,
+                "mail.example.com",
+            ))
+            .unwrap();
+        table
+            .insert(make_dns_record("other.com", DnsRecordType::A, "5.6.7.8"))
+            .unwrap();
 
         let results = table.get_by_domain("example.com").unwrap();
         assert_eq!(results.len(), 2);
@@ -828,9 +959,15 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
         let mut table = DnsTable::new(&mut db);
 
-        table.insert(make_dns_record("a.com", DnsRecordType::A, "1.1.1.1")).unwrap();
-        table.insert(make_dns_record("b.com", DnsRecordType::AAAA, "::1")).unwrap();
-        table.insert(make_dns_record("c.com", DnsRecordType::NS, "ns1.c.com")).unwrap();
+        table
+            .insert(make_dns_record("a.com", DnsRecordType::A, "1.1.1.1"))
+            .unwrap();
+        table
+            .insert(make_dns_record("b.com", DnsRecordType::AAAA, "::1"))
+            .unwrap();
+        table
+            .insert(make_dns_record("c.com", DnsRecordType::NS, "ns1.c.com"))
+            .unwrap();
 
         let count = table.iter().count();
         assert_eq!(count, 3);
@@ -846,7 +983,11 @@ mod tests {
             scheme: "https".to_string(),
             http_version: "HTTP/1.1".to_string(),
             status_code,
-            status_text: if status_code == 200 { "OK".to_string() } else { "Not Found".to_string() },
+            status_text: if status_code == 200 {
+                "OK".to_string()
+            } else {
+                "Not Found".to_string()
+            },
             server: Some("nginx".to_string()),
             body_size: 1024,
             headers: vec![("Content-Type".to_string(), "text/html".to_string())],
@@ -874,9 +1015,19 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
         let mut table = HttpTable::new(&mut db);
 
-        table.insert(make_http_record("example.com", "https://example.com/", 200)).unwrap();
-        table.insert(make_http_record("example.com", "https://example.com/api", 200)).unwrap();
-        table.insert(make_http_record("other.com", "https://other.com/", 404)).unwrap();
+        table
+            .insert(make_http_record("example.com", "https://example.com/", 200))
+            .unwrap();
+        table
+            .insert(make_http_record(
+                "example.com",
+                "https://example.com/api",
+                200,
+            ))
+            .unwrap();
+        table
+            .insert(make_http_record("other.com", "https://other.com/", 404))
+            .unwrap();
 
         let results = table.get_by_host("example.com").unwrap();
         assert_eq!(results.len(), 2);
@@ -888,9 +1039,15 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
         let mut table = HttpTable::new(&mut db);
 
-        table.insert(make_http_record("a.com", "https://a.com/", 200)).unwrap();
-        table.insert(make_http_record("b.com", "https://b.com/", 301)).unwrap();
-        table.insert(make_http_record("c.com", "https://c.com/", 404)).unwrap();
+        table
+            .insert(make_http_record("a.com", "https://a.com/", 200))
+            .unwrap();
+        table
+            .insert(make_http_record("b.com", "https://b.com/", 301))
+            .unwrap();
+        table
+            .insert(make_http_record("c.com", "https://c.com/", 404))
+            .unwrap();
 
         let count = table.iter().count();
         assert_eq!(count, 3);

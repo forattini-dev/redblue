@@ -361,15 +361,12 @@ impl Downloader {
         let sources = get_wordlist_sources();
 
         // Find the source
-        let source = sources
-            .iter()
-            .find(|s| s.name == name)
-            .ok_or_else(|| {
-                format!(
-                    "Unknown wordlist: '{}'\nRun `rb wordlist collection sources` to see available",
-                    name
-                )
-            })?;
+        let source = sources.iter().find(|s| s.name == name).ok_or_else(|| {
+            format!(
+                "Unknown wordlist: '{}'\nRun `rb wordlist collection sources` to see available",
+                name
+            )
+        })?;
 
         Output::header(&format!("Installing {}", source.name));
         Output::info(source.description);
@@ -540,8 +537,8 @@ impl Downloader {
             fs::read(gz_path).map_err(|e| format!("Failed to read gzip file: {}", e))?;
 
         // Decompress using our native implementation
-        let decompressed = gzip_decompress(&compressed)
-            .map_err(|e| format!("Decompression failed: {}", e))?;
+        let decompressed =
+            gzip_decompress(&compressed).map_err(|e| format!("Decompression failed: {}", e))?;
 
         Output::spinner_done();
 

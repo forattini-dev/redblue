@@ -2,7 +2,6 @@
 ///
 /// Detects LDAP services and identifies security issues
 /// including anonymous binding and cleartext authentication.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,13 @@ impl LdapInfoScript {
                 name: "LDAP Service Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Detects LDAP services and identifies security misconfigurations".to_string(),
-                categories: vec![ScriptCategory::Discovery, ScriptCategory::Vuln, ScriptCategory::Safe],
+                description: "Detects LDAP services and identifies security misconfigurations"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Discovery,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["ldap".to_string(), "ldaps".to_string()],
                 ports: vec![389, 636, 3268, 3269],
                 license: "MIT".to_string(),
@@ -67,9 +71,15 @@ impl Script for LdapInfoScript {
         };
 
         result.add_finding(
-            Finding::new(FindingType::Discovery, &format!("{} Service Detected", service_name))
-                .with_description(&format!("{} service running on port {}", service_name, ctx.port))
-                .with_severity(FindingSeverity::Info),
+            Finding::new(
+                FindingType::Discovery,
+                &format!("{} Service Detected", service_name),
+            )
+            .with_description(&format!(
+                "{} service running on port {}",
+                service_name, ctx.port
+            ))
+            .with_severity(FindingSeverity::Info),
         );
 
         // Check for anonymous binding
@@ -79,10 +89,12 @@ impl Script for LdapInfoScript {
                     Finding::new(FindingType::Misconfiguration, "LDAP Anonymous Bind Allowed")
                         .with_description(
                             "LDAP server allows anonymous binding. This can expose \
-                             directory information including usernames, groups, and structure."
+                             directory information including usernames, groups, and structure.",
                         )
                         .with_severity(FindingSeverity::High)
-                        .with_remediation("Disable anonymous LDAP binding in directory configuration"),
+                        .with_remediation(
+                            "Disable anonymous LDAP binding in directory configuration",
+                        ),
                 );
             }
             "false" | "disabled" | "no" | "0" => {
@@ -103,7 +115,7 @@ impl Script for LdapInfoScript {
                         Finding::new(FindingType::Misconfiguration, "LDAP Without TLS")
                             .with_description(
                                 "LDAP is running without TLS encryption. Credentials and \
-                                 data are transmitted in cleartext."
+                                 data are transmitted in cleartext.",
                             )
                             .with_severity(FindingSeverity::High)
                             .with_remediation("Enable LDAPS or STARTTLS for LDAP connections"),
@@ -160,13 +172,16 @@ impl Script for LdapInfoScript {
             // LDAP channel binding
             if data_lower.contains("channel binding") && data_lower.contains("not required") {
                 result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "LDAP Channel Binding Not Required")
-                        .with_description(
-                            "LDAP channel binding is not enforced, allowing potential \
-                             relay attacks against domain controllers."
-                        )
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation("Enable LDAP channel binding via Group Policy"),
+                    Finding::new(
+                        FindingType::Misconfiguration,
+                        "LDAP Channel Binding Not Required",
+                    )
+                    .with_description(
+                        "LDAP channel binding is not enforced, allowing potential \
+                             relay attacks against domain controllers.",
+                    )
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation("Enable LDAP channel binding via Group Policy"),
                 );
             }
 
@@ -176,7 +191,7 @@ impl Script for LdapInfoScript {
                     Finding::new(FindingType::Misconfiguration, "LDAP Signing Not Required")
                         .with_description(
                             "LDAP signing is not required, allowing potential \
-                             man-in-the-middle attacks."
+                             man-in-the-middle attacks.",
                         )
                         .with_severity(FindingSeverity::Medium)
                         .with_remediation("Require LDAP signing via Group Policy"),
@@ -185,12 +200,20 @@ impl Script for LdapInfoScript {
         }
 
         // Check for sensitive attributes exposed
-        let sensitive_attrs = ["userpassword", "unicodepwd", "ntpasswordhash", "lmpasswordhash"];
+        let sensitive_attrs = [
+            "userpassword",
+            "unicodepwd",
+            "ntpasswordhash",
+            "lmpasswordhash",
+        ];
         for attr in sensitive_attrs {
             if data_lower.contains(attr) {
                 result.add_finding(
                     Finding::new(FindingType::InfoLeak, "Sensitive Attribute Exposed")
-                        .with_description(&format!("Password-related attribute '{}' found in LDAP response", attr))
+                        .with_description(&format!(
+                            "Password-related attribute '{}' found in LDAP response",
+                            attr
+                        ))
                         .with_severity(FindingSeverity::Critical)
                         .with_remediation("Restrict access to sensitive LDAP attributes"),
                 );
@@ -198,7 +221,10 @@ impl Script for LdapInfoScript {
             }
         }
 
-        result.add_output(&format!("LDAP analysis complete for {}:{}", ctx.host, ctx.port));
+        result.add_output(&format!(
+            "LDAP analysis complete for {}:{}",
+            ctx.host, ctx.port
+        ));
         Ok(result)
     }
 }
@@ -221,7 +247,10 @@ mod tests {
         ctx.set_data("ldap_response", "Active Directory");
 
         let result = script.run(&ctx).unwrap();
-        let has_anon = result.findings.iter().any(|f| f.title.contains("Anonymous Bind Allowed"));
+        let has_anon = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Anonymous Bind Allowed"));
         assert!(has_anon);
     }
 }

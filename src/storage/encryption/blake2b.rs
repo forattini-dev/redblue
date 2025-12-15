@@ -24,8 +24,14 @@ pub struct Blake2b {
 }
 
 const IV: [u64; 8] = [
-    0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
-    0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+    0x6a09e667f3bcc908,
+    0xbb67ae8584caa73b,
+    0x3c6ef372fe94f82b,
+    0xa54ff53a5f1d36f1,
+    0x510e527fade682d1,
+    0x9b05688c2b3e6c1f,
+    0x1f83d9abfb41bd6b,
+    0x5be0cd19137e2179,
 ];
 
 const SIGMA: [[usize; 16]; 12] = [
@@ -91,10 +97,10 @@ impl Blake2b {
 
             let space = 128 - self.buf_len;
             let chunk = if len < space { len } else { space };
-            
+
             self.buf[self.buf_len..self.buf_len + chunk]
                 .copy_from_slice(&data[offset..offset + chunk]);
-            
+
             self.buf_len += chunk;
             offset += chunk;
             len -= chunk;
@@ -107,14 +113,14 @@ impl Blake2b {
         if self.t[0] < self.buf_len as u64 {
             self.t[1] = self.t[1].wrapping_add(1);
         }
-        
+
         self.f[0] = !0; // Final block flag
-        
+
         // Pad with zeros
         for i in self.buf_len..128 {
             self.buf[i] = 0;
         }
-        
+
         self.compress();
 
         let mut out = Vec::with_capacity(self.out_len);
@@ -122,7 +128,7 @@ impl Blake2b {
             let bytes = self.h[i].to_le_bytes();
             out.extend_from_slice(&bytes);
         }
-        
+
         out.truncate(self.out_len);
         out
     }
@@ -133,9 +139,7 @@ impl Blake2b {
 
         // Load message into u64 words
         for i in 0..16 {
-            m[i] = u64::from_le_bytes(
-                self.buf[i * 8..(i + 1) * 8].try_into().unwrap()
-            );
+            m[i] = u64::from_le_bytes(self.buf[i * 8..(i + 1) * 8].try_into().unwrap());
         }
 
         // Initialize state vector v
@@ -175,7 +179,7 @@ fn mix(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64
     v[d] = (v[d] ^ v[a]).rotate_right(32);
     v[c] = v[c].wrapping_add(v[d]);
     v[b] = (v[b] ^ v[c]).rotate_right(24);
-    
+
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
     v[d] = (v[d] ^ v[a]).rotate_right(16);
     v[c] = v[c].wrapping_add(v[d]);
@@ -191,7 +195,7 @@ mod tests {
         let mut hasher = Blake2b::new(64);
         hasher.update(b"");
         let hash = hasher.finalize();
-        
+
         let expected = hex::decode("786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce").unwrap();
         assert_eq!(hash, expected);
     }
@@ -213,7 +217,7 @@ mod tests {
         let mut hasher = Blake2b::new_keyed(64, key);
         hasher.update(b"Hello, world!");
         let hash = hasher.finalize();
-        
+
         // Verify with another implementation or just stability
         // For now just ensure it's different from unkeyed
         let mut unkeyed = Blake2b::new(64);

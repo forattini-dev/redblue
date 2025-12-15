@@ -256,13 +256,15 @@ pub fn fuzzy_search(
             for term in &query_terms {
                 if let Some(pos) = content_lower.find(term) {
                     // Find safe char boundaries
-                    let start = doc.content
+                    let start = doc
+                        .content
                         .char_indices()
                         .map(|(i, _)| i)
                         .take_while(|&i| i <= pos.saturating_sub(30))
                         .last()
                         .unwrap_or(0);
-                    let end = doc.content
+                    let end = doc
+                        .content
                         .char_indices()
                         .map(|(i, _)| i)
                         .find(|&i| i >= (pos + term.len() + 30).min(doc.content.len()))
@@ -589,7 +591,11 @@ mod tests {
                 title: "DNS Reconnaissance".to_string(),
                 section: None,
                 category: "dns".to_string(),
-                keywords: vec!["dns".to_string(), "lookup".to_string(), "record".to_string()],
+                keywords: vec![
+                    "dns".to_string(),
+                    "lookup".to_string(),
+                    "record".to_string(),
+                ],
                 content: "DNS reconnaissance involves querying DNS servers for information."
                     .to_string(),
                 vector: None,

@@ -3,14 +3,14 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use crate::storage::records::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource, TlsScanRecord,
-    WhoisRecord, ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
-    MitreAttackRecord, IocRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, IocRecord, MitreAttackRecord, PortStatus,
+    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    SubdomainSource, TlsScanRecord, WhoisRecord,
 };
 use crate::storage::store::Database;
 use crate::storage::tables::{
-    DnsTable, HostIntelTable, HttpTable, PortScanTable, SubdomainTable, TlsScanTable, WhoisTable,
-    ProxyTable, MitreTable, IocTable, VulnTable, SessionTable, PlaybookTable,
+    DnsTable, HostIntelTable, HttpTable, IocTable, MitreTable, PlaybookTable, PortScanTable,
+    ProxyTable, SessionTable, SubdomainTable, TlsScanTable, VulnTable, WhoisTable,
 };
 
 pub struct RedDb {
@@ -196,7 +196,10 @@ impl RedDb {
         Ok(self.proxy().connections())
     }
 
-    pub fn get_proxy_connections_for_host(&mut self, host: &str) -> io::Result<Vec<ProxyConnectionRecord>> {
+    pub fn get_proxy_connections_for_host(
+        &mut self,
+        host: &str,
+    ) -> io::Result<Vec<ProxyConnectionRecord>> {
         self.proxy().connections_for_host(host)
     }
 
@@ -204,7 +207,10 @@ impl RedDb {
         Ok(self.proxy().http_requests())
     }
 
-    pub fn get_proxy_requests_for_connection(&mut self, connection_id: u64) -> io::Result<Vec<ProxyHttpRequestRecord>> {
+    pub fn get_proxy_requests_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> io::Result<Vec<ProxyHttpRequestRecord>> {
         self.proxy().requests_for_connection(connection_id)
     }
 
@@ -212,11 +218,17 @@ impl RedDb {
         Ok(self.proxy().http_responses())
     }
 
-    pub fn get_proxy_responses_for_connection(&mut self, connection_id: u64) -> io::Result<Vec<ProxyHttpResponseRecord>> {
+    pub fn get_proxy_responses_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> io::Result<Vec<ProxyHttpResponseRecord>> {
         self.proxy().responses_for_connection(connection_id)
     }
 
-    pub fn get_proxy_websocket_messages(&mut self, connection_id: u64) -> io::Result<Vec<ProxyWebSocketRecord>> {
+    pub fn get_proxy_websocket_messages(
+        &mut self,
+        connection_id: u64,
+    ) -> io::Result<Vec<ProxyWebSocketRecord>> {
         Ok(self.proxy().websocket_messages(connection_id))
     }
 
@@ -246,7 +258,8 @@ mod tests {
     }
 
     fn temp_db(name: &str) -> (FileGuard, RedDb) {
-        let path = std::env::temp_dir().join(format!("rb_reddb_{}_{}.db", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rb_reddb_{}_{}.db", name, std::process::id()));
         let guard = FileGuard { path: path.clone() };
         let _ = std::fs::remove_file(&guard.path);
         let db = RedDb::open(&guard.path).unwrap();
@@ -354,9 +367,27 @@ mod tests {
         let (_guard, mut db) = temp_db("subdomains");
         let ip = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
 
-        db.save_subdomain("example.com", "www.example.com", vec![ip], SubdomainSource::DnsBruteforce).unwrap();
-        db.save_subdomain("example.com", "api.example.com", vec![ip], SubdomainSource::CertTransparency).unwrap();
-        db.save_subdomain("example.com", "mail.example.com", vec![], SubdomainSource::WebCrawl).unwrap();
+        db.save_subdomain(
+            "example.com",
+            "www.example.com",
+            vec![ip],
+            SubdomainSource::DnsBruteforce,
+        )
+        .unwrap();
+        db.save_subdomain(
+            "example.com",
+            "api.example.com",
+            vec![ip],
+            SubdomainSource::CertTransparency,
+        )
+        .unwrap();
+        db.save_subdomain(
+            "example.com",
+            "mail.example.com",
+            vec![],
+            SubdomainSource::WebCrawl,
+        )
+        .unwrap();
 
         let subs = db.get_subdomains("example.com").unwrap();
         assert_eq!(subs.len(), 3);
@@ -367,8 +398,20 @@ mod tests {
         let (_guard, mut db) = temp_db("subdomains_multi");
         let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
 
-        db.save_subdomain("example.com", "www.example.com", vec![ip], SubdomainSource::DnsBruteforce).unwrap();
-        db.save_subdomain("test.org", "api.test.org", vec![ip], SubdomainSource::DnsBruteforce).unwrap();
+        db.save_subdomain(
+            "example.com",
+            "www.example.com",
+            vec![ip],
+            SubdomainSource::DnsBruteforce,
+        )
+        .unwrap();
+        db.save_subdomain(
+            "test.org",
+            "api.test.org",
+            vec![ip],
+            SubdomainSource::DnsBruteforce,
+        )
+        .unwrap();
 
         assert_eq!(db.get_subdomains("example.com").unwrap().len(), 1);
         assert_eq!(db.get_subdomains("test.org").unwrap().len(), 1);
@@ -387,7 +430,8 @@ mod tests {
             1234567890,
             1888888888,
             vec!["ns1.example.com".to_string(), "ns2.example.com".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
 
         let whois = db.get_whois("example.com").unwrap();
         assert!(whois.is_some());
@@ -416,7 +460,8 @@ mod tests {
             value: "93.184.216.34".to_string(),
             ttl: 3600,
             timestamp: 1700000000,
-        }).unwrap();
+        })
+        .unwrap();
 
         db.save_dns(DnsRecordData {
             domain: "example.com".to_string(),
@@ -424,7 +469,8 @@ mod tests {
             value: "mail.example.com".to_string(),
             ttl: 7200,
             timestamp: 1700000000,
-        }).unwrap();
+        })
+        .unwrap();
 
         let records = db.get_dns_records("example.com").unwrap();
         assert_eq!(records.len(), 2);
@@ -488,7 +534,8 @@ mod tests {
                 ja3s_raw: None,
                 peer_fingerprints: vec![],
                 certificate_chain_pem: vec![],
-            }).unwrap();
+            })
+            .unwrap();
         }
 
         let all = db.tls_scans().unwrap();
@@ -560,7 +607,8 @@ mod tests {
                 confidence: 0.5,
                 last_seen: 1700000000,
                 services: vec![],
-            }).unwrap();
+            })
+            .unwrap();
         }
 
         let all = db.list_host_fingerprints().unwrap();

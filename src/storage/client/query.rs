@@ -183,9 +183,14 @@ impl QueryManager {
     }
 
     /// Get a specific proxy connection by ID
-    pub fn get_proxy_connection(&self, connection_id: u64) -> io::Result<Option<ProxyConnectionRecord>> {
+    pub fn get_proxy_connection(
+        &self,
+        connection_id: u64,
+    ) -> io::Result<Option<ProxyConnectionRecord>> {
         if let Some(proxy) = self.view.proxy() {
-            return proxy.get_connection(connection_id).map_err(decode_err_to_io);
+            return proxy
+                .get_connection(connection_id)
+                .map_err(decode_err_to_io);
         }
         Ok(None)
     }

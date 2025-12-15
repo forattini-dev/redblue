@@ -31,7 +31,6 @@
 /// condition = 'header.Server contains "nginx"'
 /// finding = { type = "version", title = "Nginx Web Server" }
 /// ```
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,10 +98,16 @@ impl TomlScript {
         if let Some(meta) = toml.get_table("metadata") {
             script.meta.id = meta.get_string("id").unwrap_or_default();
             script.meta.name = meta.get_string("name").unwrap_or_default();
-            script.meta.author = meta.get_string("author").unwrap_or_else(|| "redblue".to_string());
-            script.meta.version = meta.get_string("version").unwrap_or_else(|| "1.0".to_string());
+            script.meta.author = meta
+                .get_string("author")
+                .unwrap_or_else(|| "redblue".to_string());
+            script.meta.version = meta
+                .get_string("version")
+                .unwrap_or_else(|| "1.0".to_string());
             script.meta.description = meta.get_string("description").unwrap_or_default();
-            script.meta.license = meta.get_string("license").unwrap_or_else(|| "MIT".to_string());
+            script.meta.license = meta
+                .get_string("license")
+                .unwrap_or_else(|| "MIT".to_string());
 
             // Parse categories
             if let Some(cats) = meta.get_array("categories") {
@@ -448,7 +453,10 @@ impl ScriptLoader {
             .iter()
             .filter(|s| {
                 s.meta.protocols.is_empty()
-                    || s.meta.protocols.iter().any(|p| p.eq_ignore_ascii_case(protocol))
+                    || s.meta
+                        .protocols
+                        .iter()
+                        .any(|p| p.eq_ignore_ascii_case(protocol))
             })
             .collect()
     }
@@ -578,7 +586,10 @@ impl TomlParser {
             // Array of tables [[name]]
             if line.starts_with("[[") && line.ends_with("]]") {
                 let table_name = &line[2..line.len() - 2].trim();
-                current_table = table_name.split('.').map(|s| s.trim().to_string()).collect();
+                current_table = table_name
+                    .split('.')
+                    .map(|s| s.trim().to_string())
+                    .collect();
 
                 // Initialize array if needed
                 let key = current_table.join(".");
@@ -589,7 +600,10 @@ impl TomlParser {
             // Table header [name]
             if line.starts_with('[') && line.ends_with(']') {
                 let table_name = &line[1..line.len() - 1].trim();
-                current_table = table_name.split('.').map(|s| s.trim().to_string()).collect();
+                current_table = table_name
+                    .split('.')
+                    .map(|s| s.trim().to_string())
+                    .collect();
                 continue;
             }
 
@@ -633,8 +647,20 @@ impl TomlParser {
             } else {
                 // Nested array table
                 let parent_parts = &parts[..parts.len() - 1];
-                Self::ensure_table(&mut root, &parent_parts.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-                if let Some(parent) = Self::get_table_mut(&mut root, &parent_parts.iter().map(|s| s.to_string()).collect::<Vec<_>>()) {
+                Self::ensure_table(
+                    &mut root,
+                    &parent_parts
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                );
+                if let Some(parent) = Self::get_table_mut(
+                    &mut root,
+                    &parent_parts
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>(),
+                ) {
                     parent.insert(parts.last().unwrap().to_string(), array_value);
                 }
             }
@@ -647,7 +673,9 @@ impl TomlParser {
         let mut current = root;
         for part in path {
             if !current.entries.contains_key(part) {
-                current.entries.insert(part.clone(), TomlValue::Table(TomlTable::new()));
+                current
+                    .entries
+                    .insert(part.clone(), TomlValue::Table(TomlTable::new()));
             }
             if let Some(TomlValue::Table(t)) = current.entries.get_mut(part) {
                 current = t;
@@ -924,8 +952,14 @@ version = '$banner'
 "#;
 
         let script = TomlScript::parse(content).unwrap();
-        assert_eq!(script.rules[0].extract.get("server"), Some(&"$header.Server".to_string()));
-        assert_eq!(script.rules[0].extract.get("version"), Some(&"$banner".to_string()));
+        assert_eq!(
+            script.rules[0].extract.get("server"),
+            Some(&"$header.Server".to_string())
+        );
+        assert_eq!(
+            script.rules[0].extract.get("version"),
+            Some(&"$banner".to_string())
+        );
     }
 
     #[test]
@@ -975,7 +1009,10 @@ finding = { type = "discovery", title = "SSH Service" }
 
     #[test]
     fn test_unescape_string() {
-        assert_eq!(TomlParser::unescape_string(r#"hello\nworld"#), "hello\nworld");
+        assert_eq!(
+            TomlParser::unescape_string(r#"hello\nworld"#),
+            "hello\nworld"
+        );
         assert_eq!(TomlParser::unescape_string(r#"tab\there"#), "tab\there");
         assert_eq!(TomlParser::unescape_string(r#"quote\"here"#), "quote\"here");
     }

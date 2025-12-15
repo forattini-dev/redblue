@@ -1,6 +1,6 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use std::collections::HashMap;
 use serde_json::json;
+use std::collections::HashMap;
 
 pub struct RegistryAccessor;
 
@@ -12,7 +12,7 @@ impl RegistryAccessor {
     #[cfg(target_os = "windows")]
     fn read_key(&self, _key: &str) -> AccessorResult {
         // TODO: Implement actual Windows registry reading using winapi or similar if allowed
-        // For now, consistent with project constraints, we might need a specific crate 
+        // For now, consistent with project constraints, we might need a specific crate
         // or FFI to advapi32.dll
         AccessorResult::error("Registry reading not yet implemented for Windows")
     }
@@ -44,7 +44,7 @@ impl Accessor for RegistryAccessor {
                 } else {
                     AccessorResult::error("Missing 'key' argument")
                 }
-            },
+            }
             _ => AccessorResult::error(&format!("Unknown method: {}", method)),
         }
     }

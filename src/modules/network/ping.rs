@@ -363,7 +363,10 @@ pub fn tcp_ping(host: &str, config: &TcpPingConfig) -> Result<TcpPingResult, Str
 
     let (min_rtt_ms, max_rtt_ms, avg_rtt_ms) = if !rtt_samples.is_empty() {
         let min = rtt_samples.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = rtt_samples.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let max = rtt_samples
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max);
         let avg = rtt_samples.iter().sum::<f64>() / rtt_samples.len() as f64;
         (min, max, avg)
     } else {

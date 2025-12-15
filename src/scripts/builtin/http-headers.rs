@@ -2,7 +2,6 @@
 ///
 /// Extracts and analyzes HTTP response headers.
 /// Identifies server software, technologies, and potential information leaks.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -43,9 +42,7 @@ impl Script for HttpHeadersScript {
     }
 
     fn args(&self) -> Vec<ScriptArg> {
-        vec![
-            ScriptArg::new("path", "URL path to request").with_default("/"),
-        ]
+        vec![ScriptArg::new("path", "URL path to request").with_default("/")]
     }
 
     fn run(&self, ctx: &ScriptContext) -> Result<ScriptResult, String> {
@@ -84,7 +81,9 @@ impl Script for HttpHeadersScript {
                                     .with_description("Server header reveals version information")
                                     .with_evidence(value)
                                     .with_severity(FindingSeverity::Low)
-                                    .with_remediation("Consider hiding server version in production"),
+                                    .with_remediation(
+                                        "Consider hiding server version in production",
+                                    ),
                             );
                         }
                     }
@@ -104,7 +103,9 @@ impl Script for HttpHeadersScript {
                                 .with_description(&format!("{}: {}", key, value))
                                 .with_evidence(value)
                                 .with_severity(FindingSeverity::Low)
-                                .with_remediation("Disable version headers in ASP.NET configuration"),
+                                .with_remediation(
+                                    "Disable version headers in ASP.NET configuration",
+                                ),
                         );
                         result.extract("aspnet_version", value);
                     }
@@ -142,26 +143,35 @@ impl Script for HttpHeadersScript {
 
                         if !has_httponly {
                             result.add_finding(
-                                Finding::new(FindingType::Misconfiguration, "Cookie Missing HttpOnly")
-                                    .with_description("Cookie is accessible to JavaScript")
-                                    .with_severity(FindingSeverity::Medium)
-                                    .with_remediation("Add HttpOnly flag to cookies"),
+                                Finding::new(
+                                    FindingType::Misconfiguration,
+                                    "Cookie Missing HttpOnly",
+                                )
+                                .with_description("Cookie is accessible to JavaScript")
+                                .with_severity(FindingSeverity::Medium)
+                                .with_remediation("Add HttpOnly flag to cookies"),
                             );
                         }
                         if !has_secure && ctx.protocol == "https" {
                             result.add_finding(
-                                Finding::new(FindingType::Misconfiguration, "Cookie Missing Secure Flag")
-                                    .with_description("Cookie may be sent over unencrypted connection")
-                                    .with_severity(FindingSeverity::Medium)
-                                    .with_remediation("Add Secure flag to cookies"),
+                                Finding::new(
+                                    FindingType::Misconfiguration,
+                                    "Cookie Missing Secure Flag",
+                                )
+                                .with_description("Cookie may be sent over unencrypted connection")
+                                .with_severity(FindingSeverity::Medium)
+                                .with_remediation("Add Secure flag to cookies"),
                             );
                         }
                         if !has_samesite {
                             result.add_finding(
-                                Finding::new(FindingType::Misconfiguration, "Cookie Missing SameSite")
-                                    .with_description("Cookie vulnerable to CSRF attacks")
-                                    .with_severity(FindingSeverity::Low)
-                                    .with_remediation("Add SameSite=Strict or SameSite=Lax"),
+                                Finding::new(
+                                    FindingType::Misconfiguration,
+                                    "Cookie Missing SameSite",
+                                )
+                                .with_description("Cookie vulnerable to CSRF attacks")
+                                .with_severity(FindingSeverity::Low)
+                                .with_remediation("Add SameSite=Strict or SameSite=Lax"),
                             );
                         }
                     }
@@ -190,12 +200,18 @@ mod tests {
     fn test_server_detection() {
         let script = HttpHeadersScript::new();
         let mut ctx = ScriptContext::new("example.com", 80);
-        ctx.set_data("headers", "Server: Apache/2.4.41 (Ubuntu)\r\nContent-Type: text/html");
+        ctx.set_data(
+            "headers",
+            "Server: Apache/2.4.41 (Ubuntu)\r\nContent-Type: text/html",
+        );
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
         assert!(!result.findings.is_empty());
-        assert_eq!(result.extracted.get("server"), Some(&"Apache/2.4.41 (Ubuntu)".to_string()));
+        assert_eq!(
+            result.extracted.get("server"),
+            Some(&"Apache/2.4.41 (Ubuntu)".to_string())
+        );
     }
 
     #[test]

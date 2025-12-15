@@ -1,5 +1,5 @@
 //! Social Media Mapping
-//! 
+//!
 //! Maps company/brand social media presence across platforms.
 //! Discovers official accounts on:
 //! - Twitter/X
@@ -65,7 +65,8 @@ impl SocialMapper {
         // Check each platform
         let platforms = self.get_platforms();
 
-        for (platform_name, url_template, _check_fn) in platforms { // check_fn is now unused
+        for (platform_name, url_template, _check_fn) in platforms {
+            // check_fn is now unused
             let mut best_match: Option<SocialProfile> = None;
 
             for variation in &variations {
@@ -131,7 +132,7 @@ impl SocialMapper {
             for (platform_name, url_template, _check_fn) in platforms {
                 let url = url_template.replace("{}", &username);
                 // Reusing helper to check profile, but need to pass self
-                if let Some(profile) = self.check_platform_helper(platform_name, &url) { 
+                if let Some(profile) = self.check_platform_helper(platform_name, &url) {
                     if profile.found {
                         // Simulate extracting mentions/linked profiles from the profile's bio/description
                         // In a real scenario, this would involve parsing the profile page HTML.
@@ -156,11 +157,7 @@ impl SocialMapper {
     }
 
     // Helper function to encapsulate platform checking logic, to be used by both map and discover_recursive
-    fn check_platform_helper(
-        &self,
-        platform: &str,
-        url: &str,
-    ) -> Option<SocialProfile> {
+    fn check_platform_helper(&self, platform: &str, url: &str) -> Option<SocialProfile> {
         let response = match self.http.get(url) {
             Ok(r) => r,
             Err(_) => {
@@ -188,7 +185,6 @@ impl SocialMapper {
             activity, // Include activity
         })
     }
-
 
     /// Check a single platform URL
     fn check_platform(
@@ -239,11 +235,19 @@ impl SocialMapper {
             ("patreon", "https://www.patreon.com/{}/", |_| true),
             ("etsy", "https://www.etsy.com/shop/{}/", |_| true),
             ("ebay", "https://www.ebay.com/usr/{}/", |_| true),
-            ("amazon", "https://www.amazon.com/gp/profile/amzn1.account.{}/", |_| true),
+            (
+                "amazon",
+                "https://www.amazon.com/gp/profile/amzn1.account.{}/",
+                |_| true,
+            ),
             ("google_plus", "https://plus.google.com/{}", |_| true), // Deprecated
-            ("myspace", "https://myspace.com/{}/", |_| true), // Legacy
+            ("myspace", "https://myspace.com/{}/", |_| true),        // Legacy
             ("lastfm", "https://www.last.fm/user/{}", |_| true),
-            ("stackoverflow", "https://stackoverflow.com/users/{}", |_| true),
+            (
+                "stackoverflow",
+                "https://stackoverflow.com/users/{}",
+                |_| true,
+            ),
             ("superuser", "https://superuser.com/users/{}", |_| true),
             ("askubuntu", "https://askubuntu.com/users/{}", |_| true),
             ("serverfault", "https://serverfault.com/users/{}", |_| true),
@@ -270,16 +274,34 @@ impl SocialMapper {
             ("hackerone", "https://hackerone.com/{}", |_| true),
             ("bugcrowd", "https://bugcrowd.com/{}", |_| true),
             ("tryhackme", "https://tryhackme.com/p/{}", |_| true),
-            ("hackthebox", "https://app.hackthebox.com/users/{}", |_| true),
+            ("hackthebox", "https://app.hackthebox.com/users/{}", |_| {
+                true
+            }),
             // Other
             ("strava", "https://www.strava.com/athletes/{}", |_| true),
-            ("tripadvisor", "https://www.tripadvisor.com/Profile/{}", |_| true),
-            ("yelp", "https://www.yelp.com/user_details?userid={}", |_| true),
+            (
+                "tripadvisor",
+                "https://www.tripadvisor.com/Profile/{}",
+                |_| true,
+            ),
+            (
+                "yelp",
+                "https://www.yelp.com/user_details?userid={}",
+                |_| true,
+            ),
             ("poshmark", "https://poshmark.com/closet/{}", |_| true),
-            ("instructables", "https://www.instructables.com/member/{}", |_| true),
+            (
+                "instructables",
+                "https://www.instructables.com/member/{}",
+                |_| true,
+            ),
             ("notion", "https://www.notion.so/{}", |_| true),
             ("vk", "https://vk.com/{}", |_| true),
-            ("mercadolibre", "https://www.mercadolibre.com.ar/perfil/{}", |_| true),
+            (
+                "mercadolibre",
+                "https://www.mercadolibre.com.ar/perfil/{}",
+                |_| true,
+            ),
             // Podcasting
             ("anchor", "https://anchor.fm/{}", |_| true),
             ("podbean", "https://www.podbean.com/user-{}", |_| true),
@@ -293,13 +315,17 @@ impl SocialMapper {
             // Open Source & Code
             ("gitlab", "https://gitlab.com/{}", |_| true),
             ("bitbucket", "https://bitbucket.org/{}", |_| true),
-            ("sourceforge", "https://sourceforge.net/u/{}/profile", |_| true),
+            (
+                "sourceforge",
+                "https://sourceforge.net/u/{}/profile",
+                |_| true,
+            ),
             ("dockerhub", "https://hub.docker.com/u/{}", |_| true),
             ("npm", "https://www.npmjs.com/~{}", |_| true),
             ("pypi", "https://pypi.org/user/{}", |_| true),
             // Regional & Misc
             ("sharechat", "https://sharechat.com/profile/{}", |_| true), // India
-            ("ok_ru", "https://ok.ru/{}", |_| true), // Russia
+            ("ok_ru", "https://ok.ru/{}", |_| true),                     // Russia
             ("gumroad", "https://www.gumroad.com/{}", |_| true),
             ("keybase", "https://keybase.io/{}", |_| true),
             ("about.me", "https://about.me/{}", |_| true),
@@ -329,12 +355,18 @@ impl SocialMapper {
         let mut platforms = Vec::new();
 
         for line in reader.lines() {
-            let line = line.map_err(|e| format!("Failed to read line from platforms file: {}", e))?;
+            let line =
+                line.map_err(|e| format!("Failed to read line from platforms file: {}", e))?;
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
 
             if let Some((platform_name, url_template)) = trimmed.split_once(',') {
-                platforms.push((platform_name.trim().to_string(), url_template.trim().to_string()));
+                platforms.push((
+                    platform_name.trim().to_string(),
+                    url_template.trim().to_string(),
+                ));
             } else {
                 eprintln!("Warning: Invalid line in platforms file: {}", line);
             }
@@ -368,8 +400,8 @@ impl SocialMapper {
         // Look for common patterns
         let patterns = [
             r#"followers"[^>]*>([0-9,KMB.]+)"#, // e.g. <span class="followers">10K</span>
-            r"([0-9,]+)\s*followers",            // e.g. 1,234 followers
-            r#"followerCount["\s:]+([0-9,]+)"#,  // e.g. "followerCount":1234
+            r"([0-9,]+)\s*followers",           // e.g. 1,234 followers
+            r#"followerCount["\s:]+([0-9,]+)"#, // e.g. "followerCount":1234
             r#"<meta property="profile:followers" content="([0-9]+)""#, // LinkedIn
         ];
 
@@ -388,7 +420,8 @@ impl SocialMapper {
             let rest = &html[start + 34..];
             if let Some(end) = rest.find('"') {
                 let bio = &rest[..end];
-                if bio.len() > 10 && bio.len() < 500 { // Increased max length for bio
+                if bio.len() > 10 && bio.len() < 500 {
+                    // Increased max length for bio
                     return Some(Self::html_decode(bio));
                 }
             }
@@ -399,7 +432,8 @@ impl SocialMapper {
             let rest = &html[start + 25..];
             if let Some(end) = rest.find('"') {
                 let bio = &rest[..end];
-                if bio.len() > 10 && bio.len() < 500 { // Increased max length for bio
+                if bio.len() > 10 && bio.len() < 500 {
+                    // Increased max length for bio
                     return Some(Self::html_decode(bio));
                 }
             }
@@ -412,7 +446,7 @@ impl SocialMapper {
                 let p_rest = &rest[p_start + 1..];
                 if let Some(p_end) = p_rest.find('<') {
                     let bio = p_rest[..p_end].trim();
-                     if bio.len() > 10 && bio.len() < 500 {
+                    if bio.len() > 10 && bio.len() < 500 {
                         return Some(Self::html_decode(bio));
                     }
                 }
@@ -428,7 +462,7 @@ impl SocialMapper {
         let patterns = [
             r#">Location<[^>]*>([A-Za-z\s,]+)<"#, // e.g. <span>Location</span><span>New York, USA</span>
             r#"<meta name=\"geo.placename\" content=\"([^\"]+)\""#,
-            r#"([A-Z][a-z]+(?:[\s,-][A-Z][a-z]+)*),\s*([A-Z]{2,3})"# // City, Country Code
+            r#"([A-Z][a-z]+(?:[\s,-][A-Z][a-z]+)*),\s*([A-Z]{2,3})"#, // City, Country Code
         ];
 
         for pattern in patterns {
@@ -477,7 +511,7 @@ impl SocialMapper {
             let keyword_start_idx = pattern.find('"')? + 1;
             let keyword_end_idx = pattern[keyword_start_idx..].find('"')? + keyword_start_idx;
             let keyword = &pattern[keyword_start_idx..keyword_end_idx];
-            
+
             let pos = html.find(keyword)?;
             let rest = &html[pos..];
 
@@ -516,11 +550,11 @@ impl SocialMapper {
         }
         // Handle meta name="geo.placename" content="([^\"]+)"
         else if pattern.contains("<meta name=\"geo.placename\"") {
-             if let Some(start) = html.find("<meta name=\"geo.placename\" content=\"") {
+            if let Some(start) = html.find("<meta name=\"geo.placename\" content=\"") {
                 let rest = &html[start + 36..];
                 if let Some(end) = rest.find('"') {
                     let location = rest[..end].trim();
-                     if !location.is_empty() {
+                    if !location.is_empty() {
                         return Some(location.to_string());
                     }
                 }

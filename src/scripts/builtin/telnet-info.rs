@@ -2,7 +2,6 @@
 ///
 /// Detects Telnet services and identifies security issues.
 /// Telnet is inherently insecure (cleartext) and should be replaced with SSH.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -20,7 +19,11 @@ impl TelnetInfoScript {
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
                 description: "Detects Telnet services and identifies security concerns".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Vuln, ScriptCategory::Safe],
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Vuln,
+                    ScriptCategory::Safe,
+                ],
                 protocols: vec!["telnet".to_string()],
                 ports: vec![23, 2323, 992],
                 license: "MIT".to_string(),
@@ -59,7 +62,7 @@ impl Script for TelnetInfoScript {
             Finding::new(FindingType::Vulnerability, "Telnet Service Enabled")
                 .with_description(
                     "Telnet transmits all data including passwords in cleartext. \
-                     This service should be disabled in favor of SSH."
+                     This service should be disabled in favor of SSH.",
                 )
                 .with_severity(FindingSeverity::High)
                 .with_remediation("Disable Telnet and use SSH for remote administration"),
@@ -109,10 +112,13 @@ impl Script for TelnetInfoScript {
             || banner_lower.contains("root")
         {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Potential Default Credentials")
-                    .with_description("Banner suggests default credentials may be in use")
-                    .with_severity(FindingSeverity::High)
-                    .with_remediation("Change default credentials immediately"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Potential Default Credentials",
+                )
+                .with_description("Banner suggests default credentials may be in use")
+                .with_severity(FindingSeverity::High)
+                .with_remediation("Change default credentials immediately"),
             );
         }
 
@@ -136,7 +142,13 @@ impl TelnetInfoScript {
                     return Some(version.to_string());
                 }
             }
-            if word.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && word.contains('.') {
+            if word
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+                && word.contains('.')
+            {
                 return Some(word.to_string());
             }
         }
@@ -161,7 +173,10 @@ mod tests {
         ctx.set_data("banner", "Welcome to Linux\r\nlogin:");
 
         let result = script.run(&ctx).unwrap();
-        let has_vuln = result.findings.iter().any(|f| f.title.contains("Telnet Service Enabled"));
+        let has_vuln = result
+            .findings
+            .iter()
+            .any(|f| f.title.contains("Telnet Service Enabled"));
         assert!(has_vuln);
     }
 }

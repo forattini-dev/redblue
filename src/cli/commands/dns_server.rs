@@ -47,18 +47,21 @@ impl Command for DnsServerCommand {
             Flag::new("upstream", "Upstream DNS server")
                 .with_short('u')
                 .with_default("8.8.8.8"),
-            Flag::new("upstream-fallback", "Fallback upstream DNS server")
-                .with_default("1.1.1.1"),
-            Flag::new("target", "Domain pattern to hijack (supports *.example.com)")
-                .with_short('t'),
+            Flag::new("upstream-fallback", "Fallback upstream DNS server").with_default("1.1.1.1"),
+            Flag::new(
+                "target",
+                "Domain pattern to hijack (supports *.example.com)",
+            )
+            .with_short('t'),
             Flag::new("ip", "IP address to return for hijacked domains"),
-            Flag::new("pattern", "Domain pattern to block (supports wildcards)")
-                .with_short('p'),
+            Flag::new("pattern", "Domain pattern to block (supports wildcards)").with_short('p'),
             Flag::new("no-cache", "Disable DNS response caching"),
             Flag::new("no-tcp", "Disable TCP DNS server"),
-            Flag::new("log", "Enable query logging")
-                .with_short('l'),
-            Flag::new("rules", "Load rules from file (one per line: pattern,action,value)"),
+            Flag::new("log", "Enable query logging").with_short('l'),
+            Flag::new(
+                "rules",
+                "Load rules from file (one per line: pattern,action,value)",
+            ),
         ]
     }
 
@@ -77,10 +80,7 @@ impl Command for DnsServerCommand {
                 "Block ad domains",
                 "rb dns server block --pattern *.ads.com",
             ),
-            (
-                "Start with logging",
-                "rb dns server start --log",
-            ),
+            ("Start with logging", "rb dns server start --log"),
             (
                 "Custom bind address",
                 "rb dns server start --bind 127.0.0.1:5353",
@@ -145,9 +145,30 @@ impl DnsServerCommand {
         if let Some(ref fallback) = config.upstream_secondary {
             Output::item("Fallback", fallback);
         }
-        Output::item("Cache", if config.enable_cache { "enabled" } else { "disabled" });
-        Output::item("TCP", if config.enable_tcp { "enabled" } else { "disabled" });
-        Output::item("Logging", if config.log_queries { "enabled" } else { "disabled" });
+        Output::item(
+            "Cache",
+            if config.enable_cache {
+                "enabled"
+            } else {
+                "disabled"
+            },
+        );
+        Output::item(
+            "TCP",
+            if config.enable_tcp {
+                "enabled"
+            } else {
+                "disabled"
+            },
+        );
+        Output::item(
+            "Logging",
+            if config.log_queries {
+                "enabled"
+            } else {
+                "disabled"
+            },
+        );
         println!();
 
         // Load rules from file if specified
@@ -156,7 +177,11 @@ impl DnsServerCommand {
         if let Some(rules_file) = ctx.get_flag("rules") {
             let rules = self.load_rules_from_file(&rules_file)?;
             server.add_rules(rules);
-            Output::success(&format!("Loaded {} rules from {}", server.stats().queries_received, rules_file));
+            Output::success(&format!(
+                "Loaded {} rules from {}",
+                server.stats().queries_received,
+                rules_file
+            ));
         }
 
         Output::info("Starting DNS server... Press Ctrl+C to stop");
@@ -205,9 +230,9 @@ impl DnsServerCommand {
     }
 
     fn start_block(&self, ctx: &CliContext) -> Result<(), String> {
-        let pattern = ctx.get_flag("pattern").ok_or(
-            "Missing --pattern flag.\nUsage: rb dns server block --pattern *.ads.com",
-        )?;
+        let pattern = ctx
+            .get_flag("pattern")
+            .ok_or("Missing --pattern flag.\nUsage: rb dns server block --pattern *.ads.com")?;
 
         let config = self.build_config(ctx)?;
 
@@ -272,20 +297,27 @@ impl DnsServerCommand {
                 }
                 "redirect" => {
                     let target = value.ok_or_else(|| {
-                        format!("Line {}: 'redirect' action requires target domain", line_num + 1)
+                        format!(
+                            "Line {}: 'redirect' action requires target domain",
+                            line_num + 1
+                        )
                     })?;
                     DnsRule::redirect(pattern, target)
                 }
                 "forward" => {
                     let upstream = value.ok_or_else(|| {
-                        format!("Line {}: 'forward' action requires upstream server", line_num + 1)
+                        format!(
+                            "Line {}: 'forward' action requires upstream server",
+                            line_num + 1
+                        )
                     })?;
                     DnsRule::forward(pattern, upstream)
                 }
                 _ => {
                     Output::warning(&format!(
                         "Line {}: Unknown action '{}', skipping",
-                        line_num + 1, action
+                        line_num + 1,
+                        action
                     ));
                     continue;
                 }

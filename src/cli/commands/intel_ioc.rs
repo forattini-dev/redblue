@@ -8,9 +8,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::intel::{
-    Ioc, IocCollection, IocConfidence, IocExtractor, IocSource, IocType,
-};
+use crate::modules::intel::{Ioc, IocCollection, IocConfidence, IocExtractor, IocSource, IocType};
 use std::net::Ipv4Addr;
 
 pub struct IntelIocCommand;
@@ -65,34 +63,52 @@ impl Command for IntelIocCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("target", "Target domain or host for IOC context")
-                .with_short('t'),
+            Flag::new("target", "Target domain or host for IOC context").with_short('t'),
             Flag::new("ip", "IP address from scan results"),
-            Flag::new("ports", "Comma-separated open ports")
-                .with_short('p'),
+            Flag::new("ports", "Comma-separated open ports").with_short('p'),
             Flag::new("dns", "Domain to extract DNS IOCs from"),
             Flag::new("format", "Export format (json, csv, stix)")
                 .with_short('f')
                 .with_default("json"),
-            Flag::new("output", "Output file path")
-                .with_short('o'),
-            Flag::new("confidence", "Filter by minimum confidence (low, medium, high)")
-                .with_short('c'),
+            Flag::new("output", "Output file path").with_short('o'),
+            Flag::new(
+                "confidence",
+                "Filter by minimum confidence (low, medium, high)",
+            )
+            .with_short('c'),
             Flag::new("type", "Filter by IOC type (ipv4, domain, email, etc.)"),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Extract from port scan", "rb intel ioc extract target=example.com ip=93.184.216.34 ports=22,80,443"),
+            (
+                "Extract from port scan",
+                "rb intel ioc extract target=example.com ip=93.184.216.34 ports=22,80,443",
+            ),
             ("Run demo extraction", "rb intel ioc demo example.com"),
-            ("Export to JSON", "rb intel ioc export format=json output=iocs.json"),
-            ("Export to CSV", "rb intel ioc export format=csv output=iocs.csv"),
-            ("Export to STIX", "rb intel ioc export format=stix output=iocs.stix.json"),
+            (
+                "Export to JSON",
+                "rb intel ioc export format=json output=iocs.json",
+            ),
+            (
+                "Export to CSV",
+                "rb intel ioc export format=csv output=iocs.csv",
+            ),
+            (
+                "Export to STIX",
+                "rb intel ioc export format=stix output=iocs.stix.json",
+            ),
             ("Show IOC types", "rb intel ioc types"),
             ("Import from JSON file", "rb intel ioc import iocs.json"),
-            ("Import from STIX bundle", "rb intel ioc import threat-intel.stix.json format=stix"),
-            ("Import from CSV", "rb intel ioc import indicators.csv format=csv"),
+            (
+                "Import from STIX bundle",
+                "rb intel ioc import threat-intel.stix.json format=stix",
+            ),
+            (
+                "Import from CSV",
+                "rb intel ioc import indicators.csv format=csv",
+            ),
             ("Search by IP", "rb intel ioc search 192.168.1.1"),
             ("Search by type", "rb intel ioc search 192.168.1 type=ipv4"),
             ("Search by tag", "rb intel ioc search example tag=malware"),
@@ -148,13 +164,9 @@ impl IntelIocCommand {
                             } else {
                                 IocType::IPv4
                             };
-                            let ioc = Ioc::new(
-                                ioc_type,
-                                value,
-                                IocSource::PortScan,
-                                85,
-                                target.as_str(),
-                            ).with_tag("manual_input");
+                            let ioc =
+                                Ioc::new(ioc_type, value, IocSource::PortScan, 85, target.as_str())
+                                    .with_tag("manual_input");
                             collection.add(ioc);
                         }
                         "ports" | "p" => {
@@ -171,15 +183,20 @@ impl IntelIocCommand {
                                     IocSource::PortScan,
                                     70,
                                     target.as_str(),
-                                ).with_tag(format!("port:{}", port));
+                                )
+                                .with_tag(format!("port:{}", port));
                                 // Don't add placeholder, just note port info
                             }
 
                             // Add port information to notes
-                            Output::info(&format!("Ports noted: {}", ports.iter()
-                                .map(|p| p.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ")));
+                            Output::info(&format!(
+                                "Ports noted: {}",
+                                ports
+                                    .iter()
+                                    .map(|p| p.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ));
                         }
                         "dns" | "domain" => {
                             let extractor = IocExtractor::new(target.as_str());
@@ -226,13 +243,9 @@ impl IntelIocCommand {
                                 64 => IocType::HashSHA256,
                                 _ => IocType::HashSHA256,
                             };
-                            let ioc = Ioc::new(
-                                hash_type,
-                                value,
-                                IocSource::Manual,
-                                90,
-                                target.as_str(),
-                            ).with_tag("manual_input");
+                            let ioc =
+                                Ioc::new(hash_type, value, IocSource::Manual, 90, target.as_str())
+                                    .with_tag("manual_input");
                             collection.add(ioc);
                         }
                         _ => {}
@@ -262,7 +275,9 @@ impl IntelIocCommand {
             Output::info("  url=http://...         Add URL");
             Output::info("  hash=abc123...         Add file hash");
             println!();
-            Output::info("Example: rb intel ioc extract target=example.com ip=93.184.216.34 dns=example.com");
+            Output::info(
+                "Example: rb intel ioc extract target=example.com ip=93.184.216.34 dns=example.com",
+            );
             return Ok(());
         }
 
@@ -286,7 +301,12 @@ impl IntelIocCommand {
                 IocConfidence::Medium => "\x1b[33m[MED]\x1b[0m",
                 IocConfidence::Low => "\x1b[90m[LOW]\x1b[0m",
             };
-            println!("  {} {:8} {}", conf_badge, format!("[{}]", ioc.ioc_type), ioc.value);
+            println!(
+                "  {} {:8} {}",
+                conf_badge,
+                format!("[{}]", ioc.ioc_type),
+                ioc.value
+            );
             if !ioc.mitre_techniques.is_empty() {
                 println!("      ATT&CK: {}", ioc.mitre_techniques.join(", "));
             }
@@ -326,23 +346,38 @@ impl IntelIocCommand {
 
         // If no output file specified, print to stdout
         let output_path = output_file.clone().unwrap_or_else(|| {
-            format!("iocs.{}", match format.as_str() {
-                "csv" => "csv",
-                "stix" => "stix.json",
-                _ => "json",
-            })
+            format!(
+                "iocs.{}",
+                match format.as_str() {
+                    "csv" => "csv",
+                    "stix" => "stix.json",
+                    _ => "json",
+                }
+            )
         });
 
         // Add sample IOCs (in real usage, would load from database)
         collection.add(
-            Ioc::new(IocType::IPv4, "93.184.216.34", IocSource::DnsQuery, 90, &target)
-                .with_technique("T1071.004")
-                .with_tag("dns_resolved")
+            Ioc::new(
+                IocType::IPv4,
+                "93.184.216.34",
+                IocSource::DnsQuery,
+                90,
+                &target,
+            )
+            .with_technique("T1071.004")
+            .with_tag("dns_resolved"),
         );
         collection.add(
-            Ioc::new(IocType::Domain, "example.com", IocSource::DnsQuery, 95, &target)
-                .with_technique("T1071.004")
-                .with_tag("primary_domain")
+            Ioc::new(
+                IocType::Domain,
+                "example.com",
+                IocSource::DnsQuery,
+                95,
+                &target,
+            )
+            .with_technique("T1071.004")
+            .with_tag("primary_domain"),
         );
 
         if collection.is_empty() {
@@ -361,7 +396,11 @@ impl IntelIocCommand {
         std::fs::write(&output_path, &content)
             .map_err(|e| format!("Failed to write file: {}", e))?;
 
-        Output::success(&format!("Exported {} IOCs to {}", collection.len(), output_path));
+        Output::success(&format!(
+            "Exported {} IOCs to {}",
+            collection.len(),
+            output_path
+        ));
         println!();
         Output::item("Format", &format);
         Output::item("File", &output_path);
@@ -384,7 +423,11 @@ impl IntelIocCommand {
             ("md5", "MD5 hash", "d41d8cd98f00b204..."),
             ("sha1", "SHA-1 hash", "da39a3ee5e6b4b0d..."),
             ("sha256", "SHA-256 hash", "e3b0c44298fc1c14..."),
-            ("certificate", "TLS certificate fingerprint", "SHA256 fingerprint"),
+            (
+                "certificate",
+                "TLS certificate fingerprint",
+                "SHA256 fingerprint",
+            ),
             ("ja3", "JA3 client fingerprint", "TLS client fingerprint"),
             ("ja3s", "JA3S server fingerprint", "TLS server fingerprint"),
             ("user-agent", "HTTP User-Agent string", "Mozilla/5.0..."),
@@ -419,7 +462,9 @@ impl IntelIocCommand {
 
     /// Run demo extraction
     fn run_demo(&self, ctx: &CliContext) -> Result<(), String> {
-        let target = ctx.target.as_ref()
+        let target = ctx
+            .target
+            .as_ref()
             .map(|s| s.as_str())
             .unwrap_or("example.com");
 
@@ -432,9 +477,17 @@ impl IntelIocCommand {
         // Simulate port scan results
         Output::section("1. Port Scan IOCs");
         let port_iocs = extractor.extract_from_port_scan("93.184.216.34", &[22, 80, 443, 8080]);
-        Output::success(&format!("Extracted {} IOCs from port scan", port_iocs.len()));
+        Output::success(&format!(
+            "Extracted {} IOCs from port scan",
+            port_iocs.len()
+        ));
         for ioc in &port_iocs {
-            println!("  • {} [{}] - {} tags", ioc.value, ioc.ioc_type, ioc.tags.len());
+            println!(
+                "  • {} [{}] - {} tags",
+                ioc.value,
+                ioc.ioc_type,
+                ioc.tags.len()
+            );
             collection.add(ioc.clone());
         }
         println!();
@@ -485,7 +538,10 @@ impl IntelIocCommand {
             "mail.example.com".to_string(),
             "dev.example.com".to_string(),
         ]);
-        Output::success(&format!("Extracted {} IOCs from subdomains", subdomain_iocs.len()));
+        Output::success(&format!(
+            "Extracted {} IOCs from subdomains",
+            subdomain_iocs.len()
+        ));
         for ioc in &subdomain_iocs {
             println!("  • {} [{}]", ioc.value, ioc.ioc_type);
             collection.add(ioc.clone());
@@ -503,9 +559,27 @@ impl IntelIocCommand {
         println!();
 
         let conf_counts = collection.count_by_confidence();
-        Output::item("High confidence", &conf_counts.get(&IocConfidence::High).unwrap_or(&0).to_string());
-        Output::item("Medium confidence", &conf_counts.get(&IocConfidence::Medium).unwrap_or(&0).to_string());
-        Output::item("Low confidence", &conf_counts.get(&IocConfidence::Low).unwrap_or(&0).to_string());
+        Output::item(
+            "High confidence",
+            &conf_counts
+                .get(&IocConfidence::High)
+                .unwrap_or(&0)
+                .to_string(),
+        );
+        Output::item(
+            "Medium confidence",
+            &conf_counts
+                .get(&IocConfidence::Medium)
+                .unwrap_or(&0)
+                .to_string(),
+        );
+        Output::item(
+            "Low confidence",
+            &conf_counts
+                .get(&IocConfidence::Low)
+                .unwrap_or(&0)
+                .to_string(),
+        );
         println!();
 
         // Show STIX patterns for a few IOCs
@@ -526,7 +600,9 @@ impl IntelIocCommand {
         println!();
 
         // Get file path from target or args
-        let file_path = ctx.target.as_ref()
+        let file_path = ctx
+            .target
+            .as_ref()
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
                 Output::error("No file specified");
@@ -537,7 +613,11 @@ impl IntelIocCommand {
 
         // Determine format
         let mut format = String::from("auto");
-        for arg in ctx.args.iter().skip(if ctx.target.is_some() { 0 } else { 1 }) {
+        for arg in ctx
+            .args
+            .iter()
+            .skip(if ctx.target.is_some() { 0 } else { 1 })
+        {
             if let Some(eq_pos) = arg.find('=') {
                 let (key, value) = arg.split_at(eq_pos);
                 let value = &value[1..];
@@ -555,7 +635,8 @@ impl IntelIocCommand {
                 "stix"
             } else {
                 "json"
-            }.to_string();
+            }
+            .to_string();
         }
 
         Output::item("File", file_path);
@@ -602,7 +683,12 @@ impl IntelIocCommand {
                 IocConfidence::Medium => "\x1b[33m[MED]\x1b[0m",
                 IocConfidence::Low => "\x1b[90m[LOW]\x1b[0m",
             };
-            println!("  {} {:8} {}", conf_badge, format!("[{}]", ioc.ioc_type), ioc.value);
+            println!(
+                "  {} {:8} {}",
+                conf_badge,
+                format!("[{}]", ioc.ioc_type),
+                ioc.value
+            );
         }
 
         if import_count > 5 {
@@ -613,7 +699,11 @@ impl IntelIocCommand {
     }
 
     /// Parse IOCs from CSV content
-    fn parse_csv_iocs(&self, content: &str, collection: &mut IocCollection) -> Result<usize, String> {
+    fn parse_csv_iocs(
+        &self,
+        content: &str,
+        collection: &mut IocCollection,
+    ) -> Result<usize, String> {
         let mut count = 0;
         let lines: Vec<&str> = content.lines().collect();
 
@@ -623,9 +713,15 @@ impl IntelIocCommand {
 
         // Parse header to find column indices
         let header: Vec<&str> = lines[0].split(',').map(|s| s.trim()).collect();
-        let type_idx = header.iter().position(|&h| h.to_lowercase() == "type" || h.to_lowercase() == "ioc_type");
-        let value_idx = header.iter().position(|&h| h.to_lowercase() == "value" || h.to_lowercase() == "indicator");
-        let confidence_idx = header.iter().position(|&h| h.to_lowercase() == "confidence");
+        let type_idx = header
+            .iter()
+            .position(|&h| h.to_lowercase() == "type" || h.to_lowercase() == "ioc_type");
+        let value_idx = header
+            .iter()
+            .position(|&h| h.to_lowercase() == "value" || h.to_lowercase() == "indicator");
+        let confidence_idx = header
+            .iter()
+            .position(|&h| h.to_lowercase() == "confidence");
         let tags_idx = header.iter().position(|&h| h.to_lowercase() == "tags");
 
         let value_col = value_idx.unwrap_or(0);
@@ -683,7 +779,11 @@ impl IntelIocCommand {
     }
 
     /// Parse IOCs from JSON content
-    fn parse_json_iocs(&self, content: &str, collection: &mut IocCollection) -> Result<usize, String> {
+    fn parse_json_iocs(
+        &self,
+        content: &str,
+        collection: &mut IocCollection,
+    ) -> Result<usize, String> {
         let mut count = 0;
 
         // Simple JSON parsing for IOC arrays
@@ -699,7 +799,11 @@ impl IntelIocCommand {
 
         // Split by }, { pattern (simplified parser)
         for obj_str in inner.split("},") {
-            let obj_str = obj_str.trim().trim_start_matches('{').trim_end_matches('}').trim_end_matches(']');
+            let obj_str = obj_str
+                .trim()
+                .trim_start_matches('{')
+                .trim_end_matches('}')
+                .trim_end_matches(']');
             if obj_str.is_empty() {
                 continue;
             }
@@ -757,7 +861,11 @@ impl IntelIocCommand {
     }
 
     /// Parse IOCs from STIX bundle content
-    fn parse_stix_iocs(&self, content: &str, collection: &mut IocCollection) -> Result<usize, String> {
+    fn parse_stix_iocs(
+        &self,
+        content: &str,
+        collection: &mut IocCollection,
+    ) -> Result<usize, String> {
         let mut count = 0;
 
         // Look for indicator objects with patterns
@@ -811,21 +919,28 @@ impl IntelIocCommand {
             IocType::Email
         } else if type_part.contains("file:hashes.MD5") {
             IocType::HashMD5
-        } else if type_part.contains("file:hashes.SHA-1") || type_part.contains("file:hashes.'SHA-1'") {
+        } else if type_part.contains("file:hashes.SHA-1")
+            || type_part.contains("file:hashes.'SHA-1'")
+        {
             IocType::HashSHA1
-        } else if type_part.contains("file:hashes.SHA-256") || type_part.contains("file:hashes.'SHA-256'") {
+        } else if type_part.contains("file:hashes.SHA-256")
+            || type_part.contains("file:hashes.'SHA-256'")
+        {
             IocType::HashSHA256
         } else {
             IocType::Domain // Default
         };
 
-        Some(Ioc::new(
-            ioc_type,
-            value,
-            IocSource::External("stix".to_string()),
-            75,
-            "stix_import",
-        ).with_tag("stix"))
+        Some(
+            Ioc::new(
+                ioc_type,
+                value,
+                IocSource::External("stix".to_string()),
+                75,
+                "stix_import",
+            )
+            .with_tag("stix"),
+        )
     }
 
     /// Parse IOC type string to IocType enum
@@ -855,7 +970,9 @@ impl IntelIocCommand {
         println!();
 
         // Get search query
-        let query = ctx.target.as_ref()
+        let query = ctx
+            .target
+            .as_ref()
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
                 Output::error("No search query specified");
@@ -899,30 +1016,37 @@ impl IntelIocCommand {
 
         // Search and filter
         let query_lower = query.to_lowercase();
-        let mut results: Vec<&Ioc> = collection.all().into_iter()
+        let mut results: Vec<&Ioc> = collection
+            .all()
+            .into_iter()
             .filter(|ioc| {
                 // Match query against value
                 let value_match = ioc.value.to_lowercase().contains(&query_lower);
 
                 // Type filter
-                let type_match = type_filter.as_ref()
+                let type_match = type_filter
+                    .as_ref()
                     .map(|t| ioc.ioc_type.to_string().to_lowercase().contains(t))
                     .unwrap_or(true);
 
                 // Tag filter
-                let tag_match = tag_filter.as_ref()
-                    .map(|t| ioc.tags.iter().any(|tag| tag.to_lowercase().contains(&t.to_lowercase())))
+                let tag_match = tag_filter
+                    .as_ref()
+                    .map(|t| {
+                        ioc.tags
+                            .iter()
+                            .any(|tag| tag.to_lowercase().contains(&t.to_lowercase()))
+                    })
                     .unwrap_or(true);
 
                 // Confidence filter
-                let conf_match = confidence_filter.as_ref()
-                    .map(|c| {
-                        match c.as_str() {
-                            "high" | "h" => matches!(ioc.confidence, IocConfidence::High),
-                            "medium" | "med" | "m" => matches!(ioc.confidence, IocConfidence::Medium),
-                            "low" | "l" => matches!(ioc.confidence, IocConfidence::Low),
-                            _ => true
-                        }
+                let conf_match = confidence_filter
+                    .as_ref()
+                    .map(|c| match c.as_str() {
+                        "high" | "h" => matches!(ioc.confidence, IocConfidence::High),
+                        "medium" | "med" | "m" => matches!(ioc.confidence, IocConfidence::Medium),
+                        "low" | "l" => matches!(ioc.confidence, IocConfidence::Low),
+                        _ => true,
                     })
                     .unwrap_or(true);
 
@@ -951,7 +1075,8 @@ impl IntelIocCommand {
                 IocConfidence::Medium => "\x1b[33m[MED]\x1b[0m",
                 IocConfidence::Low => "\x1b[90m[LOW]\x1b[0m",
             };
-            println!("{}. {} {:10} {}",
+            println!(
+                "{}. {} {:10} {}",
                 i + 1,
                 conf_badge,
                 format!("[{}]", ioc.ioc_type),
@@ -965,12 +1090,19 @@ impl IntelIocCommand {
             if !ioc.mitre_techniques.is_empty() {
                 println!("   ATT&CK: {}", ioc.mitre_techniques.join(", "));
             }
-            println!("   Source: {} | Context: {}", ioc.source, ioc.context.as_deref().unwrap_or("-"));
+            println!(
+                "   Source: {} | Context: {}",
+                ioc.source,
+                ioc.context.as_deref().unwrap_or("-")
+            );
             println!();
         }
 
         if results.len() > 20 {
-            Output::info(&format!("... and {} more results (showing first 20)", results.len() - 20));
+            Output::info(&format!(
+                "... and {} more results (showing first 20)",
+                results.len() - 20
+            ));
         }
 
         Ok(())
@@ -980,27 +1112,153 @@ impl IntelIocCommand {
     fn populate_sample_database(&self, collection: &mut IocCollection) {
         // Add diverse IOCs for search testing
         let sample_iocs = vec![
-            (IocType::IPv4, "192.168.1.1", "port_scan", 85, vec!["internal", "scan"]),
-            (IocType::IPv4, "192.168.1.100", "port_scan", 75, vec!["internal", "ssh"]),
-            (IocType::IPv4, "10.0.0.1", "dns_query", 90, vec!["gateway", "router"]),
-            (IocType::IPv4, "93.184.216.34", "dns_query", 95, vec!["example", "public"]),
-            (IocType::IPv4, "8.8.8.8", "dns_server", 80, vec!["google", "dns"]),
-            (IocType::IPv6, "2001:db8::1", "dns_query", 70, vec!["ipv6", "test"]),
-            (IocType::Domain, "example.com", "dns_query", 95, vec!["example", "public"]),
-            (IocType::Domain, "malware.bad.com", "threat_intel", 99, vec!["malware", "c2"]),
-            (IocType::Domain, "api.example.com", "subdomain_enum", 85, vec!["api", "subdomain"]),
-            (IocType::Domain, "mail.example.com", "dns_mx", 80, vec!["mail", "mx"]),
-            (IocType::Domain, "cdn.example.com", "subdomain_enum", 75, vec!["cdn", "subdomain"]),
-            (IocType::Url, "http://example.com/login", "web_crawl", 70, vec!["login", "auth"]),
-            (IocType::Url, "https://api.example.com/v1/users", "web_crawl", 65, vec!["api", "rest"]),
-            (IocType::Email, "admin@example.com", "whois", 60, vec!["admin", "contact"]),
-            (IocType::Email, "security@example.com", "harvest", 55, vec!["security", "contact"]),
-            (IocType::HashSHA256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "file_scan", 90, vec!["empty", "hash"]),
-            (IocType::HashMD5, "d41d8cd98f00b204e9800998ecf8427e", "file_scan", 85, vec!["empty", "md5"]),
-            (IocType::Certificate, "DigiCert:abc123def456", "tls_scan", 80, vec!["tls", "cert"]),
-            (IocType::JA3, "769,47-53-5-10-49171-49172-49161-49162-50-56-19-4,0-10-11-35-15-13,23-24-25,0", "tls_fingerprint", 75, vec!["ja3", "chrome"]),
-            (IocType::ASN, "AS15169", "ip_lookup", 70, vec!["google", "asn"]),
-            (IocType::CIDR, "192.168.0.0/24", "network_scan", 65, vec!["internal", "subnet"]),
+            (
+                IocType::IPv4,
+                "192.168.1.1",
+                "port_scan",
+                85,
+                vec!["internal", "scan"],
+            ),
+            (
+                IocType::IPv4,
+                "192.168.1.100",
+                "port_scan",
+                75,
+                vec!["internal", "ssh"],
+            ),
+            (
+                IocType::IPv4,
+                "10.0.0.1",
+                "dns_query",
+                90,
+                vec!["gateway", "router"],
+            ),
+            (
+                IocType::IPv4,
+                "93.184.216.34",
+                "dns_query",
+                95,
+                vec!["example", "public"],
+            ),
+            (
+                IocType::IPv4,
+                "8.8.8.8",
+                "dns_server",
+                80,
+                vec!["google", "dns"],
+            ),
+            (
+                IocType::IPv6,
+                "2001:db8::1",
+                "dns_query",
+                70,
+                vec!["ipv6", "test"],
+            ),
+            (
+                IocType::Domain,
+                "example.com",
+                "dns_query",
+                95,
+                vec!["example", "public"],
+            ),
+            (
+                IocType::Domain,
+                "malware.bad.com",
+                "threat_intel",
+                99,
+                vec!["malware", "c2"],
+            ),
+            (
+                IocType::Domain,
+                "api.example.com",
+                "subdomain_enum",
+                85,
+                vec!["api", "subdomain"],
+            ),
+            (
+                IocType::Domain,
+                "mail.example.com",
+                "dns_mx",
+                80,
+                vec!["mail", "mx"],
+            ),
+            (
+                IocType::Domain,
+                "cdn.example.com",
+                "subdomain_enum",
+                75,
+                vec!["cdn", "subdomain"],
+            ),
+            (
+                IocType::Url,
+                "http://example.com/login",
+                "web_crawl",
+                70,
+                vec!["login", "auth"],
+            ),
+            (
+                IocType::Url,
+                "https://api.example.com/v1/users",
+                "web_crawl",
+                65,
+                vec!["api", "rest"],
+            ),
+            (
+                IocType::Email,
+                "admin@example.com",
+                "whois",
+                60,
+                vec!["admin", "contact"],
+            ),
+            (
+                IocType::Email,
+                "security@example.com",
+                "harvest",
+                55,
+                vec!["security", "contact"],
+            ),
+            (
+                IocType::HashSHA256,
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "file_scan",
+                90,
+                vec!["empty", "hash"],
+            ),
+            (
+                IocType::HashMD5,
+                "d41d8cd98f00b204e9800998ecf8427e",
+                "file_scan",
+                85,
+                vec!["empty", "md5"],
+            ),
+            (
+                IocType::Certificate,
+                "DigiCert:abc123def456",
+                "tls_scan",
+                80,
+                vec!["tls", "cert"],
+            ),
+            (
+                IocType::JA3,
+                "769,47-53-5-10-49171-49172-49161-49162-50-56-19-4,0-10-11-35-15-13,23-24-25,0",
+                "tls_fingerprint",
+                75,
+                vec!["ja3", "chrome"],
+            ),
+            (
+                IocType::ASN,
+                "AS15169",
+                "ip_lookup",
+                70,
+                vec!["google", "asn"],
+            ),
+            (
+                IocType::CIDR,
+                "192.168.0.0/24",
+                "network_scan",
+                65,
+                vec!["internal", "subnet"],
+            ),
         ];
 
         for (ioc_type, value, context, confidence, tags) in sample_iocs {
@@ -1051,9 +1309,7 @@ impl IntelIocCommand {
             let indicator_id = format!("indicator--redblue-{}-{}", now, i);
             let pattern = ioc.to_stix_pattern();
 
-            let labels: Vec<String> = ioc.tags.iter()
-                .map(|t| format!("\"{}\"", t))
-                .collect();
+            let labels: Vec<String> = ioc.tags.iter().map(|t| format!("\"{}\"", t)).collect();
 
             objects.push(format!(
                 r#"{{

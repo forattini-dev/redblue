@@ -10,7 +10,6 @@
 /// - Transform pipelines
 ///
 /// NO external dependencies - pure Rust std implementation
-
 use crate::modules::web::dom::Document;
 use crate::modules::web::extractors;
 use crate::protocols::http::{HttpClient, HttpRequest};
@@ -366,9 +365,7 @@ impl Scraper {
 
     /// Scrape raw HTML (no HTTP request)
     pub fn scrape_html(&self, html: &str, base_url: Option<&str>) -> Result<ScrapeResult, String> {
-        let base = base_url
-            .or(self.config.base_url.as_deref())
-            .unwrap_or("");
+        let base = base_url.or(self.config.base_url.as_deref()).unwrap_or("");
         let doc = Document::parse_with_base(html, base);
 
         let data = self.extract_with_rules(&doc, &self.config.rules.clone())?;
@@ -408,7 +405,15 @@ impl Scraper {
             // Extract from all matches
             let values: Vec<ExtractedValue> = selection
                 .iter()
-                .filter_map(|elem| self.extract_from_element(doc, elem, &rule.extract, &rule.transform, &rule.nested))
+                .filter_map(|elem| {
+                    self.extract_from_element(
+                        doc,
+                        elem,
+                        &rule.extract,
+                        &rule.transform,
+                        &rule.nested,
+                    )
+                })
                 .collect();
 
             Ok(ExtractedValue::Array(values))
@@ -488,7 +493,10 @@ impl Scraper {
             Transform::ParseInt => {
                 let trimmed = value.trim();
                 // Remove non-numeric prefix/suffix
-                let numeric: String = trimmed.chars().filter(|c| c.is_ascii_digit() || *c == '-').collect();
+                let numeric: String = trimmed
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == '-')
+                    .collect();
                 numeric
                     .parse::<i64>()
                     .map(|n| ExtractedValue::Number(n as f64))
@@ -496,7 +504,10 @@ impl Scraper {
             }
             Transform::ParseFloat => {
                 let trimmed = value.trim();
-                let numeric: String = trimmed.chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.').collect();
+                let numeric: String = trimmed
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
+                    .collect();
                 numeric
                     .parse::<f64>()
                     .map(ExtractedValue::Number)
@@ -508,9 +519,7 @@ impl Scraper {
                 // Full regex would need implementation
                 ExtractedValue::String(value.to_string())
             }
-            Transform::Replace(from, to) => {
-                ExtractedValue::String(value.replace(from, to))
-            }
+            Transform::Replace(from, to) => ExtractedValue::String(value.replace(from, to)),
             Transform::Split(delimiter) => {
                 let parts: Vec<ExtractedValue> = value
                     .split(delimiter)
@@ -639,7 +648,11 @@ impl Scraper {
                     next_url_opt = self.find_next_page(&current_doc, &pagination.next_selector)?;
                 }
                 Err(e) => {
-                    result.errors.push(format!("Extraction error on page {}: {}", result.page_count + 1, e));
+                    result.errors.push(format!(
+                        "Extraction error on page {}: {}",
+                        result.page_count + 1,
+                        e
+                    ));
                     break;
                 }
             }
@@ -650,7 +663,8 @@ impl Scraper {
 
     /// Find next page URL from document
     fn find_next_page(&self, doc: &Document, selector: &str) -> Result<Option<String>, String> {
-        let sel = parse_selector(selector).map_err(|e| format!("Invalid pagination selector: {}", e))?;
+        let sel =
+            parse_selector(selector).map_err(|e| format!("Invalid pagination selector: {}", e))?;
         let selection = sel.match_in(doc);
 
         if let Some(elem) = selection.first() {
@@ -724,7 +738,10 @@ impl ScrapeConfig {
 
                 while i < lines.len() {
                     let p_line = lines[i].trim();
-                    if !p_line.starts_with("next:") && !p_line.starts_with("max_pages:") && !p_line.starts_with("delay:") {
+                    if !p_line.starts_with("next:")
+                        && !p_line.starts_with("max_pages:")
+                        && !p_line.starts_with("delay:")
+                    {
                         if !p_line.is_empty() && !p_line.starts_with('#') {
                             i -= 1;
                             break;
@@ -932,10 +949,18 @@ mod tests {
         scraper.add_rule("intro", "p.intro", ExtractType::Text);
         scraper.add_rule_multiple("links", "a", ExtractType::Attr("href".to_string()));
 
-        let result = scraper.scrape_html(html, Some("http://example.com")).unwrap();
+        let result = scraper
+            .scrape_html(html, Some("http://example.com"))
+            .unwrap();
 
-        assert_eq!(result.data.get("title").and_then(|v| v.as_string()), Some("Test Page"));
-        assert_eq!(result.data.get("heading").and_then(|v| v.as_string()), Some("Welcome"));
+        assert_eq!(
+            result.data.get("title").and_then(|v| v.as_string()),
+            Some("Test Page")
+        );
+        assert_eq!(
+            result.data.get("heading").and_then(|v| v.as_string()),
+            Some("Welcome")
+        );
 
         if let Some(ExtractedValue::Array(links)) = result.data.get("links") {
             assert_eq!(links.len(), 2);

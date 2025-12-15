@@ -2,7 +2,6 @@
 ///
 /// Builds canonical Huffman codes from a list of code lengths.
 /// The algorithm follows the exact specification in RFC 1951.
-
 use super::error::{GzipError, Result};
 
 /// Maximum code length allowed by DEFLATE

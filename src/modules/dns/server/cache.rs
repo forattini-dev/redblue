@@ -204,7 +204,9 @@ impl DnsCache {
         let key = CacheKey::new(domain, rtype);
 
         if let Ok(mut entries) = self.entries.write() {
-            let entry = entries.entry(key).or_insert_with(|| CacheEntry::new(rtype, ttl));
+            let entry = entries
+                .entry(key)
+                .or_insert_with(|| CacheEntry::new(rtype, ttl));
             entry.add_address(addr);
             // Update TTL if longer
             if ttl > entry.ttl {

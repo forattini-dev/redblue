@@ -3,7 +3,7 @@
 
 use crate::storage::session::SessionFile;
 use std::collections::HashMap;
-use std::io::{self, Read, Write, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -305,8 +305,8 @@ pub struct TuiApp {
     ioc_data: Vec<TableRow>,              // IOCs
     scan_activity: Vec<String>,           // Real-time scan logs
     // RBB (RedBlue Browser) zombie tracking
-    rbb_zombies: Vec<TableRow>,           // Hooked browser zombies
-    rbb_server_addr: Option<String>,      // RBB server address if running
+    rbb_zombies: Vec<TableRow>,      // Hooked browser zombies
+    rbb_server_addr: Option<String>, // RBB server address if running
     // Auto-refresh and background scanning
     last_refresh: std::time::Instant, // Last time data was refreshed
     auto_refresh_enabled: bool,       // Enable auto-refresh on tab switch
@@ -317,8 +317,8 @@ pub struct TuiApp {
     // Session variables (in-memory only, not persisted)
     session_variables: HashMap<String, String>,
     // Scraping state
-    current_doc: Option<String>,        // Currently loaded HTML document (raw HTML)
-    current_doc_url: String,            // URL of the current document
+    current_doc: Option<String>, // Currently loaded HTML document (raw HTML)
+    current_doc_url: String,     // URL of the current document
     last_selector_results: Vec<String>, // Snippets from last $ command
     // Event channel
     tx: Sender<Event>,
@@ -404,8 +404,9 @@ impl TuiApp {
         thread::spawn(move || {
             // Determine executable path
             let exe = std::env::current_exe().unwrap_or_else(|_| "rb".into());
-            
-            tx.send(Event::Log(format!("Running: rb {}", args.join(" ")))).ok();
+
+            tx.send(Event::Log(format!("Running: rb {}", args.join(" "))))
+                .ok();
 
             let mut child = ProcessCommand::new(exe)
                 .args(&args)
@@ -425,7 +426,7 @@ impl TuiApp {
                             }
                         }
                     }
-                    
+
                     // Also capture stderr
                     if let Some(stderr) = child.stderr.take() {
                         let reader = BufReader::new(stderr);
@@ -440,7 +441,8 @@ impl TuiApp {
                     tx.send(Event::Log("Command finished".to_string())).ok();
                 }
                 Err(e) => {
-                    tx.send(Event::Log(format!("Failed to start command: {}", e))).ok();
+                    tx.send(Event::Log(format!("Failed to start command: {}", e)))
+                        .ok();
                 }
             }
         });
@@ -559,10 +561,9 @@ impl TuiApp {
             // Actually, let's verify RedDb first.
             .all() // This is wrong if I call .mitre().all() for vulns
             .map_err(|e| format!("Failed to load MITRE data: {}", e))?;
-            
+
         // I need to add .vulns() to RedDb.
         // Let's abort this edit and fix RedDb first.
-
 
         // Load subdomain data
         let subdomains = db
@@ -619,7 +620,7 @@ impl TuiApp {
                 timestamp: rec.discovered_at as u64,
             });
         }
-        
+
         let mitre_records = db
             .mitre()
             .all()
@@ -815,39 +816,39 @@ impl TuiApp {
             loop {
                 if stdin.read_exact(&mut buffer).is_ok() {
                     let ch = buffer[0];
-                    
+
                     // Parse ANSI escape sequences
                     if ch == 0x1b {
-                        // Non-blocking check for sequence would be ideal, 
+                        // Non-blocking check for sequence would be ideal,
                         // but for now we'll use a small timeout logic or just blocking read
                         // since we are in a dedicated thread.
-                        
-                        // Try to read next byte with a very short timeout? 
+
+                        // Try to read next byte with a very short timeout?
                         // Standard Stdin doesn't support timeout easily.
                         // We'll assume if we got ESC, we check if more bytes follow immediately.
                         // Actually, robust ANSI parsing usually blocks for a few ms.
-                        
+
                         // Simplified ANSI parser for this thread
                         // We can reuse the logic from the original handle_input but adapted
                         let mut seq = vec![ch];
                         // We'll optimistically read a few bytes if available
                         // Since we can't peek, this is tricky without "crossterm".
-                        // Hack: Just assume manual ESC press is rare and fast, 
+                        // Hack: Just assume manual ESC press is rare and fast,
                         // while ANSI sequences come in bursts.
-                        
+
                         // For now, let's just forward the ESC and let the main loop handle state?
                         // No, main loop shouldn't block.
-                        
+
                         // Let's implement a simple blocking parser here.
-                        // It might block the input thread if user presses ESC and waits, 
+                        // It might block the input thread if user presses ESC and waits,
                         // but that's acceptable for the input thread.
-                        
+
                         // Read next byte
                         let mut next = [0u8; 1];
-                        // We assume if it's a sequence, bytes are ready. 
-                        // Real raw mode might need poll/select. 
+                        // We assume if it's a sequence, bytes are ready.
+                        // Real raw mode might need poll/select.
                         // Given "ZERO dependencies", we'll try a best effort.
-                        
+
                         // Key mapping
                         tx.send(Event::Input(Key::Esc)).ok();
                     } else {
@@ -863,7 +864,7 @@ impl TuiApp {
                 }
             }
         });
-        
+
         // We need a better input thread that handles sequences properly.
         // Let's overwrite the thread above with a better one.
         let tx_input = self.tx.clone();
@@ -873,17 +874,15 @@ impl TuiApp {
 
         // Spawn tick thread
         let tx_tick = self.tx.clone();
-        thread::spawn(move || {
-            loop {
-                tx_tick.send(Event::Tick).ok();
-                thread::sleep(Duration::from_millis(100));
-            }
+        thread::spawn(move || loop {
+            tx_tick.send(Event::Tick).ok();
+            thread::sleep(Duration::from_millis(100));
         });
 
         while self.running {
             // Render only on events to save CPU, but ensure we render at least once
             self.render()?;
-            
+
             if let Ok(event) = self.rx.recv() {
                 match event {
                     Event::Input(key) => self.process_key(key)?,
@@ -896,13 +895,13 @@ impl TuiApp {
                         // Animation updates
                     }
                 }
-                
+
                 // Drain pending events to avoid lag
                 while let Ok(event) = self.rx.try_recv() {
                     match event {
                         Event::Input(key) => self.process_key(key)?,
                         Event::Log(line) => self.scan_activity.push(line),
-                        Event::Tick => {},
+                        Event::Tick => {}
                     }
                 }
             }
@@ -920,39 +919,60 @@ impl TuiApp {
 
         while stdin.read_exact(&mut buffer).is_ok() {
             let ch = buffer[0];
-            
+
             if ch == 0x1b {
                 // Start of escape sequence
                 let mut seq = Vec::new();
                 seq.push(ch);
-                
+
                 // Read next byte
                 let mut next = [0u8; 1];
                 if stdin.read_exact(&mut next).is_ok() {
                     seq.push(next[0]);
-                    
+
                     if next[0] == b'[' {
                         // CSI sequence
                         let mut final_byte = [0u8; 1];
                         if stdin.read_exact(&mut final_byte).is_ok() {
                             seq.push(final_byte[0]);
                             match final_byte[0] {
-                                b'A' => { tx.send(Event::Input(Key::Up)).ok(); continue; }
-                                b'B' => { tx.send(Event::Input(Key::Down)).ok(); continue; }
-                                b'C' => { tx.send(Event::Input(Key::Right)).ok(); continue; }
-                                b'D' => { tx.send(Event::Input(Key::Left)).ok(); continue; }
-                                b'H' => { tx.send(Event::Input(Key::Home)).ok(); continue; }
-                                b'F' => { tx.send(Event::Input(Key::End)).ok(); continue; }
-                                b'5' => { // PageUp/Down usually ~
+                                b'A' => {
+                                    tx.send(Event::Input(Key::Up)).ok();
+                                    continue;
+                                }
+                                b'B' => {
+                                    tx.send(Event::Input(Key::Down)).ok();
+                                    continue;
+                                }
+                                b'C' => {
+                                    tx.send(Event::Input(Key::Right)).ok();
+                                    continue;
+                                }
+                                b'D' => {
+                                    tx.send(Event::Input(Key::Left)).ok();
+                                    continue;
+                                }
+                                b'H' => {
+                                    tx.send(Event::Input(Key::Home)).ok();
+                                    continue;
+                                }
+                                b'F' => {
+                                    tx.send(Event::Input(Key::End)).ok();
+                                    continue;
+                                }
+                                b'5' => {
+                                    // PageUp/Down usually ~
                                     let mut t = [0u8; 1];
                                     if stdin.read_exact(&mut t).is_ok() && t[0] == b'~' {
-                                        tx.send(Event::Input(Key::PageUp)).ok(); continue;
+                                        tx.send(Event::Input(Key::PageUp)).ok();
+                                        continue;
                                     }
                                 }
-                                b'6' => { 
+                                b'6' => {
                                     let mut t = [0u8; 1];
                                     if stdin.read_exact(&mut t).is_ok() && t[0] == b'~' {
-                                        tx.send(Event::Input(Key::PageDown)).ok(); continue;
+                                        tx.send(Event::Input(Key::PageDown)).ok();
+                                        continue;
                                     }
                                 }
                                 _ => {}
@@ -1134,7 +1154,7 @@ impl TuiApp {
             ("V", "Vuln", ViewMode::Vuln),
             ("M", "Mitre", ViewMode::Mitre),
             ("I", "IOC", ViewMode::IOC),
-            ("R", "RBB", ViewMode::RBB),           // [R] RedBlue Browser C2
+            ("R", "RBB", ViewMode::RBB), // [R] RedBlue Browser C2
             ("0", "Activity", ViewMode::Activity), // [0] Activity log
         ];
 
@@ -1706,11 +1726,15 @@ impl TuiApp {
                     ansi::move_to(row, 2),
                     highlight,
                     prefix,
-                    &zombie.module,    // Zombie ID
-                    &zombie.status,    // IP address
-                    "Unknown",         // OS (could be parsed from data)
+                    &zombie.module,                 // Zombie ID
+                    &zombie.status,                 // IP address
+                    "Unknown",                      // OS (could be parsed from data)
                     truncate_str(&zombie.data, 20), // Page
-                    if zombie.timestamp > 0 { format!("{}s ago", now_secs() - zombie.timestamp) } else { "?".to_string() },
+                    if zombie.timestamp > 0 {
+                        format!("{}s ago", now_secs() - zombie.timestamp)
+                    } else {
+                        "?".to_string()
+                    },
                     reset
                 );
                 row += 1;
@@ -1851,7 +1875,7 @@ impl TuiApp {
             Key::Char('v') | Key::Char('V') => self.switch_view(ViewMode::Vuln)?,
             Key::Char('m') | Key::Char('M') => self.switch_view(ViewMode::Mitre)?,
             Key::Char('i') | Key::Char('I') => self.switch_view(ViewMode::IOC)?,
-            Key::Char('9') => self.switch_view(ViewMode::RBB)?,  // RBB Browser C2 dashboard
+            Key::Char('9') => self.switch_view(ViewMode::RBB)?, // RBB Browser C2 dashboard
             Key::Char('0') => self.switch_view(ViewMode::Activity)?,
 
             Key::Tab => {
@@ -1876,7 +1900,7 @@ impl TuiApp {
             Key::PageUp => self.scroll_page_up(),
             Key::Home => self.scroll_to_top(),
             Key::End => self.scroll_to_bottom(),
-            
+
             Key::Char('r') | Key::Char('R') => {
                 self.refresh_current_view()?;
                 self.scan_activity.push("Data refreshed".to_string());
@@ -1894,7 +1918,8 @@ impl TuiApp {
     fn handle_scan_action(&mut self) -> Result<(), String> {
         match self.mode {
             ViewMode::Network => {
-                self.scan_activity.push("Starting network discovery scan...".to_string());
+                self.scan_activity
+                    .push("Starting network discovery scan...".to_string());
                 self.execute_network_scan()?;
             }
             ViewMode::Ports => {
@@ -1902,20 +1927,25 @@ impl TuiApp {
                 self.execute_port_scan()?;
             }
             ViewMode::Subdomains => {
-                self.scan_activity.push("Starting subdomain enumeration...".to_string());
+                self.scan_activity
+                    .push("Starting subdomain enumeration...".to_string());
                 self.execute_subdomain_scan()?;
             }
             ViewMode::Overview => {
-                self.scan_activity.push("Starting WHOIS lookup...".to_string());
+                self.scan_activity
+                    .push("Starting WHOIS lookup...".to_string());
                 self.execute_whois_lookup()?;
             }
             ViewMode::Vuln => {
-                self.scan_activity.push("Starting vulnerability scan...".to_string());
+                self.scan_activity
+                    .push("Starting vulnerability scan...".to_string());
                 // TODO: Trigger vuln scan
-                self.scan_activity.push("Vuln scan triggered (mock)".to_string());
+                self.scan_activity
+                    .push("Vuln scan triggered (mock)".to_string());
             }
             _ => {
-                self.scan_activity.push("No scan action available for this view".to_string());
+                self.scan_activity
+                    .push("No scan action available for this view".to_string());
             }
         }
         Ok(())
@@ -1973,15 +2003,20 @@ impl TuiApp {
             ViewMode::Vuln => {
                 if !self.vuln_data.is_empty() && self.selected_row < self.vuln_data.len() {
                     self.vuln_data.remove(self.selected_row);
-                    self.scan_activity.push("Removed vulnerability record".to_string());
-                    if self.selected_row > 0 { self.selected_row -= 1; }
+                    self.scan_activity
+                        .push("Removed vulnerability record".to_string());
+                    if self.selected_row > 0 {
+                        self.selected_row -= 1;
+                    }
                 }
             }
             ViewMode::IOC => {
                 if !self.ioc_data.is_empty() && self.selected_row < self.ioc_data.len() {
                     self.ioc_data.remove(self.selected_row);
                     self.scan_activity.push("Removed IOC record".to_string());
-                    if self.selected_row > 0 { self.selected_row -= 1; }
+                    if self.selected_row > 0 {
+                        self.selected_row -= 1;
+                    }
                 }
             }
             _ => {}
@@ -2013,7 +2048,8 @@ impl TuiApp {
             }
             ViewMode::Vuln | ViewMode::Mitre | ViewMode::IOC => {
                 // TODO: Show details
-                self.scan_activity.push(format!("Selected item: row {}", self.selected_row));
+                self.scan_activity
+                    .push(format!("Selected item: row {}", self.selected_row));
             }
             _ => {}
         }
@@ -2162,14 +2198,17 @@ impl TuiApp {
             }
             "vars" | "env" => {
                 // Clone variables to avoid borrow checker issues
-                let vars: Vec<(String, String)> = self.session_variables
+                let vars: Vec<(String, String)> = self
+                    .session_variables
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 if vars.is_empty() {
-                    self.scan_activity.push("No session variables set".to_string());
+                    self.scan_activity
+                        .push("No session variables set".to_string());
                 } else {
-                    self.scan_activity.push(format!("Session variables ({}):", vars.len()));
+                    self.scan_activity
+                        .push(format!("Session variables ({}):", vars.len()));
                     for (name, value) in vars {
                         self.scan_activity.push(format!("  ${} = {}", name, value));
                     }
@@ -2180,12 +2219,18 @@ impl TuiApp {
                 if parts.len() < 2 {
                     return Err("Usage: run <preset|playbook>".to_string());
                 }
-                
+
                 // If starts with "playbook", treat as playbook run
                 if parts[1].starts_with("playbook:") {
                     let playbook = parts[1].trim_start_matches("playbook:");
-                    self.scan_activity.push(format!("Running playbook: {}...", playbook));
-                    self.run_external_command(&["playbook".to_string(), "run".to_string(), playbook.to_string(), self.target.clone()])?;
+                    self.scan_activity
+                        .push(format!("Running playbook: {}...", playbook));
+                    self.run_external_command(&[
+                        "playbook".to_string(),
+                        "run".to_string(),
+                        playbook.to_string(),
+                        self.target.clone(),
+                    ])?;
                 } else {
                     // Default to scan preset
                     self.run_scan(parts[1])?;
@@ -2208,28 +2253,47 @@ impl TuiApp {
                 return Ok(());
             }
             "check" => {
-                self.scan_activity.push("Checking port health...".to_string());
-                self.run_external_command(&["network".to_string(), "health".to_string(), "check".to_string(), self.target.clone()])?;
+                self.scan_activity
+                    .push("Checking port health...".to_string());
+                self.run_external_command(&[
+                    "network".to_string(),
+                    "health".to_string(),
+                    "check".to_string(),
+                    self.target.clone(),
+                ])?;
                 return Ok(());
             }
             "watch" => {
-                self.scan_activity.push("Starting port watch...".to_string());
-                self.run_external_command(&["network".to_string(), "health".to_string(), "watch".to_string(), self.target.clone()])?;
+                self.scan_activity
+                    .push("Starting port watch...".to_string());
+                self.run_external_command(&[
+                    "network".to_string(),
+                    "health".to_string(),
+                    "watch".to_string(),
+                    self.target.clone(),
+                ])?;
                 return Ok(());
             }
             "plan" => {
-                self.scan_activity.push("Generating attack plan...".to_string());
-                self.run_external_command(&["exploit".to_string(), "payload".to_string(), "plan".to_string(), self.target.clone()])?;
+                self.scan_activity
+                    .push("Generating attack plan...".to_string());
+                self.run_external_command(&[
+                    "exploit".to_string(),
+                    "payload".to_string(),
+                    "plan".to_string(),
+                    self.target.clone(),
+                ])?;
                 return Ok(());
             }
             "exec" => {
                 if parts.len() < 2 {
                     return Err("Usage: exec <command> [args...]".to_string());
                 }
-                // Reconstruct arguments properly handling quotes? 
+                // Reconstruct arguments properly handling quotes?
                 // For now simple split is enough for basic commands
                 let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
-                self.scan_activity.push(format!("Executing: rb {}", args.join(" ")));
+                self.scan_activity
+                    .push(format!("Executing: rb {}", args.join(" ")));
                 self.run_external_command(&args)?;
             }
             "reload" => {
@@ -2347,7 +2411,8 @@ impl TuiApp {
                 // Change target context dynamically
                 if parts.len() < 2 {
                     // Show current target
-                    self.scan_activity.push(format!("Current target: {}", self.target));
+                    self.scan_activity
+                        .push(format!("Current target: {}", self.target));
                     return Ok(());
                 }
 
@@ -2358,40 +2423,70 @@ impl TuiApp {
             "help" | "?" => {
                 self.scan_activity.push("Available commands:".to_string());
                 self.scan_activity.push("  Target:".to_string());
-                self.scan_activity.push("    target <host>  - Change target context".to_string());
-                self.scan_activity.push("    target         - Show current target".to_string());
+                self.scan_activity
+                    .push("    target <host>  - Change target context".to_string());
+                self.scan_activity
+                    .push("    target         - Show current target".to_string());
                 self.scan_activity.push("  Variables:".to_string());
-                self.scan_activity.push("    set VAR=value  - Set a session variable".to_string());
-                self.scan_activity.push("    get VAR        - Get variable value".to_string());
-                self.scan_activity.push("    unset VAR      - Remove variable".to_string());
-                self.scan_activity.push("    vars           - List all variables".to_string());
+                self.scan_activity
+                    .push("    set VAR=value  - Set a session variable".to_string());
+                self.scan_activity
+                    .push("    get VAR        - Get variable value".to_string());
+                self.scan_activity
+                    .push("    unset VAR      - Remove variable".to_string());
+                self.scan_activity
+                    .push("    vars           - List all variables".to_string());
                 self.scan_activity.push("  Scans:".to_string());
-                self.scan_activity.push("    scan ports     - Port scan on target".to_string());
-                self.scan_activity.push("    scan subdomains - Subdomain enumeration".to_string());
-                self.scan_activity.push("    scan network   - Network discovery".to_string());
+                self.scan_activity
+                    .push("    scan ports     - Port scan on target".to_string());
+                self.scan_activity
+                    .push("    scan subdomains - Subdomain enumeration".to_string());
+                self.scan_activity
+                    .push("    scan network   - Network discovery".to_string());
                 self.scan_activity.push("  Recon:".to_string());
-                self.scan_activity.push("    recon domain whois      - WHOIS lookup".to_string());
-                self.scan_activity.push("    recon domain subdomains - Subdomain enum".to_string());
+                self.scan_activity
+                    .push("    recon domain whois      - WHOIS lookup".to_string());
+                self.scan_activity
+                    .push("    recon domain subdomains - Subdomain enum".to_string());
                 self.scan_activity.push("  Scraping:".to_string());
-                self.scan_activity.push("    scrap <url>       - Fetch and parse HTML".to_string());
-                self.scan_activity.push("    $ <selector>      - Query CSS selector".to_string());
-                self.scan_activity.push("    $text             - Extract text from results".to_string());
-                self.scan_activity.push("    $attr <name>      - Extract attribute".to_string());
-                self.scan_activity.push("    $html             - Extract inner HTML".to_string());
-                self.scan_activity.push("    $links            - Extract all links".to_string());
-                self.scan_activity.push("    $images           - Extract all images".to_string());
-                self.scan_activity.push("    $forms            - Extract all forms".to_string());
-                self.scan_activity.push("    $meta             - Extract meta tags".to_string());
-                self.scan_activity.push("    $og               - Extract Open Graph".to_string());
-                self.scan_activity.push("    $json-ld          - Extract JSON-LD".to_string());
-                self.scan_activity.push("    $scripts          - Extract scripts".to_string());
-                self.scan_activity.push("    $css              - Extract stylesheets".to_string());
-                self.scan_activity.push("    $table            - Extract tables".to_string());
+                self.scan_activity
+                    .push("    scrap <url>       - Fetch and parse HTML".to_string());
+                self.scan_activity
+                    .push("    $ <selector>      - Query CSS selector".to_string());
+                self.scan_activity
+                    .push("    $text             - Extract text from results".to_string());
+                self.scan_activity
+                    .push("    $attr <name>      - Extract attribute".to_string());
+                self.scan_activity
+                    .push("    $html             - Extract inner HTML".to_string());
+                self.scan_activity
+                    .push("    $links            - Extract all links".to_string());
+                self.scan_activity
+                    .push("    $images           - Extract all images".to_string());
+                self.scan_activity
+                    .push("    $forms            - Extract all forms".to_string());
+                self.scan_activity
+                    .push("    $meta             - Extract meta tags".to_string());
+                self.scan_activity
+                    .push("    $og               - Extract Open Graph".to_string());
+                self.scan_activity
+                    .push("    $json-ld          - Extract JSON-LD".to_string());
+                self.scan_activity
+                    .push("    $scripts          - Extract scripts".to_string());
+                self.scan_activity
+                    .push("    $css              - Extract stylesheets".to_string());
+                self.scan_activity
+                    .push("    $table            - Extract tables".to_string());
                 self.scan_activity.push("  Other:".to_string());
-                self.scan_activity.push("    run <preset>   - Run scan preset".to_string());
-                self.scan_activity.push("    reload         - Reload session".to_string());
-                self.scan_activity.push("    quit           - Exit TUI".to_string());
-                self.scan_activity.push("  Note: Variables are expanded in commands ($VAR or ${VAR})".to_string());
+                self.scan_activity
+                    .push("    run <preset>   - Run scan preset".to_string());
+                self.scan_activity
+                    .push("    reload         - Reload session".to_string());
+                self.scan_activity
+                    .push("    quit           - Exit TUI".to_string());
+                self.scan_activity.push(
+                    "  Note: Variables are expanded in commands ($VAR or ${VAR})".to_string(),
+                );
             }
             _ => {
                 return Err(format!(
@@ -2465,10 +2560,8 @@ impl TuiApp {
         self.db_path = format!("{}.rdb", identifier);
 
         // Log the change
-        self.scan_activity.push(format!(
-            "Target changed: {} → {}",
-            old_target, new_target
-        ));
+        self.scan_activity
+            .push(format!("Target changed: {} → {}", old_target, new_target));
 
         // Clear existing data for fresh start with new target
         self.network_data.clear();
@@ -2480,25 +2573,23 @@ impl TuiApp {
 
         // Try to load existing session/database for the new target
         if std::path::Path::new(&self.session_path).exists() {
-            self.scan_activity.push(format!(
-                "Found existing session: {}",
-                self.session_path
-            ));
+            self.scan_activity
+                .push(format!("Found existing session: {}", self.session_path));
             let _ = self.load_session();
         }
 
         if std::path::Path::new(&self.db_path).exists() {
-            self.scan_activity.push(format!(
-                "Found existing database: {}",
-                self.db_path
-            ));
+            self.scan_activity
+                .push(format!("Found existing database: {}", self.db_path));
             let _ = self.load_database_data();
         } else {
-            self.scan_activity.push("No existing data for this target".to_string());
+            self.scan_activity
+                .push("No existing data for this target".to_string());
         }
 
         // Also set target as a session variable for easy reference
-        self.session_variables.insert("TARGET".to_string(), new_target.to_string());
+        self.session_variables
+            .insert("TARGET".to_string(), new_target.to_string());
 
         Ok(())
     }
@@ -2507,8 +2598,10 @@ impl TuiApp {
 
     /// Set a session variable
     fn set_variable(&mut self, name: &str, value: &str) {
-        self.session_variables.insert(name.to_string(), value.to_string());
-        self.scan_activity.push(format!("Set ${} = {}", name, value));
+        self.session_variables
+            .insert(name.to_string(), value.to_string());
+        self.scan_activity
+            .push(format!("Set ${} = {}", name, value));
     }
 
     /// Get a session variable
@@ -2608,10 +2701,14 @@ impl TuiApp {
                 let body = String::from_utf8_lossy(&resp.body).to_string();
                 self.current_doc = Some(body.clone());
                 self.current_doc_url = url.to_string();
-                self.scan_activity.push(format!("Loaded {} bytes", body.len()));
+                self.scan_activity
+                    .push(format!("Loaded {} bytes", body.len()));
                 Ok(())
             }
-            Err(e) => { self.scan_activity.push(format!("Failed: {}", e)); Err(e) }
+            Err(e) => {
+                self.scan_activity.push(format!("Failed: {}", e));
+                Err(e)
+            }
         }
     }
 
@@ -2622,38 +2719,64 @@ impl TuiApp {
         let mut count = 0;
         for (i, _) in doc.to_lowercase().match_indices(&open_tag) {
             count += 1;
-            if count <= 10 { self.last_selector_results.push(doc[i..(i+100).min(doc.len())].to_string()); }
+            if count <= 10 {
+                self.last_selector_results
+                    .push(doc[i..(i + 100).min(doc.len())].to_string());
+            }
         }
         self.scan_activity.push(format!("Found {} matches", count));
         Ok(())
     }
 
     fn execute_selector_text(&mut self) -> Result<(), String> {
-        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
+        if self.last_selector_results.is_empty() {
+            return Err("No results".to_string());
+        }
         for (i, r) in self.last_selector_results.iter().enumerate() {
-            let text: String = r.chars().fold((String::new(), false), |(mut a, t), c| {
-                if c == '<' { (a, true) } else if c == '>' { (a, false) } else if !t { a.push(c); (a, false) } else { (a, true) }
-            }).0;
+            let text: String = r
+                .chars()
+                .fold((String::new(), false), |(mut a, t), c| {
+                    if c == '<' {
+                        (a, true)
+                    } else if c == '>' {
+                        (a, false)
+                    } else if !t {
+                        a.push(c);
+                        (a, false)
+                    } else {
+                        (a, true)
+                    }
+                })
+                .0;
             self.scan_activity.push(format!("[{}] {}", i, text.trim()));
         }
         Ok(())
     }
 
     fn execute_selector_attr(&mut self, attr: &str) -> Result<(), String> {
-        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
+        if self.last_selector_results.is_empty() {
+            return Err("No results".to_string());
+        }
         let pat = format!("{}=\"", attr);
         for (i, r) in self.last_selector_results.iter().enumerate() {
             if let Some(s) = r.find(&pat) {
                 let vs = s + pat.len();
-                if let Some(e) = r[vs..].find('"') { self.scan_activity.push(format!("[{}] {}={}", i, attr, &r[vs..vs+e])); }
+                if let Some(e) = r[vs..].find('"') {
+                    self.scan_activity
+                        .push(format!("[{}] {}={}", i, attr, &r[vs..vs + e]));
+                }
             }
         }
         Ok(())
     }
 
     fn execute_selector_html(&mut self) -> Result<(), String> {
-        if self.last_selector_results.is_empty() { return Err("No results".to_string()); }
-        for (i, r) in self.last_selector_results.iter().enumerate() { self.scan_activity.push(format!("[{}] {}", i, r)); }
+        if self.last_selector_results.is_empty() {
+            return Err("No results".to_string());
+        }
+        for (i, r) in self.last_selector_results.iter().enumerate() {
+            self.scan_activity.push(format!("[{}] {}", i, r));
+        }
         Ok(())
     }
 
@@ -2663,59 +2786,80 @@ impl TuiApp {
         let mut pos = 0;
         while let Some(s) = doc[pos..].find("href=\"") {
             let vs = pos + s + 6;
-            if let Some(e) = doc[vs..].find('"') { if !links.contains(&doc[vs..vs+e].to_string()) { links.push(doc[vs..vs+e].to_string()); } }
+            if let Some(e) = doc[vs..].find('"') {
+                if !links.contains(&doc[vs..vs + e].to_string()) {
+                    links.push(doc[vs..vs + e].to_string());
+                }
+            }
             pos = vs + 1;
         }
-        self.scan_activity.push(format!("Found {} links", links.len()));
-        for l in links.iter().take(20) { self.scan_activity.push(format!("  {}", l)); }
+        self.scan_activity
+            .push(format!("Found {} links", links.len()));
+        for l in links.iter().take(20) {
+            self.scan_activity.push(format!("  {}", l));
+        }
         Ok(())
     }
 
     fn execute_extract_images(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Images: {} found", doc.matches("<img").count()));
+        self.scan_activity
+            .push(format!("Images: {} found", doc.matches("<img").count()));
         Ok(())
     }
 
     fn execute_extract_forms(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Forms: {} found", doc.matches("<form").count()));
+        self.scan_activity
+            .push(format!("Forms: {} found", doc.matches("<form").count()));
         Ok(())
     }
 
     fn execute_extract_meta(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Meta tags: {} found", doc.matches("<meta").count()));
+        self.scan_activity
+            .push(format!("Meta tags: {} found", doc.matches("<meta").count()));
         Ok(())
     }
 
     fn execute_extract_og(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("OG tags: {} found", doc.matches("property=\"og:").count()));
+        self.scan_activity.push(format!(
+            "OG tags: {} found",
+            doc.matches("property=\"og:").count()
+        ));
         Ok(())
     }
 
     fn execute_extract_jsonld(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("JSON-LD: {} found", doc.matches("application/ld+json").count()));
+        self.scan_activity.push(format!(
+            "JSON-LD: {} found",
+            doc.matches("application/ld+json").count()
+        ));
         Ok(())
     }
 
     fn execute_extract_scripts(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Scripts: {} found", doc.matches("<script").count()));
+        self.scan_activity
+            .push(format!("Scripts: {} found", doc.matches("<script").count()));
         Ok(())
     }
 
     fn execute_extract_css(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Stylesheets: {} found", doc.matches("rel=\"stylesheet\"").count()));
+        self.scan_activity.push(format!(
+            "Stylesheets: {} found",
+            doc.matches("rel=\"stylesheet\"").count()
+        ));
         Ok(())
     }
 
     fn execute_extract_table(&mut self) -> Result<(), String> {
         let doc = self.current_doc.as_ref().ok_or("No document")?;
-        self.scan_activity.push(format!("Tables: {} found", doc.matches("<table").count()));
+        self.scan_activity
+            .push(format!("Tables: {} found", doc.matches("<table").count()));
         Ok(())
     }
 }

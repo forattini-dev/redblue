@@ -1,7 +1,6 @@
 /// macOS and Apple OS Signatures
 ///
 /// TCP/IP fingerprints for macOS, iOS, iPadOS, tvOS, and watchOS.
-
 use super::types::*;
 
 /// Add all Apple signatures to the database
@@ -38,7 +37,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.95)
             .build(),
-
         // macOS 14 (Sonoma)
         SignatureBuilder::new(3001, "macOS 14 Sonoma")
             .vendor("Apple")
@@ -55,7 +53,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.95)
             .build(),
-
         // macOS 13 (Ventura)
         SignatureBuilder::new(3002, "macOS 13 Ventura")
             .vendor("Apple")
@@ -72,7 +69,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.93)
             .build(),
-
         // macOS 12 (Monterey)
         SignatureBuilder::new(3003, "macOS 12 Monterey")
             .vendor("Apple")
@@ -89,7 +85,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // macOS 11 (Big Sur)
         SignatureBuilder::new(3004, "macOS 11 Big Sur")
             .vendor("Apple")
@@ -106,7 +101,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // macOS 10.15 (Catalina)
         SignatureBuilder::new(3010, "macOS 10.15 Catalina")
             .vendor("Apple")
@@ -123,7 +117,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // macOS 10.14 (Mojave)
         SignatureBuilder::new(3011, "macOS 10.14 Mojave")
             .vendor("Apple")
@@ -140,7 +133,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // macOS 10.13 (High Sierra)
         SignatureBuilder::new(3012, "macOS 10.13 High Sierra")
             .vendor("Apple")
@@ -157,7 +149,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // macOS 10.12 (Sierra)
         SignatureBuilder::new(3013, "macOS 10.12 Sierra")
             .vendor("Apple")
@@ -174,7 +165,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.80)
             .build(),
-
         // OS X 10.11 (El Capitan)
         SignatureBuilder::new(3020, "OS X 10.11 El Capitan")
             .vendor("Apple")
@@ -191,7 +181,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.78)
             .build(),
-
         // OS X 10.10 (Yosemite)
         SignatureBuilder::new(3021, "OS X 10.10 Yosemite")
             .vendor("Apple")
@@ -208,7 +197,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.75)
             .build(),
-
         // OS X 10.9 (Mavericks)
         SignatureBuilder::new(3022, "OS X 10.9 Mavericks")
             .vendor("Apple")
@@ -225,7 +213,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.72)
             .build(),
-
         // OS X 10.8 (Mountain Lion)
         SignatureBuilder::new(3023, "OS X 10.8 Mountain Lion")
             .vendor("Apple")
@@ -242,7 +229,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.70)
             .build(),
-
         // OS X 10.7 (Lion)
         SignatureBuilder::new(3024, "OS X 10.7 Lion")
             .vendor("Apple")
@@ -259,7 +245,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.68)
             .build(),
-
         // Mac OS X 10.6 (Snow Leopard)
         SignatureBuilder::new(3030, "Mac OS X 10.6 Snow Leopard")
             .vendor("Apple")
@@ -276,7 +261,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.65)
             .build(),
-
         // Mac OS X 10.5 (Leopard)
         SignatureBuilder::new(3031, "Mac OS X 10.5 Leopard")
             .vendor("Apple")
@@ -293,7 +277,6 @@ fn macos_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.62)
             .build(),
-
         // macOS Server
         SignatureBuilder::new(3040, "macOS Server")
             .vendor("Apple")
@@ -331,7 +314,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.95)
             .build(),
-
         // iOS 17
         SignatureBuilder::new(3101, "iOS 17")
             .vendor("Apple")
@@ -349,7 +331,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.93)
             .build(),
-
         // iOS 16
         SignatureBuilder::new(3102, "iOS 16")
             .vendor("Apple")
@@ -367,7 +348,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // iOS 15
         SignatureBuilder::new(3103, "iOS 15")
             .vendor("Apple")
@@ -385,7 +365,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // iOS 14
         SignatureBuilder::new(3104, "iOS 14")
             .vendor("Apple")
@@ -403,7 +382,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // iOS 13
         SignatureBuilder::new(3105, "iOS 13")
             .vendor("Apple")
@@ -421,7 +399,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // iOS 12
         SignatureBuilder::new(3106, "iOS 12")
             .vendor("Apple")
@@ -439,7 +416,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // iPadOS 18
         SignatureBuilder::new(3120, "iPadOS 18")
             .vendor("Apple")
@@ -457,7 +433,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.95)
             .build(),
-
         // iPadOS 17
         SignatureBuilder::new(3121, "iPadOS 17")
             .vendor("Apple")
@@ -475,7 +450,6 @@ fn ios_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.93)
             .build(),
-
         // iPadOS 16
         SignatureBuilder::new(3122, "iPadOS 16")
             .vendor("Apple")
@@ -515,7 +489,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // tvOS 17
         SignatureBuilder::new(3201, "tvOS 17")
             .vendor("Apple")
@@ -533,7 +506,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // watchOS 11
         SignatureBuilder::new(3210, "watchOS 11")
             .vendor("Apple")
@@ -551,7 +523,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // watchOS 10
         SignatureBuilder::new(3211, "watchOS 10")
             .vendor("Apple")
@@ -569,7 +540,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.85)
             .build(),
-
         // visionOS 2
         SignatureBuilder::new(3220, "visionOS 2")
             .vendor("Apple")
@@ -587,7 +557,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // HomePod (audioOS)
         SignatureBuilder::new(3230, "audioOS (HomePod)")
             .vendor("Apple")
@@ -604,7 +573,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.85)
             .build(),
-
         // AirPort Extreme
         SignatureBuilder::new(3240, "AirPort Extreme")
             .vendor("Apple")
@@ -621,7 +589,6 @@ fn other_apple_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // Time Capsule
         SignatureBuilder::new(3241, "Time Capsule")
             .vendor("Apple")
@@ -648,7 +615,11 @@ mod tests {
     #[test]
     fn test_apple_signatures_count() {
         let sigs = signatures();
-        assert!(sigs.len() >= 25, "Expected at least 25 Apple signatures, got {}", sigs.len());
+        assert!(
+            sigs.len() >= 25,
+            "Expected at least 25 Apple signatures, got {}",
+            sigs.len()
+        );
     }
 
     #[test]

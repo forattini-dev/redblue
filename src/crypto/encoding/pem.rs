@@ -238,8 +238,8 @@ pub fn decode_all(pem: &str) -> Result<Vec<PemBlock>, PemError> {
             .collect();
 
         // Decode Base64
-        let data = base64_decode(&base64_content)
-            .map_err(|e| PemError::InvalidBase64(e.to_string()))?;
+        let data =
+            base64_decode(&base64_content).map_err(|e| PemError::InvalidBase64(e.to_string()))?;
 
         blocks.push(PemBlock {
             label: begin_label.to_string(),
@@ -259,7 +259,11 @@ pub fn decode_all(pem: &str) -> Result<Vec<PemBlock>, PemError> {
 
 /// Encode multiple PEM blocks
 pub fn encode_all(blocks: &[PemBlock]) -> String {
-    blocks.iter().map(|b| b.encode()).collect::<Vec<_>>().join("")
+    blocks
+        .iter()
+        .map(|b| b.encode())
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 /// Quick check if string contains PEM data
@@ -337,7 +341,10 @@ MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEAyuwg0XFhuyIfVbyX
     fn test_label_types() {
         assert_eq!(PemLabel::from_str("CERTIFICATE"), PemLabel::Certificate);
         assert_eq!(PemLabel::from_str("PRIVATE KEY"), PemLabel::PrivateKey);
-        assert_eq!(PemLabel::from_str("RSA PRIVATE KEY"), PemLabel::RsaPrivateKey);
+        assert_eq!(
+            PemLabel::from_str("RSA PRIVATE KEY"),
+            PemLabel::RsaPrivateKey
+        );
         assert_eq!(PemLabel::from_str("PUBLIC KEY"), PemLabel::PublicKey);
         assert_eq!(PemLabel::from_str("unknown"), PemLabel::Custom);
     }

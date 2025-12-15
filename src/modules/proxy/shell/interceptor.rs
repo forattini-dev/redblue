@@ -33,9 +33,7 @@ pub enum ShellEvent {
         duration_ms: u64,
     },
     /// Request was dropped
-    RequestDropped {
-        id: u64,
-    },
+    RequestDropped { id: u64 },
 }
 
 /// Shell interceptor - sends events to the TUI
@@ -100,7 +98,8 @@ impl RequestInterceptor for ShellInterceptor {
         self.record_start(id);
 
         // Inject our request ID header for tracking
-        req.headers.insert("X-RB-Request-Id".to_string(), id.to_string());
+        req.headers
+            .insert("X-RB-Request-Id".to_string(), id.to_string());
 
         // Send event to shell
         let event = ShellEvent::NewRequest {
@@ -208,7 +207,14 @@ mod tests {
         // Check event was sent
         let event = rx.try_recv().unwrap();
         match event {
-            ShellEvent::NewRequest { id, source_ip, method, host, path, .. } => {
+            ShellEvent::NewRequest {
+                id,
+                source_ip,
+                method,
+                host,
+                path,
+                ..
+            } => {
                 assert_eq!(id, 1);
                 assert_eq!(source_ip, "192.168.1.100:54321");
                 assert_eq!(method, "GET");
@@ -259,7 +265,12 @@ mod tests {
         // Check response event
         let event = rx.try_recv().unwrap();
         match event {
-            ShellEvent::ResponseReceived { id, status_code, status_text, .. } => {
+            ShellEvent::ResponseReceived {
+                id,
+                status_code,
+                status_text,
+                ..
+            } => {
                 assert_eq!(id, 1);
                 assert_eq!(status_code, 200);
                 assert_eq!(status_text, "OK");

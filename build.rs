@@ -21,9 +21,7 @@ fn main() {
     let dest_path = Path::new(&out_dir).join("build_mutations.rs");
 
     // Generate entropy from multiple sources
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap();
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
     let nanos = timestamp.subsec_nanos();
     let secs = timestamp.as_secs();
@@ -35,7 +33,9 @@ fn main() {
     // Generate random values using LCG
     let mut state = seed;
     let mut next_random = || -> u64 {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         state
     };
 
@@ -45,7 +45,9 @@ fn main() {
 
     // Generate junk data blocks (polymorphic padding)
     let junk_size = 64 + (next_random() % 64) as usize; // 64-128 bytes
-    let junk_data: Vec<u8> = (0..junk_size).map(|_| (next_random() & 0xFF) as u8).collect();
+    let junk_data: Vec<u8> = (0..junk_size)
+        .map(|_| (next_random() & 0xFF) as u8)
+        .collect();
 
     // Generate obfuscation keys
     let xor_key = (next_random() & 0xFF) as u8;
@@ -67,8 +69,18 @@ fn main() {
 
     // Build fingerprint
     writeln!(file, "/// Unique fingerprint for this build").unwrap();
-    writeln!(file, "pub const BUILD_FINGERPRINT: &str = \"{}\";", fingerprint_hex).unwrap();
-    writeln!(file, "pub const BUILD_FINGERPRINT_BYTES: [u8; 16] = {:?};", fingerprint.as_slice()).unwrap();
+    writeln!(
+        file,
+        "pub const BUILD_FINGERPRINT: &str = \"{}\";",
+        fingerprint_hex
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "pub const BUILD_FINGERPRINT_BYTES: [u8; 16] = {:?};",
+        fingerprint.as_slice()
+    )
+    .unwrap();
     writeln!(file).unwrap();
 
     // Build timestamp
@@ -80,21 +92,42 @@ fn main() {
     // Junk data (polymorphic padding)
     writeln!(file, "/// Polymorphic junk data - changes binary hash").unwrap();
     writeln!(file, "#[allow(dead_code)]").unwrap();
-    writeln!(file, "pub static JUNK_DATA: [u8; {}] = {:?};", junk_size, junk_data.as_slice()).unwrap();
+    writeln!(
+        file,
+        "pub static JUNK_DATA: [u8; {}] = {:?};",
+        junk_size,
+        junk_data.as_slice()
+    )
+    .unwrap();
     writeln!(file).unwrap();
 
     // Obfuscation keys
     writeln!(file, "/// XOR key for this build").unwrap();
     writeln!(file, "pub const XOR_KEY: u8 = 0x{:02X};", xor_key).unwrap();
-    writeln!(file, "pub const XOR_KEY_MULTI: [u8; 16] = {:?};", xor_key_multi.as_slice()).unwrap();
+    writeln!(
+        file,
+        "pub const XOR_KEY_MULTI: [u8; 16] = {:?};",
+        xor_key_multi.as_slice()
+    )
+    .unwrap();
     writeln!(file).unwrap();
 
     // Dead code seeds
     writeln!(file, "/// Dead code control values").unwrap();
     writeln!(file, "#[allow(dead_code)]").unwrap();
-    writeln!(file, "pub const DEAD_CODE_SEED: u64 = 0x{:016X};", dead_code_seed).unwrap();
+    writeln!(
+        file,
+        "pub const DEAD_CODE_SEED: u64 = 0x{:016X};",
+        dead_code_seed
+    )
+    .unwrap();
     writeln!(file, "#[allow(dead_code)]").unwrap();
-    writeln!(file, "pub const DEAD_CODE_THRESHOLD: u64 = 0x{:016X};", dead_code_threshold).unwrap();
+    writeln!(
+        file,
+        "pub const DEAD_CODE_THRESHOLD: u64 = 0x{:016X};",
+        dead_code_threshold
+    )
+    .unwrap();
     writeln!(file).unwrap();
 
     // Mutation table for advanced obfuscation
@@ -109,7 +142,9 @@ fn main() {
     writeln!(file).unwrap();
 
     // Helper functions
-    writeln!(file, r#"
+    writeln!(
+        file,
+        r#"
 /// Obfuscate a byte slice using build-specific key
 #[inline]
 pub fn obfuscate_bytes(data: &[u8]) -> Vec<u8> {{
@@ -153,7 +188,9 @@ pub fn polymorphic_nop() {{
     let _ = std::hint::black_box(&JUNK_DATA);
     let _ = std::hint::black_box(BUILD_FINGERPRINT);
 }}
-"#).unwrap();
+"#
+    )
+    .unwrap();
 
     // Print build info
     println!("cargo:rerun-if-changed=build.rs");

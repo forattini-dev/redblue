@@ -108,12 +108,16 @@ impl RedBlueConfig {
                 timeout_ms: cfg.network_timeout_ms.unwrap_or(5000),
                 max_retries: cfg.network_max_retries.unwrap_or(2),
                 request_delay_ms: cfg.network_request_delay_ms.unwrap_or(0),
-                dns_resolver: cfg.network_dns_resolver.unwrap_or_else(|| "8.8.8.8".to_string()),
+                dns_resolver: cfg
+                    .network_dns_resolver
+                    .unwrap_or_else(|| "8.8.8.8".to_string()),
                 dns_timeout_ms: cfg.network_dns_timeout_ms.unwrap_or(3000),
             },
 
             web: WebConfig {
-                user_agent: cfg.web_user_agent.unwrap_or_else(|| "RedBlue/1.0".to_string()),
+                user_agent: cfg
+                    .web_user_agent
+                    .unwrap_or_else(|| "RedBlue/1.0".to_string()),
                 follow_redirects: cfg.web_follow_redirects.unwrap_or(true),
                 max_redirects: cfg.web_max_redirects.unwrap_or(5),
                 verify_ssl: cfg.web_verify_ssl.unwrap_or(true),

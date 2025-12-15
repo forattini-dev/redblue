@@ -16,7 +16,6 @@
 /// - Compound: `div.class#id[attr]`
 /// - Multiple: `div, span`
 /// - Pseudo-classes: `:first-child`, `:last-child`, `:nth-child(n)`, `:not()`
-
 use crate::modules::web::dom::{Document, Element, Selection};
 use std::fmt;
 
@@ -549,19 +548,25 @@ fn parse_an_plus_b(s: &str) -> Result<NthExpr, String> {
         let a = match a_part {
             "" | "+" => 1,
             "-" => -1,
-            _ => a_part.parse().map_err(|_| format!("Invalid A in An+B: {}", s))?,
+            _ => a_part
+                .parse()
+                .map_err(|_| format!("Invalid A in An+B: {}", s))?,
         };
 
         let b = if b_part.is_empty() {
             0
         } else {
-            b_part.parse().map_err(|_| format!("Invalid B in An+B: {}", s))?
+            b_part
+                .parse()
+                .map_err(|_| format!("Invalid B in An+B: {}", s))?
         };
 
         Ok(NthExpr::Formula { a, b })
     } else {
         // Just a number
-        let n: i32 = s.parse().map_err(|_| format!("Invalid nth expression: {}", s))?;
+        let n: i32 = s
+            .parse()
+            .map_err(|_| format!("Invalid nth expression: {}", s))?;
         Ok(NthExpr::Index(n))
     }
 }
@@ -785,8 +790,7 @@ impl AttributeSelector {
                 if let (Some(attr), Some(ref value)) = (attr_value, &self.value) {
                     let check = |s: &str, v: &str| {
                         if self.case_insensitive {
-                            s.split_whitespace()
-                                .any(|w| w.eq_ignore_ascii_case(v))
+                            s.split_whitespace().any(|w| w.eq_ignore_ascii_case(v))
                         } else {
                             s.split_whitespace().any(|w| w == v)
                         }
@@ -800,7 +804,9 @@ impl AttributeSelector {
                 if let (Some(attr), Some(ref value)) = (attr_value, &self.value) {
                     if self.case_insensitive {
                         attr.eq_ignore_ascii_case(value)
-                            || attr.to_lowercase().starts_with(&format!("{}-", value.to_lowercase()))
+                            || attr
+                                .to_lowercase()
+                                .starts_with(&format!("{}-", value.to_lowercase()))
                     } else {
                         attr == value || attr.starts_with(&format!("{}-", value))
                     }
@@ -1075,13 +1081,11 @@ impl PseudoClass {
                 }
                 false
             }
-            PseudoClass::Empty => {
-                elem.children.iter().all(|c| match c {
-                    crate::modules::web::dom::Node::Text(t) => t.trim().is_empty(),
-                    crate::modules::web::dom::Node::Comment(_) => true,
-                    crate::modules::web::dom::Node::ElementRef(_) => false,
-                })
-            }
+            PseudoClass::Empty => elem.children.iter().all(|c| match c {
+                crate::modules::web::dom::Node::Text(t) => t.trim().is_empty(),
+                crate::modules::web::dom::Node::Comment(_) => true,
+                crate::modules::web::dom::Node::ElementRef(_) => false,
+            }),
             PseudoClass::Not(inner) => !inner.matches(elem, doc, None),
             PseudoClass::Root => elem.parent_index.is_none(),
         }
@@ -1198,12 +1202,24 @@ impl fmt::Display for AttributeSelector {
         write!(f, "[{}", self.name)?;
         match self.op {
             AttributeOp::Exists => {}
-            AttributeOp::Equals => write!(f, "=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
-            AttributeOp::Contains => write!(f, "~=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
-            AttributeOp::DashMatch => write!(f, "|=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
-            AttributeOp::StartsWith => write!(f, "^=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
-            AttributeOp::EndsWith => write!(f, "$=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
-            AttributeOp::Substring => write!(f, "*=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?,
+            AttributeOp::Equals => {
+                write!(f, "=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
+            AttributeOp::Contains => {
+                write!(f, "~=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
+            AttributeOp::DashMatch => {
+                write!(f, "|=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
+            AttributeOp::StartsWith => {
+                write!(f, "^=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
+            AttributeOp::EndsWith => {
+                write!(f, "$=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
+            AttributeOp::Substring => {
+                write!(f, "*=\"{}\"", self.value.as_ref().unwrap_or(&String::new()))?
+            }
         }
         if self.case_insensitive {
             write!(f, " i")?;
@@ -1345,7 +1361,10 @@ mod tests {
     #[test]
     fn test_parse_general_sibling() {
         let sel = parse("div ~ span").unwrap();
-        assert_eq!(sel.groups[0].parts[1].combinator, Combinator::GeneralSibling);
+        assert_eq!(
+            sel.groups[0].parts[1].combinator,
+            Combinator::GeneralSibling
+        );
     }
 
     #[test]
@@ -1447,7 +1466,8 @@ mod tests {
 
     #[test]
     fn test_match_attribute() {
-        let html = r#"<a href="https://example.com">Link 1</a><a href="http://test.com">Link 2</a>"#;
+        let html =
+            r#"<a href="https://example.com">Link 1</a><a href="http://test.com">Link 2</a>"#;
         let doc = Document::parse(html);
 
         let https_links = doc.select("[href^=\"https\"]");

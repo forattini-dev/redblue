@@ -1,11 +1,11 @@
+use crate::accessors::file::FileAccessor;
+use crate::accessors::network::NetworkAccessor;
+use crate::accessors::process::ProcessAccessor;
+use crate::accessors::registry::RegistryAccessor;
+use crate::accessors::service::ServiceAccessor;
+use crate::accessors::Accessor;
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::accessors::Accessor;
-use crate::accessors::file::FileAccessor;
-use crate::accessors::process::ProcessAccessor;
-use crate::accessors::network::NetworkAccessor;
-use crate::accessors::service::ServiceAccessor;
-use crate::accessors::registry::RegistryAccessor;
 use std::collections::HashMap;
 
 pub struct AccessCommand;
@@ -55,11 +55,17 @@ impl Command for AccessCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
-            Flag::new("path", "Path for file/registry operations").with_short('p').with_arg("PATH"),
+            Flag::new("path", "Path for file/registry operations")
+                .with_short('p')
+                .with_arg("PATH"),
             Flag::new("pid", "Process ID").with_arg("PID"),
             Flag::new("pattern", "Search pattern").with_arg("PATTERN"),
-            Flag::new("key", "Registry key").with_short('k').with_arg("KEY"),
-            Flag::new("value", "Registry value").with_short('v').with_arg("VALUE"),
+            Flag::new("key", "Registry key")
+                .with_short('k')
+                .with_arg("KEY"),
+            Flag::new("value", "Registry value")
+                .with_short('v')
+                .with_arg("VALUE"),
         ]
     }
 
@@ -67,14 +73,17 @@ impl Command for AccessCommand {
         vec![
             ("List files", "rb access system file list --path /tmp"),
             ("List processes", "rb access system process list"),
-            ("Show network connections", "rb access system network connections"),
+            (
+                "Show network connections",
+                "rb access system network connections",
+            ),
             ("List services", "rb access system service list"),
         ]
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
         let verb = ctx.verb.as_deref().ok_or("Missing verb")?;
-        
+
         // Map verb to accessor
         let accessor: Box<dyn Accessor> = match verb {
             "file" => Box::new(FileAccessor::new()),
@@ -87,15 +96,25 @@ impl Command for AccessCommand {
 
         // Method is the first argument after the verb
         let method = ctx.args.get(0).ok_or("Missing method")?;
-        
+
         // Collect args into HashMap
         let mut args = HashMap::new();
-        if let Some(path) = ctx.get_flag("path") { args.insert("path".to_string(), path); }
-        if let Some(pid) = ctx.get_flag("pid") { args.insert("pid".to_string(), pid); }
-        if let Some(pattern) = ctx.get_flag("pattern") { args.insert("pattern".to_string(), pattern); }
-        if let Some(key) = ctx.get_flag("key") { args.insert("key".to_string(), key); }
-        if let Some(value) = ctx.get_flag("value") { args.insert("value".to_string(), value); }
-        
+        if let Some(path) = ctx.get_flag("path") {
+            args.insert("path".to_string(), path);
+        }
+        if let Some(pid) = ctx.get_flag("pid") {
+            args.insert("pid".to_string(), pid);
+        }
+        if let Some(pattern) = ctx.get_flag("pattern") {
+            args.insert("pattern".to_string(), pattern);
+        }
+        if let Some(key) = ctx.get_flag("key") {
+            args.insert("key".to_string(), key);
+        }
+        if let Some(value) = ctx.get_flag("value") {
+            args.insert("value".to_string(), value);
+        }
+
         // Add positional args as "arg0", "arg1", etc.
         for (i, arg) in ctx.args.iter().skip(1).enumerate() {
             args.insert(format!("arg{}", i), arg.clone());
@@ -106,7 +125,10 @@ impl Command for AccessCommand {
         if result.success {
             if let Some(data) = result.data {
                 if ctx.get_output_format() == crate::cli::format::OutputFormat::Json {
-                    println!("{}", serde_json::to_string_pretty(&data).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&data).unwrap_or_default()
+                    );
                 } else {
                     // Try to print somewhat nicely
                     if let Some(arr) = data.as_array() {

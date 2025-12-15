@@ -1,3 +1,4 @@
+use crate::config;
 /// ASN (Autonomous System Number) Lookup Module
 ///
 /// Replaces: ipinfo.io, whois ASN queries, aslookup tools
@@ -9,10 +10,8 @@
 /// - Country code identification
 ///
 /// NO external dependencies - pure HTTP from scratch
-
 use crate::protocols::dns::DnsClient;
 use crate::protocols::http::HttpClient;
-use crate::config;
 use std::net::IpAddr;
 
 /// ASN lookup client
@@ -71,11 +70,16 @@ impl AsnClient {
         // iptoasn.com API endpoint
         let url = format!("https://api.iptoasn.com/v1/as/ip/{}", ip);
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .map_err(|e| format!("iptoasn.com request failed: {}", e))?;
 
         if response.status_code != 200 {
-            return Err(format!("iptoasn.com returned status {}", response.status_code));
+            return Err(format!(
+                "iptoasn.com returned status {}",
+                response.status_code
+            ));
         }
 
         let body = String::from_utf8_lossy(&response.body);
@@ -88,7 +92,8 @@ impl AsnClient {
         let dns_client = DnsClient::new(&resolver);
 
         // Resolve hostname to IPs
-        let answers = dns_client.query(hostname, crate::protocols::dns::DnsRecordType::A)
+        let answers = dns_client
+            .query(hostname, crate::protocols::dns::DnsRecordType::A)
             .map_err(|e| format!("DNS resolution failed: {}", e))?;
 
         if answers.is_empty() {
@@ -331,8 +336,14 @@ mod tests {
 
         assert_eq!(client.extract_json_bool(json, "announced"), Some(true));
         assert_eq!(client.extract_json_number(json, "as_number"), Some(15169));
-        assert_eq!(client.extract_json_string(json, "as_country_code"), Some("US".to_string()));
-        assert_eq!(client.extract_json_string(json, "as_description"), Some("GOOGLE".to_string()));
+        assert_eq!(
+            client.extract_json_string(json, "as_country_code"),
+            Some("US".to_string())
+        );
+        assert_eq!(
+            client.extract_json_string(json, "as_description"),
+            Some("GOOGLE".to_string())
+        );
     }
 
     #[test]

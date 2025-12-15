@@ -26,7 +26,7 @@
 //! └────────────────────────────────────────────────────────────┘
 //! ```
 
-use super::page::{Page, PageType, PageHeader, PAGE_SIZE, HEADER_SIZE};
+use super::page::{Page, PageHeader, PageType, HEADER_SIZE, PAGE_SIZE};
 
 /// Maximum number of free page IDs per trunk page
 pub const FREE_IDS_PER_TRUNK: usize = (PAGE_SIZE - HEADER_SIZE - 8) / 4;
@@ -163,7 +163,11 @@ impl FreeList {
     /// Load free pages from a trunk page
     pub fn load_from_trunk(&mut self, trunk: &Page) -> Result<Option<u32>, FreeListError> {
         // Verify page type
-        if trunk.page_type().map_err(|_| FreeListError::InvalidTrunk(trunk.page_id()))? != PageType::FreelistTrunk {
+        if trunk
+            .page_type()
+            .map_err(|_| FreeListError::InvalidTrunk(trunk.page_id()))?
+            != PageType::FreelistTrunk
+        {
             return Err(FreeListError::InvalidTrunk(trunk.page_id()));
         }
 
@@ -207,7 +211,11 @@ impl FreeList {
         // Update trunk head to next trunk
         self.trunk_head = next_trunk;
 
-        Ok(if next_trunk != 0 { Some(next_trunk) } else { None })
+        Ok(if next_trunk != 0 {
+            Some(next_trunk)
+        } else {
+            None
+        })
     }
 
     /// Create a trunk page from current free pages
@@ -244,7 +252,11 @@ impl FreeList {
     ///
     /// If we have more than `threshold` pages in memory, create trunk pages.
     /// Returns trunk pages that need to be written.
-    pub fn flush_to_trunks(&mut self, threshold: usize, mut allocate_page: impl FnMut() -> u32) -> Vec<Page> {
+    pub fn flush_to_trunks(
+        &mut self,
+        threshold: usize,
+        mut allocate_page: impl FnMut() -> u32,
+    ) -> Vec<Page> {
         let mut trunks = Vec::new();
 
         while self.free_pages.len() > threshold {
@@ -264,13 +276,15 @@ impl FreeList {
     /// Merge all trunk pages into memory
     ///
     /// Used during compaction to reclaim trunk pages.
-    pub fn merge_all_trunks(&mut self, load_page: impl Fn(u32) -> Option<Page>) -> Result<Vec<u32>, FreeListError> {
+    pub fn merge_all_trunks(
+        &mut self,
+        load_page: impl Fn(u32) -> Option<Page>,
+    ) -> Result<Vec<u32>, FreeListError> {
         let mut reclaimed_trunks = Vec::new();
 
         while self.trunk_head != 0 {
             let trunk_id = self.trunk_head;
-            let trunk = load_page(trunk_id)
-                .ok_or(FreeListError::InvalidTrunk(trunk_id))?;
+            let trunk = load_page(trunk_id).ok_or(FreeListError::InvalidTrunk(trunk_id))?;
 
             self.load_from_trunk(&trunk)?;
             reclaimed_trunks.push(trunk_id);

@@ -13,14 +13,17 @@ pub mod segments;
 pub mod service;
 pub mod store;
 
-pub mod reddb;
 pub mod records;
+pub mod reddb;
 pub mod session;
 pub mod tables;
 pub mod view;
 
 // RedDB Storage Engine (page-based, B-tree indexed)
 pub mod engine;
+
+// SQLite Import/Compatibility Layer
+pub mod import;
 
 // Legacy Engine (append-only log, for backward compatibility)
 // Disabled - requires old WAL implementation
@@ -46,12 +49,13 @@ pub mod vector;
 pub mod query;
 
 // Public surface re-used by the rest of the codebase.
-pub use client::{PersistenceConfig, PersistenceManager, QueryManager, PasswordSource};
-pub use reddb::RedDb;
+pub use client::{PasswordSource, PersistenceConfig, PersistenceManager, QueryManager};
+pub use keyring::{clear_keyring, has_keyring_password, resolve_password, save_to_keyring};
 pub use records::{
-    PortScanRecord, PortStatus, SubdomainRecord, SubdomainSource, TlsCertRecord, WhoisRecord,
-    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    PortScanRecord, PortStatus, ProxyConnectionRecord, ProxyHttpRequestRecord,
+    ProxyHttpResponseRecord, ProxyWebSocketRecord, SubdomainRecord, SubdomainSource, TlsCertRecord,
+    WhoisRecord,
 };
+pub use reddb::RedDb;
 pub use service::{PartitionKey, PartitionMetadata, StorageService};
 pub use session::{SessionFile, SessionMetadata};
-pub use keyring::{resolve_password, save_to_keyring, clear_keyring, has_keyring_password};

@@ -12,6 +12,9 @@ mod tests {
     #[test]
     fn test_screenshot_batch_processing_placeholder() {
         // Placeholder test for batch processing of URLs for screenshots.
-        assert!(true, "Screenshot batch processing integration test placeholder.");
+        assert!(
+            true,
+            "Screenshot batch processing integration test placeholder."
+        );
     }
 }

@@ -17,19 +17,33 @@ impl Oid {
     //=========================================================================
 
     /// Common Name (CN) - 2.5.4.3
-    pub fn common_name() -> Self { Self::new(OID_COMMON_NAME) }
+    pub fn common_name() -> Self {
+        Self::new(OID_COMMON_NAME)
+    }
     /// Organization (O) - 2.5.4.10
-    pub fn organization() -> Self { Self::new(OID_ORGANIZATION_NAME) }
+    pub fn organization() -> Self {
+        Self::new(OID_ORGANIZATION_NAME)
+    }
     /// Organizational Unit (OU) - 2.5.4.11
-    pub fn organizational_unit() -> Self { Self::new(OID_ORGANIZATIONAL_UNIT) }
+    pub fn organizational_unit() -> Self {
+        Self::new(OID_ORGANIZATIONAL_UNIT)
+    }
     /// Country (C) - 2.5.4.6
-    pub fn country() -> Self { Self::new(OID_COUNTRY_NAME) }
+    pub fn country() -> Self {
+        Self::new(OID_COUNTRY_NAME)
+    }
     /// State or Province (ST) - 2.5.4.8
-    pub fn state() -> Self { Self::new(OID_STATE_OR_PROVINCE) }
+    pub fn state() -> Self {
+        Self::new(OID_STATE_OR_PROVINCE)
+    }
     /// Locality (L) - 2.5.4.7
-    pub fn locality() -> Self { Self::new(OID_LOCALITY_NAME) }
+    pub fn locality() -> Self {
+        Self::new(OID_LOCALITY_NAME)
+    }
     /// Email Address - 1.2.840.113549.1.9.1
-    pub fn email() -> Self { Self::new(OID_EMAIL_ADDRESS) }
+    pub fn email() -> Self {
+        Self::new(OID_EMAIL_ADDRESS)
+    }
 
     // Associated constants using OID slices (for comparison)
     pub const COMMON_NAME: &'static [u32] = OID_COMMON_NAME;
@@ -76,7 +90,10 @@ impl Oid {
 
     /// Get human-readable name if known
     pub fn name(&self) -> Option<&'static str> {
-        KNOWN_OIDS.iter().find(|(_, oid)| *oid == self.components.as_slice()).map(|(name, _)| *name)
+        KNOWN_OIDS
+            .iter()
+            .find(|(_, oid)| *oid == self.components.as_slice())
+            .map(|(name, _)| *name)
     }
 }
 
@@ -114,22 +131,19 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("ecdsaWithSHA512", &[1, 2, 840, 10045, 4, 3, 4]),
     ("ed25519", &[1, 3, 101, 112]),
     ("ed448", &[1, 3, 101, 113]),
-
     // =========================================================================
     // PUBLIC KEY ALGORITHMS
     // =========================================================================
     ("ecPublicKey", &[1, 2, 840, 10045, 2, 1]),
     ("x25519", &[1, 3, 101, 110]),
     ("x448", &[1, 3, 101, 111]),
-
     // =========================================================================
     // ELLIPTIC CURVES
     // =========================================================================
-    ("secp256r1", &[1, 2, 840, 10045, 3, 1, 7]),      // P-256 / prime256v1
-    ("secp384r1", &[1, 3, 132, 0, 34]),               // P-384
-    ("secp521r1", &[1, 3, 132, 0, 35]),               // P-521
-    ("secp256k1", &[1, 3, 132, 0, 10]),               // Bitcoin curve
-
+    ("secp256r1", &[1, 2, 840, 10045, 3, 1, 7]), // P-256 / prime256v1
+    ("secp384r1", &[1, 3, 132, 0, 34]),          // P-384
+    ("secp521r1", &[1, 3, 132, 0, 35]),          // P-521
+    ("secp256k1", &[1, 3, 132, 0, 10]),          // Bitcoin curve
     // =========================================================================
     // HASH ALGORITHMS
     // =========================================================================
@@ -144,7 +158,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("sha3-256", &[2, 16, 840, 1, 101, 3, 4, 2, 8]),
     ("sha3-384", &[2, 16, 840, 1, 101, 3, 4, 2, 9]),
     ("sha3-512", &[2, 16, 840, 1, 101, 3, 4, 2, 10]),
-
     // =========================================================================
     // X.500 DISTINGUISHED NAME ATTRIBUTES
     // =========================================================================
@@ -168,7 +181,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("emailAddress", &[1, 2, 840, 113549, 1, 9, 1]),
     ("domainComponent", &[0, 9, 2342, 19200300, 100, 1, 25]),
     ("userId", &[0, 9, 2342, 19200300, 100, 1, 1]),
-
     // =========================================================================
     // X.509 CERTIFICATE EXTENSIONS
     // =========================================================================
@@ -184,7 +196,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("extKeyUsage", &[2, 5, 29, 37]),
     ("authorityInfoAccess", &[1, 3, 6, 1, 5, 5, 7, 1, 1]),
     ("subjectInfoAccess", &[1, 3, 6, 1, 5, 5, 7, 1, 11]),
-
     // =========================================================================
     // EXTENDED KEY USAGE
     // =========================================================================
@@ -194,7 +205,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("emailProtection", &[1, 3, 6, 1, 5, 5, 7, 3, 4]),
     ("timeStamping", &[1, 3, 6, 1, 5, 5, 7, 3, 8]),
     ("ocspSigning", &[1, 3, 6, 1, 5, 5, 7, 3, 9]),
-
     // =========================================================================
     // PKCS#7 / CMS
     // =========================================================================
@@ -204,7 +214,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("signedAndEnvelopedData", &[1, 2, 840, 113549, 1, 7, 4]),
     ("digestedData", &[1, 2, 840, 113549, 1, 7, 5]),
     ("encryptedData", &[1, 2, 840, 113549, 1, 7, 6]),
-
     // =========================================================================
     // PKCS#9 ATTRIBUTES
     // =========================================================================
@@ -213,7 +222,6 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("signingTime", &[1, 2, 840, 113549, 1, 9, 5]),
     ("challengePassword", &[1, 2, 840, 113549, 1, 9, 7]),
     ("extensionRequest", &[1, 2, 840, 113549, 1, 9, 14]),
-
     // =========================================================================
     // ENCRYPTION ALGORITHMS
     // =========================================================================
@@ -225,13 +233,15 @@ pub const KNOWN_OIDS: &[(&str, &[u32])] = &[
     ("aes256-GCM", &[2, 16, 840, 1, 101, 3, 4, 1, 46]),
     ("des-CBC", &[1, 3, 14, 3, 2, 7]),
     ("des-EDE3-CBC", &[1, 2, 840, 113549, 3, 7]),
-
     // =========================================================================
     // PKCS#5 / PKCS#12
     // =========================================================================
     ("pbeWithMD5AndDES-CBC", &[1, 2, 840, 113549, 1, 5, 3]),
     ("pbeWithSHA1AndDES-CBC", &[1, 2, 840, 113549, 1, 5, 10]),
-    ("pbeWithSHA1And3-KeyTripleDES-CBC", &[1, 2, 840, 113549, 1, 12, 1, 3]),
+    (
+        "pbeWithSHA1And3-KeyTripleDES-CBC",
+        &[1, 2, 840, 113549, 1, 12, 1, 3],
+    ),
     ("pbeWithSHA1And128BitRC4", &[1, 2, 840, 113549, 1, 12, 1, 1]),
     ("pbkdf2", &[1, 2, 840, 113549, 1, 5, 12]),
     ("pbes2", &[1, 2, 840, 113549, 1, 5, 13]),

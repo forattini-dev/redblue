@@ -3,8 +3,7 @@
 //! Implements service installation via launchd (LaunchAgents/LaunchDaemons).
 
 use super::{
-    dirs, find_rb_binary, InstalledService, ServiceConfig, ServiceManager, ServiceStatus,
-    templates,
+    dirs, find_rb_binary, templates, InstalledService, ServiceConfig, ServiceManager, ServiceStatus,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -41,7 +40,8 @@ impl MacOSServiceManager {
 
     /// Get plist file path
     fn plist_path(&self, name: &str) -> PathBuf {
-        self.launchd_dir().join(format!("io.redblue.{}.plist", name))
+        self.launchd_dir()
+            .join(format!("io.redblue.{}.plist", name))
     }
 
     /// Get launchd label
@@ -63,7 +63,8 @@ impl ServiceManager for MacOSServiceManager {
 
         // Create directory if needed
         let dir = self.launchd_dir();
-        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create LaunchAgents dir: {}", e))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create LaunchAgents dir: {}", e))?;
 
         // Write plist file
         let plist_path = self.plist_path(&config.name);
@@ -112,9 +113,7 @@ impl ServiceManager for MacOSServiceManager {
     fn start(&self, name: &str) -> Result<(), String> {
         let label = self.label(name);
 
-        let output = Command::new("launchctl")
-            .args(["start", &label])
-            .output();
+        let output = Command::new("launchctl").args(["start", &label]).output();
 
         match output {
             Ok(o) if o.status.success() => Ok(()),
@@ -126,9 +125,7 @@ impl ServiceManager for MacOSServiceManager {
     fn stop(&self, name: &str) -> Result<(), String> {
         let label = self.label(name);
 
-        let output = Command::new("launchctl")
-            .args(["stop", &label])
-            .output();
+        let output = Command::new("launchctl").args(["stop", &label]).output();
 
         match output {
             Ok(o) if o.status.success() => Ok(()),
@@ -146,9 +143,7 @@ impl ServiceManager for MacOSServiceManager {
         }
 
         // Check if service is loaded and running
-        let output = Command::new("launchctl")
-            .args(["list", &label])
-            .output();
+        let output = Command::new("launchctl").args(["list", &label]).output();
 
         match output {
             Ok(o) if o.status.success() => {

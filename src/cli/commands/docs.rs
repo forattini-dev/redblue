@@ -44,10 +44,7 @@ impl Command for DocsCommand {
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
             ("Search for TLS help", "rb docs kb search tls"),
-            (
-                "Update local index",
-                "rb docs kb index --download",
-            ),
+            ("Update local index", "rb docs kb index --download"),
         ]
     }
 

@@ -1,3 +1,7 @@
+mod bsd;
+mod linux;
+mod macos;
+mod network;
 /// OS Fingerprint Signature Database
 ///
 /// Modular TCP/IP stack fingerprint database for OS detection.
@@ -25,13 +29,8 @@
 ///     println!("{}: {:.1}% confidence", sig.name, score * 100.0);
 /// }
 /// ```
-
 mod types;
-mod linux;
 mod windows;
-mod macos;
-mod bsd;
-mod network;
 
 pub use types::*;
 
@@ -203,7 +202,8 @@ impl OsSignatureDb {
         let mut matches: Vec<(&OsSignature, f32)> = Vec::new();
 
         for sig in &self.signatures {
-            let score = self.calculate_match_score(sig, ttl, window_size, mss, window_scale, tcp_options);
+            let score =
+                self.calculate_match_score(sig, ttl, window_size, mss, window_scale, tcp_options);
             if score > 0.3 {
                 // Minimum threshold
                 matches.push((sig, score));
@@ -355,7 +355,11 @@ mod tests {
     #[test]
     fn test_database_creation() {
         let db = OsSignatureDb::new();
-        assert!(db.len() >= 200, "Expected at least 200 signatures, got {}", db.len());
+        assert!(
+            db.len() >= 200,
+            "Expected at least 200 signatures, got {}",
+            db.len()
+        );
     }
 
     #[test]
@@ -365,7 +369,11 @@ mod tests {
         ids.sort();
         let unique_count = ids.len();
         ids.dedup();
-        assert_eq!(unique_count, ids.len(), "Duplicate signature IDs found in database");
+        assert_eq!(
+            unique_count,
+            ids.len(),
+            "Duplicate signature IDs found in database"
+        );
     }
 
     #[test]
@@ -426,7 +434,10 @@ mod tests {
         assert!(!cisco.is_empty(), "Expected Cisco signatures");
 
         let microsoft = db.by_vendor("microsoft");
-        assert!(!microsoft.is_empty(), "Expected Microsoft signatures (case-insensitive)");
+        assert!(
+            !microsoft.is_empty(),
+            "Expected Microsoft signatures (case-insensitive)"
+        );
     }
 
     #[test]

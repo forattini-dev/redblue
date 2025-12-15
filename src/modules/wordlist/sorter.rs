@@ -20,7 +20,7 @@ impl Sorter {
                 words.sort_by(|a, b| a.len().cmp(&b.len()));
             }
         }
-        
+
         if let SortOrder::Descending = order {
             words.reverse();
         }

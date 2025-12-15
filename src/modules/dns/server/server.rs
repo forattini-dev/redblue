@@ -222,10 +222,7 @@ impl DnsServer {
         println!(
             "[DNS] Upstream: {} (fallback: {})",
             self.config.upstream,
-            self.config
-                .upstream_secondary
-                .as_deref()
-                .unwrap_or("none")
+            self.config.upstream_secondary.as_deref().unwrap_or("none")
         );
         println!("[DNS] Rules: {}", self.rules.len());
 
@@ -331,12 +328,8 @@ impl DnsServerInner {
 
     /// Handle TCP connection
     fn handle_tcp_connection(&self, mut stream: TcpStream) {
-        stream
-            .set_read_timeout(Some(self.config.timeout))
-            .ok();
-        stream
-            .set_write_timeout(Some(self.config.timeout))
-            .ok();
+        stream.set_read_timeout(Some(self.config.timeout)).ok();
+        stream.set_write_timeout(Some(self.config.timeout)).ok();
 
         loop {
             // Read length prefix
@@ -577,11 +570,7 @@ impl DnsServerInner {
     }
 
     /// Build response from cached entry
-    fn build_cached_response(
-        &self,
-        query: &[u8],
-        entry: &CacheEntry,
-    ) -> Result<Vec<u8>, String> {
+    fn build_cached_response(&self, query: &[u8], entry: &CacheEntry) -> Result<Vec<u8>, String> {
         // For simplicity, we'll rebuild the response
         // In a production system, we'd cache the full response
         if let Some(ip) = entry.addresses.first() {

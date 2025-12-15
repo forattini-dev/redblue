@@ -391,11 +391,10 @@ impl PortScanner {
             // Databases & messaging
             1080, 1433, 1434, 1521, 1723, 1812, 1883, 2049, 2181, 2222, 2375, 2376, 2379,
             // Web & apps
-            3000, 3128, 3268, 3306, 3389, 3690, 4369, 4443, 5000, 5005, 5060, 5222, 5432,
-            5601, 5672, 5900, 5984, 5985, 6379, 6443, 6667,
-            // Management & monitoring
-            7001, 7474, 7687, 8000, 8008, 8009, 8080, 8081, 8088, 8123, 8139, 8140, 8200,
-            8443, 8500, 8834, 8888, 9000, 9042, 9090, 9092, 9100, 9200, 9300, 9418,
+            3000, 3128, 3268, 3306, 3389, 3690, 4369, 4443, 5000, 5005, 5060, 5222, 5432, 5601,
+            5672, 5900, 5984, 5985, 6379, 6443, 6667, // Management & monitoring
+            7001, 7474, 7687, 8000, 8008, 8009, 8080, 8081, 8088, 8123, 8139, 8140, 8200, 8443,
+            8500, 8834, 8888, 9000, 9042, 9090, 9092, 9100, 9200, 9300, 9418,
             // Infrastructure
             10000, 10250, 11211, 15672, 27017, 50000, 50051, 50070, 61616,
         ]
@@ -511,12 +510,12 @@ impl TimingTemplate {
     /// Get host timeout (max time to scan one host) in seconds
     pub fn host_timeout_secs(&self) -> u64 {
         match self {
-            TimingTemplate::Paranoid => 0, // No limit
-            TimingTemplate::Sneaky => 0,   // No limit
-            TimingTemplate::Polite => 0,   // No limit
-            TimingTemplate::Normal => 0,   // No limit
-            TimingTemplate::Aggressive => 900,  // 15 minutes
-            TimingTemplate::Insane => 300,      // 5 minutes
+            TimingTemplate::Paranoid => 0,     // No limit
+            TimingTemplate::Sneaky => 0,       // No limit
+            TimingTemplate::Polite => 0,       // No limit
+            TimingTemplate::Normal => 0,       // No limit
+            TimingTemplate::Aggressive => 900, // 15 minutes
+            TimingTemplate::Insane => 300,     // 5 minutes
         }
     }
 
@@ -641,11 +640,16 @@ impl AdvancedScanner {
                     .with_threads(self.threads)
                     .with_timeout(self.timeout_ms);
 
-                scanner.scan_ports(ports)
+                scanner
+                    .scan_ports(ports)
                     .into_iter()
                     .map(|r| AdvancedScanResult {
                         port: r.port,
-                        state: if r.is_open { PortState::Open } else { PortState::Closed },
+                        state: if r.is_open {
+                            PortState::Open
+                        } else {
+                            PortState::Closed
+                        },
                         service: r.service,
                         banner: r.banner,
                         rtt_ms: None,
@@ -672,7 +676,7 @@ impl AdvancedScanner {
 
     #[cfg(target_family = "unix")]
     fn raw_syn_scan(&self, ports: &[u16]) -> Vec<AdvancedScanResult> {
-        use crate::protocols::raw::{SynScanner, get_source_ip, PortState};
+        use crate::protocols::raw::{get_source_ip, PortState, SynScanner};
         use std::net::Ipv4Addr;
 
         let dst_ip = match self.target {
@@ -691,8 +695,8 @@ impl AdvancedScanner {
             }
         };
 
-        let scanner = SynScanner::new(src_ip, dst_ip)
-            .with_timeout(Duration::from_millis(self.timeout_ms));
+        let scanner =
+            SynScanner::new(src_ip, dst_ip).with_timeout(Duration::from_millis(self.timeout_ms));
 
         let mut results = Vec::with_capacity(ports.len());
 
@@ -715,7 +719,9 @@ impl AdvancedScanner {
                 }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::PermissionDenied {
-                        eprintln!("SYN scan requires root/CAP_NET_RAW. Falling back to connect scan.");
+                        eprintln!(
+                            "SYN scan requires root/CAP_NET_RAW. Falling back to connect scan."
+                        );
                         return AdvancedScanner::new(self.target)
                             .with_scan_type(ScanType::Connect)
                             .with_threads(self.threads)
@@ -740,7 +746,7 @@ impl AdvancedScanner {
 
     #[cfg(target_family = "unix")]
     fn raw_stealth_scan(&self, ports: &[u16]) -> Vec<AdvancedScanResult> {
-        use crate::protocols::raw::{StealthScanner, StealthScanType, get_source_ip, PortState};
+        use crate::protocols::raw::{get_source_ip, PortState, StealthScanType, StealthScanner};
 
         let dst_ip = match self.target {
             IpAddr::V4(ip) => ip,
@@ -776,7 +782,9 @@ impl AdvancedScanner {
                     results.push(AdvancedScanResult {
                         port,
                         state: raw_result.state,
-                        service: if raw_result.state == PortState::Open || raw_result.state == PortState::OpenFiltered {
+                        service: if raw_result.state == PortState::Open
+                            || raw_result.state == PortState::OpenFiltered
+                        {
                             PortScanner::guess_service(port)
                         } else {
                             None
@@ -810,7 +818,7 @@ impl AdvancedScanner {
 
     #[cfg(target_family = "unix")]
     fn udp_scan(&self, ports: &[u16]) -> Vec<AdvancedScanResult> {
-        use crate::protocols::raw::{UdpScanner, get_source_ip, PortState};
+        use crate::protocols::raw::{get_source_ip, PortState, UdpScanner};
 
         let dst_ip = match self.target {
             IpAddr::V4(ip) => ip,
@@ -828,8 +836,8 @@ impl AdvancedScanner {
             }
         };
 
-        let scanner = UdpScanner::new(src_ip, dst_ip)
-            .with_timeout(Duration::from_millis(self.timeout_ms));
+        let scanner =
+            UdpScanner::new(src_ip, dst_ip).with_timeout(Duration::from_millis(self.timeout_ms));
 
         let mut results = Vec::with_capacity(ports.len());
 
@@ -956,9 +964,9 @@ impl AdvancedScanner {
     /// Get common UDP ports for scanning (expanded list)
     pub fn get_common_udp_ports() -> Vec<u16> {
         vec![
-            53, 67, 68, 69, 88, 111, 123, 137, 138, 161, 162, 177, 389,
-            464, 500, 514, 520, 623, 636, 853, 1194, 1434, 1701, 1812,
-            1813, 1900, 2049, 3478, 4500, 5060, 5353, 5683, 6343, 8125,
+            53, 67, 68, 69, 88, 111, 123, 137, 138, 161, 162, 177, 389, 464, 500, 514, 520, 623,
+            636, 853, 1194, 1434, 1701, 1812, 1813, 1900, 2049, 3478, 4500, 5060, 5353, 5683, 6343,
+            8125,
         ]
     }
 }

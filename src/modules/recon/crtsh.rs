@@ -9,7 +9,6 @@
 /// - Deduplication
 ///
 /// NO external dependencies - pure HTTP from scratch
-
 use crate::protocols::http::HttpClient;
 use std::collections::HashSet;
 
@@ -41,12 +40,11 @@ impl CrtShClient {
     pub fn query_subdomains(&self, domain: &str) -> Result<Vec<String>, String> {
         // crt.sh JSON API endpoint
         // Format: https://crt.sh/?q=%.domain.com&output=json
-        let url = format!(
-            "https://crt.sh/?q=%25.{}&output=json",
-            domain
-        );
+        let url = format!("https://crt.sh/?q=%25.{}&output=json", domain);
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .map_err(|e| format!("crt.sh request failed: {}", e))?;
 
         if response.status_code != 200 {
@@ -68,12 +66,11 @@ impl CrtShClient {
 
     /// Query crt.sh and return full certificate entries
     pub fn query_certificates(&self, domain: &str) -> Result<Vec<CertificateEntry>, String> {
-        let url = format!(
-            "https://crt.sh/?q=%25.{}&output=json",
-            domain
-        );
+        let url = format!("https://crt.sh/?q=%25.{}&output=json", domain);
 
-        let response = self.http_client.get(&url)
+        let response = self
+            .http_client
+            .get(&url)
             .map_err(|e| format!("crt.sh request failed: {}", e))?;
 
         if response.status_code != 200 {
@@ -198,11 +195,21 @@ impl CrtShClient {
     /// Parse a single certificate entry object
     fn parse_single_entry(&self, obj_json: &str) -> Result<CertificateEntry, String> {
         let id = self.extract_json_number(obj_json, "id").unwrap_or(0);
-        let issuer_name = self.extract_json_string(obj_json, "issuer_name").unwrap_or_default();
-        let common_name = self.extract_json_string(obj_json, "common_name").unwrap_or_default();
-        let name_value = self.extract_json_string(obj_json, "name_value").unwrap_or_default();
-        let not_before = self.extract_json_string(obj_json, "not_before").unwrap_or_default();
-        let not_after = self.extract_json_string(obj_json, "not_after").unwrap_or_default();
+        let issuer_name = self
+            .extract_json_string(obj_json, "issuer_name")
+            .unwrap_or_default();
+        let common_name = self
+            .extract_json_string(obj_json, "common_name")
+            .unwrap_or_default();
+        let name_value = self
+            .extract_json_string(obj_json, "name_value")
+            .unwrap_or_default();
+        let not_before = self
+            .extract_json_string(obj_json, "not_before")
+            .unwrap_or_default();
+        let not_after = self
+            .extract_json_string(obj_json, "not_after")
+            .unwrap_or_default();
 
         let name_values: Vec<String> = name_value
             .split('\n')
@@ -223,7 +230,9 @@ impl CrtShClient {
     /// Find position of a JSON key
     fn find_json_key(&self, json: &str, start: usize, key: &str) -> Option<usize> {
         let search = format!("\"{}\"", key);
-        json[start..].find(&search).map(|pos| start + pos + search.len())
+        json[start..]
+            .find(&search)
+            .map(|pos| start + pos + search.len())
     }
 
     /// Extract string value after a JSON key position

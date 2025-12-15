@@ -48,11 +48,7 @@ impl ProcessInfo {
                 status
                     .lines()
                     .find(|line| line.starts_with("Uid:"))
-                    .and_then(|line| {
-                        line.split_whitespace()
-                            .nth(1)
-                            .and_then(|s| s.parse().ok())
-                    })
+                    .and_then(|line| line.split_whitespace().nth(1).and_then(|s| s.parse().ok()))
             });
 
         Some(Self {

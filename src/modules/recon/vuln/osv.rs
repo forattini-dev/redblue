@@ -4,9 +4,9 @@
 //!
 //! API Docs: https://osv.dev/docs/
 
+use super::types::{Severity, VersionRange, VulnSource, Vulnerability};
 use crate::protocols::http::HttpClient;
-use crate::utils::json::{JsonValue, parse_json};
-use super::types::{Vulnerability, Severity, VulnSource, VersionRange};
+use crate::utils::json::{parse_json, JsonValue};
 
 const OSV_API_BASE: &str = "https://api.osv.dev/v1";
 
@@ -150,20 +150,28 @@ impl OsvClient {
         vuln.sources.push(VulnSource::Osv);
 
         // Summary as title
-        vuln.title = json.get("summary")
+        vuln.title = json
+            .get("summary")
             .and_then(|s| s.as_str())
             .unwrap_or(id)
             .to_string();
 
         // Details as description
-        vuln.description = json.get("details")
+        vuln.description = json
+            .get("details")
             .and_then(|d| d.as_str())
             .unwrap_or("")
             .to_string();
 
         // Published and modified dates
-        vuln.published = json.get("published").and_then(|p| p.as_str()).map(|s| s.to_string());
-        vuln.modified = json.get("modified").and_then(|m| m.as_str()).map(|s| s.to_string());
+        vuln.published = json
+            .get("published")
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string());
+        vuln.modified = json
+            .get("modified")
+            .and_then(|m| m.as_str())
+            .map(|s| s.to_string());
 
         // Severity from CVSS
         if let Some(severity) = json.get("severity").and_then(|s| s.as_array()) {
@@ -230,9 +238,12 @@ impl OsvClient {
                             };
 
                             for event in events {
-                                if let Some(introduced) = event.get("introduced").and_then(|i| i.as_str()) {
+                                if let Some(introduced) =
+                                    event.get("introduced").and_then(|i| i.as_str())
+                                {
                                     if introduced != "0" {
-                                        version_range.start_including = Some(introduced.to_string());
+                                        version_range.start_including =
+                                            Some(introduced.to_string());
                                     }
                                 }
                                 if let Some(fixed) = event.get("fixed").and_then(|f| f.as_str()) {
@@ -240,7 +251,9 @@ impl OsvClient {
                                 }
                             }
 
-                            if version_range.start_including.is_some() || version_range.end_excluding.is_some() {
+                            if version_range.start_including.is_some()
+                                || version_range.end_excluding.is_some()
+                            {
                                 vuln.affected_versions.push(version_range);
                             }
                         }

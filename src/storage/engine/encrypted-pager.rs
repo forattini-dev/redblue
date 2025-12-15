@@ -27,11 +27,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use super::{Page, PageType, PAGE_SIZE, HEADER_SIZE};
 use super::pager::{Pager, PagerConfig, PagerError};
+use super::{Page, PageType, HEADER_SIZE, PAGE_SIZE};
 use crate::storage::encryption::{
-    PageEncryptor, SecureKey, EncryptionHeader,
-    page_encryptor::{NONCE_SIZE, TAG_SIZE, OVERHEAD},
+    page_encryptor::{NONCE_SIZE, OVERHEAD, TAG_SIZE},
+    EncryptionHeader, PageEncryptor, SecureKey,
 };
 
 /// Usable page content size after encryption overhead
@@ -223,7 +223,9 @@ impl EncryptedPager {
 
     /// Write encryption header to page 0
     fn write_encryption_header(&mut self) -> Result<(), EncryptedPagerError> {
-        let header = self.encryption_header.as_ref()
+        let header = self
+            .encryption_header
+            .as_ref()
             .ok_or(EncryptedPagerError::NotEncrypted)?;
 
         // Read current header page
@@ -239,8 +241,7 @@ impl EncryptedPager {
 
         let header_bytes = header.to_bytes();
         let header_start = ENCRYPTION_MARKER_OFFSET + 4;
-        data[header_start..header_start + header_bytes.len()]
-            .copy_from_slice(&header_bytes);
+        data[header_start..header_start + header_bytes.len()].copy_from_slice(&header_bytes);
 
         // Write back (header page is not encrypted itself, but contains encryption params)
         self.inner.write_page(0, page)?;
@@ -266,13 +267,16 @@ impl EncryptedPager {
         let raw_page = self.inner.read_page_no_checksum(page_id)?;
 
         // Decrypt the page content
-        let encryptor = self.encryptor.as_ref()
+        let encryptor = self
+            .encryptor
+            .as_ref()
             .ok_or(EncryptedPagerError::NotEncrypted)?;
 
         // Page layout: [Nonce (12)] [Ciphertext (PAGE_SIZE - OVERHEAD)] [Tag (16)]
         // Total: PAGE_SIZE bytes
         let raw_data = raw_page.as_bytes();
-        let plaintext = encryptor.decrypt(page_id, raw_data)
+        let plaintext = encryptor
+            .decrypt(page_id, raw_data)
             .map_err(|e| EncryptedPagerError::Encryption(e))?;
 
         // Reconstruct page from plaintext (plaintext is PAGE_SIZE - OVERHEAD bytes)
@@ -293,7 +297,9 @@ impl EncryptedPager {
         }
 
         // Encrypt the page content
-        let encryptor = self.encryptor.as_ref()
+        let encryptor = self
+            .encryptor
+            .as_ref()
             .ok_or(EncryptedPagerError::NotEncrypted)?;
 
         // Only encrypt PAGE_SIZE - OVERHEAD bytes to leave room for nonce and tag

@@ -14,8 +14,13 @@ impl HtmlExporter {
         // Document header
         html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
         html.push_str("<meta charset=\"UTF-8\">\n");
-        html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-        html.push_str(&format!("<title>{} - redblue Report</title>\n", Self::escape_html(&report.title)));
+        html.push_str(
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",
+        );
+        html.push_str(&format!(
+            "<title>{} - redblue Report</title>\n",
+            Self::escape_html(&report.title)
+        ));
         html.push_str("<style>\n");
         html.push_str(Self::css());
         html.push_str("\n</style>\n</head>\n<body>\n");
@@ -23,15 +28,21 @@ impl HtmlExporter {
         // Header
         html.push_str("<header>\n");
         html.push_str(&format!("<h1>{}</h1>\n", Self::escape_html(&report.title)));
-        html.push_str(&format!("<p class=\"meta\">Target: <strong>{}</strong> | Scan Date: {}</p>\n",
-            Self::escape_html(&report.target), Self::escape_html(&report.scan_date)));
+        html.push_str(&format!(
+            "<p class=\"meta\">Target: <strong>{}</strong> | Scan Date: {}</p>\n",
+            Self::escape_html(&report.target),
+            Self::escape_html(&report.scan_date)
+        ));
         html.push_str("</header>\n\n");
 
         // Executive Summary
         html.push_str("<section class=\"summary\">\n");
         html.push_str("<h2>Executive Summary</h2>\n");
         if !report.executive_summary.is_empty() {
-            html.push_str(&format!("<p>{}</p>\n", Self::escape_html(&report.executive_summary)));
+            html.push_str(&format!(
+                "<p>{}</p>\n",
+                Self::escape_html(&report.executive_summary)
+            ));
         }
 
         // Stats cards
@@ -56,7 +67,9 @@ impl HtmlExporter {
             html.push_str("<table>\n<thead>\n<tr><th>Hostname</th><th>IP</th><th>Open Ports</th><th>Technologies</th></tr>\n</thead>\n<tbody>\n");
 
             for host in &report.hosts {
-                let ports_str = host.ports.iter()
+                let ports_str = host
+                    .ports
+                    .iter()
                     .map(|p| format!("{}/{}", p.port, p.service))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -65,7 +78,10 @@ impl HtmlExporter {
                 html.push_str(&format!("<td>{}</td>", Self::escape_html(&host.hostname)));
                 html.push_str(&format!("<td>{}</td>", host.ip.as_deref().unwrap_or("-")));
                 html.push_str(&format!("<td>{}</td>", Self::escape_html(&ports_str)));
-                html.push_str(&format!("<td>{}</td>", Self::escape_html(&host.technologies.join(", "))));
+                html.push_str(&format!(
+                    "<td>{}</td>",
+                    Self::escape_html(&host.technologies.join(", "))
+                ));
                 html.push_str("</tr>\n");
             }
 
@@ -90,28 +106,44 @@ impl HtmlExporter {
             };
 
             html.push_str(&format!("<div class=\"finding {}\">\n", severity_class));
-            html.push_str(&format!("<h3><span class=\"badge {}\">{}</span> {}</h3>\n",
-                severity_class, finding.severity.as_str(), Self::escape_html(&finding.title)));
+            html.push_str(&format!(
+                "<h3><span class=\"badge {}\">{}</span> {}</h3>\n",
+                severity_class,
+                finding.severity.as_str(),
+                Self::escape_html(&finding.title)
+            ));
 
             if !finding.description.is_empty() {
-                html.push_str(&format!("<p class=\"description\">{}</p>\n", Self::escape_html(&finding.description)));
+                html.push_str(&format!(
+                    "<p class=\"description\">{}</p>\n",
+                    Self::escape_html(&finding.description)
+                ));
             }
 
             if let Some(ref evidence) = finding.evidence {
                 html.push_str("<div class=\"evidence\">\n<h4>Evidence</h4>\n");
-                html.push_str(&format!("<pre><code>{}</code></pre>\n</div>\n", Self::escape_html(evidence)));
+                html.push_str(&format!(
+                    "<pre><code>{}</code></pre>\n</div>\n",
+                    Self::escape_html(evidence)
+                ));
             }
 
             if let Some(ref remediation) = finding.remediation {
                 html.push_str("<div class=\"remediation\">\n<h4>Remediation</h4>\n");
-                html.push_str(&format!("<p>{}</p>\n</div>\n", Self::escape_html(remediation)));
+                html.push_str(&format!(
+                    "<p>{}</p>\n</div>\n",
+                    Self::escape_html(remediation)
+                ));
             }
 
             if !finding.references.is_empty() {
                 html.push_str("<div class=\"references\">\n<h4>References</h4>\n<ul>\n");
                 for reference in &finding.references {
-                    html.push_str(&format!("<li><a href=\"{}\" target=\"_blank\">{}</a></li>\n",
-                        Self::escape_html(reference), Self::escape_html(reference)));
+                    html.push_str(&format!(
+                        "<li><a href=\"{}\" target=\"_blank\">{}</a></li>\n",
+                        Self::escape_html(reference),
+                        Self::escape_html(reference)
+                    ));
                 }
                 html.push_str("</ul>\n</div>\n");
             }
@@ -119,7 +151,10 @@ impl HtmlExporter {
             if !finding.tags.is_empty() {
                 html.push_str("<div class=\"tags\">\n");
                 for tag in &finding.tags {
-                    html.push_str(&format!("<span class=\"tag\">{}</span>\n", Self::escape_html(tag)));
+                    html.push_str(&format!(
+                        "<span class=\"tag\">{}</span>\n",
+                        Self::escape_html(tag)
+                    ));
                 }
                 html.push_str("</div>\n");
             }
@@ -130,7 +165,9 @@ impl HtmlExporter {
 
         // Footer
         html.push_str("<footer>\n");
-        html.push_str("<p>Generated by <strong>redblue</strong> - Security Assessment Toolkit</p>\n");
+        html.push_str(
+            "<p>Generated by <strong>redblue</strong> - Security Assessment Toolkit</p>\n",
+        );
         html.push_str("</footer>\n\n");
 
         html.push_str("</body>\n</html>");

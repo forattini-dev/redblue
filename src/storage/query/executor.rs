@@ -5,7 +5,7 @@
 
 use super::filter::Filter;
 use super::sort::{OrderBy, QueryLimits};
-use crate::storage::schema::{Value, Row};
+use crate::storage::schema::{Row, Value};
 use std::collections::HashMap;
 
 /// Query result set
@@ -486,11 +486,36 @@ mod tests {
         ];
 
         let rows = vec![
-            Row::new(vec![Value::Integer(1), Value::Text("Alice".to_string()), Value::Integer(30), Value::Text("Engineering".to_string())]),
-            Row::new(vec![Value::Integer(2), Value::Text("Bob".to_string()), Value::Integer(25), Value::Text("Sales".to_string())]),
-            Row::new(vec![Value::Integer(3), Value::Text("Charlie".to_string()), Value::Integer(35), Value::Text("Engineering".to_string())]),
-            Row::new(vec![Value::Integer(4), Value::Text("Diana".to_string()), Value::Integer(28), Value::Text("HR".to_string())]),
-            Row::new(vec![Value::Integer(5), Value::Text("Eve".to_string()), Value::Integer(32), Value::Text("Engineering".to_string())]),
+            Row::new(vec![
+                Value::Integer(1),
+                Value::Text("Alice".to_string()),
+                Value::Integer(30),
+                Value::Text("Engineering".to_string()),
+            ]),
+            Row::new(vec![
+                Value::Integer(2),
+                Value::Text("Bob".to_string()),
+                Value::Integer(25),
+                Value::Text("Sales".to_string()),
+            ]),
+            Row::new(vec![
+                Value::Integer(3),
+                Value::Text("Charlie".to_string()),
+                Value::Integer(35),
+                Value::Text("Engineering".to_string()),
+            ]),
+            Row::new(vec![
+                Value::Integer(4),
+                Value::Text("Diana".to_string()),
+                Value::Integer(28),
+                Value::Text("HR".to_string()),
+            ]),
+            Row::new(vec![
+                Value::Integer(5),
+                Value::Text("Eve".to_string()),
+                Value::Integer(32),
+                Value::Text("Engineering".to_string()),
+            ]),
         ];
 
         executor.add_table("employees", columns, rows);
@@ -512,8 +537,7 @@ mod tests {
     fn test_select_columns() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .select(vec!["name".to_string(), "age".to_string()]);
+        let plan = QueryPlan::new("employees").select(vec!["name".to_string(), "age".to_string()]);
 
         let result = executor.execute(&plan).unwrap();
 
@@ -525,8 +549,10 @@ mod tests {
     fn test_filter_eq() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .filter(Filter::eq("department", Value::Text("Engineering".to_string())));
+        let plan = QueryPlan::new("employees").filter(Filter::eq(
+            "department",
+            Value::Text("Engineering".to_string()),
+        ));
 
         let result = executor.execute(&plan).unwrap();
 
@@ -537,8 +563,7 @@ mod tests {
     fn test_filter_gt() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .filter(Filter::gt("age", Value::Integer(30)));
+        let plan = QueryPlan::new("employees").filter(Filter::gt("age", Value::Integer(30)));
 
         let result = executor.execute(&plan).unwrap();
 
@@ -550,7 +575,10 @@ mod tests {
         let executor = create_test_executor();
 
         let plan = QueryPlan::new("employees")
-            .filter(Filter::eq("department", Value::Text("Engineering".to_string())))
+            .filter(Filter::eq(
+                "department",
+                Value::Text("Engineering".to_string()),
+            ))
             .filter(Filter::ge("age", Value::Integer(30)));
 
         let result = executor.execute(&plan).unwrap();
@@ -562,27 +590,37 @@ mod tests {
     fn test_order_by() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .order_by(OrderBy::new().asc("age"));
+        let plan = QueryPlan::new("employees").order_by(OrderBy::new().asc("age"));
 
         let result = executor.execute(&plan).unwrap();
 
         // Should be ordered: Bob (25), Diana (28), Alice (30), Eve (32), Charlie (35)
-        assert_eq!(result.get_value(0, "name"), Some(&Value::Text("Bob".to_string())));
-        assert_eq!(result.get_value(4, "name"), Some(&Value::Text("Charlie".to_string())));
+        assert_eq!(
+            result.get_value(0, "name"),
+            Some(&Value::Text("Bob".to_string()))
+        );
+        assert_eq!(
+            result.get_value(4, "name"),
+            Some(&Value::Text("Charlie".to_string()))
+        );
     }
 
     #[test]
     fn test_order_by_desc() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .order_by(OrderBy::new().desc("age"));
+        let plan = QueryPlan::new("employees").order_by(OrderBy::new().desc("age"));
 
         let result = executor.execute(&plan).unwrap();
 
-        assert_eq!(result.get_value(0, "name"), Some(&Value::Text("Charlie".to_string())));
-        assert_eq!(result.get_value(4, "name"), Some(&Value::Text("Bob".to_string())));
+        assert_eq!(
+            result.get_value(0, "name"),
+            Some(&Value::Text("Charlie".to_string()))
+        );
+        assert_eq!(
+            result.get_value(4, "name"),
+            Some(&Value::Text("Bob".to_string()))
+        );
     }
 
     #[test]
@@ -642,9 +680,7 @@ mod tests {
     fn test_total_count() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .limit(2)
-            .with_total_count();
+        let plan = QueryPlan::new("employees").limit(2).with_total_count();
 
         let result = executor.execute(&plan).unwrap();
 
@@ -666,8 +702,8 @@ mod tests {
     fn test_column_not_found() {
         let executor = create_test_executor();
 
-        let plan = QueryPlan::new("employees")
-            .select(vec!["name".to_string(), "nonexistent".to_string()]);
+        let plan =
+            QueryPlan::new("employees").select(vec!["name".to_string(), "nonexistent".to_string()]);
 
         let result = executor.execute(&plan);
 
@@ -711,7 +747,10 @@ mod tests {
         let executor = create_test_executor();
 
         let plan = QueryPlan::new("employees")
-            .filter(Filter::eq("department", Value::Text("Engineering".to_string())))
+            .filter(Filter::eq(
+                "department",
+                Value::Text("Engineering".to_string()),
+            ))
             .limit(2);
 
         let result = executor.execute(&plan).unwrap();

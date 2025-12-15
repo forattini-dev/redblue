@@ -3,7 +3,7 @@ use crate::cli::commands::{
     annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
 };
 use crate::cli::{output::Output, validator::Validator, CliContext};
-use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditor, TlsAuditResult};
+use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditResult, TlsAuditor};
 use crate::modules::tls::mozilla_profiles::{
     ComplianceSeverity, MozillaComplianceChecker, MozillaProfile,
 };
@@ -158,7 +158,10 @@ impl Command for TlsCommand {
                     "{}",
                     Validator::suggest_command(
                         verb,
-                        &["audit", "ciphers", "vuln", "resume", "mozilla", "list", "get", "describe"]
+                        &[
+                            "audit", "ciphers", "vuln", "resume", "mozilla", "list", "get",
+                            "describe"
+                        ]
                     )
                 );
                 Err("Invalid verb".to_string())
@@ -514,7 +517,10 @@ impl TlsCommand {
             if let Some(lifetime) = result.session_ticket_lifetime {
                 let hours = lifetime / 3600;
                 let minutes = (lifetime % 3600) / 60;
-                Output::item("  Ticket Lifetime", &format!("{}h {}m ({} seconds)", hours, minutes, lifetime));
+                Output::item(
+                    "  Ticket Lifetime",
+                    &format!("{}h {}m ({} seconds)", hours, minutes, lifetime),
+                );
             }
         } else if let Some(ref err) = result.session_ticket_error {
             Output::warning(&format!("  Not supported: {}", err));
@@ -558,13 +564,19 @@ impl TlsCommand {
             result.session_id_supported,
             result.session_ticket_supported,
             result.tls13_psk_supported,
-        ].iter().filter(|&&x| x).count();
+        ]
+        .iter()
+        .filter(|&&x| x)
+        .count();
 
         if resumption_count == 0 {
             Output::warning("  No session resumption methods supported");
             Output::dim("  This may impact TLS connection performance");
         } else {
-            Output::success(&format!("  {} resumption method(s) available", resumption_count));
+            Output::success(&format!(
+                "  {} resumption method(s) available",
+                resumption_count
+            ));
         }
 
         Ok(())
@@ -582,7 +594,11 @@ impl TlsCommand {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(10);
 
-        let profile_str = ctx.flags.get("profile").map(|s| s.as_str()).unwrap_or("intermediate");
+        let profile_str = ctx
+            .flags
+            .get("profile")
+            .map(|s| s.as_str())
+            .unwrap_or("intermediate");
         let profile = match profile_str.to_lowercase().as_str() {
             "modern" => MozillaProfile::Modern,
             "intermediate" => MozillaProfile::Intermediate,
@@ -636,15 +652,9 @@ impl TlsCommand {
         // Display compliance result
         Output::section("Compliance Status");
         if result.compliant {
-            Output::success(&format!(
-                "  COMPLIANT - Score: {}/100",
-                result.score
-            ));
+            Output::success(&format!("  COMPLIANT - Score: {}/100", result.score));
         } else {
-            Output::error(&format!(
-                "  NON-COMPLIANT - Score: {}/100",
-                result.score
-            ));
+            Output::error(&format!("  NON-COMPLIANT - Score: {}/100", result.score));
         }
 
         // Display profile requirements
@@ -670,7 +680,10 @@ impl TlsCommand {
         // Detected TLS configuration
         Output::section("Detected Configuration");
         Output::item("  TLS Versions", &supported_versions.join(", "));
-        Output::item("  Cipher Suites", &format!("{} supported", supported_ciphers.len()));
+        Output::item(
+            "  Cipher Suites",
+            &format!("{} supported", supported_ciphers.len()),
+        );
 
         // Compliance issues
         if !result.issues.is_empty() {
@@ -699,10 +712,14 @@ impl TlsCommand {
             Output::section("Alternative Profiles");
             match profile {
                 MozillaProfile::Modern => {
-                    Output::dim("  Consider testing with --profile intermediate for broader compatibility");
+                    Output::dim(
+                        "  Consider testing with --profile intermediate for broader compatibility",
+                    );
                 }
                 MozillaProfile::Intermediate => {
-                    Output::dim("  Try --profile modern for higher security (if client support allows)");
+                    Output::dim(
+                        "  Try --profile modern for higher security (if client support allows)",
+                    );
                     Output::dim("  Or --profile old if you must support legacy clients");
                 }
                 MozillaProfile::Old => {
@@ -742,11 +759,7 @@ impl TlsCommand {
         };
 
         let verb = ctx.verb.as_deref().unwrap_or("audit");
-        let attributes = build_partition_attributes(
-            ctx,
-            host,
-            [("operation", verb)],
-        );
+        let attributes = build_partition_attributes(ctx, host, [("operation", verb)]);
         let mut pm = StorageService::global().persistence_for_target_with(
             host,
             persist_flag,
@@ -792,18 +805,12 @@ impl TlsCommand {
                 None => "null".to_string(),
             }
         );
-        println!(
-            "    \"ja3\": {},",
-            json_opt_string(result.ja3.as_deref())
-        );
+        println!("    \"ja3\": {},", json_opt_string(result.ja3.as_deref()));
         println!(
             "    \"ja3_raw\": {},",
             json_opt_string(result.ja3_raw.as_deref())
         );
-        println!(
-            "    \"ja3s\": {},",
-            json_opt_string(result.ja3s.as_deref())
-        );
+        println!("    \"ja3s\": {},", json_opt_string(result.ja3s.as_deref()));
         println!(
             "    \"ja3s_raw\": {},",
             json_opt_string(result.ja3s_raw.as_deref())
@@ -839,10 +846,7 @@ impl TlsCommand {
                 ""
             };
             println!("    {{");
-            println!(
-                "      \"version\": \"{}\",",
-                escape_json(&version.version)
-            );
+            println!("      \"version\": \"{}\",", escape_json(&version.version));
             println!("      \"supported\": {},", version.supported);
             println!(
                 "      \"error\": {}",
@@ -867,10 +871,7 @@ impl TlsCommand {
             println!("    {{");
             println!("      \"name\": \"{}\",", escape_json(&cipher.name));
             println!("      \"code\": {},", cipher.code);
-            println!(
-                "      \"strength\": \"{}\"",
-                escape_json(strength_label)
-            );
+            println!("      \"strength\": \"{}\"", escape_json(strength_label));
             println!("    }}{}", comma);
         }
         println!("  ],");
@@ -930,7 +931,11 @@ impl TlsCommand {
             println!("      \"self_signed\": {},", cert.is_self_signed);
             println!("      \"sans\": [");
             for (san_idx, san) in cert.san.iter().enumerate() {
-                let san_comma = if san_idx + 1 < cert.san.len() { "," } else { "" };
+                let san_comma = if san_idx + 1 < cert.san.len() {
+                    ","
+                } else {
+                    ""
+                };
                 println!("        \"{}\"{}", escape_json(san), san_comma);
             }
             println!("      ]");
@@ -1107,10 +1112,7 @@ impl TlsCommand {
         annotate_query_partition(
             ctx,
             &db_path,
-            [
-                ("query_dataset", "tls"),
-                ("query_operation", "list"),
-            ],
+            [("query_dataset", "tls"), ("query_operation", "list")],
         );
 
         let mut scans = query
@@ -1178,10 +1180,7 @@ impl TlsCommand {
         annotate_query_partition(
             ctx,
             &db_path,
-            [
-                ("query_dataset", "tls"),
-                ("query_operation", "get"),
-            ],
+            [("query_dataset", "tls"), ("query_operation", "get")],
         );
 
         let scan = query
@@ -1189,10 +1188,7 @@ impl TlsCommand {
             .map_err(|e| format!("Query failed: {}", e))?;
 
         let Some(scan) = scan else {
-            Output::warning(&format!(
-                "No TLS data found for {} in database",
-                host
-            ));
+            Output::warning(&format!("No TLS data found for {} in database", host));
             Output::dim(&format!("  Database: {}", db_path.display()));
             return Err("TLS scan not found".to_string());
         };
@@ -1270,10 +1266,7 @@ impl TlsCommand {
         annotate_query_partition(
             ctx,
             &db_path,
-            [
-                ("query_dataset", "tls"),
-                ("query_operation", "describe"),
-            ],
+            [("query_dataset", "tls"), ("query_operation", "describe")],
         );
 
         let scan = query

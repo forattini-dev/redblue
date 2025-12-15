@@ -2,7 +2,6 @@
 ///
 /// Handles loading, processing, and managing wordlists for fuzzing operations.
 /// Supports various formats and built-in wordlists.
-
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -930,42 +929,10 @@ impl WordlistManager {
     /// Get built-in file extension wordlist
     pub fn builtin_extensions() -> Vec<String> {
         vec![
-            ".php",
-            ".html",
-            ".htm",
-            ".js",
-            ".css",
-            ".txt",
-            ".xml",
-            ".json",
-            ".asp",
-            ".aspx",
-            ".jsp",
-            ".do",
-            ".action",
-            ".cgi",
-            ".pl",
-            ".py",
-            ".rb",
-            ".bak",
-            ".backup",
-            ".old",
-            ".orig",
-            ".log",
-            ".sql",
-            ".conf",
-            ".config",
-            ".ini",
-            ".env",
-            ".yml",
-            ".yaml",
-            ".zip",
-            ".tar",
-            ".tar.gz",
-            ".rar",
-            ".7z",
-            ".swp",
-            ".swo",
+            ".php", ".html", ".htm", ".js", ".css", ".txt", ".xml", ".json", ".asp", ".aspx",
+            ".jsp", ".do", ".action", ".cgi", ".pl", ".py", ".rb", ".bak", ".backup", ".old",
+            ".orig", ".log", ".sql", ".conf", ".config", ".ini", ".env", ".yml", ".yaml", ".zip",
+            ".tar", ".tar.gz", ".rar", ".7z", ".swp", ".swo",
         ]
         .into_iter()
         .map(String::from)

@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use crate::protocols::http::{HttpClient, HttpRequest};
-use crate::protocols::dns::{DnsClient, DnsRecordType};
-use crate::modules::recon::harvester::Harvester; // Use existing harvester to extract emails from URLs
 use crate::modules::recon::dorks::DorksSearcher;
+use crate::modules::recon::harvester::Harvester; // Use existing harvester to extract emails from URLs
+use crate::protocols::dns::{DnsClient, DnsRecordType};
+use crate::protocols::http::{HttpClient, HttpRequest};
+use std::collections::HashSet;
 
 pub struct EmailCorrelator {
     domain: String,
@@ -31,7 +31,7 @@ impl EmailCorrelator {
                 emails.insert(email);
             }
         }
-        
+
         // 2. Google Dorks for emails
         let dorks_searcher = DorksSearcher::new();
         if let Ok(dork_results) = dorks_searcher.search_emails_for_domain(&self.domain) {
@@ -53,7 +53,7 @@ impl EmailCorrelator {
                 // Presence of MX records indicates domain handles email
             }
         }
-        
+
         Ok(emails.into_iter().collect())
     }
 
@@ -61,11 +61,13 @@ impl EmailCorrelator {
     fn generate_common_email_patterns(&self) -> Vec<String> {
         let mut patterns = Vec::new();
         let domain_parts: Vec<&str> = self.domain.split('.').collect();
-        if domain_parts.is_empty() { return patterns; }
-        
+        if domain_parts.is_empty() {
+            return patterns;
+        }
+
         let tld = domain_parts.last().unwrap_or(&"");
-        let base_domain = domain_parts[0..domain_parts.len()-1].join("."); // e.g., "example" from "example.com"
-        
+        let base_domain = domain_parts[0..domain_parts.len() - 1].join("."); // e.g., "example" from "example.com"
+
         let common_names = vec!["admin", "info", "support", "sales", "contact", "webmaster"];
         for name in common_names {
             patterns.push(format!("{}@{}", name, self.domain));
@@ -79,10 +81,16 @@ impl EmailCorrelator {
             for last in &common_last_names {
                 patterns.push(format!("{}.{}@{}", first, last, self.domain));
                 patterns.push(format!("{}_{}@{}", first, last, self.domain));
-                patterns.push(format!("{}{}{}@{}", first.chars().next().unwrap(), last, first.chars().nth(1).unwrap(), self.domain)); // Example: jd@example.com
+                patterns.push(format!(
+                    "{}{}{}@{}",
+                    first.chars().next().unwrap(),
+                    last,
+                    first.chars().nth(1).unwrap(),
+                    self.domain
+                )); // Example: jd@example.com
             }
         }
-        
+
         patterns
     }
 }

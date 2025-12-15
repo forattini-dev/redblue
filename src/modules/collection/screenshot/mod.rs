@@ -1,3 +1,4 @@
+pub mod capture;
 /// Screenshot Capture Module
 ///
 /// Replaces: gowitness, eyewitness, aquatone
@@ -8,9 +9,7 @@
 /// - HTML report generation
 /// - Thumbnail gallery
 /// - Response metadata collection
-
 pub mod cdp;
-pub mod capture;
 pub mod report;
 
 pub use capture::ScreenshotCapture;

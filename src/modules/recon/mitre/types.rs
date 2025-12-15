@@ -291,9 +291,9 @@ impl AttackData {
 
         // Try by short name
         let lower = id_or_name.to_lowercase().replace(' ', "-");
-        self.tactics.values().find(|t| {
-            t.short_name == lower || t.name.to_lowercase() == id_or_name.to_lowercase()
-        })
+        self.tactics
+            .values()
+            .find(|t| t.short_name == lower || t.name.to_lowercase() == id_or_name.to_lowercase())
     }
 
     /// Get group by ID or name/alias
@@ -306,8 +306,7 @@ impl AttackData {
         // Try by name or alias
         let lower = id_or_name.to_lowercase();
         self.groups.values().find(|g| {
-            g.name.to_lowercase() == lower
-                || g.aliases.iter().any(|a| a.to_lowercase() == lower)
+            g.name.to_lowercase() == lower || g.aliases.iter().any(|a| a.to_lowercase() == lower)
         })
     }
 
@@ -321,8 +320,7 @@ impl AttackData {
         // Try by name or alias
         let lower = id_or_name.to_lowercase();
         self.software.values().find(|s| {
-            s.name.to_lowercase() == lower
-                || s.aliases.iter().any(|a| a.to_lowercase() == lower)
+            s.name.to_lowercase() == lower || s.aliases.iter().any(|a| a.to_lowercase() == lower)
         })
     }
 
@@ -365,7 +363,10 @@ impl AttackData {
             }
             if group.id.to_lowercase().contains(&lower)
                 || group.name.to_lowercase().contains(&lower)
-                || group.aliases.iter().any(|a| a.to_lowercase().contains(&lower))
+                || group
+                    .aliases
+                    .iter()
+                    .any(|a| a.to_lowercase().contains(&lower))
             {
                 results.push(AttackObject::Group(group.clone()));
             }
@@ -497,7 +498,11 @@ impl AttackData {
     pub fn stats(&self) -> AttackStats {
         AttackStats {
             techniques: self.techniques.len(),
-            subtechniques: self.techniques.values().filter(|t| t.is_subtechnique).count(),
+            subtechniques: self
+                .techniques
+                .values()
+                .filter(|t| t.is_subtechnique)
+                .count(),
             tactics: self.tactics.len(),
             groups: self.groups.len(),
             software: self.software.len(),

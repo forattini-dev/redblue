@@ -14,7 +14,6 @@
 /// - ICMP Echo probe (IE)
 ///
 /// Reference: https://nmap.org/book/osdetect-methods.html
-
 use crate::intelligence::os_signatures::{
     DeviceType, IpIdPattern, MssMatch, OsSignature, OsSignatureDb, TcpOptionsPattern, TtlMatch,
     WindowMatch,
@@ -245,8 +244,8 @@ pub struct OsProber {
 impl OsProber {
     /// Create new OS prober for target
     pub fn new(target: Ipv4Addr) -> Result<Self, String> {
-        let src_ip = get_source_ip(target)
-            .map_err(|e| format!("Failed to get source IP: {}", e))?;
+        let src_ip =
+            get_source_ip(target).map_err(|e| format!("Failed to get source IP: {}", e))?;
 
         Ok(Self {
             target,
@@ -578,7 +577,8 @@ impl OsProber {
 
                                     // Parse TCP options from response
                                     let tcp_options = self.parse_tcp_options(
-                                        &buf[ip_hdr_len + 20..ip_hdr_len + (resp_tcp.data_offset as usize * 4)],
+                                        &buf[ip_hdr_len + 20
+                                            ..ip_hdr_len + (resp_tcp.data_offset as usize * 4)],
                                     );
 
                                     let mut response = ProbeResponse {
@@ -601,8 +601,12 @@ impl OsProber {
                                     // Extract derived values from options
                                     for opt in &tcp_options {
                                         match opt {
-                                            TcpOption::MaxSegmentSize(mss) => response.mss = Some(*mss),
-                                            TcpOption::WindowScale(ws) => response.window_scale = Some(*ws),
+                                            TcpOption::MaxSegmentSize(mss) => {
+                                                response.mss = Some(*mss)
+                                            }
+                                            TcpOption::WindowScale(ws) => {
+                                                response.window_scale = Some(*ws)
+                                            }
                                             TcpOption::Timestamp { value, .. } => {
                                                 response.has_timestamp = true;
                                                 response.timestamp_value = Some(*value);
@@ -784,8 +788,18 @@ impl OsProber {
                             let mut blocks = Vec::new();
                             let mut j = i + 2;
                             while j + 8 <= i + len {
-                                let left = u32::from_be_bytes([bytes[j], bytes[j+1], bytes[j+2], bytes[j+3]]);
-                                let right = u32::from_be_bytes([bytes[j+4], bytes[j+5], bytes[j+6], bytes[j+7]]);
+                                let left = u32::from_be_bytes([
+                                    bytes[j],
+                                    bytes[j + 1],
+                                    bytes[j + 2],
+                                    bytes[j + 3],
+                                ]);
+                                let right = u32::from_be_bytes([
+                                    bytes[j + 4],
+                                    bytes[j + 5],
+                                    bytes[j + 6],
+                                    bytes[j + 7],
+                                ]);
                                 blocks.push((left, right));
                                 j += 8;
                             }
@@ -799,8 +813,18 @@ impl OsProber {
                 8 => {
                     // Timestamp
                     if i + 9 < bytes.len() && bytes[i + 1] == 10 {
-                        let ts_val = u32::from_be_bytes([bytes[i + 2], bytes[i + 3], bytes[i + 4], bytes[i + 5]]);
-                        let ts_echo = u32::from_be_bytes([bytes[i + 6], bytes[i + 7], bytes[i + 8], bytes[i + 9]]);
+                        let ts_val = u32::from_be_bytes([
+                            bytes[i + 2],
+                            bytes[i + 3],
+                            bytes[i + 4],
+                            bytes[i + 5],
+                        ]);
+                        let ts_echo = u32::from_be_bytes([
+                            bytes[i + 6],
+                            bytes[i + 7],
+                            bytes[i + 8],
+                            bytes[i + 9],
+                        ]);
                         options.push(TcpOption::Timestamp {
                             value: ts_val,
                             echo: ts_echo,
@@ -878,10 +902,7 @@ impl OsProber {
 
     /// Estimate initial TTL from observed TTL
     fn estimate_initial_ttl(&self, probes: &[ProbeResponse]) -> Option<u8> {
-        let ttls: Vec<u8> = probes
-            .iter()
-            .filter_map(|p| p.ip_ttl)
-            .collect();
+        let ttls: Vec<u8> = probes.iter().filter_map(|p| p.ip_ttl).collect();
 
         if ttls.is_empty() {
             return None;
@@ -945,7 +966,9 @@ impl OsProber {
         let mut matches = Vec::new();
 
         // Get representative values from first successful SYN probe
-        let syn_probe = probes.iter().find(|p| p.received && p.probe_id.starts_with("SEQ"));
+        let syn_probe = probes
+            .iter()
+            .find(|p| p.received && p.probe_id.starts_with("SEQ"));
 
         if syn_probe.is_none() {
             return matches;
@@ -1088,7 +1111,11 @@ impl OsProber {
         }
 
         // Sort by confidence descending
-        matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        matches.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Return top 5 matches
         matches.truncate(5);
@@ -1202,7 +1229,11 @@ pub fn quick_os_detect(
         }
     }
 
-    matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    matches.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     matches.truncate(5);
     matches
 }
@@ -1254,7 +1285,10 @@ mod tests {
     fn test_ip_id_analysis_sequential() {
         let prober = OsProber::new(Ipv4Addr::new(127, 0, 0, 1)).unwrap();
         let ids = vec![100, 101, 102, 103, 104];
-        assert_eq!(prober.analyze_ip_id_sequence(&ids), IpIdBehavior::Sequential);
+        assert_eq!(
+            prober.analyze_ip_id_sequence(&ids),
+            IpIdBehavior::Sequential
+        );
     }
 
     #[test]

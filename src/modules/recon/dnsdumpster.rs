@@ -252,7 +252,9 @@ impl DnsDumpsterClient {
         }
 
         let value = cells.get(1).cloned().unwrap_or_default();
-        let ip = self.extract_ip_from_text(&host).or_else(|| self.extract_ip_from_text(&value));
+        let ip = self
+            .extract_ip_from_text(&host)
+            .or_else(|| self.extract_ip_from_text(&value));
         let reverse_dns = cells.get(2).cloned();
         let asn_info = cells.get(3).cloned();
 
@@ -466,9 +468,9 @@ impl DnsDumpsterClient {
                     // Validate the last octet
                     let parts: Vec<&str> = current.split('.').collect();
                     if parts.len() == 4 {
-                        let valid = parts.iter().all(|p| {
-                            p.parse::<u32>().map(|n| n <= 255).unwrap_or(false)
-                        });
+                        let valid = parts
+                            .iter()
+                            .all(|p| p.parse::<u32>().map(|n| n <= 255).unwrap_or(false));
                         if valid {
                             return Some(current);
                         }
@@ -484,9 +486,9 @@ impl DnsDumpsterClient {
         if dots == 3 {
             let parts: Vec<&str> = current.split('.').collect();
             if parts.len() == 4 {
-                let valid = parts.iter().all(|p| {
-                    p.parse::<u32>().map(|n| n <= 255).unwrap_or(false)
-                });
+                let valid = parts
+                    .iter()
+                    .all(|p| p.parse::<u32>().map(|n| n <= 255).unwrap_or(false));
                 if valid {
                     return Some(current);
                 }

@@ -207,7 +207,9 @@ impl TransparentProxy {
                     let running = self.running.clone();
 
                     thread::spawn(move || {
-                        if let Err(e) = handle_connection(client, client_addr, orig_dst, ctx, config, running) {
+                        if let Err(e) =
+                            handle_connection(client, client_addr, orig_dst, ctx, config, running)
+                        {
                             eprintln!("Connection error: {}", e);
                         }
                     });
@@ -343,7 +345,13 @@ fn handle_connection(
     client.set_write_timeout(Some(config.timeout))?;
 
     // Relay data bidirectionally
-    let result = relay_tcp(&mut client, &mut server, config.buffer_size, &ctx.flow_stats, running);
+    let result = relay_tcp(
+        &mut client,
+        &mut server,
+        config.buffer_size,
+        &ctx.flow_stats,
+        running,
+    );
 
     ctx.flow_stats.connection_closed();
 

@@ -8,34 +8,34 @@ pub mod proxy;
 // Reconnaissance
 #[allow(dead_code)]
 pub mod recon {
+    pub mod antidetection;
     pub mod asn;
     pub mod breach;
     pub mod crtsh;
     pub mod dns;
     pub mod dnsdumpster;
     pub mod dorks;
-    pub mod fingerprint;  // Technology fingerprinting engine
+    pub mod email_correlation;
+    pub mod email_permutator;
+    pub mod email_validator;
+    pub mod fingerprint; // Technology fingerprinting engine
     pub mod harvester;
     #[path = "ip-intel.rs"]
     pub mod ip_intel;
     pub mod massdns;
+    pub mod mitre; // MITRE ATT&CK intelligence
     pub mod osint;
+    pub mod reporting;
     pub mod secrets;
     pub mod social;
-    pub mod sources;      // Passive subdomain sources
+    pub mod sources; // Passive subdomain sources
     pub mod subdomain;
     pub mod subdomain_bruteforce;
+    pub mod threat_intel;
     pub mod urlharvest;
     pub mod username;
     pub mod vuln;
-    pub mod whois;        // WHOIS intelligence
-    pub mod mitre;        // MITRE ATT&CK intelligence
-    pub mod email_correlation;
-    pub mod antidetection;
-    pub mod reporting;
-    pub mod threat_intel;
-    pub mod email_validator;
-    pub mod email_permutator;
+    pub mod whois; // WHOIS intelligence
 }
 
 // Network Analysis
@@ -53,19 +53,19 @@ pub mod ct_logs;
 
 // Data Collection
 pub mod collection {
-    pub mod dependencies;
-    pub mod screenshots;
-    pub mod secrets;
-    pub mod screenshot;  // Chrome DevTools Protocol screenshot capture
-    pub mod clustering;
-    pub mod categorization;
-    pub mod creds;
-    pub mod login;
     pub mod auth_test;
+    pub mod browser_creds;
+    pub mod categorization;
+    pub mod clustering;
+    pub mod creds;
+    pub mod dependencies;
+    pub mod login;
     pub mod persistence;
     pub mod resume;
     pub mod sarif;
-    pub mod browser_creds;
+    pub mod screenshot; // Chrome DevTools Protocol screenshot capture
+    pub mod screenshots;
+    pub mod secrets;
 }
 
 // Cloud Security

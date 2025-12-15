@@ -113,16 +113,19 @@ pub enum DnsRdata {
     NS(String),
     CNAME(String),
     PTR(String),
-    MX { preference: u16, exchange: String },
+    MX {
+        preference: u16,
+        exchange: String,
+    },
     TXT(Vec<String>),
     SOA {
-        mname: String,   // Primary nameserver
-        rname: String,   // Responsible email (@ replaced with .)
-        serial: u32,     // Version number
-        refresh: u32,    // Refresh interval (seconds)
-        retry: u32,      // Retry interval (seconds)
-        expire: u32,     // Expiration limit (seconds)
-        minimum: u32,    // Minimum TTL
+        mname: String, // Primary nameserver
+        rname: String, // Responsible email (@ replaced with .)
+        serial: u32,   // Version number
+        refresh: u32,  // Refresh interval (seconds)
+        retry: u32,    // Retry interval (seconds)
+        expire: u32,   // Expiration limit (seconds)
+        minimum: u32,  // Minimum TTL
     },
     Raw(Vec<u8>),
 }
@@ -146,7 +149,10 @@ impl DnsAnswer {
 
     pub fn as_mx(&self) -> Option<(u16, String)> {
         match &self.data {
-            DnsRdata::MX { preference, exchange } => Some((*preference, exchange.clone())),
+            DnsRdata::MX {
+                preference,
+                exchange,
+            } => Some((*preference, exchange.clone())),
             _ => None,
         }
     }

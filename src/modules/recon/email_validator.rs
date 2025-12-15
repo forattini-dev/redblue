@@ -37,7 +37,9 @@ impl EmailValidator {
         let domain_from_email = email_parts[1];
 
         // 2. Look up MX records for the domain
-        let mx_records = self.dns_client.query(domain_from_email, crate::protocols::dns::DnsRecordType::MX)
+        let mx_records = self
+            .dns_client
+            .query(domain_from_email, crate::protocols::dns::DnsRecordType::MX)
             .map_err(|e| format!("MX lookup failed for {}: {}", domain_from_email, e))?;
 
         if mx_records.is_empty() {
@@ -47,7 +49,8 @@ impl EmailValidator {
         // MX records usually come with preference (lower is higher priority)
         // DnsAnswer has a 'priority' field for MX records, assuming it's available.
         // For simplicity, let's just connect to the first MX record.
-        let mut mail_servers: Vec<(u16, String)> = mx_records.iter()
+        let mut mail_servers: Vec<(u16, String)> = mx_records
+            .iter()
             .filter_map(|answer| answer.as_mx())
             .collect();
         mail_servers.sort_by_key(|(priority, _)| *priority); // Sort by priority
@@ -58,15 +61,20 @@ impl EmailValidator {
 
             match smtp_client.verify_email(email) {
                 Ok(exists) => {
-                    if exists { return Ok(true); }
-                },
+                    if exists {
+                        return Ok(true);
+                    }
+                }
                 Err(e) => {
                     // Log error but try next server
-                    eprintln!("Warning: SMTP verification failed for {}: {}", mail_server_host, e);
+                    eprintln!(
+                        "Warning: SMTP verification failed for {}: {}",
+                        mail_server_host, e
+                    );
                 }
             }
         }
-        
+
         Ok(false) // No mail server confirmed existence
     }
 }

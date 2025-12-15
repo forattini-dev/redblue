@@ -8,16 +8,14 @@
 /// - User enumeration
 /// - Version detection
 /// - Vulnerability correlation
-
 use super::{
-    CmsScanConfig, DetectionResult, PluginInfo, ThemeInfo, UserInfo,
-    Finding, FindingType, VulnSeverity, PluginDetectionMethod, UserDetectionMethod,
-    HttpResponse,
+    CmsScanConfig, DetectionResult, Finding, FindingType, HttpResponse, PluginDetectionMethod,
+    PluginInfo, ThemeInfo, UserDetectionMethod, UserInfo, VulnSeverity,
 };
-use std::net::TcpStream;
-use std::io::{Read, Write};
-use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 /// Joomla scan result
@@ -107,7 +105,9 @@ impl JoomlaScanner {
                 let mut pos = 0;
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
-                    if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                    if let Some(end) = response.body[abs_start..]
+                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                    {
                         let ext_name = &response.body[abs_start..abs_start + end];
                         if !ext_name.is_empty() && self.is_valid_slug(ext_name) {
                             let full_name = if ext_type == "component" {
@@ -168,7 +168,8 @@ impl JoomlaScanner {
                             if let Some(response) = fetch_url(&manifest_url, &user_agent, timeout) {
                                 if response.status_code == 200 && response.contains("<extension") {
                                     let mut extension = PluginInfo::new(&name);
-                                    extension.detection_method = PluginDetectionMethod::DirectAccess;
+                                    extension.detection_method =
+                                        PluginDetectionMethod::DirectAccess;
                                     extension.confidence = 95;
 
                                     // Extract version
@@ -208,7 +209,9 @@ impl JoomlaScanner {
             let mut pos = 0;
             while let Some(start) = response.body[pos..].find(pattern) {
                 let abs_start = pos + start + pattern.len();
-                if let Some(end) = response.body[abs_start..].find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?') {
+                if let Some(end) = response.body[abs_start..]
+                    .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                {
                     let template_name = &response.body[abs_start..abs_start + end];
                     if !template_name.is_empty()
                         && self.is_valid_slug(template_name)
@@ -371,13 +374,17 @@ impl JoomlaScanner {
         }
 
         // Check web.config.txt
-        let webconfig_url = format!("{}/web.config.txt", self.config.target.trim_end_matches('/'));
+        let webconfig_url = format!(
+            "{}/web.config.txt",
+            self.config.target.trim_end_matches('/')
+        );
         if let Some(response) = self.fetch(&webconfig_url) {
             if response.status_code == 200 {
                 findings.push(Finding {
                     finding_type: FindingType::ConfigFile,
                     title: "web.config.txt Accessible".to_string(),
-                    description: "Joomla web.config.txt template is publicly accessible".to_string(),
+                    description: "Joomla web.config.txt template is publicly accessible"
+                        .to_string(),
                     url: Some(webconfig_url),
                     evidence: None,
                     severity: VulnSeverity::Info,
@@ -461,22 +468,58 @@ impl JoomlaScanner {
     fn is_valid_slug(&self, s: &str) -> bool {
         !s.is_empty()
             && s.len() < 100
-            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
 
     /// Get extension wordlist
     fn get_extension_wordlist(&self) -> Vec<String> {
         // Top Joomla components
         vec![
-            "com_content", "com_users", "com_contact", "com_banners", "com_newsfeeds",
-            "com_weblinks", "com_search", "com_finder", "com_tags", "com_redirect",
-            "com_akeeba", "com_sh404sef", "com_k2", "com_virtuemart", "com_hikashop",
-            "com_kunena", "com_easyblog", "com_zoo", "com_jce", "com_acymailing",
-            "com_rsform", "com_phocagallery", "com_fabrik", "com_jevents", "com_docman",
-            "com_jdownloads", "com_jomsocial", "com_community", "com_comprofiler", "com_easydiscuss",
-            "com_roksprocket", "com_widgetkit", "com_yootheme", "com_gantry5", "com_sp_pagebuilder",
-            "com_quix", "com_jch_optimize", "com_admintools", "com_jsecure", "com_jomdefender",
-        ].into_iter().map(String::from).collect()
+            "com_content",
+            "com_users",
+            "com_contact",
+            "com_banners",
+            "com_newsfeeds",
+            "com_weblinks",
+            "com_search",
+            "com_finder",
+            "com_tags",
+            "com_redirect",
+            "com_akeeba",
+            "com_sh404sef",
+            "com_k2",
+            "com_virtuemart",
+            "com_hikashop",
+            "com_kunena",
+            "com_easyblog",
+            "com_zoo",
+            "com_jce",
+            "com_acymailing",
+            "com_rsform",
+            "com_phocagallery",
+            "com_fabrik",
+            "com_jevents",
+            "com_docman",
+            "com_jdownloads",
+            "com_jomsocial",
+            "com_community",
+            "com_comprofiler",
+            "com_easydiscuss",
+            "com_roksprocket",
+            "com_widgetkit",
+            "com_yootheme",
+            "com_gantry5",
+            "com_sp_pagebuilder",
+            "com_quix",
+            "com_jch_optimize",
+            "com_admintools",
+            "com_jsecure",
+            "com_jomdefender",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect()
     }
 
     /// Fetch URL
@@ -565,16 +608,26 @@ fn parse_response(data: &[u8], url: &str) -> Option<HttpResponse> {
             break;
         }
         if let Some(pos) = line.find(':') {
-            headers.push((line[..pos].trim().to_string(), line[pos + 1..].trim().to_string()));
+            headers.push((
+                line[..pos].trim().to_string(),
+                line[pos + 1..].trim().to_string(),
+            ));
         }
     }
 
-    let body_start = text.find("\r\n\r\n").map(|p| p + 4)
+    let body_start = text
+        .find("\r\n\r\n")
+        .map(|p| p + 4)
         .or_else(|| text.find("\n\n").map(|p| p + 2))
         .unwrap_or(text.len());
     let body = text[body_start..].to_string();
 
-    Some(HttpResponse { status_code, headers, body, url: url.to_string() })
+    Some(HttpResponse {
+        status_code,
+        headers,
+        body,
+        url: url.to_string(),
+    })
 }
 
 /// Extract version from Joomla XML manifest

@@ -4,7 +4,6 @@
 /// Free, no API key required.
 ///
 /// API: https://dns.bufferover.run/dns?q=.example.com
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -25,7 +24,11 @@ impl BufferOverSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -77,7 +80,8 @@ impl BufferOverSource {
                                 let ip = parts[0].trim().to_string();
                                 let subdomain = parts[1].trim().to_lowercase();
 
-                                if (subdomain.ends_with(&format!(".{}", domain)) || subdomain == *domain)
+                                if (subdomain.ends_with(&format!(".{}", domain))
+                                    || subdomain == *domain)
                                     && seen.insert(subdomain.clone())
                                 {
                                     records.push(SubdomainRecord {
@@ -92,7 +96,8 @@ impl BufferOverSource {
                                 // Just a subdomain without IP
                                 let subdomain = parts[0].trim().to_lowercase();
 
-                                if (subdomain.ends_with(&format!(".{}", domain)) || subdomain == *domain)
+                                if (subdomain.ends_with(&format!(".{}", domain))
+                                    || subdomain == *domain)
                                     && seen.insert(subdomain.clone())
                                 {
                                     records.push(SubdomainRecord {
@@ -188,7 +193,10 @@ mod tests {
         assert!(subs.contains(&"api.example.com"));
 
         // Check IPs are extracted
-        let www_record = records.iter().find(|r| r.subdomain == "www.example.com").unwrap();
+        let www_record = records
+            .iter()
+            .find(|r| r.subdomain == "www.example.com")
+            .unwrap();
         assert_eq!(www_record.ips, vec!["1.2.3.4"]);
     }
 }

@@ -2,7 +2,6 @@
 ///
 /// Grabs and analyzes FTP banners for version detection
 /// and configuration issues.
-
 use crate::scripts::types::*;
 use crate::scripts::Script;
 
@@ -19,8 +18,14 @@ impl FtpBannerScript {
                 name: "FTP Banner Detection".to_string(),
                 author: "redblue".to_string(),
                 version: "1.0".to_string(),
-                description: "Grabs FTP banner and identifies server software and version".to_string(),
-                categories: vec![ScriptCategory::Banner, ScriptCategory::Version, ScriptCategory::Safe, ScriptCategory::Default],
+                description: "Grabs FTP banner and identifies server software and version"
+                    .to_string(),
+                categories: vec![
+                    ScriptCategory::Banner,
+                    ScriptCategory::Version,
+                    ScriptCategory::Safe,
+                    ScriptCategory::Default,
+                ],
                 protocols: vec!["ftp".to_string()],
                 ports: vec![21, 2121],
                 license: "MIT".to_string(),
@@ -76,7 +81,12 @@ impl FtpBannerScript {
                 // Extract version from content like "vsFTPd 3.0.3"
                 if let Some(space_idx) = content.rfind(' ') {
                     let potential_version = &content[space_idx + 1..];
-                    if potential_version.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                    if potential_version
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                    {
                         return Some(potential_version.to_string());
                     }
                 }
@@ -139,9 +149,12 @@ impl Script for FtpBannerScript {
         let server_info = self.identify_ftp_server(banner);
 
         // Main finding
-        let mut finding = Finding::new(FindingType::Version, &format!("{} Detected", server_info.server_name))
-            .with_evidence(banner)
-            .with_severity(FindingSeverity::Info);
+        let mut finding = Finding::new(
+            FindingType::Version,
+            &format!("{} Detected", server_info.server_name),
+        )
+        .with_evidence(banner)
+        .with_severity(FindingSeverity::Info);
 
         if let Some(ref version) = server_info.version {
             finding = finding.with_description(&format!(
@@ -165,10 +178,13 @@ impl Script for FtpBannerScript {
         let banner_lower = banner.to_lowercase();
         if banner_lower.contains("anonymous") {
             result.add_finding(
-                Finding::new(FindingType::Misconfiguration, "Anonymous FTP May Be Enabled")
-                    .with_description("Banner suggests anonymous FTP access may be available")
-                    .with_severity(FindingSeverity::Medium)
-                    .with_remediation("Disable anonymous FTP unless required"),
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "Anonymous FTP May Be Enabled",
+                )
+                .with_description("Banner suggests anonymous FTP access may be available")
+                .with_severity(FindingSeverity::Medium)
+                .with_remediation("Disable anonymous FTP unless required"),
             );
         }
 
@@ -204,7 +220,9 @@ impl FtpBannerScript {
                     result.add_finding(
                         Finding::new(FindingType::Vulnerability, "vsFTPd Backdoor (Smiley Face)")
                             .with_cve("CVE-2011-2523")
-                            .with_description("vsFTPd 2.3.4 contained a backdoor that opens a shell on port 6200")
+                            .with_description(
+                                "vsFTPd 2.3.4 contained a backdoor that opens a shell on port 6200",
+                            )
                             .with_severity(FindingSeverity::Critical)
                             .with_remediation("Upgrade immediately to a newer version"),
                     );
@@ -216,9 +234,13 @@ impl FtpBannerScript {
                     result.add_finding(
                         Finding::new(FindingType::Vulnerability, "ProFTPD mod_copy Vulnerability")
                             .with_cve("CVE-2019-12815")
-                            .with_description("ProFTPD before 1.3.6 allows arbitrary file copy via mod_copy")
+                            .with_description(
+                                "ProFTPD before 1.3.6 allows arbitrary file copy via mod_copy",
+                            )
                             .with_severity(FindingSeverity::High)
-                            .with_remediation("Upgrade to ProFTPD 1.3.6 or later, or disable mod_copy"),
+                            .with_remediation(
+                                "Upgrade to ProFTPD 1.3.6 or later, or disable mod_copy",
+                            ),
                     );
                 }
             }
@@ -285,19 +307,31 @@ mod tests {
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("ftp_server_id"), Some(&"vsftpd".to_string()));
-        assert_eq!(result.extracted.get("ftp_version"), Some(&"3.0.3".to_string()));
+        assert_eq!(
+            result.extracted.get("ftp_server_id"),
+            Some(&"vsftpd".to_string())
+        );
+        assert_eq!(
+            result.extracted.get("ftp_version"),
+            Some(&"3.0.3".to_string())
+        );
     }
 
     #[test]
     fn test_proftpd_detection() {
         let script = FtpBannerScript::new();
         let mut ctx = ScriptContext::new("example.com", 21);
-        ctx.set_data("banner", "220 ProFTPD 1.3.5 Server (ProFTPD Default Installation)");
+        ctx.set_data(
+            "banner",
+            "220 ProFTPD 1.3.5 Server (ProFTPD Default Installation)",
+        );
 
         let result = script.run(&ctx).unwrap();
         assert!(result.success);
-        assert_eq!(result.extracted.get("ftp_server_id"), Some(&"proftpd".to_string()));
+        assert_eq!(
+            result.extracted.get("ftp_server_id"),
+            Some(&"proftpd".to_string())
+        );
     }
 
     #[test]

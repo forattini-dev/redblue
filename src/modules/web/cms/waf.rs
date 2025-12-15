@@ -1,9 +1,8 @@
+use std::thread;
 /// WAF Evasion Module
 ///
 /// Techniques to bypass Web Application Firewalls during CMS scanning
-
 use std::time::Duration;
-use std::thread;
 
 /// WAF evasion handler
 pub struct WafEvasion {
@@ -74,7 +73,11 @@ impl WafEvasion {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            techniques: if enabled { Self::default_techniques() } else { vec![] },
+            techniques: if enabled {
+                Self::default_techniques()
+            } else {
+                vec![]
+            },
             current_technique: 0,
             detected_waf: None,
         }
@@ -83,7 +86,10 @@ impl WafEvasion {
     /// Get default evasion techniques
     fn default_techniques() -> Vec<EvasionTechnique> {
         vec![
-            EvasionTechnique::RandomDelay { min_ms: 100, max_ms: 500 },
+            EvasionTechnique::RandomDelay {
+                min_ms: 100,
+                max_ms: 500,
+            },
             EvasionTechnique::UserAgentRotation(Self::user_agents()),
             EvasionTechnique::IpRotation,
             EvasionTechnique::CaseVariation,
@@ -251,7 +257,11 @@ impl WafEvasion {
         let mut headers = Vec::new();
 
         // IP rotation headers (fake source IP)
-        if self.techniques.iter().any(|t| matches!(t, EvasionTechnique::IpRotation)) {
+        if self
+            .techniques
+            .iter()
+            .any(|t| matches!(t, EvasionTechnique::IpRotation))
+        {
             let fake_ip = generate_fake_ip();
             headers.push(("X-Forwarded-For".to_string(), fake_ip.clone()));
             headers.push(("X-Real-IP".to_string(), fake_ip.clone()));
@@ -260,7 +270,11 @@ impl WafEvasion {
         }
 
         // Header obfuscation
-        if self.techniques.iter().any(|t| matches!(t, EvasionTechnique::HeaderObfuscation)) {
+        if self
+            .techniques
+            .iter()
+            .any(|t| matches!(t, EvasionTechnique::HeaderObfuscation))
+        {
             // Add benign-looking headers
             headers.push(("Accept-Language".to_string(), "en-US,en;q=0.9".to_string()));
             headers.push(("Accept-Encoding".to_string(), "gzip, deflate".to_string()));
@@ -280,20 +294,32 @@ impl WafEvasion {
         let mut result = path.to_string();
 
         // Case variation
-        if self.techniques.iter().any(|t| matches!(t, EvasionTechnique::CaseVariation)) {
+        if self
+            .techniques
+            .iter()
+            .any(|t| matches!(t, EvasionTechnique::CaseVariation))
+        {
             // Randomly uppercase some characters in path segments
             // Most servers are case-insensitive on Windows
         }
 
         // URL encoding variations
-        if self.techniques.iter().any(|t| matches!(t, EvasionTechnique::UrlEncoding)) {
+        if self
+            .techniques
+            .iter()
+            .any(|t| matches!(t, EvasionTechnique::UrlEncoding))
+        {
             // Double-encode some characters
             result = result.replace("/", "/%2f");
             result = result.replace("/", "/"); // Restore first slash
         }
 
         // Path normalization bypass
-        if self.techniques.iter().any(|t| matches!(t, EvasionTechnique::PathNormalization)) {
+        if self
+            .techniques
+            .iter()
+            .any(|t| matches!(t, EvasionTechnique::PathNormalization))
+        {
             // Add harmless path segments
             result = result.replace("/", "/./");
             // Or add null bytes (careful - may break some servers)
@@ -363,7 +389,9 @@ impl WafEvasion {
             "bot detected",
         ];
 
-        block_indicators.iter().any(|indicator| body_lower.contains(indicator))
+        block_indicators
+            .iter()
+            .any(|indicator| body_lower.contains(indicator))
     }
 
     /// Get detected WAF
@@ -382,9 +410,9 @@ impl Default for WafEvasion {
 fn generate_fake_ip() -> String {
     // Generate random private IP
     let ranges = [
-        (10, 0, 0, 0, 255, 255, 255),      // 10.0.0.0/8
-        (172, 16, 0, 0, 31, 255, 255),     // 172.16.0.0/12
-        (192, 168, 0, 0, 0, 255, 255),     // 192.168.0.0/16
+        (10, 0, 0, 0, 255, 255, 255),  // 10.0.0.0/8
+        (172, 16, 0, 0, 31, 255, 255), // 172.16.0.0/12
+        (192, 168, 0, 0, 0, 255, 255), // 192.168.0.0/16
     ];
 
     let range_idx = (random_u64() as usize) % ranges.len();
@@ -421,9 +449,7 @@ mod tests {
     #[test]
     fn test_detect_cloudflare() {
         let mut waf = WafEvasion::new(true);
-        let headers = vec![
-            ("CF-Ray".to_string(), "abc123-IAD".to_string()),
-        ];
+        let headers = vec![("CF-Ray".to_string(), "abc123-IAD".to_string())];
 
         let detected = waf.detect_waf(&headers, "");
         assert_eq!(detected, Some(WafType::Cloudflare));

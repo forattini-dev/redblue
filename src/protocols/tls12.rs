@@ -5,9 +5,7 @@
 /// The implementation is intentionally scoped to what we need for HTTPS GET
 /// requests inside the project.
 use super::asn1::Asn1Object;
-use super::crypto::{
-    aes128_cbc_decrypt, aes128_cbc_encrypt, hmac_sha256, tls12_prf, SecureRandom,
-};
+use super::crypto::{aes128_cbc_decrypt, aes128_cbc_encrypt, hmac_sha256, tls12_prf, SecureRandom};
 use super::ecdh::EcdhKeyPair;
 use super::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 use super::p256::P256Point;
@@ -1385,8 +1383,10 @@ fn parse_server_hello_extensions(data: &[u8]) -> (Vec<u16>, Vec<u16>, Vec<u8>) {
                 if ext_data.len() >= 2 {
                     let mut inner_offset = 2;
                     while inner_offset + 1 < ext_data.len() {
-                        let group =
-                            u16::from_be_bytes([ext_data[inner_offset], ext_data[inner_offset + 1]]);
+                        let group = u16::from_be_bytes([
+                            ext_data[inner_offset],
+                            ext_data[inner_offset + 1],
+                        ]);
                         if !is_grease_value(group) {
                             groups.push(group);
                         }

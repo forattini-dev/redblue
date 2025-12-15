@@ -363,10 +363,8 @@ mod tests {
 
     #[test]
     fn test_generate_consts() {
-        let code = generate_api_hash_consts(
-            &["LoadLibraryA", "GetProcAddress"],
-            HashAlgorithm::Djb2,
-        );
+        let code =
+            generate_api_hash_consts(&["LoadLibraryA", "GetProcAddress"], HashAlgorithm::Djb2);
         assert!(code.contains("LOADLIBRARYA_HASH"));
         assert!(code.contains("GETPROCADDRESS_HASH"));
     }

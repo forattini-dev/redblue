@@ -1,11 +1,7 @@
 /// Vulnerability Database Module
 ///
 /// Correlates CMS versions and components with known vulnerabilities
-
-use super::{
-    CmsType, PluginInfo, ThemeInfo, Vulnerability, VulnSeverity,
-    VulnComponent, VulnType,
-};
+use super::{CmsType, PluginInfo, ThemeInfo, VulnComponent, VulnSeverity, VulnType, Vulnerability};
 
 /// Vulnerability database
 pub struct VulnDatabase {
@@ -165,7 +161,11 @@ impl VulnDatabase {
         let parts: Vec<u32> = version
             .split('.')
             .take(3)
-            .map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+            .map(|p| {
+                p.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+            })
             .map(|s| s.parse().unwrap_or(0))
             .collect();
 
@@ -203,7 +203,8 @@ impl VulnDatabase {
                 cvss: Some(5.4),
                 vuln_type: VulnType::PathTraversal,
                 references: vec![
-                    "https://wpscan.com/vulnerability/edcf8b94-2c73-4301-a4c0-1c8ce0bdc748".to_string(),
+                    "https://wpscan.com/vulnerability/edcf8b94-2c73-4301-a4c0-1c8ce0bdc748"
+                        .to_string(),
                 ],
                 exploit_available: false,
             },
@@ -219,9 +220,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::High,
                 cvss: Some(8.0),
                 vuln_type: VulnType::SqlInjection,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2022-21661".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2022-21661".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -236,12 +235,9 @@ impl VulnDatabase {
                 severity: VulnSeverity::High,
                 cvss: Some(7.1),
                 vuln_type: VulnType::Xxe,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2021-29447".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2021-29447".to_string()],
                 exploit_available: true,
             },
-
             // Drupal core vulnerabilities
             VulnEntry {
                 cms: Some(CmsType::Drupal),
@@ -255,9 +251,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(9.8),
                 vuln_type: VulnType::Rce,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2018-7600".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2018-7600".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -272,9 +266,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(8.1),
                 vuln_type: VulnType::Rce,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2018-7602".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2018-7602".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -289,12 +281,9 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(9.8),
                 vuln_type: VulnType::Rce,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2019-6340".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2019-6340".to_string()],
                 exploit_available: true,
             },
-
             // Joomla core vulnerabilities
             VulnEntry {
                 cms: Some(CmsType::Joomla),
@@ -308,9 +297,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::High,
                 cvss: Some(7.5),
                 vuln_type: VulnType::InformationDisclosure,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2023-23752".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2023-23752".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -325,9 +312,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(9.8),
                 vuln_type: VulnType::Deserialization,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2015-8562".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2015-8562".to_string()],
                 exploit_available: true,
             },
         ]
@@ -350,7 +335,8 @@ impl VulnDatabase {
                 cvss: Some(9.8),
                 vuln_type: VulnType::FileUpload,
                 references: vec![
-                    "https://wpscan.com/vulnerability/31c23b9c-e5c2-4d0b-9f8a-cd6b5b9a75c7".to_string(),
+                    "https://wpscan.com/vulnerability/31c23b9c-e5c2-4d0b-9f8a-cd6b5b9a75c7"
+                        .to_string(),
                 ],
                 exploit_available: true,
             },
@@ -366,9 +352,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(10.0),
                 vuln_type: VulnType::FileUpload,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2020-35489".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2020-35489".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -383,9 +367,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(10.0),
                 vuln_type: VulnType::Rce,
-                references: vec![
-                    "https://nvd.nist.gov/vuln/detail/CVE-2020-25213".to_string(),
-                ],
+                references: vec!["https://nvd.nist.gov/vuln/detail/CVE-2020-25213".to_string()],
                 exploit_available: true,
             },
             VulnEntry {
@@ -400,9 +382,7 @@ impl VulnDatabase {
                 severity: VulnSeverity::Critical,
                 cvss: Some(9.8),
                 vuln_type: VulnType::AuthBypass,
-                references: vec![
-                    "https://wpscan.com/vulnerability/a1b2c3d4".to_string(),
-                ],
+                references: vec!["https://wpscan.com/vulnerability/a1b2c3d4".to_string()],
                 exploit_available: false,
             },
             VulnEntry {
@@ -420,7 +400,6 @@ impl VulnDatabase {
                 references: vec![],
                 exploit_available: false,
             },
-
             // Drupal module vulnerabilities
             VulnEntry {
                 cms: Some(CmsType::Drupal),
@@ -437,7 +416,6 @@ impl VulnDatabase {
                 references: vec![],
                 exploit_available: false,
             },
-
             // Joomla component vulnerabilities
             VulnEntry {
                 cms: Some(CmsType::Joomla),

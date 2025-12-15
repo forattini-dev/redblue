@@ -3,11 +3,11 @@
 //! Provides vector similarity search capabilities integrated with
 //! the query engine for semantic search and nearest neighbor queries.
 
-use crate::storage::vector::{DenseVector, Distance, FlatIndex, IvfIndex, VectorId};
-use crate::storage::vector::types::SearchResult;
 use super::filter::Filter;
 use super::sort::QueryLimits;
 use crate::storage::schema::Value;
+use crate::storage::vector::types::SearchResult;
+use crate::storage::vector::{DenseVector, Distance, FlatIndex, IvfIndex, VectorId};
 use std::collections::HashMap;
 
 /// Similarity query parameters
@@ -93,7 +93,7 @@ impl SimilarityResult {
     pub fn with_metric(id: VectorId, distance: f32, metric: Distance) -> Self {
         let score = match metric {
             Distance::Cosine => 1.0 - distance, // Cosine: 0 = identical, 2 = opposite
-            Distance::DotProduct => -distance,   // Already negated, higher = more similar
+            Distance::DotProduct => -distance,  // Already negated, higher = more similar
             _ => 1.0 / (1.0 + distance),        // L2, Manhattan: inverse transform
         };
 
@@ -140,11 +140,7 @@ impl SimilarityResultSet {
     }
 
     /// Create from search results
-    pub fn from_results(
-        results: Vec<SearchResult>,
-        dimension: usize,
-        distance: Distance,
-    ) -> Self {
+    pub fn from_results(results: Vec<SearchResult>, dimension: usize, distance: Distance) -> Self {
         let similarity_results = results
             .into_iter()
             .map(|r| SimilarityResult::with_metric(r.id, r.distance, distance))
@@ -176,7 +172,10 @@ impl SimilarityResultSet {
 
     /// Get results above score threshold
     pub fn above_score(&self, threshold: f32) -> Vec<&SimilarityResult> {
-        self.results.iter().filter(|r| r.score >= threshold).collect()
+        self.results
+            .iter()
+            .filter(|r| r.score >= threshold)
+            .collect()
     }
 
     /// Apply limits
@@ -352,11 +351,8 @@ pub fn execute_similarity_search(
 
     let search_time = start.elapsed().as_micros() as u64;
 
-    let mut result_set = SimilarityResultSet::from_results(
-        results,
-        index.dimension(),
-        index.distance_metric(),
-    );
+    let mut result_set =
+        SimilarityResultSet::from_results(results, index.dimension(), index.distance_metric());
     result_set.search_time_us = search_time;
     result_set.vectors_searched = Some(index.len());
 
@@ -377,11 +373,7 @@ where
 
     // Get more candidates than needed to account for filtering
     let over_fetch = if query.filter.is_some() { 10 } else { 1 };
-    let candidates = index.search_with_params(
-        &query.vector,
-        query.k * over_fetch,
-        query.n_probes,
-    );
+    let candidates = index.search_with_params(&query.vector, query.k * over_fetch, query.n_probes);
 
     // Apply filter and collect results
     let results: Vec<SimilarityResult> = candidates
@@ -395,7 +387,8 @@ where
         })
         .take(query.k)
         .map(|r| {
-            let mut result = SimilarityResult::with_metric(r.id, r.distance, index.distance_metric());
+            let mut result =
+                SimilarityResult::with_metric(r.id, r.distance, index.distance_metric());
             if let Some(meta) = get_metadata(r.id) {
                 result = result.with_metadata(meta);
             }
@@ -471,8 +464,8 @@ mod tests {
         let index = create_test_index();
 
         // Query with distance threshold
-        let query = SimilarityQuery::new(DenseVector::new(vec![1.0, 0.0, 0.0]), 10)
-            .with_threshold(0.5);
+        let query =
+            SimilarityQuery::new(DenseVector::new(vec![1.0, 0.0, 0.0]), 10).with_threshold(0.5);
 
         let results = execute_similarity_search(&index, &query);
 
@@ -520,9 +513,9 @@ mod tests {
     fn test_above_score_filter() {
         let results = SimilarityResultSet {
             results: vec![
-                SimilarityResult::new(1, 0.1),  // score ~0.91
-                SimilarityResult::new(2, 0.5),  // score ~0.67
-                SimilarityResult::new(3, 2.0),  // score ~0.33
+                SimilarityResult::new(1, 0.1), // score ~0.91
+                SimilarityResult::new(2, 0.5), // score ~0.67
+                SimilarityResult::new(3, 2.0), // score ~0.33
             ],
             dimension: 3,
             distance: Distance::L2,
@@ -553,12 +546,39 @@ mod tests {
 
         // Mock metadata
         let metadata: HashMap<VectorId, HashMap<String, Value>> = [
-            (1, [("category".to_string(), Value::Text("A".to_string()))].into_iter().collect()),
-            (2, [("category".to_string(), Value::Text("B".to_string()))].into_iter().collect()),
-            (3, [("category".to_string(), Value::Text("A".to_string()))].into_iter().collect()),
-            (4, [("category".to_string(), Value::Text("B".to_string()))].into_iter().collect()),
-            (5, [("category".to_string(), Value::Text("A".to_string()))].into_iter().collect()),
-        ].into_iter().collect();
+            (
+                1,
+                [("category".to_string(), Value::Text("A".to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                2,
+                [("category".to_string(), Value::Text("B".to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                3,
+                [("category".to_string(), Value::Text("A".to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                4,
+                [("category".to_string(), Value::Text("B".to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+            (
+                5,
+                [("category".to_string(), Value::Text("A".to_string()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        ]
+        .into_iter()
+        .collect();
 
         let filter = Filter::eq("category", Value::Text("A".to_string()));
         let query = SimilarityQuery::new(DenseVector::new(vec![1.0, 0.0, 0.0]), 5)
@@ -589,7 +609,9 @@ mod tests {
     #[test]
     fn test_apply_limits() {
         let results = SimilarityResultSet {
-            results: (0..10).map(|i| SimilarityResult::new(i, i as f32 * 0.1)).collect(),
+            results: (0..10)
+                .map(|i| SimilarityResult::new(i, i as f32 * 0.1))
+                .collect(),
             dimension: 3,
             distance: Distance::L2,
             vectors_searched: Some(100),

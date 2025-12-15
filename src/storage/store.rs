@@ -9,22 +9,22 @@ use crate::storage::layout::{
     FileHeader, SectionEntry, SegmentFlags, SegmentKind, SegmentMetadata, ENCRYPTION_SALT_SIZE,
 };
 use crate::storage::records::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, SubdomainRecord,
-    SubdomainSource, TlsScanRecord, WhoisRecord,
-    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
-    MitreAttackRecord, IocRecord, VulnerabilityRecord, SessionRecord, PlaybookRunRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, IocRecord, MitreAttackRecord,
+    PlaybookRunRecord, PortScanRecord, ProxyConnectionRecord, ProxyHttpRequestRecord,
+    ProxyHttpResponseRecord, ProxyWebSocketRecord, SessionRecord, SubdomainRecord, SubdomainSource,
+    TlsScanRecord, VulnerabilityRecord, WhoisRecord,
 };
 use crate::storage::segments::hosts::HostSegment;
+use crate::storage::segments::iocs::IocSegment;
+use crate::storage::segments::mitre::MitreSegment;
+use crate::storage::segments::playbooks::PlaybookSegment;
 use crate::storage::segments::ports::PortSegment;
 use crate::storage::segments::proxy::ProxySegment;
+use crate::storage::segments::sessions::SessionSegment;
 use crate::storage::segments::subdomains::SubdomainSegment;
 use crate::storage::segments::tls::TlsSegment;
-use crate::storage::segments::whois::WhoisSegment;
-use crate::storage::segments::mitre::MitreSegment;
-use crate::storage::segments::iocs::IocSegment;
 use crate::storage::segments::vuln::VulnSegment;
-use crate::storage::segments::sessions::SessionSegment;
-use crate::storage::segments::playbooks::PlaybookSegment;
+use crate::storage::segments::whois::WhoisSegment;
 use crate::storage::segments::{dns::DnsSegment, http::HttpSegment};
 
 /// Encryption state for the database
@@ -284,8 +284,7 @@ impl Database {
                         MitreSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Ioc => {
-                    db.iocs =
-                        IocSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
+                    db.iocs = IocSegment::deserialize(&segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Vuln => {
                     db.vulns =
@@ -432,10 +431,12 @@ impl Database {
                     db.hosts = HostSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Proxy => {
-                    db.proxy = ProxySegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                    db.proxy =
+                        ProxySegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Mitre => {
-                    db.mitre = MitreSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                    db.mitre =
+                        MitreSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Ioc => {
                     db.iocs = IocSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
@@ -444,10 +445,12 @@ impl Database {
                     db.vulns = VulnSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Sessions => {
-                    db.sessions = SessionSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                    db.sessions =
+                        SessionSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
                 SegmentKind::Playbooks => {
-                    db.playbooks = PlaybookSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
+                    db.playbooks =
+                        PlaybookSegment::deserialize(segment_bytes).map_err(decode_err_to_io)?;
                 }
             }
         }
@@ -463,8 +466,8 @@ impl Database {
     /// Check if a database file is encrypted (static method)
     /// Returns true if the file exists and has the encrypted magic header
     pub fn is_encrypted_file<P: AsRef<Path>>(path: P) -> bool {
-        use std::io::Read;
         use crate::storage::layout::MAGIC_ENCRYPTED;
+        use std::io::Read;
 
         if let Ok(mut file) = fs::File::open(path) {
             let mut magic = [0u8; 8];
@@ -544,7 +547,8 @@ impl Database {
                 // Encrypt metadata if encryption is enabled
                 let write_metadata = if let Some(ref enc) = self.encryption {
                     // Use seg_idx + 1000 to avoid collision with segment page IDs
-                    enc.encryptor.encrypt((seg_idx + 1000) as u32, &metadata_bytes)
+                    enc.encryptor
+                        .encrypt((seg_idx + 1000) as u32, &metadata_bytes)
                 } else {
                     metadata_bytes
                 };
@@ -744,21 +748,30 @@ impl Database {
     }
 
     pub fn proxy_connections_for_host(&mut self, host: &str) -> Vec<ProxyConnectionRecord> {
-        self.proxy.all_connections()
+        self.proxy
+            .all_connections()
             .into_iter()
             .filter(|c| c.dst_host == host)
             .collect()
     }
 
-    pub fn proxy_requests_for_connection(&mut self, connection_id: u64) -> Vec<ProxyHttpRequestRecord> {
-        self.proxy.get_requests_for_connection(connection_id)
+    pub fn proxy_requests_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> Vec<ProxyHttpRequestRecord> {
+        self.proxy
+            .get_requests_for_connection(connection_id)
             .into_iter()
             .cloned()
             .collect()
     }
 
-    pub fn proxy_responses_for_connection(&mut self, connection_id: u64) -> Vec<ProxyHttpResponseRecord> {
-        self.proxy.get_responses_for_connection(connection_id)
+    pub fn proxy_responses_for_connection(
+        &mut self,
+        connection_id: u64,
+    ) -> Vec<ProxyHttpResponseRecord> {
+        self.proxy
+            .get_responses_for_connection(connection_id)
             .into_iter()
             .cloned()
             .collect()
@@ -803,7 +816,10 @@ impl Database {
         self.iocs.get_all()
     }
 
-    pub fn ioc_records_by_type(&self, ioc_type: crate::storage::records::IocType) -> Vec<IocRecord> {
+    pub fn ioc_records_by_type(
+        &self,
+        ioc_type: crate::storage::records::IocType,
+    ) -> Vec<IocRecord> {
         self.iocs.get_by_type(ioc_type)
     }
 
@@ -930,8 +946,8 @@ fn decode_err_to_io(err: DecodeError) -> std::io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use crate::storage::records::PortStatus;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     struct FileGuard {
         path: PathBuf,
@@ -944,7 +960,8 @@ mod tests {
     }
 
     fn temp_db(name: &str) -> (FileGuard, PathBuf) {
-        let path = std::env::temp_dir().join(format!("rb_store_{}_{}.db", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rb_store_{}_{}.db", name, std::process::id()));
         let guard = FileGuard { path: path.clone() };
         let _ = std::fs::remove_file(&path);
         (guard, path)
@@ -1121,7 +1138,13 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
 
         let ips = vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))];
-        db.insert_subdomain("example.com", "www.example.com", ips, SubdomainSource::DnsBruteforce, 1000);
+        db.insert_subdomain(
+            "example.com",
+            "www.example.com",
+            ips,
+            SubdomainSource::DnsBruteforce,
+            1000,
+        );
 
         assert!(db.dirty);
     }
@@ -1132,9 +1155,27 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
 
         let ip = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4));
-        db.insert_subdomain("example.com", "api.example.com", vec![ip], SubdomainSource::CertTransparency, 1000);
-        db.insert_subdomain("example.com", "mail.example.com", vec![ip], SubdomainSource::DnsBruteforce, 1001);
-        db.insert_subdomain("other.com", "www.other.com", vec![ip], SubdomainSource::SearchEngine, 1002);
+        db.insert_subdomain(
+            "example.com",
+            "api.example.com",
+            vec![ip],
+            SubdomainSource::CertTransparency,
+            1000,
+        );
+        db.insert_subdomain(
+            "example.com",
+            "mail.example.com",
+            vec![ip],
+            SubdomainSource::DnsBruteforce,
+            1001,
+        );
+        db.insert_subdomain(
+            "other.com",
+            "www.other.com",
+            vec![ip],
+            SubdomainSource::SearchEngine,
+            1002,
+        );
 
         let subs = db.subdomains_of("example.com");
         assert_eq!(subs.len(), 2);
@@ -1146,8 +1187,20 @@ mod tests {
         let mut db = Database::open(&path).unwrap();
 
         let ip = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
-        db.insert_subdomain("a.com", "www.a.com", vec![ip], SubdomainSource::DnsBruteforce, 1000);
-        db.insert_subdomain("b.com", "api.b.com", vec![ip], SubdomainSource::WebCrawl, 1001);
+        db.insert_subdomain(
+            "a.com",
+            "www.a.com",
+            vec![ip],
+            SubdomainSource::DnsBruteforce,
+            1000,
+        );
+        db.insert_subdomain(
+            "b.com",
+            "api.b.com",
+            vec![ip],
+            SubdomainSource::WebCrawl,
+            1001,
+        );
 
         let all = db.all_subdomains();
         assert_eq!(all.len(), 2);
@@ -1442,9 +1495,22 @@ mod tests {
                 timestamp: 1000,
             });
 
-            db.insert_subdomain("test.com", "api.test.com", vec![ip], SubdomainSource::DnsBruteforce, 1000);
+            db.insert_subdomain(
+                "test.com",
+                "api.test.com",
+                vec![ip],
+                SubdomainSource::DnsBruteforce,
+                1000,
+            );
 
-            db.insert_whois("test.com", "Test Registrar", 1000, 2000, vec!["ns.test.com".to_string()], 1000);
+            db.insert_whois(
+                "test.com",
+                "Test Registrar",
+                1000,
+                2000,
+                vec!["ns.test.com".to_string()],
+                1000,
+            );
 
             db.flush().unwrap();
         }
@@ -1504,7 +1570,10 @@ mod tests {
     #[test]
     fn test_segment_label() {
         assert_eq!(Database::segment_label(SegmentKind::Ports), "ports");
-        assert_eq!(Database::segment_label(SegmentKind::Subdomains), "subdomains");
+        assert_eq!(
+            Database::segment_label(SegmentKind::Subdomains),
+            "subdomains"
+        );
         assert_eq!(Database::segment_label(SegmentKind::Whois), "whois");
         assert_eq!(Database::segment_label(SegmentKind::Tls), "tls");
         assert_eq!(Database::segment_label(SegmentKind::Dns), "dns");
@@ -1716,10 +1785,23 @@ mod tests {
             });
 
             // Subdomains
-            db.insert_subdomain("test.com", "www.test.com", vec![ip], SubdomainSource::WebCrawl, 1000);
+            db.insert_subdomain(
+                "test.com",
+                "www.test.com",
+                vec![ip],
+                SubdomainSource::WebCrawl,
+                1000,
+            );
 
             // WHOIS
-            db.insert_whois("test.com", "Test Registrar", 1000, 2000, vec!["ns1.test.com".to_string()], 1000);
+            db.insert_whois(
+                "test.com",
+                "Test Registrar",
+                1000,
+                2000,
+                vec!["ns1.test.com".to_string()],
+                1000,
+            );
 
             // Host
             db.insert_host(HostIntelRecord {

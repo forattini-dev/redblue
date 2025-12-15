@@ -1,7 +1,7 @@
-use std::fs::{File, OpenOptions};
-use std::io::{self, Write, Seek, SeekFrom};
-use std::path::Path;
 use super::record::{WalRecord, WAL_MAGIC, WAL_VERSION};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Seek, SeekFrom, Write};
+use std::path::Path;
 
 /// Writer for the Write-Ahead Log
 pub struct WalWriter {
@@ -13,16 +13,16 @@ impl WalWriter {
     /// Open a WAL file for writing. Creates it if it doesn't exist.
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let exists = path.as_ref().exists();
-        
+
         let mut file = OpenOptions::new()
             .read(true) // Read needed for finding EOF LSN? No, seek is enough.
             .write(true)
             .create(true)
             .append(true)
             .open(path)?;
-            
+
         let current_lsn;
-        
+
         if !exists || file.metadata()?.len() == 0 {
             // Write header for new file
             // Format: Magic (4) + Version (1) + Reserved (3)
@@ -30,7 +30,7 @@ impl WalWriter {
             header.extend_from_slice(WAL_MAGIC);
             header.push(WAL_VERSION);
             header.extend_from_slice(&[0u8; 3]); // Reserved
-            
+
             file.write_all(&header)?;
             file.sync_all()?;
             current_lsn = 8;
@@ -38,35 +38,32 @@ impl WalWriter {
             // Existing file, set LSN to current end
             current_lsn = file.seek(SeekFrom::End(0))?;
         }
-        
-        Ok(Self {
-            file,
-            current_lsn,
-        })
+
+        Ok(Self { file, current_lsn })
     }
-    
+
     /// Append a record to the WAL
     /// Returns the LSN (Log Sequence Number) of the record
     pub fn append(&mut self, record: &WalRecord) -> io::Result<u64> {
         let bytes = record.encode();
         self.file.write_all(&bytes)?;
-        
+
         let record_lsn = self.current_lsn;
         self.current_lsn += bytes.len() as u64;
-        
+
         Ok(record_lsn)
     }
-    
+
     /// Force sync to disk
     pub fn sync(&mut self) -> io::Result<()> {
         self.file.sync_all()
     }
-    
+
     /// Get current LSN (end of file offset)
     pub fn current_lsn(&self) -> u64 {
         self.current_lsn
     }
-    
+
     /// Truncate the WAL (usually after checkpoint)
     pub fn truncate(&mut self) -> io::Result<()> {
         self.file.set_len(0)?;
@@ -102,7 +99,8 @@ mod tests {
     }
 
     fn temp_wal(name: &str) -> (FileGuard, PathBuf) {
-        let path = std::env::temp_dir().join(format!("rb_wal_writer_{}_{}.wal", name, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("rb_wal_writer_{}_{}.wal", name, std::process::id()));
         let guard = FileGuard { path: path.clone() };
         let _ = std::fs::remove_file(&path);
         (guard, path)
@@ -159,11 +157,13 @@ mod tests {
 
         // PageWrite record: 1 + 8 + 4 + 4 + data_len + 4 = 21 + data_len
         let data = vec![1, 2, 3, 4, 5];
-        let lsn2 = writer.append(&WalRecord::PageWrite {
-            tx_id: 1,
-            page_id: 100,
-            data: data.clone(),
-        }).unwrap();
+        let lsn2 = writer
+            .append(&WalRecord::PageWrite {
+                tx_id: 1,
+                page_id: 100,
+                data: data.clone(),
+            })
+            .unwrap();
 
         assert_eq!(lsn2, 8 + 13); // after Begin
 
@@ -190,7 +190,13 @@ mod tests {
 
         // Write some records
         writer.append(&WalRecord::Begin { tx_id: 1 }).unwrap();
-        writer.append(&WalRecord::PageWrite { tx_id: 1, page_id: 0, data: vec![0; 100] }).unwrap();
+        writer
+            .append(&WalRecord::PageWrite {
+                tx_id: 1,
+                page_id: 0,
+                data: vec![0; 100],
+            })
+            .unwrap();
         writer.append(&WalRecord::Commit { tx_id: 1 }).unwrap();
 
         let lsn_before = writer.current_lsn();
@@ -234,7 +240,9 @@ mod tests {
         let mut writer = WalWriter::open(&path).unwrap();
 
         // Checkpoint is same size as Begin (1 + 8 + 4 = 13)
-        let lsn = writer.append(&WalRecord::Checkpoint { lsn: 12345 }).unwrap();
+        let lsn = writer
+            .append(&WalRecord::Checkpoint { lsn: 12345 })
+            .unwrap();
         assert_eq!(lsn, 8);
         assert_eq!(writer.current_lsn(), 8 + 13);
     }

@@ -3,17 +3,17 @@
 
 pub mod query;
 
-pub use query::QueryManager;
 pub use super::keyring::PasswordSource;
+pub use query::QueryManager;
 
 use crate::config;
 use crate::storage::keyring::resolve_password;
-use crate::storage::reddb::RedDb;
 use crate::storage::records::{
-    DnsRecordData, DnsRecordType, HostIntelRecord, HttpHeadersRecord, PortStatus, SubdomainSource,
-    TlsScanRecord, ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord,
-    ProxyWebSocketRecord,
+    DnsRecordData, DnsRecordType, HostIntelRecord, HttpHeadersRecord, PortStatus,
+    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
+    SubdomainSource, TlsScanRecord,
 };
+use crate::storage::reddb::RedDb;
 use crate::storage::service::StorageService;
 use std::fs;
 use std::net::IpAddr;
@@ -116,23 +116,19 @@ impl PersistenceManager {
 
         // Open database with encryption if password is available
         let db = match password_source.password() {
-            Some(pwd) => {
-                RedDb::open_encrypted(&path, pwd)
-                    .map_err(|e| format!("Failed to open encrypted database: {}", e))?
-            }
+            Some(pwd) => RedDb::open_encrypted(&path, pwd)
+                .map_err(|e| format!("Failed to open encrypted database: {}", e))?,
             None => {
                 // No password - check if existing file is encrypted
                 if path.exists() && RedDb::is_encrypted_file(&path) {
-                    return Err(
-                        "Database is encrypted but no password provided.\n\
+                    return Err("Database is encrypted but no password provided.\n\
                         Set password with: rb config set-password\n\
                         Or use: --db-password <password>\n\
-                        Or set: REDBLUE_DB_KEY environment variable".to_string()
-                    );
+                        Or set: REDBLUE_DB_KEY environment variable"
+                        .to_string());
                 }
                 // Open unencrypted (WARNING: not recommended)
-                RedDb::open(&path)
-                    .map_err(|e| format!("Failed to open database: {}", e))?
+                RedDb::open(&path).map_err(|e| format!("Failed to open database: {}", e))?
             }
         };
 
@@ -319,7 +315,10 @@ impl PersistenceManager {
     }
 
     /// Add proxy HTTP response record
-    pub fn add_proxy_http_response(&mut self, record: ProxyHttpResponseRecord) -> Result<(), String> {
+    pub fn add_proxy_http_response(
+        &mut self,
+        record: ProxyHttpResponseRecord,
+    ) -> Result<(), String> {
         if let Some(db) = &mut self.db {
             db.save_proxy_http_response(record)
                 .map_err(|e| format!("Database error: {}", e))?;
@@ -489,13 +488,31 @@ mod tests {
 
     #[test]
     fn test_map_subdomain_source_id() {
-        assert!(matches!(map_subdomain_source_id(0), SubdomainSource::DnsBruteforce));
-        assert!(matches!(map_subdomain_source_id(1), SubdomainSource::CertTransparency));
-        assert!(matches!(map_subdomain_source_id(2), SubdomainSource::SearchEngine));
-        assert!(matches!(map_subdomain_source_id(3), SubdomainSource::WebCrawl));
+        assert!(matches!(
+            map_subdomain_source_id(0),
+            SubdomainSource::DnsBruteforce
+        ));
+        assert!(matches!(
+            map_subdomain_source_id(1),
+            SubdomainSource::CertTransparency
+        ));
+        assert!(matches!(
+            map_subdomain_source_id(2),
+            SubdomainSource::SearchEngine
+        ));
+        assert!(matches!(
+            map_subdomain_source_id(3),
+            SubdomainSource::WebCrawl
+        ));
         // Unknown codes default to SearchEngine
-        assert!(matches!(map_subdomain_source_id(4), SubdomainSource::SearchEngine));
-        assert!(matches!(map_subdomain_source_id(255), SubdomainSource::SearchEngine));
+        assert!(matches!(
+            map_subdomain_source_id(4),
+            SubdomainSource::SearchEngine
+        ));
+        assert!(matches!(
+            map_subdomain_source_id(255),
+            SubdomainSource::SearchEngine
+        ));
     }
 
     #[test]
@@ -503,7 +520,7 @@ mod tests {
         let ts = current_timestamp();
         // Should be a reasonable Unix timestamp (after 2020)
         assert!(ts > 1577836800); // Jan 1, 2020
-        // And not too far in the future
+                                  // And not too far in the future
         assert!(ts < 2524608000); // Jan 1, 2050
     }
 
@@ -533,7 +550,7 @@ mod tests {
         let _lock = CLIENT_TEST_LOCK.lock().unwrap();
 
         let config = PersistenceConfig::default(); // force_save = false
-        // Note: This might enable if auto_persist is true in config
+                                                   // Note: This might enable if auto_persist is true in config
         let pm = PersistenceManager::with_config("test-target", config);
         // Result depends on global config - just verify it doesn't panic
         assert!(pm.is_ok());
@@ -654,7 +671,13 @@ mod tests {
         let mut pm = PersistenceManager::with_config("example.com", config).unwrap();
 
         let nameservers = vec!["ns1.example.com".to_string(), "ns2.example.com".to_string()];
-        let result = pm.add_whois("example.com", "Test Registrar", 1000000, 2000000, &nameservers);
+        let result = pm.add_whois(
+            "example.com",
+            "Test Registrar",
+            1000000,
+            2000000,
+            &nameservers,
+        );
         assert!(result.is_ok());
 
         let path = pm.commit().unwrap();
@@ -675,7 +698,9 @@ mod tests {
         let was_enabled = pm.is_enabled();
 
         // All operations should succeed regardless of enabled state
-        assert!(pm.add_port_scan("1.2.3.4".parse().unwrap(), 80, 0, 0).is_ok());
+        assert!(pm
+            .add_port_scan("1.2.3.4".parse().unwrap(), 80, 0, 0)
+            .is_ok());
         assert!(pm.add_dns_record("test.com", 1, 3600, "1.2.3.4").is_ok());
         assert!(pm.add_subdomain("test.com", "www", 0, &[]).is_ok());
         assert!(pm.add_whois("test.com", "reg", 0, 0, &[]).is_ok());
@@ -703,11 +728,11 @@ mod tests {
         let ip: IpAddr = "10.0.0.1".parse().unwrap();
 
         // Test all port states
-        assert!(pm.add_port_scan(ip, 80, 0, 0).is_ok());   // Open
-        assert!(pm.add_port_scan(ip, 81, 1, 0).is_ok());   // Closed
-        assert!(pm.add_port_scan(ip, 82, 2, 0).is_ok());   // Filtered
-        assert!(pm.add_port_scan(ip, 83, 3, 0).is_ok());   // OpenFiltered
-        assert!(pm.add_port_scan(ip, 84, 99, 0).is_ok());  // Unknown -> Open
+        assert!(pm.add_port_scan(ip, 80, 0, 0).is_ok()); // Open
+        assert!(pm.add_port_scan(ip, 81, 1, 0).is_ok()); // Closed
+        assert!(pm.add_port_scan(ip, 82, 2, 0).is_ok()); // Filtered
+        assert!(pm.add_port_scan(ip, 83, 3, 0).is_ok()); // OpenFiltered
+        assert!(pm.add_port_scan(ip, 84, 99, 0).is_ok()); // Unknown -> Open
 
         let _ = pm.commit();
 

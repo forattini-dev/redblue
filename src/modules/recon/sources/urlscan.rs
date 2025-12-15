@@ -4,7 +4,6 @@
 /// Free: 100 searches/day, Pro: unlimited.
 ///
 /// API: https://urlscan.io/api/v1/search/?q=domain:example.com
-
 use super::{
     RecordMetadata, SourceCategory, SourceConfig, SourceError, SourceType, SubdomainRecord,
     SubdomainSource,
@@ -35,7 +34,11 @@ impl UrlScanSource {
         }
     }
 
-    fn parse_response(&self, body: &str, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
+    fn parse_response(
+        &self,
+        body: &str,
+        domain: &str,
+    ) -> Result<Vec<SubdomainRecord>, SourceError> {
         let mut records = Vec::new();
         let mut seen = HashSet::new();
         let domain_lower = domain.to_lowercase();
@@ -55,7 +58,8 @@ impl UrlScanSource {
                 let found_domain = found_domain.to_lowercase();
 
                 // Validate domain
-                if (found_domain.ends_with(&format!(".{}", domain_lower)) || found_domain == domain_lower)
+                if (found_domain.ends_with(&format!(".{}", domain_lower))
+                    || found_domain == domain_lower)
                     && seen.insert(found_domain.clone())
                 {
                     // Try to find associated IP
@@ -131,10 +135,7 @@ impl SubdomainSource for UrlScanSource {
     }
 
     fn query(&self, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
-        let url = format!(
-            "https://urlscan.io/api/v1/search/?q=domain:{}",
-            domain
-        );
+        let url = format!("https://urlscan.io/api/v1/search/?q=domain:{}", domain);
 
         let response = self
             .http
@@ -142,7 +143,9 @@ impl SubdomainSource for UrlScanSource {
             .map_err(|e| SourceError::NetworkError(e))?;
 
         if response.status_code == 429 {
-            return Err(SourceError::RateLimited(std::time::Duration::from_secs(86400)));
+            return Err(SourceError::RateLimited(std::time::Duration::from_secs(
+                86400,
+            )));
         }
 
         if response.status_code != 200 {

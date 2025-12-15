@@ -130,7 +130,7 @@ impl Tls13KeySchedule {
             .hash_alg
             .derive_secret(&self.current_secret, b"derived", &empty_hash)
             .expect("Failed to derive handshake secret base");
-        
+
         eprintln!("DEBUG: Derived Secret (for Handshake): {:02x?}", derived);
 
         let handshake_secret = self.hash_alg.hkdf_extract(Some(&derived), shared_secret);
@@ -157,13 +157,19 @@ impl Tls13KeySchedule {
         let transcript_hash = self.get_transcript_hash();
         eprintln!("Handshake Transcript Hash: {:02x?}", transcript_hash);
         eprintln!("Full Transcript: {:02x?}", self.handshake_hash);
-        
+
         // Debugging SHA256 consistency
-        eprintln!("DEBUG CHECK: SHA256(Transcript) calculated via self.hash_alg.hash: {:02x?}", transcript_hash);
-        
+        eprintln!(
+            "DEBUG CHECK: SHA256(Transcript) calculated via self.hash_alg.hash: {:02x?}",
+            transcript_hash
+        );
+
         let direct_sha256 = crate::crypto::sha256::sha256(&self.handshake_hash);
-        eprintln!("DEBUG CHECK: SHA256(Transcript) calculated directly via crypto::sha256: {:02x?}", direct_sha256);
-        
+        eprintln!(
+            "DEBUG CHECK: SHA256(Transcript) calculated directly via crypto::sha256: {:02x?}",
+            direct_sha256
+        );
+
         let hello_hash = crate::crypto::sha256::sha256(b"Hello");
         eprintln!("DEBUG CHECK: SHA256(b\"Hello\"): {:02x?}", hello_hash);
 
@@ -235,7 +241,10 @@ impl Tls13KeySchedule {
     pub fn derive_application_traffic_secrets(&mut self) {
         let transcript_hash = self.get_transcript_hash();
         eprintln!("Application Transcript Hash: {:02x?}", transcript_hash);
-        eprintln!("Application Transcript Length: {}", self.handshake_hash.len());
+        eprintln!(
+            "Application Transcript Length: {}",
+            self.handshake_hash.len()
+        );
         eprintln!("Master Secret (current): {:02x?}", self.current_secret);
 
         // Client application traffic secret

@@ -1,7 +1,6 @@
 /// Linux OS Signatures
 ///
 /// TCP/IP fingerprints for Linux kernel versions and distributions.
-
 use super::types::*;
 
 /// Add all Linux signatures to the database
@@ -43,7 +42,6 @@ fn kernel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.95)
             .build(),
-
         // Linux 5.x (2019-2022)
         SignatureBuilder::new(1001, "Linux 5.x")
             .vendor("Linux")
@@ -60,7 +58,6 @@ fn kernel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Linux 4.x (2015-2019)
         SignatureBuilder::new(1002, "Linux 4.x")
             .vendor("Linux")
@@ -77,7 +74,6 @@ fn kernel_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.90)
             .build(),
-
         // Linux 3.x (2011-2015)
         SignatureBuilder::new(1003, "Linux 3.x")
             .vendor("Linux")
@@ -94,7 +90,6 @@ fn kernel_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Linux 2.6.x (2003-2011)
         SignatureBuilder::new(1004, "Linux 2.6.x")
             .vendor("Linux")
@@ -111,7 +106,6 @@ fn kernel_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Linux 2.4.x (2001-2004)
         SignatureBuilder::new(1005, "Linux 2.4.x")
             .vendor("Linux")
@@ -149,7 +143,6 @@ fn ubuntu_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Ubuntu 22.04 LTS (Jammy Jellyfish)
         SignatureBuilder::new(1101, "Ubuntu 22.04 LTS")
             .vendor("Canonical")
@@ -166,7 +159,6 @@ fn ubuntu_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Ubuntu 20.04 LTS (Focal Fossa)
         SignatureBuilder::new(1102, "Ubuntu 20.04 LTS")
             .vendor("Canonical")
@@ -183,7 +175,6 @@ fn ubuntu_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Ubuntu 18.04 LTS (Bionic Beaver)
         SignatureBuilder::new(1103, "Ubuntu 18.04 LTS")
             .vendor("Canonical")
@@ -200,7 +191,6 @@ fn ubuntu_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Ubuntu 16.04 LTS (Xenial Xerus)
         SignatureBuilder::new(1104, "Ubuntu 16.04 LTS")
             .vendor("Canonical")
@@ -217,7 +207,6 @@ fn ubuntu_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Ubuntu Server (generic)
         SignatureBuilder::new(1110, "Ubuntu Server")
             .vendor("Canonical")
@@ -253,7 +242,6 @@ fn debian_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Debian 11 (Bullseye)
         SignatureBuilder::new(1201, "Debian 11 (Bullseye)")
             .vendor("Debian")
@@ -270,7 +258,6 @@ fn debian_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Debian 10 (Buster)
         SignatureBuilder::new(1202, "Debian 10 (Buster)")
             .vendor("Debian")
@@ -287,7 +274,6 @@ fn debian_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // Debian 9 (Stretch)
         SignatureBuilder::new(1203, "Debian 9 (Stretch)")
             .vendor("Debian")
@@ -325,7 +311,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // RHEL 8
         SignatureBuilder::new(1301, "RHEL 8")
             .vendor("Red Hat")
@@ -342,7 +327,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // RHEL 7
         SignatureBuilder::new(1302, "RHEL 7")
             .vendor("Red Hat")
@@ -359,7 +343,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // CentOS Stream 9
         SignatureBuilder::new(1310, "CentOS Stream 9")
             .vendor("CentOS")
@@ -376,7 +359,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Rocky Linux 9
         SignatureBuilder::new(1320, "Rocky Linux 9")
             .vendor("Rocky Enterprise Software Foundation")
@@ -393,7 +375,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // AlmaLinux 9
         SignatureBuilder::new(1330, "AlmaLinux 9")
             .vendor("AlmaLinux OS Foundation")
@@ -410,7 +391,6 @@ fn rhel_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Oracle Linux 9
         SignatureBuilder::new(1340, "Oracle Linux 9")
             .vendor("Oracle")
@@ -448,7 +428,6 @@ fn fedora_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.92)
             .build(),
-
         // Fedora 39
         SignatureBuilder::new(1401, "Fedora 39")
             .vendor("Fedora Project")
@@ -465,7 +444,6 @@ fn fedora_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Fedora 38
         SignatureBuilder::new(1402, "Fedora 38")
             .vendor("Fedora Project")
@@ -502,7 +480,6 @@ fn arch_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // Manjaro Linux
         SignatureBuilder::new(1510, "Manjaro Linux")
             .vendor("Manjaro")
@@ -518,7 +495,6 @@ fn arch_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.85)
             .build(),
-
         // EndeavourOS
         SignatureBuilder::new(1520, "EndeavourOS")
             .vendor("EndeavourOS")
@@ -555,7 +531,6 @@ fn alpine_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.90)
             .build(),
-
         // Alpine Linux (Docker default)
         SignatureBuilder::new(1610, "Alpine Linux (Docker)")
             .vendor("Alpine Linux")
@@ -592,7 +567,6 @@ fn suse_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // openSUSE Leap 15.5
         SignatureBuilder::new(1701, "openSUSE Leap 15.5")
             .vendor("openSUSE")
@@ -609,7 +583,6 @@ fn suse_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // SLES 15
         SignatureBuilder::new(1710, "SUSE Linux Enterprise Server 15")
             .vendor("SUSE")
@@ -646,7 +619,6 @@ fn gentoo_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.85)
             .build(),
-
         // Calculate Linux
         SignatureBuilder::new(1810, "Calculate Linux")
             .vendor("Calculate")
@@ -683,7 +655,6 @@ fn embedded_linux_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.88)
             .build(),
-
         // DD-WRT
         SignatureBuilder::new(1910, "DD-WRT")
             .vendor("DD-WRT")
@@ -700,7 +671,6 @@ fn embedded_linux_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.85)
             .build(),
-
         // Raspbian / Raspberry Pi OS
         SignatureBuilder::new(1920, "Raspberry Pi OS")
             .vendor("Raspberry Pi Foundation")
@@ -717,7 +687,6 @@ fn embedded_linux_signatures() -> Vec<OsSignature> {
             .ecn(true)
             .confidence(0.88)
             .build(),
-
         // Buildroot
         SignatureBuilder::new(1930, "Buildroot Linux")
             .vendor("Buildroot")
@@ -734,7 +703,6 @@ fn embedded_linux_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.80)
             .build(),
-
         // Yocto/Poky
         SignatureBuilder::new(1940, "Yocto Linux")
             .vendor("Yocto Project")
@@ -751,7 +719,6 @@ fn embedded_linux_signatures() -> Vec<OsSignature> {
             .ecn(false)
             .confidence(0.82)
             .build(),
-
         // BusyBox Linux
         SignatureBuilder::new(1950, "BusyBox Linux")
             .vendor("BusyBox")
@@ -778,7 +745,11 @@ mod tests {
     #[test]
     fn test_linux_signatures_count() {
         let sigs = signatures();
-        assert!(sigs.len() >= 30, "Expected at least 30 Linux signatures, got {}", sigs.len());
+        assert!(
+            sigs.len() >= 30,
+            "Expected at least 30 Linux signatures, got {}",
+            sigs.len()
+        );
     }
 
     #[test]

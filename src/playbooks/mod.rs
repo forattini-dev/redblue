@@ -1,3 +1,8 @@
+pub mod apt_catalog;
+pub mod catalog;
+pub mod executor;
+pub mod recommender;
+pub mod template;
 /// redblue Playbook System
 ///
 /// Intelligent security playbooks for Red Team operations.
@@ -96,20 +101,16 @@
 ///     println!("Web playbook: {}", playbook.metadata.name);
 /// }
 /// ```
-
 pub mod types;
-pub mod catalog;
-pub mod apt_catalog;
-pub mod recommender;
-pub mod executor;
-pub mod template;
 
-pub use types::*;
-pub use catalog::{all_playbooks, get_playbook, playbooks_for_target, playbooks_by_risk, playbooks_by_tag};
 pub use apt_catalog::{all_apt_playbooks, get_apt_playbook, list_apt_groups};
-pub use recommender::{
-    PlaybookRecommender, ReconFindings, DetectedOS, PlaybookRecommendation,
-    RecommendationResult, RecommendationSummary,
-    recommend_playbooks, recommend_from_attack_plan, findings_from_planner_input,
+pub use catalog::{
+    all_playbooks, get_playbook, playbooks_by_risk, playbooks_by_tag, playbooks_for_target,
 };
 pub use executor::PlaybookExecutor;
+pub use recommender::{
+    findings_from_planner_input, recommend_from_attack_plan, recommend_playbooks, DetectedOS,
+    PlaybookRecommendation, PlaybookRecommender, RecommendationResult, RecommendationSummary,
+    ReconFindings,
+};
+pub use types::*;
