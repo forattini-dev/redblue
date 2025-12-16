@@ -13,9 +13,13 @@
 
 *30+ security tools in one binary. Zero dependencies. 100% Rust.*
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+```
+
 [**Documentation**](https://forattini-dev.github.io/redblue/) |
-[Quick Start](#-quick-start) |
-[Install](#-installation)
+[Quick Start](#quick-start) |
+[Install](#installation)
 
 </div>
 
@@ -47,6 +51,9 @@ We implement network protocols **from scratch** using only Rust's standard libra
 ## Quick Start
 
 ```bash
+# Install (one command)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+
 # Network reconnaissance
 rb network scan ports 192.168.1.1 --type syn
 rb network discover host 10.0.0.0/24
