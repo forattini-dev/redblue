@@ -658,6 +658,7 @@ pub fn print_global_help() {
 
 {bold}GLOBAL COMMANDS:{reset}
   rb help                  Show global overview
+  rb commands              List all available commands
   rb <domain> help         List resources inside a domain
   rb version               Show version information
 
@@ -669,4 +670,68 @@ For detailed documentation: Check docs/cli-semantics.md and QUICKSTART.md
         session_ext = crate::storage::session::SessionFile::EXTENSION,
         reset = reset
     );
+}
+
+pub fn print_all_commands() {
+    let bold = "\x1b[1m";
+    let dim = "\x1b[2m";
+    let cyan = "\x1b[36m";
+    let yellow = "\x1b[33m";
+    let reset = "\x1b[0m";
+
+    println!("{bold}{cyan}redblue CLI - All Commands{reset}\n");
+    println!("Usage: rb <domain> <resource> <verb> [target] [flags]\n");
+
+    let registry = command_registry();
+    let commands = registry.commands();
+
+    // Group commands by domain
+    let mut domains: HashMap<String, Vec<&dyn Command>> = HashMap::new();
+    for cmd in commands.iter() {
+        domains
+            .entry(cmd.domain().to_string())
+            .or_default()
+            .push(cmd.as_ref());
+    }
+
+    // Sort domains alphabetically
+    let mut domain_names: Vec<_> = domains.keys().collect();
+    domain_names.sort();
+
+    let mut total_commands = 0;
+
+    for domain_name in domain_names {
+        let cmds = &domains[domain_name];
+        println!("{bold}{yellow}{}{reset}", domain_name);
+
+        for cmd in cmds {
+            let routes = cmd.routes();
+            if routes.is_empty() {
+                println!("  {dim}└─{reset} {}", cmd.resource());
+                total_commands += 1;
+            } else {
+                println!("  {dim}└─{reset} {}", cmd.resource());
+                for route in &routes {
+                    println!(
+                        "      {dim}•{reset} {:<16} {dim}{}{reset}",
+                        route.verb, route.summary
+                    );
+                    total_commands += 1;
+                }
+            }
+        }
+        println!();
+    }
+
+    println!("{dim}────────────────────────────────────────{reset}");
+    println!(
+        "{bold}Total:{reset} ~{} commands across {} domains",
+        total_commands,
+        domains.len()
+    );
+    println!("\n{dim}Quick access:{reset}");
+    println!("  rb help                  Global help");
+    println!("  rb <domain> help         Domain help");
+    println!("  rb commands              This list");
+    println!("  rb shell <target>        Interactive TUI");
 }

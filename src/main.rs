@@ -51,6 +51,10 @@ fn main() {
                 handle_shell_command(&ctx);
                 return;
             }
+            "commands" | "list" => {
+                commands::print_all_commands();
+                return;
+            }
             _ => {}
         }
     }
