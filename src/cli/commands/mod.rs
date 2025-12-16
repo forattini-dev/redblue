@@ -1,5 +1,6 @@
 pub mod access; // ✅ Remote access - reverse shells & listeners
 pub mod agent; // ✅ C2 Agent - server and client
+pub mod assess; // ✅ Assessment workflow - fingerprint → vuln → playbook
 pub mod attack; // ✅ Attack workflow - plan, run, playbooks
 pub mod auth_test; // ✅ Credential testing
 pub mod bench;
@@ -69,6 +70,7 @@ impl CommandRegistry {
         let commands: Vec<Box<dyn Command>> = vec![
             Box::new(access::AccessCommand), // ✅ Remote access - rb access shell create
             Box::new(agent::AgentCommand),   // ✅ C2 Agent
+            Box::new(assess::AssessCommand), // ✅ Assessment workflow
             Box::new(attack::AttackCommand), // ✅ Attack workflow - plan, run, playbooks
             Box::new(ctf::CtfCommand),       // ✅ CTF automation - pwn, ssh, deploy agents
             Box::new(auth_test::AuthTestCommand), // ✅ Credential testing
@@ -552,6 +554,7 @@ fn is_magic_scan_target(input: &str) -> bool {
         let known_domains = [
             "access",
             "agent",  // C2 Agent
+            "assess", // Assessment workflow
             "attack", // ✅ Attack workflow - plan, run, playbooks
             "ctf",    // CTF automation
             "network",
