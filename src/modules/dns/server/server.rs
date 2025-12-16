@@ -339,7 +339,7 @@ impl DnsServerInner {
             }
 
             let query_len = u16::from_be_bytes(len_buf) as usize;
-            if query_len > 65535 || query_len < 12 {
+            if !(12..=65535).contains(&query_len) {
                 break;
             }
 

@@ -64,7 +64,7 @@ pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Vec<u8> {
         255 * HASH_LEN
     );
 
-    let n = (length + HASH_LEN - 1) / HASH_LEN; // ceil(length / HASH_LEN)
+    let n = length.div_ceil(HASH_LEN);
     let mut okm = Vec::with_capacity(n * HASH_LEN);
     let mut t_prev = Vec::new();
 

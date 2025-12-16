@@ -195,14 +195,14 @@ impl ShellUI {
         buf.push_str(ansi::BRIGHT_CYAN);
         buf.push_str(ansi::BOLD);
 
-        let intercept_status = if state.intercept_enabled {
+        let _intercept_status = if state.intercept_enabled {
             format!("{}INTERCEPT: ON{}", ansi::BRIGHT_GREEN, ansi::BRIGHT_CYAN)
         } else {
             format!("{}INTERCEPT: OFF{}", ansi::GRAY, ansi::BRIGHT_CYAN)
         };
 
         let filter_display = state.filter.display();
-        let count = format!("Requests: {}", state.exchanges.len());
+        let _count = format!("Requests: {}", state.exchanges.len());
 
         let header = format!(
             " MITM Shell {} {} {} {} {} Filter: {} ",

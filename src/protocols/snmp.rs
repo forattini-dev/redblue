@@ -1,13 +1,16 @@
-/// SNMP Protocol Implementation (RFC 1157)
-///
-/// Implements Simple Network Management Protocol for:
-/// - SNMPv1/v2c (community-based)
-/// - GET/GETNEXT/GETBULK requests
-/// - Community string enumeration
-/// - OID walking
-/// - System information retrieval
-///
-/// Reference: https://tools.ietf.org/html/rfc1157
+//! SNMP Protocol Implementation (RFC 1157)
+//!
+//! Implements Simple Network Management Protocol for:
+//! - SNMPv1/v2c (community-based)
+//! - GET/GETNEXT/GETBULK requests
+//! - Community string enumeration
+//! - OID walking
+//! - System information retrieval
+//!
+//! Reference: https://tools.ietf.org/html/rfc1157
+
+#![allow(clippy::needless_range_loop)]
+
 use std::net::UdpSocket;
 use std::time::Duration;
 
@@ -269,22 +272,20 @@ impl SnmpClient {
         let mut i = 0;
         while i < response.len() - 2 {
             // Look for OCTET STRING (0x04) or INTEGER (0x02) after OID (0x06)
-            if response[i] == 0x04 || response[i] == 0x02 {
-                if i + 1 < response.len() {
-                    let len = response[i + 1] as usize;
-                    if i + 2 + len <= response.len() {
-                        let value_bytes = &response[i + 2..i + 2 + len];
+            if (response[i] == 0x04 || response[i] == 0x02) && i + 1 < response.len() {
+                let len = response[i + 1] as usize;
+                if i + 2 + len <= response.len() {
+                    let value_bytes = &response[i + 2..i + 2 + len];
 
-                        // Try to convert to string
-                        if let Ok(s) = String::from_utf8(value_bytes.to_vec()) {
-                            if s.chars().all(|c| c.is_ascii_graphic() || c.is_whitespace()) {
-                                return Ok(s);
-                            }
+                    // Try to convert to string
+                    if let Ok(s) = String::from_utf8(value_bytes.to_vec()) {
+                        if s.chars().all(|c| c.is_ascii_graphic() || c.is_whitespace()) {
+                            return Ok(s);
                         }
-
-                        // Return as hex if not valid UTF-8
-                        return Ok(format!("{:02x?}", value_bytes));
                     }
+
+                    // Return as hex if not valid UTF-8
+                    return Ok(format!("{:02x?}", value_bytes));
                 }
             }
             i += 1;

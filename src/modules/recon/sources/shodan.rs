@@ -194,10 +194,7 @@ impl SubdomainSource for ShodanSource {
             domain, api_key
         );
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 401 {
             return Err(SourceError::AuthenticationError("Invalid API key".into()));

@@ -1,11 +1,11 @@
-/// Fuzzing Attack Modes
-///
-/// Implements various fuzzing strategies:
-/// - Sniper: Single payload, one position at a time
-/// - Clusterbomb: All combinations of all payloads
-/// - Pitchfork: Parallel iteration through payloads
-///
-/// Task 2.1.14-2.1.16
+//! Fuzzing Attack Modes
+//!
+//! Implements various fuzzing strategies:
+//! - Sniper: Single payload, one position at a time
+//! - Clusterbomb: All combinations of all payloads
+//! - Pitchfork: Parallel iteration through payloads
+//!
+//! Task 2.1.14-2.1.16
 
 /// Position where FUZZ keyword appears
 #[derive(Debug, Clone, PartialEq)]

@@ -10,14 +10,14 @@ use crate::modules::web::extractors;
 use crate::modules::web::fingerprinter::WebFingerprinter;
 use crate::modules::web::linkfinder::{EndpointType, LinkFinder};
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
-use crate::protocols::har::{Har, HarRecorder};
+use crate::protocols::har::Har;
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
 use crate::protocols::http2::{
     Header, Http2Dispatcher, Http2LoggingMiddleware, Http2Request, Http2Response,
     Http2ResponseHandler,
 };
 use crate::protocols::tls_impersonator::TlsProfile;
-use crate::storage::records::{HttpHeadersRecord, HttpTlsSnapshot};
+use crate::storage::records::HttpHeadersRecord;
 use crate::storage::service::StorageService;
 use std::fs;
 use std::sync::Arc;
@@ -665,7 +665,7 @@ impl WebCommand {
             .ok_or("Missing URL. Usage: rb web asset http2 <https-url>")?;
 
         Validator::validate_url(url)?;
-        let (_host, _port, authority, _path) = Self::parse_https_url(url)?;
+        let (_host, _port, _authority, _path) = Self::parse_https_url(url)?;
 
         let method = ctx.get_flag_or("method", "GET").to_uppercase();
 
@@ -1360,10 +1360,7 @@ impl WebCommand {
         println!();
 
         // Findings table
-        println!(
-            "  {:<35} {:<8} {:<8} {}",
-            "HEADER", "STATUS", "SCORE", "DETAILS"
-        );
+        println!("  {:<35} {:<8} {:<8} DETAILS", "HEADER", "STATUS", "SCORE");
         println!("  {}", "─".repeat(90));
 
         for (header, status, deduction, details) in &findings {
@@ -1638,8 +1635,8 @@ impl WebCommand {
             println!();
 
             println!(
-                "  {:<30} {:<15} {:<12} {}",
-                "TECHNOLOGY", "CATEGORY", "CONFIDENCE", "VERSION"
+                "  {:<30} {:<15} {:<12} VERSION",
+                "TECHNOLOGY", "CATEGORY", "CONFIDENCE"
             );
             println!("  {}", "─".repeat(75));
 
@@ -1662,7 +1659,7 @@ impl WebCommand {
                     crate::modules::web::fingerprinter::Confidence::Low => "\x1b[36m",  // Cyan
                 };
 
-                let version = tech.version.as_ref().map(|v| v.as_str()).unwrap_or("-");
+                let version = tech.version.as_deref().unwrap_or("-");
 
                 println!(
                     "  {:<30} {:<15} {}{:<12}\x1b[0m {}",
@@ -2684,7 +2681,7 @@ impl WebCommand {
         };
 
         if filtered_endpoints.is_empty() {
-            let filter_str = filter_type.as_ref().map(|s| s.as_str()).unwrap_or("all");
+            let filter_str = filter_type.as_deref().unwrap_or("all");
             Output::warning(&format!(
                 "No endpoints found matching filter '{}'",
                 filter_str
@@ -3691,7 +3688,7 @@ impl WebCommand {
 
                     if compare {
                         if status == original_status {
-                            println!("{}{}OK\x1b[0m (status: {})", status_color, "", status);
+                            println!("{}OK\x1b[0m (status: {})", status_color, status);
                             success_count += 1;
                         } else {
                             println!(

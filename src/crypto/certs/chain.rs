@@ -6,7 +6,6 @@
 //! - Exporting chains in various formats
 
 use super::x509::{CertError, Certificate};
-use crate::crypto::encoding::pem::PemBlock;
 
 /// Certificate Chain (ordered from leaf to root)
 #[derive(Debug, Clone)]

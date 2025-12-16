@@ -934,12 +934,6 @@ impl TlsStream {
                         return Err("Extra bytes in TLS 1.3 handshake record".to_string());
                     }
                 }
-                other => {
-                    return Err(format!(
-                        "Unexpected TLS 1.3 record content type {:?} during handshake",
-                        other
-                    ));
-                }
             }
         }
 
@@ -1219,14 +1213,10 @@ impl TlsStream {
                 rsa.verify_pss_sha384(&hash, signature)
                     .map_err(|e| format!("RSA-PSS verification failed: {}", e))
             }
-            // ECDSA and SHA-512 variants are not yet implemented
-            0x0403 | 0x0503 | 0x0603 | 0x0601 | 0x0806 => Err(format!(
-                "TLS 1.3 signature scheme 0x{:04X} is not supported yet",
-                signature_scheme
-            )),
-            other => Err(format!(
+            // Other signature schemes are not yet implemented
+            _ => Err(format!(
                 "Server used unsupported TLS 1.3 signature scheme 0x{:04X}",
-                other
+                signature_scheme
             )),
         }
     }
@@ -1945,12 +1935,13 @@ impl TlsStream {
             }
 
             let outer_type = ContentType::ApplicationData;
-            let mut aad = Vec::with_capacity(5);
-            aad.push(outer_type as u8);
-            aad.push(record_version.0);
-            aad.push(record_version.1);
-            aad.push((ciphertext_len >> 8) as u8);
-            aad.push((ciphertext_len & 0xff) as u8);
+            let aad = vec![
+                outer_type as u8,
+                record_version.0,
+                record_version.1,
+                (ciphertext_len >> 8) as u8,
+                (ciphertext_len & 0xff) as u8,
+            ];
 
             let ciphertext = match key_bytes.len() {
                 16 => {
@@ -2351,12 +2342,13 @@ impl TlsStream {
             return Err("TLS 1.3 ciphertext length exceeds maximum record size".to_string());
         }
 
-        let mut aad = Vec::with_capacity(5);
-        aad.push(content_type as u8);
-        aad.push(record_version.0);
-        aad.push(record_version.1);
-        aad.push((aad_len >> 8) as u8);
-        aad.push((aad_len & 0xff) as u8);
+        let aad = vec![
+            content_type as u8,
+            record_version.0,
+            record_version.1,
+            (aad_len >> 8) as u8,
+            (aad_len & 0xff) as u8,
+        ];
 
         let mut output = match key.len() {
             16 => {

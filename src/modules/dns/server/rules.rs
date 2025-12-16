@@ -221,9 +221,8 @@ fn pattern_matches(pattern: &str, domain: &str) -> bool {
         return true;
     }
 
-    if pattern.starts_with("*.") {
+    if let Some(suffix) = pattern.strip_prefix("*.") {
         // Wildcard pattern: *.example.com
-        let suffix = &pattern[2..]; // Remove "*."
 
         // Check if domain ends with the suffix
         if domain == suffix {

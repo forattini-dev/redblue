@@ -9,24 +9,25 @@ use std::path::Path;
 
 // Helper to convert FuzzResult to JsonValue
 fn fuzz_result_to_json(result: &FuzzResult) -> JsonValue {
-    let mut obj_entries = Vec::new();
-    obj_entries.push((
-        "payload".to_string(),
-        JsonValue::String(result.payload.clone()),
-    ));
-    obj_entries.push(("url".to_string(), JsonValue::String(result.url.clone())));
-    obj_entries.push((
-        "status_code".to_string(),
-        JsonValue::Number(result.status_code as f64),
-    ));
-    obj_entries.push(("size".to_string(), JsonValue::Number(result.size as f64)));
-    obj_entries.push(("words".to_string(), JsonValue::Number(result.words as f64)));
-    obj_entries.push(("lines".to_string(), JsonValue::Number(result.lines as f64)));
-    obj_entries.push((
-        "duration_ms".to_string(),
-        JsonValue::Number(result.duration.as_millis() as f64),
-    ));
-    obj_entries.push(("filtered".to_string(), JsonValue::Bool(result.filtered)));
+    let mut obj_entries = vec![
+        (
+            "payload".to_string(),
+            JsonValue::String(result.payload.clone()),
+        ),
+        ("url".to_string(), JsonValue::String(result.url.clone())),
+        (
+            "status_code".to_string(),
+            JsonValue::Number(result.status_code as f64),
+        ),
+        ("size".to_string(), JsonValue::Number(result.size as f64)),
+        ("words".to_string(), JsonValue::Number(result.words as f64)),
+        ("lines".to_string(), JsonValue::Number(result.lines as f64)),
+        (
+            "duration_ms".to_string(),
+            JsonValue::Number(result.duration.as_millis() as f64),
+        ),
+        ("filtered".to_string(), JsonValue::Bool(result.filtered)),
+    ];
     if let Some(ref redirect) = result.redirect {
         obj_entries.push(("redirect".to_string(), JsonValue::String(redirect.clone())));
     }

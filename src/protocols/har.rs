@@ -5,7 +5,6 @@
 /// with full timing information for analysis.
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// HAR 1.2 top-level container
@@ -1469,7 +1468,7 @@ impl HarLog {
 
         let creator = obj
             .get("creator")
-            .map(|v| HarCreator::from_json_value(v))
+            .map(HarCreator::from_json_value)
             .transpose()?
             .unwrap_or_else(|| HarCreator {
                 name: "unknown".to_string(),
@@ -1479,7 +1478,7 @@ impl HarLog {
 
         let browser = obj
             .get("browser")
-            .map(|v| HarBrowser::from_json_value(v))
+            .map(HarBrowser::from_json_value)
             .transpose()?;
 
         let pages = obj
@@ -1583,7 +1582,7 @@ impl HarPage {
                 .to_string(),
             page_timings: obj
                 .get("pageTimings")
-                .map(|v| HarPageTimings::from_json_value(v))
+                .map(HarPageTimings::from_json_value)
                 .transpose()?
                 .unwrap_or_else(|| HarPageTimings {
                     on_content_load: None,
@@ -1629,17 +1628,17 @@ impl HarEntry {
             time: obj.get("time").and_then(|v| v.as_f64()).unwrap_or(0.0),
             request: obj
                 .get("request")
-                .map(|v| HarRequest::from_json_value(v))
+                .map(HarRequest::from_json_value)
                 .transpose()?
                 .ok_or("Missing request in entry")?,
             response: obj
                 .get("response")
-                .map(|v| HarResponse::from_json_value(v))
+                .map(HarResponse::from_json_value)
                 .transpose()?
                 .ok_or("Missing response in entry")?,
             cache: obj
                 .get("cache")
-                .map(|v| HarCache::from_json_value(v))
+                .map(HarCache::from_json_value)
                 .transpose()?
                 .unwrap_or_else(|| HarCache {
                     before_request: None,
@@ -1648,7 +1647,7 @@ impl HarEntry {
                 }),
             timings: obj
                 .get("timings")
-                .map(|v| HarTimings::from_json_value(v))
+                .map(HarTimings::from_json_value)
                 .transpose()?
                 .ok_or("Missing timings in entry")?,
             server_ip_address: obj
@@ -1716,7 +1715,7 @@ impl HarRequest {
                 .unwrap_or_default(),
             post_data: obj
                 .get("postData")
-                .map(|v| HarPostData::from_json_value(v))
+                .map(HarPostData::from_json_value)
                 .transpose()?,
             headers_size: obj
                 .get("headersSize")
@@ -1771,7 +1770,7 @@ impl HarResponse {
                 .unwrap_or_default(),
             content: obj
                 .get("content")
-                .map(|v| HarContent::from_json_value(v))
+                .map(HarContent::from_json_value)
                 .transpose()?
                 .ok_or("Missing content in response")?,
             redirect_url: obj
@@ -1955,11 +1954,11 @@ impl HarCache {
         Ok(HarCache {
             before_request: obj
                 .get("beforeRequest")
-                .map(|v| HarCacheEntry::from_json_value(v))
+                .map(HarCacheEntry::from_json_value)
                 .transpose()?,
             after_request: obj
                 .get("afterRequest")
-                .map(|v| HarCacheEntry::from_json_value(v))
+                .map(HarCacheEntry::from_json_value)
                 .transpose()?,
             comment: obj
                 .get("comment")
@@ -2334,8 +2333,6 @@ fn url_decode(s: &str) -> String {
 // ============================================================================
 
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponse};
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 /// HTTP Client wrapper that records all transactions to HAR format

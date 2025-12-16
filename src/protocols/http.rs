@@ -1168,7 +1168,6 @@ fn read_response_with_ttfb(
     };
 
     if !strategy_set {
-        strategy_set = true;
         strategy = BodyStrategy::Unknown;
         reusable = false;
     }

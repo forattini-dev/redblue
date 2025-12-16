@@ -462,8 +462,8 @@ impl CertificateIntelligence {
         // Parse "CN=example.com, O=..." format
         for part in self.subject.split(',') {
             let part = part.trim();
-            if part.starts_with("CN=") {
-                return Some(part[3..].to_string());
+            if let Some(cn) = part.strip_prefix("CN=") {
+                return Some(cn.to_string());
             }
         }
         None

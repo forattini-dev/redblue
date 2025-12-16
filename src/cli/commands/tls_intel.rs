@@ -776,7 +776,7 @@ impl TlsIntelCommand {
         host: &str,
         port: u16,
         timeout_secs: u64,
-        debug: bool,
+        _debug: bool,
     ) -> Result<(TlsHandshakeTelemetry, CertInfo, HandshakeTiming), String> {
         let mut timings = HandshakeTiming {
             dns_resolution_ms: 0.0, // DNS is done ONCE before the loop

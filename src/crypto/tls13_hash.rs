@@ -48,7 +48,7 @@ impl Tls13HashAlgorithm {
         let iterations = if length == 0 {
             0
         } else {
-            (length + hash_len - 1) / hash_len
+            length.div_ceil(hash_len)
         };
 
         let mut okm = Vec::with_capacity(iterations * hash_len);

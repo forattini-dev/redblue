@@ -5,7 +5,6 @@ use super::cdp::CdpClient;
 use super::{BatchResult, ScreenshotConfig, ScreenshotResult};
 use std::collections::VecDeque;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -116,7 +115,7 @@ impl ScreenshotCapture {
         let mut batch_result = BatchResult::new();
 
         // Create output directory
-        if let Err(e) = fs::create_dir_all(&self.config.output_dir) {
+        if let Err(_e) = fs::create_dir_all(&self.config.output_dir) {
             return batch_result;
         }
 
@@ -360,10 +359,10 @@ impl ScreenshotCapture {
 
 /// Parse URL into components
 fn parse_url(url: &str) -> Result<(String, u16, String, bool), String> {
-    let (scheme, rest) = if url.starts_with("https://") {
-        ("https", &url[8..])
-    } else if url.starts_with("http://") {
-        ("http", &url[7..])
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
     } else {
         ("http", url)
     };

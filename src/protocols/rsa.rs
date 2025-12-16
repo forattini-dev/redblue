@@ -1,13 +1,15 @@
-/// RSA PKCS#1 v1.5 Encryption Implementation from Scratch
-///
-/// This implements RSA public key encryption WITHOUT external dependencies.
-/// Only uses Rust std library.
-///
-/// References:
-/// - RFC 8017 (PKCS#1): https://www.rfc-editor.org/rfc/rfc8017
-/// - RFC 3447 (PKCS#1 v2.1): https://www.rfc-editor.org/rfc/rfc3447
-///
-/// Status: Basic implementation for TLS 1.2 ClientKeyExchange
+//! RSA PKCS#1 v1.5 Encryption Implementation from Scratch
+//!
+//! This implements RSA public key encryption WITHOUT external dependencies.
+//! Only uses Rust std library.
+//!
+//! References:
+//! - RFC 8017 (PKCS#1): https://www.rfc-editor.org/rfc/rfc8017
+//! - RFC 3447 (PKCS#1 v2.1): https://www.rfc-editor.org/rfc/rfc3447
+//!
+//! Status: Basic implementation for TLS 1.2 ClientKeyExchange
+
+#![allow(clippy::needless_range_loop)]
 use super::crypto::SecureRandom;
 use std::cmp::Ordering;
 
@@ -459,10 +461,8 @@ impl RsaPublicKey {
         expected_digest_info: &[u8],
         signature: &[u8],
     ) -> Result<(), String> {
-        if signature.len() != self.k {
-            if signature.len() > self.k {
-                return Err("Signature length larger than modulus size".to_string());
-            }
+        if signature.len() != self.k && signature.len() > self.k {
+            return Err("Signature length larger than modulus size".to_string());
         }
 
         let sig_int = BigInt::from_bytes_be(signature);

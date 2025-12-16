@@ -40,10 +40,10 @@ fn test_aes_state_matrix_interpretation() {
     }
 
     // Verify our column-major interpretation matches FIPS-197
-    assert_eq!(plaintext[0 * 4 + 0], 0x00); // Column 0, Row 0
-    assert_eq!(plaintext[0 * 4 + 1], 0x11); // Column 0, Row 1
-    assert_eq!(plaintext[0 * 4 + 2], 0x22); // Column 0, Row 2
-    assert_eq!(plaintext[0 * 4 + 3], 0x33); // Column 0, Row 3
+    assert_eq!(plaintext[0], 0x00); // Column 0, Row 0
+    assert_eq!(plaintext[1], 0x11); // Column 0, Row 1
+    assert_eq!(plaintext[2], 0x22); // Column 0, Row 2
+    assert_eq!(plaintext[3], 0x33); // Column 0, Row 3
 
     assert_eq!(plaintext[1 * 4 + 0], 0x44); // Column 1, Row 0
     assert_eq!(plaintext[1 * 4 + 1], 0x55); // Column 1, Row 1

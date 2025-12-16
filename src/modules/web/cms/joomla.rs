@@ -106,7 +106,7 @@ impl JoomlaScanner {
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
                     if let Some(end) = response.body[abs_start..]
-                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                        .find(|c: char| matches!(c, '/' | '"' | '\'' | '?'))
                     {
                         let ext_name = &response.body[abs_start..abs_start + end];
                         if !ext_name.is_empty() && self.is_valid_slug(ext_name) {
@@ -209,8 +209,8 @@ impl JoomlaScanner {
             let mut pos = 0;
             while let Some(start) = response.body[pos..].find(pattern) {
                 let abs_start = pos + start + pattern.len();
-                if let Some(end) = response.body[abs_start..]
-                    .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                if let Some(end) =
+                    response.body[abs_start..].find(|c: char| matches!(c, '/' | '"' | '\'' | '?'))
                 {
                     let template_name = &response.body[abs_start..abs_start + end];
                     if !template_name.is_empty()
@@ -566,10 +566,10 @@ fn fetch_url(url: &str, user_agent: &str, timeout: std::time::Duration) -> Optio
 
 /// Parse URL
 fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
-    let (scheme, rest) = if url.starts_with("https://") {
-        ("https", &url[8..])
-    } else if url.starts_with("http://") {
-        ("http", &url[7..])
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
     } else {
         ("http", url)
     };

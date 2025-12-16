@@ -7,7 +7,7 @@ use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::doh::{DohClient, PropagationStatus, DOH_PROVIDERS};
-use crate::storage::records::{DnsRecordType as StorageDnsRecordType, SubdomainSource};
+use crate::storage::records::DnsRecordType as StorageDnsRecordType;
 use crate::storage::service::StorageService;
 use crate::wordlists::WordlistManager;
 use std::net::IpAddr;
@@ -776,7 +776,7 @@ impl DnsCommand {
         println!();
 
         for (subdomain, ips) in results.iter() {
-            Output::success(&format!("{}", subdomain));
+            Output::success(subdomain);
             for ip in ips {
                 Output::dim(&format!("  → {}", ip));
             }
@@ -962,8 +962,8 @@ impl DnsCommand {
 
         // Provider results table
         println!(
-            "  {:<12} {:<12} {:<40} {}",
-            "PROVIDER", "STATUS", "VALUE(S)", "TTL"
+            "  {:<12} {:<12} {:<40} TTL",
+            "PROVIDER", "STATUS", "VALUE(S)"
         );
         println!("  {}", "─".repeat(76));
 

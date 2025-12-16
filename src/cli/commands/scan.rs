@@ -417,11 +417,7 @@ impl ScanCommand {
         let intel_enabled = ctx.has_flag("intel");
 
         for result in &open_ports {
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("unknown");
+            let service = result.service.as_deref().unwrap_or("unknown");
 
             let port_service = format!("{}/{}", result.port, service);
 
@@ -674,11 +670,7 @@ impl ScanCommand {
 
         Output::table_header(&["PORT", "STATE", "SERVICE", "BANNER"]);
         for result in open_ports {
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("unknown");
+            let service = result.service.as_deref().unwrap_or("unknown");
             let port_display = result.port.to_string();
             let banner_display = result
                 .banner
@@ -865,11 +857,7 @@ impl ScanCommand {
             let intel_enabled = ctx.has_flag("intel");
 
             for result in &open_ports {
-                let service = result
-                    .service
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("unknown");
+                let service = result.service.as_deref().unwrap_or("unknown");
                 println!("    • {}/{}", result.port, service);
 
                 // Gather and display intelligence if flag is set
@@ -1089,7 +1077,7 @@ impl ScanCommand {
         Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
 
         for result in interesting {
-            let service = result.service.as_ref().map(|s| s.as_str()).unwrap_or("-");
+            let service = result.service.as_deref().unwrap_or("-");
 
             let rtt = result
                 .rtt_ms
@@ -1278,7 +1266,7 @@ impl ScanCommand {
             Output::table_header(&["PORT", "STATE", "SERVICE", "RTT", "TTL"]);
 
             for result in &open_filtered {
-                let service = result.service.as_ref().map(|s| s.as_str()).unwrap_or("-");
+                let service = result.service.as_deref().unwrap_or("-");
 
                 let rtt = result
                     .rtt_ms

@@ -1,5 +1,4 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use serde_json::json;
 use std::collections::HashMap;
 
 pub struct RegistryAccessor;

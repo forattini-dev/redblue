@@ -530,7 +530,6 @@ impl Tls12Client {
             extensions = ext_ids;
             groups = group_ids;
             ec_formats = format_ids;
-            offset += ext_len;
         }
 
         if self.ja3s.is_none() {

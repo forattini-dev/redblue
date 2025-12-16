@@ -23,15 +23,12 @@
 //! - SQLCipher: Encrypted SQLite database
 //! - Turso encryption model
 
-use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 
 use super::pager::{Pager, PagerConfig, PagerError};
 use super::{Page, PageType, HEADER_SIZE, PAGE_SIZE};
 use crate::storage::encryption::{
-    page_encryptor::{NONCE_SIZE, OVERHEAD, TAG_SIZE},
-    EncryptionHeader, PageEncryptor, SecureKey,
+    page_encryptor::OVERHEAD, EncryptionHeader, PageEncryptor, SecureKey,
 };
 
 /// Usable page content size after encryption overhead
@@ -73,22 +70,13 @@ impl From<PagerError> for EncryptedPagerError {
 }
 
 /// Configuration for encrypted pager
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EncryptedPagerConfig {
     /// Base pager configuration
     pub pager_config: PagerConfig,
     /// Encryption key (must be 32 bytes for AES-256)
     /// If None, the database is opened unencrypted
     pub key: Option<SecureKey>,
-}
-
-impl Default for EncryptedPagerConfig {
-    fn default() -> Self {
-        Self {
-            pager_config: PagerConfig::default(),
-            key: None,
-        }
-    }
 }
 
 /// Encrypted Pager
@@ -153,7 +141,7 @@ impl EncryptedPager {
             // Load encryption header (after marker)
             let header_start = ENCRYPTION_MARKER_OFFSET + 4;
             let header = EncryptionHeader::from_bytes(&data[header_start..])
-                .map_err(|e| EncryptedPagerError::Encryption(e))?;
+                .map_err(EncryptedPagerError::Encryption)?;
 
             // Validate key
             if !header.validate(&key) {
@@ -277,7 +265,7 @@ impl EncryptedPager {
         let raw_data = raw_page.as_bytes();
         let plaintext = encryptor
             .decrypt(page_id, raw_data)
-            .map_err(|e| EncryptedPagerError::Encryption(e))?;
+            .map_err(EncryptedPagerError::Encryption)?;
 
         // Reconstruct page from plaintext (plaintext is PAGE_SIZE - OVERHEAD bytes)
         // We need to pad it back to PAGE_SIZE

@@ -11,7 +11,7 @@
 ///
 /// Replaces: ncat --proxy, proxychains
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, TcpStream};
 use std::time::Duration;
 
 /// Proxy type
@@ -101,11 +101,12 @@ impl ProxyClient {
         let target_ip = resolve_host(target_host)?;
 
         // Build SOCKS4 request
-        let mut request = Vec::new();
-        request.push(0x04); // SOCKS version 4
-        request.push(0x01); // CONNECT command
-        request.push((target_port >> 8) as u8); // Port high byte
-        request.push(target_port as u8); // Port low byte
+        let mut request = vec![
+            0x04,                     // SOCKS version 4
+            0x01,                     // CONNECT command
+            (target_port >> 8) as u8, // Port high byte
+            target_port as u8,        // Port low byte
+        ];
 
         // IP address (4 bytes)
         match target_ip {
@@ -438,6 +439,7 @@ fn base64_encode(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn test_proxy_config() {

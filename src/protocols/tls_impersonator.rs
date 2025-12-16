@@ -1,5 +1,5 @@
 use boring::error::ErrorStack;
-use boring::ssl::{SslConnectorBuilder, SslContextBuilder, SslMethod, SslOptions, SslVersion};
+use boring::ssl::{SslConnectorBuilder, SslContextBuilder, SslOptions, SslVersion};
 
 /// Defines which browser fingerprint to mimic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

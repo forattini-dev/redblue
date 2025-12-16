@@ -320,7 +320,7 @@ impl GhostScanner {
                     severity: VulnSeverity::Medium,
                     title: "Ghost Preview URLs Pattern Detected".to_string(),
                     description: "Ghost preview URLs (/p/{uuid}/) allow viewing unpublished posts. Ensure these UUIDs are kept secret and not shared publicly.".to_string(),
-                    evidence: Some(format!("Preview URL pattern exists at /p/*/")),
+                    evidence: Some("Preview URL pattern exists at /p/*/".to_string()),
                     remediation: "Keep preview URLs secret. Consider implementing additional authentication for preview URLs or restricting access by IP.".to_string(),
                 });
                 return true;

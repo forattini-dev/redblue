@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::Once;
+use std::sync::OnceLock;
 
 /// Parsed configuration from .redblue.yaml
 #[derive(Debug, Clone, Default)] // Derive Default for easier initialization
@@ -58,7 +58,20 @@ pub struct YamlConfig {
     pub custom: HashMap<String, String>,
 }
 
+static CACHE: OnceLock<YamlConfig> = OnceLock::new();
+
 impl YamlConfig {
+    /// Load from current directory once and cache the result.
+    pub fn load_from_cwd_cached() -> &'static YamlConfig {
+        CACHE.get_or_init(|| {
+            if let Some(cfg) = YamlConfig::load_from_cwd() {
+                cfg
+            } else {
+                YamlConfig::default() // Load default if no file found
+            }
+        })
+    }
+
     /// Load config from file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let content =
@@ -82,30 +95,13 @@ impl YamlConfig {
         None
     }
 
-    /// Load from current directory once and cache the result.
-    pub fn load_from_cwd_cached() -> Option<&'static YamlConfig> {
-        static INIT: Once = Once::new();
-        static mut CACHE: Option<YamlConfig> = None;
-
-        unsafe {
-            INIT.call_once(|| {
-                if let Some(cfg) = Self::load_from_cwd() {
-                    CACHE = Some(cfg);
-                } else {
-                    CACHE = Some(YamlConfig::default()); // Load default if no file found
-                }
-            });
-            CACHE.as_ref()
-        }
-    }
-
     /// Parse YAML content (minimal parser)
     fn parse(content: &str) -> Result<Self, String> {
         let mut config = YamlConfig::default(); // Use default for easier base
 
         let mut current_section: Option<String> = None;
         let mut current_subsection: Option<String> = None; // For credentials/commands sub-sections
-        let mut current_map_key: Option<String> = None; // For headers or other maps
+        let mut _current_map_key: Option<String> = None; // For headers or other maps
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -127,14 +123,14 @@ impl YamlConfig {
                     // Top-level section
                     current_section = Some(section_name.clone());
                     current_subsection = None; // Reset subsection on new top-level
-                    current_map_key = None; // Reset map key
+                    _current_map_key = None; // Reset map key
                 } else if indent_level == 2 && current_section.is_some() {
                     // Nested section (for commands or credentials sub-sections)
                     current_subsection = Some(section_name);
-                    current_map_key = None;
+                    _current_map_key = None;
                 } else if indent_level == 4 && current_subsection.is_some() {
                     // Deeply nested, usually key-value pairs inside a map
-                    current_map_key = Some(section_name);
+                    _current_map_key = Some(section_name);
                 }
                 continue;
             }
@@ -377,13 +373,13 @@ mod tests {
 
     #[test]
     fn test_parse_simple() {
-        let yaml = r#"#
+        let yaml = r###"#
 # RedBlue config
 verbose: true
 output_format: json
 threads: 20
 rate_limit: 10
-#"#;
+#"###;
 
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.verbose, Some(true));
@@ -394,11 +390,11 @@ rate_limit: 10
 
     #[test]
     fn test_parse_network_config() {
-        let yaml = r#"#
+        let yaml = r###"#
 network:
   timeout_ms: 10000
   dns_resolver: "1.1.1.1"
-#"#;
+#"###;
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.network_timeout_ms, Some(10000));
         assert_eq!(config.network_dns_resolver, Some("1.1.1.1".to_string()));
@@ -406,14 +402,14 @@ network:
 
     #[test]
     fn test_parse_web_config() {
-        let yaml = r#"#
+        let yaml = r###"#
 web:
   user_agent: "MyCustomUA"
   follow_redirects: false
   headers:
     X-API-Key: "abc"
     Accept: "application/json"
-#"#;
+#"###;
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.web_user_agent, Some("MyCustomUA".to_string()));
         assert_eq!(config.web_follow_redirects, Some(false));
@@ -425,11 +421,11 @@ web:
 
     #[test]
     fn test_parse_wordlists() {
-        let yaml = r#"#
+        let yaml = r###"#
 wordlists:
   subdomains: /usr/share/wordlists/subdomains.txt
   directories: /usr/share/wordlists/dirs.txt
-#"#;
+#"###;
 
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.wordlists.len(), 2);
@@ -438,14 +434,14 @@ wordlists:
 
     #[test]
     fn test_parse_credentials() {
-        let yaml = r#"#
+        let yaml = r###"#
 credentials:
   hibp:
     api_key: "my_hibp_key"
   shodan:
     api_key: "my_shodan_key"
     username: "user"
-#"#;
+#"###;
         let config = YamlConfig::parse(yaml).unwrap();
         assert!(config.credentials.contains_key("hibp"));
         assert_eq!(
@@ -460,11 +456,11 @@ credentials:
 
     #[test]
     fn test_parse_bool_values() {
-        let yaml = r#"#
+        let yaml = r###"#
 verbose: yes
 no_color: 0
 auto_persist: "true"
-#"#;
+#"###;
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(config.verbose, Some(true));
         assert_eq!(config.no_color, Some(false));
@@ -473,14 +469,14 @@ auto_persist: "true"
 
     #[test]
     fn test_parse_command_specific_flags() {
-        let yaml = r#"#
+        let yaml = r###"#
 commands:
   recon.domain.subdomains:
     threads: 50
     passive_only: true
   web.fuzz:
     rate_limit: 10
-#"#;
+#"###;
         let config = YamlConfig::parse(yaml).unwrap();
         assert_eq!(
             config.get_command_flag("recon", "domain", "subdomains", "threads"),

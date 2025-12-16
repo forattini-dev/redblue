@@ -153,8 +153,14 @@ impl UsernameEnumerator {
             Ok(resp) => {
                 // Check based on detection method
                 let exists = match &platform.detection {
-                    DetectionMethod::StatusCode { found, not_found } => resp.status_code == *found,
-                    DetectionMethod::ResponseContains { found, not_found } => {
+                    DetectionMethod::StatusCode {
+                        found,
+                        not_found: _,
+                    } => resp.status_code == *found,
+                    DetectionMethod::ResponseContains {
+                        found,
+                        not_found: _,
+                    } => {
                         let body = String::from_utf8_lossy(&resp.body);
                         body.contains(found)
                     }

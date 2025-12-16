@@ -196,7 +196,7 @@ impl RdapClient {
     }
 
     /// Find RDAP server for an IP address
-    fn find_server_for_ip(&mut self, ip: &str, is_v6: bool) -> Result<String, String> {
+    fn find_server_for_ip(&mut self, _ip: &str, is_v6: bool) -> Result<String, String> {
         // Regional Internet Registries (RIRs)
         let rir_servers = if is_v6 {
             vec![

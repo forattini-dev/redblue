@@ -1,20 +1,20 @@
-/// Intelligence Gathering Module
-///
-/// This module implements advanced fingerprinting and metadata extraction
-/// techniques that go beyond basic protocol functionality. We analyze:
-///
-/// - Connection metadata (timing, TCP options, IP stack fingerprinting)
-/// - TLS handshake details (ciphers, extensions, cert chain analysis)
-/// - HTTP intelligence (headers, cookies, security posture)
-/// - Infrastructure inference (CDN, WAF, load balancer, cloud provider)
-/// - Timing behaviors (timeout patterns, response delays)
-/// - Banner variations and version strings
-/// - Protocol implementation quirks
-/// - Error message patterns
-/// - Default configurations
-/// - Behavioral fingerprinting
-///
-/// The goal is to extract maximum intelligence from every network interaction.
+//! Intelligence Gathering Module
+//!
+//! This module implements advanced fingerprinting and metadata extraction
+//! techniques that go beyond basic protocol functionality. We analyze:
+//!
+//! - Connection metadata (timing, TCP options, IP stack fingerprinting)
+//! - TLS handshake details (ciphers, extensions, cert chain analysis)
+//! - HTTP intelligence (headers, cookies, security posture)
+//! - Infrastructure inference (CDN, WAF, load balancer, cloud provider)
+//! - Timing behaviors (timeout patterns, response delays)
+//! - Banner variations and version strings
+//! - Protocol implementation quirks
+//! - Error message patterns
+//! - Default configurations
+//! - Behavioral fingerprinting
+//!
+//! The goal is to extract maximum intelligence from every network interaction.
 
 #[path = "banner-analysis.rs"]
 pub mod banner_analysis;

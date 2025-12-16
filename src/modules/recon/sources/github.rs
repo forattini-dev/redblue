@@ -173,10 +173,7 @@ impl SubdomainSource for GitHubSource {
             domain
         );
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 403 {
             return Err(SourceError::RateLimited(std::time::Duration::from_secs(60)));

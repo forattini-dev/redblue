@@ -130,11 +130,7 @@ impl CrtShClient {
                         }
 
                         // Handle wildcard certificates: *.example.com -> example.com
-                        let clean_name = if name.starts_with("*.") {
-                            &name[2..]
-                        } else {
-                            &name
-                        };
+                        let clean_name = name.strip_prefix("*.").unwrap_or(&name);
 
                         // Validate it's a subdomain of our target domain
                         if clean_name.ends_with(&domain_lower) || clean_name == domain_lower {

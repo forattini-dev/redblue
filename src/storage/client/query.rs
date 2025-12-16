@@ -3,9 +3,8 @@
 
 use crate::storage::encoding::{DecodeError, IpKey};
 use crate::storage::records::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortScanRecord, PortStatus,
-    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, SubdomainRecord,
-    TlsScanRecord, WhoisRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, ProxyConnectionRecord,
+    ProxyHttpRequestRecord, ProxyHttpResponseRecord, TlsScanRecord, WhoisRecord,
 };
 use crate::storage::service::StorageService;
 use crate::storage::view::RedDbView;

@@ -456,7 +456,7 @@ impl DohClient {
         }
 
         // Find values that appear in majority of successful responses
-        let threshold = (successful_count + 1) / 2; // Majority
+        let threshold = successful_count.div_ceil(2); // Majority
         let consensus_values: Vec<String> = value_counts
             .into_iter()
             .filter(|(_, count)| *count >= threshold.max(1))

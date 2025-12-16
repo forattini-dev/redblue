@@ -1,5 +1,4 @@
 use crate::protocols::http::{HttpClient, HttpRequest};
-use std::collections::HashMap;
 
 pub struct Verifier;
 
@@ -92,7 +91,7 @@ impl Verifier {
     /// For simplification, we perform a very basic S3 ListBuckets test.
     /// (Note: A full AWS SigV4 implementation is out of scope for a single task here,
     /// so this will be a much simplified check if the format is just matched.)
-    pub fn verify_aws_credentials(access_key_id: &str, secret_access_key: &str) -> bool {
+    pub fn verify_aws_credentials(_access_key_id: &str, _secret_access_key: &str) -> bool {
         // This is a placeholder as proper AWS SigV4 is complex.
         // A simple GET request won't work without signing.
         // A very basic check could be to match the pattern and assume it's valid.

@@ -3,9 +3,9 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use crate::storage::records::{
-    DnsRecordData, HostIntelRecord, HttpHeadersRecord, IocRecord, MitreAttackRecord, PortStatus,
-    ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
-    SubdomainSource, TlsScanRecord, WhoisRecord,
+    DnsRecordData, HostIntelRecord, HttpHeadersRecord, PortStatus, ProxyConnectionRecord,
+    ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord, SubdomainSource,
+    TlsScanRecord, WhoisRecord,
 };
 use crate::storage::store::Database;
 use crate::storage::tables::{

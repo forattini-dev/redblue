@@ -482,7 +482,7 @@ fn days_in_month(year: i32, month: u32) -> Option<u32> {
 }
 
 fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return None;
     }
     if day == 0 || day > days_in_month(year, month)? {

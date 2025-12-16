@@ -2,7 +2,7 @@
 //!
 //! Generates structured JSON output for automation and integration.
 
-use super::{Finding, HostInfo, PortInfo, Report, Severity};
+use super::{Report, Severity};
 
 pub struct JsonExporter;
 
@@ -228,6 +228,7 @@ impl JsonExporter {
 
 #[cfg(test)]
 mod tests {
+    use super::super::Finding;
     use super::*;
 
     #[test]

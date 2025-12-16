@@ -12,7 +12,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 /// Rate limiter for bandwidth throttling
 pub struct RateLimiter {

@@ -5,6 +5,8 @@
 //! - Semantic search using cosine similarity with pre-computed vectors
 //! - Hybrid search combining both with Reciprocal Rank Fusion
 
+#![allow(clippy::needless_range_loop)]
+
 use super::embeddings::EmbeddedDocument;
 use std::collections::HashMap;
 

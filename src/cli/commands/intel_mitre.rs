@@ -409,8 +409,8 @@ impl IntelMitreCommand {
             };
 
             println!(
-                "  {:<14} {:<7} {}{}{}  {:>3} ({} parent)",
-                display_name, tactic_id, color, bar, "\x1b[0m", count, parent_count
+                "  {:<14} {:<7} {}{}\x1b[0m  {:>3} ({} parent)",
+                display_name, tactic_id, color, bar, count, parent_count
             );
         }
 
@@ -726,7 +726,7 @@ impl IntelMitreCommand {
         Output::spinner_done();
 
         // Clone technique ID before borrowing again
-        let tech_id_owned = tech.as_ref().map(|t| t.technique_id.clone());
+        let _tech_id_owned = tech.as_ref().map(|t| t.technique_id.clone());
 
         match tech {
             Some(t) => {

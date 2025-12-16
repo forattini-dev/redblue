@@ -78,14 +78,14 @@ pub trait Script: Send + Sync {
         let meta = self.metadata();
 
         // Check protocol match
-        if !meta.protocols.is_empty() && !ctx.protocol.is_empty() {
-            if !meta
+        if !meta.protocols.is_empty()
+            && !ctx.protocol.is_empty()
+            && !meta
                 .protocols
                 .iter()
                 .any(|p| p.eq_ignore_ascii_case(&ctx.protocol))
-            {
-                return false;
-            }
+        {
+            return false;
         }
 
         // Check port match

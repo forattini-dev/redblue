@@ -292,7 +292,7 @@ impl WordlistCommand {
         }
     }
 
-    fn status(&self, ctx: &CliContext) -> Result<(), String> {
+    fn status(&self, _ctx: &CliContext) -> Result<(), String> {
         let manager = WordlistManager::new()?;
 
         Output::header("Wordlist Cache Status");
@@ -423,7 +423,7 @@ impl WordlistCommand {
         let print_section = |title: &str, items: &[&crate::wordlists::WordlistSource]| {
             if !items.is_empty() {
                 Output::section(title);
-                println!("  {:<20} {:<10} {}", "NAME", "SIZE", "DESCRIPTION");
+                println!("  {:<20} {:<10} DESCRIPTION", "NAME", "SIZE");
                 println!("  {}", "─".repeat(70));
                 for s in items {
                     println!("  {:<20} {:<10} {}", s.name, s.size_hint, s.description);
@@ -461,8 +461,8 @@ impl WordlistCommand {
         }
 
         println!(
-            "  {:<20} {:<12} {:<10} {}",
-            "NAME", "CATEGORY", "SIZE", "DESCRIPTION"
+            "  {:<20} {:<12} {:<10} DESCRIPTION",
+            "NAME", "CATEGORY", "SIZE"
         );
         println!("  {}", "─".repeat(75));
 

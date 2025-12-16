@@ -3,7 +3,7 @@
 //! Implements CSR generation and parsing as per RFC 2986.
 
 use super::x509::{AlgorithmIdentifier, CertError, Extension, Name};
-use crate::crypto::encoding::asn1::{Asn1Error, Asn1Value};
+use crate::crypto::encoding::asn1::Asn1Value;
 use crate::crypto::encoding::oid::Oid;
 use crate::crypto::encoding::pem::PemBlock;
 use std::net::IpAddr;

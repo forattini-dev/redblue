@@ -11,7 +11,6 @@
 ///
 /// NO external dependencies - pure Rust std implementation
 use crate::modules::web::dom::Document;
-use crate::modules::web::extractors;
 use crate::protocols::http::{HttpClient, HttpRequest};
 use crate::protocols::selector::parse as parse_selector;
 use std::collections::HashMap;
@@ -513,7 +512,7 @@ impl Scraper {
                     .map(ExtractedValue::Number)
                     .unwrap_or(ExtractedValue::None)
             }
-            Transform::Regex(pattern, group) => {
+            Transform::Regex(_pattern, _group) => {
                 // Simple regex support without regex crate
                 // For now, just return the original value
                 // Full regex would need implementation
@@ -580,7 +579,7 @@ impl Scraper {
     fn handle_pagination(
         &mut self,
         initial_doc: &Document,
-        initial_url: &str,
+        _initial_url: &str,
         pagination: &PaginationConfig,
         result: &mut ScrapeResult,
     ) -> Result<(), String> {
@@ -741,11 +740,11 @@ impl ScrapeConfig {
                     if !p_line.starts_with("next:")
                         && !p_line.starts_with("max_pages:")
                         && !p_line.starts_with("delay:")
+                        && !p_line.is_empty()
+                        && !p_line.starts_with('#')
                     {
-                        if !p_line.is_empty() && !p_line.starts_with('#') {
-                            i -= 1;
-                            break;
-                        }
+                        i -= 1;
+                        break;
                     }
                     if let Some(v) = p_line.strip_prefix("next:") {
                         next_sel = v.trim().to_string();

@@ -621,12 +621,12 @@ fn matches_cipher_pattern(cipher_name: &str, pattern: &str) -> bool {
         // Contains pattern
         let middle = &pattern[1..pattern.len() - 1];
         cipher_name.contains(middle)
-    } else if pattern.starts_with('*') {
+    } else if let Some(suffix) = pattern.strip_prefix('*') {
         // Ends with pattern
-        cipher_name.ends_with(&pattern[1..])
-    } else if pattern.ends_with('*') {
+        cipher_name.ends_with(suffix)
+    } else if let Some(prefix) = pattern.strip_suffix('*') {
         // Starts with pattern
-        cipher_name.starts_with(&pattern[..pattern.len() - 1])
+        cipher_name.starts_with(prefix)
     } else {
         // Exact match
         cipher_name == pattern

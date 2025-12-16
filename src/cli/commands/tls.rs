@@ -1131,8 +1131,8 @@ impl TlsCommand {
         Output::dim(&format!("Database: {}\n", db_path.display()));
 
         println!(
-            "{:<12}  {:<10}  {:<30}  {}",
-            "Timestamp", "Version", "Cipher", "Certificate"
+            "{:<12}  {:<10}  {:<30}  Certificate",
+            "Timestamp", "Version", "Cipher"
         );
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 

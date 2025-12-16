@@ -333,7 +333,7 @@ pub fn read_key() -> io::Result<Key> {
         27 => read_escape_sequence(),
         127 => Ok(Key::Backspace),
         // Printable ASCII
-        c if c >= 32 && c < 127 => Ok(Key::Char(c as char)),
+        c if (32..127).contains(&c) => Ok(Key::Char(c as char)),
         // UTF-8 multi-byte
         c if c >= 0xC0 => read_utf8_char(c),
         _ => Ok(Key::Unknown(buf.to_vec())),

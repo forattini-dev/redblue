@@ -29,7 +29,7 @@
 //! ```
 
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use super::Address;
 
@@ -266,14 +266,12 @@ impl AccessControl {
         let pattern = pattern.to_lowercase();
 
         // Handle leading wildcard (*.example.com matches sub.example.com)
-        if pattern.starts_with("*.") {
-            let suffix = &pattern[2..];
+        if let Some(suffix) = pattern.strip_prefix("*.") {
             return domain == suffix || domain.ends_with(&format!(".{}", suffix));
         }
 
         // Handle trailing wildcard (example.* matches example.com, example.org)
-        if pattern.ends_with(".*") {
-            let prefix = &pattern[..pattern.len() - 2];
+        if let Some(prefix) = pattern.strip_suffix(".*") {
             return domain.starts_with(prefix);
         }
 
@@ -288,7 +286,7 @@ impl AccessControl {
     /// Evaluate rules for a connection
     pub fn evaluate(
         &self,
-        src_addr: Option<&SocketAddr>,
+        _src_addr: Option<&SocketAddr>,
         dst_addr: &Address,
         process_info: Option<(&u32, &str)>,
     ) -> Action {

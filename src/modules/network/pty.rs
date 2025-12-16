@@ -68,7 +68,7 @@ impl PtyManager {
     /// Spawn shell with PTY on network connection
     pub fn spawn_on_connection(&self, mut stream: TcpStream) -> Result<(), String> {
         // Open PTY
-        let (master_fd, slave_name) = self.open_pty()?;
+        let (_master_fd, _slave_name) = self.open_pty()?;
 
         // Fork and spawn shell on PTY slave
         let shell = self.config.shell.clone();
@@ -146,7 +146,6 @@ impl PtyManager {
         #[cfg(unix)]
         {
             use std::ffi::CString;
-            use std::os::raw::c_int;
 
             // Open /dev/ptmx to get master FD
             let ptmx = CString::new("/dev/ptmx").unwrap();
@@ -191,8 +190,6 @@ impl PtyManager {
     pub fn set_raw_mode() -> Result<(), String> {
         #[cfg(unix)]
         {
-            use std::os::raw::c_int;
-
             let stdin_fd = io::stdin().as_raw_fd();
 
             unsafe {

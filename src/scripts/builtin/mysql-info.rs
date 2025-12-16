@@ -145,7 +145,7 @@ impl MysqlInfoScript {
 
         // Clean up trailing dots/dashes
         let version = version
-            .trim_end_matches(|c| c == '.' || c == '-')
+            .trim_end_matches(|c| matches!(c, '.' | '-'))
             .to_string();
 
         if version.contains('.') {

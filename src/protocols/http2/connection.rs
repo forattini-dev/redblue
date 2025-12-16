@@ -5,10 +5,10 @@
 
 use super::framing::{flags, Frame, FrameType};
 use super::hpack::{Header, HpackDecoder, HpackEncoder};
-use super::stream::{Stream, StreamEvent, StreamId, StreamManager, StreamState};
+use super::stream::{StreamEvent, StreamId, StreamManager};
 use super::{ALPN_H2, CONNECTION_PREFACE, DEFAULT_MAX_FRAME_SIZE, DEFAULT_WINDOW_SIZE};
 use boring::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
@@ -612,7 +612,7 @@ impl Http2Client {
                 }
                 0x5 => {
                     // MAX_FRAME_SIZE
-                    if value < 16384 || value > 16777215 {
+                    if !(16384..=16777215).contains(&value) {
                         return Err("Invalid MAX_FRAME_SIZE value".to_string());
                     }
                     self.max_frame_size = value;

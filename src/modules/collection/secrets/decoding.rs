@@ -5,7 +5,7 @@ pub struct Decoder;
 impl Decoder {
     /// Attempts to decode base64 content if it looks valid
     pub fn try_decode_base64(input: &str) -> Option<String> {
-        if input.len() % 4 == 0
+        if input.len().is_multiple_of(4)
             && input
                 .chars()
                 .all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '=')
@@ -19,7 +19,7 @@ impl Decoder {
 
     /// Attempts to decode hex content if it looks valid
     pub fn try_decode_hex(input: &str) -> Option<String> {
-        if input.len() % 2 == 0 && input.chars().all(|c| c.is_ascii_hexdigit()) {
+        if input.len().is_multiple_of(2) && input.chars().all(|c| c.is_ascii_hexdigit()) {
             // Simple hex decode
             let mut bytes = Vec::new();
             for i in (0..input.len()).step_by(2) {

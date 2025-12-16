@@ -13,8 +13,7 @@
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::modules::service::{
-    get_service_manager, ListenerProtocol, ServiceConfig, ServiceManager, ServiceStatus,
-    ServiceType,
+    get_service_manager, ListenerProtocol, ServiceConfig, ServiceStatus, ServiceType,
 };
 use std::path::PathBuf;
 
@@ -170,7 +169,7 @@ impl ServiceCommand {
                 let root = ctx
                     .flags
                     .get("root")
-                    .map(|r| PathBuf::from(r))
+                    .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("."));
                 ServiceType::HttpServer { port, root }
             }
@@ -195,7 +194,7 @@ impl ServiceCommand {
                 let scripts_dir = ctx
                     .flags
                     .get("scripts")
-                    .map(|s| PathBuf::from(s))
+                    .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("./hooks"));
                 ServiceType::HooksServer { port, scripts_dir }
             }
@@ -325,7 +324,7 @@ impl ServiceCommand {
         Ok(())
     }
 
-    fn list(&self, ctx: &CliContext) -> Result<(), String> {
+    fn list(&self, _ctx: &CliContext) -> Result<(), String> {
         let manager = get_service_manager();
         let services = manager.list()?;
 
@@ -338,7 +337,7 @@ impl ServiceCommand {
         }
 
         println!();
-        println!("  {:<25} {:<12} {}", "NAME", "STATUS", "DESCRIPTION");
+        println!("  {:<25} {:<12} DESCRIPTION", "NAME", "STATUS");
         println!("  {}", "-".repeat(70));
 
         for service in &services {

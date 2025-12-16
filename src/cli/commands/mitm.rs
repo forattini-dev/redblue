@@ -218,7 +218,7 @@ impl MitmCommand {
         // DNS server settings
         let dns_bind = ctx.get_flag_or("dns-bind", "0.0.0.0:53");
         let upstream_primary = ctx.get_flag_or("upstream", "8.8.8.8");
-        let upstream_fallback = ctx.get_flag_or("upstream-fallback", "1.1.1.1");
+        let _upstream_fallback = ctx.get_flag_or("upstream-fallback", "1.1.1.1");
 
         // Proxy settings
         let proxy_bind = ctx.get_flag_or("proxy-bind", "0.0.0.0");

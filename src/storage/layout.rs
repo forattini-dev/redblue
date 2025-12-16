@@ -341,7 +341,7 @@ impl SegmentMetadata {
         if bytes.len() < 6 {
             return Err(DecodeError("metadata block too small"));
         }
-        if &bytes[..4] != Self::MAGIC {
+        if bytes[..4] != Self::MAGIC {
             return Err(DecodeError("invalid metadata magic"));
         }
         let mut offset = 4;

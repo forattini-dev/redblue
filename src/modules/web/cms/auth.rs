@@ -5,7 +5,7 @@ use super::{CmsScanConfig, CmsType, Finding, FindingType, HttpResponse, VulnSeve
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Authentication tester
 pub struct AuthTester {
@@ -155,10 +155,10 @@ impl AuthTester {
             let url = format!("{}{}", self.config.target.trim_end_matches('/'), endpoint);
             if let Some(response) = self.fetch(&url) {
                 // Check for login form indicators
-                if response.status_code == 200 || response.status_code == 302 {
-                    if self.is_login_page(&response.body) {
-                        return Some(url);
-                    }
+                if (response.status_code == 200 || response.status_code == 302)
+                    && self.is_login_page(&response.body)
+                {
+                    return Some(url);
                 }
             }
         }
@@ -567,10 +567,10 @@ fn post_url(url: &str, body: &str, user_agent: &str, timeout: Duration) -> Optio
 
 /// Parse URL
 fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
-    let (scheme, rest) = if url.starts_with("https://") {
-        ("https", &url[8..])
-    } else if url.starts_with("http://") {
-        ("http", &url[7..])
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
     } else {
         ("http", url)
     };

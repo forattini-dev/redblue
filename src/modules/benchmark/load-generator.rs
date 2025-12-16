@@ -543,7 +543,7 @@ impl LoadConfig {
     }
 
     pub fn with_body(mut self, body: Option<Vec<u8>>) -> Self {
-        self.body = body.map(|bytes| Arc::new(bytes));
+        self.body = body.map(Arc::new);
         self
     }
 

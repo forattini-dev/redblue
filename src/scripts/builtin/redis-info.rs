@@ -91,17 +91,16 @@ impl Script for RedisInfoScript {
         }
 
         // Check for unauthenticated access (critical security issue)
-        if combined_lower.contains("+pong") || combined_lower.contains("redis_version") {
-            if !combined_lower.contains("noauth") && !combined_lower.contains("authentication") {
-                result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "Redis Unauthenticated Access")
-                        .with_description("Redis server appears to allow unauthenticated access")
-                        .with_severity(FindingSeverity::Critical)
-                        .with_remediation(
-                            "Enable Redis authentication with 'requirepass' directive",
-                        ),
-                );
-            }
+        if (combined_lower.contains("+pong") || combined_lower.contains("redis_version"))
+            && !combined_lower.contains("noauth")
+            && !combined_lower.contains("authentication")
+        {
+            result.add_finding(
+                Finding::new(FindingType::Vulnerability, "Redis Unauthenticated Access")
+                    .with_description("Redis server appears to allow unauthenticated access")
+                    .with_severity(FindingSeverity::Critical)
+                    .with_remediation("Enable Redis authentication with 'requirepass' directive"),
+            );
         }
 
         // Check for dangerous commands

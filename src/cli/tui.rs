@@ -399,7 +399,7 @@ impl TuiApp {
     fn run_external_command(&self, args: &[String]) -> Result<(), String> {
         let tx = self.tx.clone();
         let args = args.to_vec();
-        let target = self.target.clone();
+        let _target = self.target.clone();
 
         thread::spawn(move || {
             // Determine executable path
@@ -549,7 +549,7 @@ impl TuiApp {
         }
 
         // Load vulnerabilities
-        let vulns = db
+        let _vulns = db
             .mitre() // Assuming vulns are part of mitre/vuln segment, but actually we have VulnSegment
             // Wait, RedDb doesn't have .vulns() accessor yet. I missed adding it to RedDb.
             // I added .mitre() and .iocs() to RedDb, but not .vuln().
@@ -649,10 +649,9 @@ impl TuiApp {
             .map_err(|e| format!("Failed to load IOC records: {}", e))?;
 
         for rec in ioc_records {
-            let status = format!("{:?}", rec.ioc_type);
             self.ioc_data.push(TableRow {
                 module: rec.value.clone(),
-                status: status,
+                status: format!("{:?}", rec.ioc_type),
                 data: rec.source.clone(),
                 timestamp: rec.last_seen as u64,
             });
@@ -830,7 +829,7 @@ impl TuiApp {
 
                         // Simplified ANSI parser for this thread
                         // We can reuse the logic from the original handle_input but adapted
-                        let seq = vec![ch];
+                        let _seq = vec![ch];
                         // We'll optimistically read a few bytes if available
                         // Since we can't peek, this is tricky without "crossterm".
                         // Hack: Just assume manual ESC press is rare and fast,
@@ -844,7 +843,7 @@ impl TuiApp {
                         // but that's acceptable for the input thread.
 
                         // Read next byte
-                        let next = [0u8; 1];
+                        let _next = [0u8; 1];
                         // We assume if it's a sequence, bytes are ready.
                         // Real raw mode might need poll/select.
                         // Given "ZERO dependencies", we'll try a best effort.
@@ -1467,12 +1466,7 @@ impl TuiApp {
         let mut row = start_row + 1;
 
         if rows.is_empty() {
-            println!(
-                "{}{}{}",
-                ansi::move_to(row + 1, 4),
-                ansi::DIM,
-                "No results found"
-            );
+            println!("{}{}No results found", ansi::move_to(row + 1, 4), ansi::DIM);
 
             // Show view-specific help
             match self.mode {
@@ -1594,12 +1588,7 @@ impl TuiApp {
         row += 2;
 
         if data.is_empty() {
-            println!(
-                "{}{}{}",
-                ansi::move_to(row, 4),
-                ansi::DIM,
-                "No data available"
-            );
+            println!("{}{}No data available", ansi::move_to(row, 4), ansi::DIM);
             return Ok(());
         }
 
@@ -1755,12 +1744,7 @@ impl TuiApp {
         row += 2;
 
         if self.scan_activity.is_empty() {
-            println!(
-                "{}{}{}",
-                ansi::move_to(row, 4),
-                ansi::DIM,
-                "No activity logged"
-            );
+            println!("{}{}No activity logged", ansi::move_to(row, 4), ansi::DIM);
             return Ok(());
         }
 

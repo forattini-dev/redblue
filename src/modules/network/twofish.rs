@@ -1,16 +1,15 @@
-/// Twofish Encryption (Cryptcat compatibility)
-///
-/// Implements Twofish block cipher (128-bit key) from scratch.
-/// Used by cryptcat for encrypted netcat connections.
-///
-/// Features:
-/// - Twofish-128 encryption/decryption
-/// - CBC mode
-/// - PKCS#7 padding
-/// - Key derivation from password
-///
-/// Replaces: cryptcat
-use std::io::{Read, Write};
+//! Twofish Encryption (Cryptcat compatibility)
+//!
+//! Implements Twofish block cipher (128-bit key) from scratch.
+//! Used by cryptcat for encrypted netcat connections.
+//!
+//! Features:
+//! - Twofish-128 encryption/decryption
+//! - CBC mode
+//! - PKCS#7 padding
+//! - Key derivation from password
+//!
+//! Replaces: cryptcat
 
 /// Twofish block size (128 bits = 16 bytes)
 const BLOCK_SIZE: usize = 16;
@@ -288,7 +287,7 @@ impl TwofishCBC {
 
     /// Decrypt data and remove padding
     pub fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-        if ciphertext.len() % BLOCK_SIZE != 0 {
+        if !ciphertext.len().is_multiple_of(BLOCK_SIZE) {
             return Err("Invalid ciphertext length".to_string());
         }
 

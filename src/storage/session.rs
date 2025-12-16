@@ -200,7 +200,7 @@ impl SessionFile {
         // Get just the host part (before /, ?, #)
         let base = without_user
             .trim_start_matches('/')
-            .split(|c| c == '/' || c == '?' || c == '#')
+            .split(|c| matches!(c, '/' | '?' | '#'))
             .next()
             .unwrap_or(without_user);
 
@@ -208,7 +208,7 @@ impl SessionFile {
         let host = base.split(':').next().unwrap_or(base);
 
         // Remove IPv6 brackets
-        let host = host.trim_matches(|c| c == '[' || c == ']');
+        let host = host.trim_matches(|c| matches!(c, '[' | ']'));
 
         // Sanitize to valid filename
         let mut sanitized = String::with_capacity(host.len());

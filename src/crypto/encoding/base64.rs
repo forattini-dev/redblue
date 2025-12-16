@@ -57,7 +57,7 @@ impl std::error::Error for Base64Error {}
 
 /// Encode with specified alphabet
 fn encode_with_alphabet(data: &[u8], alphabet: &[u8; 64], with_padding: bool) -> String {
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;

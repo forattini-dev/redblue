@@ -31,7 +31,7 @@ impl MitreSegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("mitre header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid mitre segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());

@@ -1,13 +1,13 @@
-/// Minimal X.509 Certificate Parser from Scratch
-///
-/// This implements JUST ENOUGH DER/ASN.1 parsing to extract RSA public keys
-/// from X.509 certificates for TLS handshakes.
-///
-/// References:
-/// - RFC 5280 (X.509): https://www.rfc-editor.org/rfc/rfc5280
-/// - ITU-T X.690 (DER): https://www.itu.int/rec/T-REC-X.690
-///
-/// Status: Minimal implementation - enough for TLS 1.2
+//! Minimal X.509 Certificate Parser from Scratch
+//!
+//! This implements JUST ENOUGH DER/ASN.1 parsing to extract RSA public keys
+//! from X.509 certificates for TLS handshakes.
+//!
+//! References:
+//! - RFC 5280 (X.509): https://www.rfc-editor.org/rfc/rfc5280
+//! - ITU-T X.690 (DER): https://www.itu.int/rec/T-REC-X.690
+//!
+//! Status: Minimal implementation - enough for TLS 1.2
 
 /// DER tag types
 const TAG_INTEGER: u8 = 0x02;

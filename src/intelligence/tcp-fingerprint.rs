@@ -156,6 +156,7 @@ impl TcpFingerprint {
     /// 4. MSS values
     /// 5. Window scaling
     pub fn detect_os(&self) -> OsGuess {
+        #[allow(unused_assignments)]
         let mut confidence = 0u8;
 
         // === Linux Detection ===

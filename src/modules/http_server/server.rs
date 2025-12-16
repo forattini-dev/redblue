@@ -4,14 +4,14 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use super::embedded::EmbeddedFiles;
 use super::mime::MimeType;
@@ -265,7 +265,7 @@ impl HttpServer {
                 Ok((stream, addr)) => {
                     let config = self.config.clone();
                     let stats = self.stats.clone();
-                    let running = self.running.clone();
+                    let _running = self.running.clone();
 
                     thread::spawn(move || {
                         if let Err(e) = handle_connection(stream, addr, &config, &stats) {
@@ -638,7 +638,7 @@ fn send_error(
 }
 
 /// Send CORS preflight response
-fn send_cors_preflight(stream: &mut TcpStream, config: &HttpServerConfig) -> io::Result<()> {
+fn send_cors_preflight(stream: &mut TcpStream, _config: &HttpServerConfig) -> io::Result<()> {
     let response = "HTTP/1.1 204 No Content\r\n\
                     Access-Control-Allow-Origin: *\r\n\
                     Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\

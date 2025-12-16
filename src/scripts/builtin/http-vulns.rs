@@ -221,19 +221,17 @@ impl Script for HttpVulnsScript {
 impl HttpVulnsScript {
     fn check_server_vulns(&self, server: &str, result: &mut ScriptResult) {
         // Apache vulnerabilities
-        if server.contains("apache") {
-            if server.contains("2.4.49") || server.contains("2.4.50") {
-                result.add_finding(
-                    Finding::new(
-                        FindingType::Vulnerability,
-                        "Apache Path Traversal (CVE-2021-41773)",
-                    )
-                    .with_cve("CVE-2021-41773")
-                    .with_description("Apache 2.4.49-2.4.50 vulnerable to path traversal/RCE")
-                    .with_severity(FindingSeverity::Critical)
-                    .with_remediation("Upgrade to Apache 2.4.51 or later"),
-                );
-            }
+        if server.contains("apache") && (server.contains("2.4.49") || server.contains("2.4.50")) {
+            result.add_finding(
+                Finding::new(
+                    FindingType::Vulnerability,
+                    "Apache Path Traversal (CVE-2021-41773)",
+                )
+                .with_cve("CVE-2021-41773")
+                .with_description("Apache 2.4.49-2.4.50 vulnerable to path traversal/RCE")
+                .with_severity(FindingSeverity::Critical)
+                .with_remediation("Upgrade to Apache 2.4.51 or later"),
+            );
         }
 
         // Nginx vulnerabilities
@@ -255,31 +253,27 @@ impl HttpVulnsScript {
         }
 
         // IIS vulnerabilities
-        if server.contains("iis") {
-            if server.contains("6.0") || server.contains("7.0") || server.contains("7.5") {
-                result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "End-of-Life IIS Version")
-                        .with_description("IIS 6.0/7.x is end-of-life and unsupported")
-                        .with_severity(FindingSeverity::High)
-                        .with_remediation("Upgrade to Windows Server with IIS 10+"),
-                );
-            }
+        if server.contains("iis")
+            && (server.contains("6.0") || server.contains("7.0") || server.contains("7.5"))
+        {
+            result.add_finding(
+                Finding::new(FindingType::Vulnerability, "End-of-Life IIS Version")
+                    .with_description("IIS 6.0/7.x is end-of-life and unsupported")
+                    .with_severity(FindingSeverity::High)
+                    .with_remediation("Upgrade to Windows Server with IIS 10+"),
+            );
         }
 
         // Tomcat vulnerabilities
-        if server.contains("tomcat") {
-            if server.contains("8.5.") {
-                if let Some(minor) = self.extract_tomcat_minor(server, "8.5.") {
-                    if minor < 85 {
-                        result.add_finding(
-                            Finding::new(FindingType::Vulnerability, "Outdated Tomcat Version")
-                                .with_description("Tomcat 8.5.x before 8.5.85 has vulnerabilities")
-                                .with_severity(FindingSeverity::Medium)
-                                .with_remediation(
-                                    "Upgrade to Tomcat 8.5.85+ or migrate to 9.x/10.x",
-                                ),
-                        );
-                    }
+        if server.contains("tomcat") && server.contains("8.5.") {
+            if let Some(minor) = self.extract_tomcat_minor(server, "8.5.") {
+                if minor < 85 {
+                    result.add_finding(
+                        Finding::new(FindingType::Vulnerability, "Outdated Tomcat Version")
+                            .with_description("Tomcat 8.5.x before 8.5.85 has vulnerabilities")
+                            .with_severity(FindingSeverity::Medium)
+                            .with_remediation("Upgrade to Tomcat 8.5.85+ or migrate to 9.x/10.x"),
+                    );
                 }
             }
         }

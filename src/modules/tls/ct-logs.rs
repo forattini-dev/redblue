@@ -210,12 +210,12 @@ impl CTLogsClient {
             let value_start = start + pattern.len();
             let remaining = &json[value_start..].trim_start();
 
-            if remaining.starts_with('"') {
+            if let Some(rest) = remaining.strip_prefix('"') {
                 // String value
-                let end = remaining[1..]
+                let end = rest
                     .find('"')
                     .ok_or_else(|| format!("Unterminated string for field {}", field))?;
-                let value = &remaining[1..end + 1];
+                let value = &rest[..end];
                 // Unescape JSON string
                 let unescaped = value.replace("\\n", "\n").replace("\\\"", "\"");
                 return Ok(unescaped);

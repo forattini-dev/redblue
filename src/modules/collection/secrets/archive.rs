@@ -1,7 +1,7 @@
 use crate::compression::gzip::GzipDecoder;
 use crate::compression::tar::TarReader;
 use std::fs::File;
-use std::io::{self, BufReader, Cursor, Read};
+use std::io::{self, BufReader, Cursor};
 use std::path::Path;
 
 pub struct ArchiveExtractor;

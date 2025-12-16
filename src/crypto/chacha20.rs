@@ -1,15 +1,17 @@
-/// ChaCha20-Poly1305 AEAD Cipher Implementation
-/// RFC 8439 - ChaCha20 and Poly1305 for IETF Protocols
-///
-/// This is the preferred AEAD cipher for TLS 1.3
-///
-/// Implements:
-/// - ChaCha20 stream cipher (RFC 8439 Section 2)
-/// - Poly1305 MAC (RFC 8439 Section 3)
-/// - ChaCha20-Poly1305 AEAD construction (RFC 8439 Section 4)
-///
-/// ✅ ZERO DEPENDENCIES - Pure Rust implementation
-/// Replaces: chacha20poly1305 crate, ring, sodiumoxide
+//! ChaCha20-Poly1305 AEAD Cipher Implementation
+//! RFC 8439 - ChaCha20 and Poly1305 for IETF Protocols
+//!
+//! This is the preferred AEAD cipher for TLS 1.3
+//!
+//! Implements:
+//! - ChaCha20 stream cipher (RFC 8439 Section 2)
+//! - Poly1305 MAC (RFC 8439 Section 3)
+//! - ChaCha20-Poly1305 AEAD construction (RFC 8439 Section 4)
+//!
+
+#![allow(clippy::needless_range_loop)]
+//! ZERO DEPENDENCIES - Pure Rust implementation
+//! Replaces: chacha20poly1305 crate, ring, sodiumoxide
 
 /// ChaCha20 stream cipher
 ///

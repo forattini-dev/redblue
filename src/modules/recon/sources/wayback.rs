@@ -151,10 +151,7 @@ impl SubdomainSource for WaybackSource {
             domain
         );
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 429 {
             return Err(SourceError::RateLimited(std::time::Duration::from_secs(60)));

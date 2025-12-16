@@ -1,6 +1,5 @@
 use crate::modules::collection::secrets::SecretFinding;
 use crate::modules::collection::secrets::SecretScanner;
-use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 use std::process::Command; // To reuse scan_line
 
@@ -223,11 +222,11 @@ impl GitScanner {
         let mut current_line_num = 0;
 
         for line in stdout.lines() {
-            if line.starts_with("--- a/") {
-                current_file = line["--- a/".len()..].to_string();
+            if let Some(file) = line.strip_prefix("--- a/") {
+                current_file = file.to_string();
                 current_line_num = 0; // Reset line number for new file
-            } else if line.starts_with("+++ b/") {
-                current_file = line["+++ b/".len()..].to_string();
+            } else if let Some(file) = line.strip_prefix("+++ b/") {
+                current_file = file.to_string();
                 current_line_num = 0; // Reset line number for new file
             } else if line.starts_with("@@") {
                 // Parse line number changes: @@ -old_start,old_count +new_start,new_count @@

@@ -19,7 +19,7 @@
 //! - "SIEVE is Simpler than LRU" (NSDI '24)
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 
 use super::page::Page;
 

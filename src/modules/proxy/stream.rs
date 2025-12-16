@@ -290,20 +290,15 @@ impl DetectedProtocol {
 }
 
 /// Injection point configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum InjectionPoint {
     /// Inject before </body> tag
+    #[default]
     BeforeBodyClose,
     /// Inject before </head> tag
     BeforeHeadClose,
     /// Inject at end of document
     EndOfDocument,
-}
-
-impl Default for InjectionPoint {
-    fn default() -> Self {
-        Self::BeforeBodyClose
-    }
 }
 
 /// StreamInjector - HTML content injection with sliding window

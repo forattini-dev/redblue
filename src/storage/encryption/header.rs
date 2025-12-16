@@ -12,7 +12,6 @@
 //!
 //! We will implement serialization for this header so it can be embedded in Page 0 after the main header.
 
-use super::argon2id::Argon2Params;
 use super::key::SecureKey;
 use super::page_encryptor::{PageEncryptor, NONCE_SIZE, TAG_SIZE};
 

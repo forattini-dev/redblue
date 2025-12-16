@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 
-use super::mapper::{Confidence, MappedTechnique, MappingResult};
+use super::mapper::{MappedTechnique, MappingResult};
 
 /// Navigator layer (v4.4 format)
 #[derive(Debug)]
@@ -244,9 +244,9 @@ impl NavigatorLayer {
 
         // Basic fields
         json.push_str(&format!("  \"name\": \"{}\",\n", escape_json(&self.name)));
-        json.push_str(&format!("  \"versions\": {{\n"));
-        json.push_str(&format!("    \"attack\": \"14\",\n"));
-        json.push_str(&format!("    \"navigator\": \"4.9.1\",\n"));
+        json.push_str("  \"versions\": {\n");
+        json.push_str("    \"attack\": \"14\",\n");
+        json.push_str("    \"navigator\": \"4.9.1\",\n");
         json.push_str(&format!("    \"layer\": \"{}\"\n", self.version));
         json.push_str("  },\n");
         json.push_str(&format!("  \"domain\": \"{}\",\n", self.domain));
@@ -459,6 +459,7 @@ pub fn create_layer_from_techniques(
 
 #[cfg(test)]
 mod tests {
+    use super::super::mapper::Confidence;
     use super::*;
 
     #[test]

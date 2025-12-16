@@ -26,7 +26,7 @@
 //! └────────────────────────────────────────────────────────────┘
 //! ```
 
-use super::page::{Page, PageHeader, PageType, HEADER_SIZE, PAGE_SIZE};
+use super::page::{Page, PageType, HEADER_SIZE, PAGE_SIZE};
 
 /// Maximum number of free page IDs per trunk page
 pub const FREE_IDS_PER_TRUNK: usize = (PAGE_SIZE - HEADER_SIZE - 8) / 4;

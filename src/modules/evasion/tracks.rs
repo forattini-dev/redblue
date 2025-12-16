@@ -10,7 +10,6 @@
 //! These techniques are for authorized penetration testing only.
 
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 
 /// History file locations for various shells
@@ -332,10 +331,8 @@ pub fn clear_recent_files() -> Vec<ClearResult> {
 
     let mut results = Vec::new();
     for path in &recent_locations {
-        if path.exists() {
-            if path.is_file() {
-                results.push(clear_file(path));
-            }
+        if path.exists() && path.is_file() {
+            results.push(clear_file(path));
         }
     }
 

@@ -6,33 +6,23 @@ use crate::storage::schema::Value;
 use std::cmp::Ordering;
 
 /// Sort direction
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Direction {
     /// Ascending order (smallest first)
+    #[default]
     Asc,
     /// Descending order (largest first)
     Desc,
 }
 
-impl Default for Direction {
-    fn default() -> Self {
-        Direction::Asc
-    }
-}
-
 /// Null handling in sort
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NullsOrder {
     /// Nulls appear first
     First,
     /// Nulls appear last
+    #[default]
     Last,
-}
-
-impl Default for NullsOrder {
-    fn default() -> Self {
-        NullsOrder::Last
-    }
 }
 
 /// A single sort key (column + direction)

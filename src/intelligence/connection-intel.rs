@@ -196,7 +196,7 @@ impl ConnectionIntel {
         }
 
         if let Some(cert_issuer) = &self.cert_issuer {
-            summary.push_str(&format!("\nCertificate:\n"));
+            summary.push_str("\nCertificate:\n");
             summary.push_str(&format!("  Issuer: {}\n", cert_issuer));
             if let Some(subject) = &self.cert_subject {
                 summary.push_str(&format!("  Subject: {}\n", subject));

@@ -4,7 +4,7 @@
 use crate::cli::{output::Output, CliContext};
 use crate::config;
 use crate::config::presets::{Module, ScanPreset};
-use crate::config::yaml::YamlConfig;
+use crate::config::YamlConfig;
 use crate::modules::ct_logs::CTLogsClient;
 use crate::modules::network::scanner::{PortScanResult, PortScanner};
 use crate::modules::recon::harvester::Harvester;
@@ -37,7 +37,7 @@ impl PhaseResult {
 pub struct MagicScan {
     target: String,
     preset: ScanPreset,
-    yaml_config: Option<YamlConfig>,
+    yaml_config: Option<&'static YamlConfig>,
     session: SessionFile,
 }
 
@@ -49,17 +49,13 @@ impl MagicScan {
         preset_flag: Option<&str>,
     ) -> Result<Self, String> {
         // Try to load YAML config from current directory
-        let yaml_config = YamlConfig::load_from_cwd_cached().cloned();
+        let loaded_config = YamlConfig::load_from_cwd_cached();
 
         // Determine preset (CLI flag > YAML > default)
         let preset = if let Some(preset_name) = preset_flag {
             ScanPreset::from_name(preset_name).unwrap_or_default()
-        } else if let Some(ref config) = yaml_config {
-            if let Some(ref preset_name) = config.preset {
-                ScanPreset::from_name(preset_name).unwrap_or_default()
-            } else {
-                ScanPreset::default()
-            }
+        } else if let Some(preset_name) = loaded_config.preset.as_deref() {
+            ScanPreset::from_name(preset_name).unwrap_or_default()
         } else {
             ScanPreset::default()
         };
@@ -70,7 +66,7 @@ impl MagicScan {
         Ok(Self {
             target,
             preset,
-            yaml_config,
+            yaml_config: Some(loaded_config),
             session,
         })
     }

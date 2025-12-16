@@ -1,4 +1,7 @@
-/// Benchmark/load testing command - Performance and stress testing
+//! Benchmark/load testing command - Performance and stress testing
+
+#![allow(clippy::needless_range_loop)]
+
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::modules::benchmark::load_generator::{

@@ -144,62 +144,62 @@ impl Script for PostgresInfoScript {
         let data_lower = pg_data.to_lowercase();
 
         // Check for superuser access
-        if data_lower.contains("superuser") || data_lower.contains("postgres") {
-            if data_lower.contains("yes") || data_lower.contains("true") {
-                result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "Superuser Access Available")
-                        .with_description(
-                            "Connection appears to have superuser privileges. \
-                             Applications should use least-privilege accounts.",
-                        )
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation(
-                            "Create application-specific users with limited privileges",
-                        ),
-                );
-            }
+        if (data_lower.contains("superuser") || data_lower.contains("postgres"))
+            && (data_lower.contains("yes") || data_lower.contains("true"))
+        {
+            result.add_finding(
+                Finding::new(FindingType::Misconfiguration, "Superuser Access Available")
+                    .with_description(
+                        "Connection appears to have superuser privileges. \
+                         Applications should use least-privilege accounts.",
+                    )
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation("Create application-specific users with limited privileges"),
+            );
         }
 
         // Check for SSL/TLS
-        if data_lower.contains("ssl") {
-            if data_lower.contains("off") || data_lower.contains("disabled") {
-                result.add_finding(
-                    Finding::new(FindingType::Misconfiguration, "PostgreSQL SSL Disabled")
-                        .with_description(
-                            "SSL/TLS is not enabled for PostgreSQL connections. \
-                             Data including passwords is transmitted in cleartext.",
-                        )
-                        .with_severity(FindingSeverity::High)
-                        .with_remediation("Enable SSL in postgresql.conf: ssl = on"),
-                );
-            } else if data_lower.contains("on") || data_lower.contains("enabled") {
-                result.add_finding(
-                    Finding::new(FindingType::Discovery, "SSL Enabled")
-                        .with_description("PostgreSQL SSL is enabled")
-                        .with_severity(FindingSeverity::Info),
-                );
-            }
+        if data_lower.contains("ssl")
+            && (data_lower.contains("off") || data_lower.contains("disabled"))
+        {
+            result.add_finding(
+                Finding::new(FindingType::Misconfiguration, "PostgreSQL SSL Disabled")
+                    .with_description(
+                        "SSL/TLS is not enabled for PostgreSQL connections. \
+                         Data including passwords is transmitted in cleartext.",
+                    )
+                    .with_severity(FindingSeverity::High)
+                    .with_remediation("Enable SSL in postgresql.conf: ssl = on"),
+            );
+        } else if data_lower.contains("ssl")
+            && (data_lower.contains("on") || data_lower.contains("enabled"))
+        {
+            result.add_finding(
+                Finding::new(FindingType::Discovery, "SSL Enabled")
+                    .with_description("PostgreSQL SSL is enabled")
+                    .with_severity(FindingSeverity::Info),
+            );
         }
 
         // Check for remote connections
-        if data_lower.contains("listen_addresses") {
-            if data_lower.contains("*") || data_lower.contains("0.0.0.0") {
-                result.add_finding(
-                    Finding::new(
-                        FindingType::Misconfiguration,
-                        "PostgreSQL Listening on All Interfaces",
-                    )
-                    .with_description(
-                        "PostgreSQL is configured to listen on all network interfaces. \
-                             Combined with weak pg_hba.conf rules, this can expose the database.",
-                    )
-                    .with_severity(FindingSeverity::Medium)
-                    .with_remediation(
-                        "Restrict listen_addresses to specific IPs. \
-                             Use firewall rules to limit access.",
-                    ),
-                );
-            }
+        if data_lower.contains("listen_addresses")
+            && (data_lower.contains("*") || data_lower.contains("0.0.0.0"))
+        {
+            result.add_finding(
+                Finding::new(
+                    FindingType::Misconfiguration,
+                    "PostgreSQL Listening on All Interfaces",
+                )
+                .with_description(
+                    "PostgreSQL is configured to listen on all network interfaces. \
+                         Combined with weak pg_hba.conf rules, this can expose the database.",
+                )
+                .with_severity(FindingSeverity::Medium)
+                .with_remediation(
+                    "Restrict listen_addresses to specific IPs. \
+                         Use firewall rules to limit access.",
+                ),
+            );
         }
 
         // Check for exposed database names

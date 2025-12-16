@@ -78,7 +78,7 @@ impl Command for ReconUsernameCommand {
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
         // Handle bare command: `rb recon username johndoe` -> treat as search
-        let verb = ctx.verb.as_ref().map(|s| s.as_str());
+        let verb = ctx.verb.as_deref();
 
         match verb {
             Some("search") => self.search(ctx),
@@ -257,7 +257,7 @@ impl ReconUsernameCommand {
 
             Output::subheader(&format!("{:?} ({})", category, found.len()));
             for profile in found {
-                let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let url = profile.url.as_deref().unwrap_or("N/A");
                 println!(
                     "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
                     profile.platform, url
@@ -381,7 +381,7 @@ impl ReconUsernameCommand {
 
                 if profile.exists {
                     found_count += 1;
-                    let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                    let url = profile.url.as_deref().unwrap_or("N/A");
                     println!(
                         "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
                         profile.platform, url

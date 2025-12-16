@@ -46,7 +46,7 @@ pub fn pbkdf2_sha256(password: &[u8], salt: &[u8], params: &Pbkdf2Params) -> Vec
     let hlen = 32; // SHA-256 output length
 
     // Number of blocks needed
-    let blocks_needed = (params.key_len + hlen - 1) / hlen;
+    let blocks_needed = params.key_len.div_ceil(hlen);
 
     for block_num in 1..=blocks_needed {
         let block = pbkdf2_f(password, salt, params.iterations, block_num as u32);

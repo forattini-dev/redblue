@@ -289,7 +289,7 @@ impl ReconIdentityCommand {
 
             Output::subheader(&format!("{:?} ({})", category, found.len()));
             for profile in found {
-                let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let url = profile.url.as_deref().unwrap_or("N/A");
                 println!(
                     "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
                     profile.platform, url
@@ -309,7 +309,7 @@ impl ReconIdentityCommand {
 
     fn username_check(
         &self,
-        ctx: &CliContext,
+        _ctx: &CliContext,
         username: &str,
         platforms_str: &str,
     ) -> Result<(), String> {
@@ -389,7 +389,7 @@ impl ReconIdentityCommand {
 
                 if profile.exists {
                     found_count += 1;
-                    let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                    let url = profile.url.as_deref().unwrap_or("N/A");
                     println!(
                         "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
                         profile.platform, url

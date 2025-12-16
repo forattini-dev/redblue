@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(windows)]
 use std::ffi::c_void;
 /// Cryptographic Primitives Implementation from Scratch
@@ -914,7 +916,7 @@ pub fn aes128_cbc_decrypt(
     iv: &[u8; 16],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, String> {
-    if ciphertext.len() % 16 != 0 {
+    if !ciphertext.len().is_multiple_of(16) {
         return Err("Ciphertext length must be multiple of 16".to_string());
     }
 
@@ -1551,7 +1553,7 @@ pub fn hkdf_extract_sha384(salt: &[u8], ikm: &[u8]) -> Vec<u8> {
 pub fn hkdf_expand(prk: &[u8], info: &[u8], length: usize) -> Vec<u8> {
     // HKDF-Expand(PRK, info, L) using SHA-256
     let hash_len = 32; // SHA-256 output length
-    let n = (length + hash_len - 1) / hash_len; // ceil(L / HashLen)
+    let n = length.div_ceil(hash_len); // ceil(L / HashLen)
 
     let mut okm = Vec::new();
     let mut t = Vec::new();
@@ -1572,7 +1574,7 @@ pub fn hkdf_expand(prk: &[u8], info: &[u8], length: usize) -> Vec<u8> {
 /// HKDF-Expand with SHA-384
 pub fn hkdf_expand_sha384(prk: &[u8], info: &[u8], length: usize) -> Vec<u8> {
     let hash_len = 48; // SHA-384 output length
-    let n = (length + hash_len - 1) / hash_len;
+    let n = length.div_ceil(hash_len);
 
     let mut okm = Vec::new();
     let mut t = Vec::new();

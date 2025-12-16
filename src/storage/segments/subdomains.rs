@@ -118,7 +118,7 @@ impl SubdomainSegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("subdomain header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid subdomain segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());

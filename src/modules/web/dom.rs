@@ -10,7 +10,6 @@
 /// - Text and comment node support
 /// - Base URL resolution for relative links
 use std::collections::HashMap;
-use std::fmt;
 
 /// A DOM Node - either Element reference, Text, or Comment
 #[derive(Debug, Clone)]

@@ -194,8 +194,8 @@ impl ExprEvaluator {
         }
 
         // Variable reference
-        if expr.starts_with('$') {
-            return Ok(self.get_var(&expr[1..]));
+        if let Some(var_name) = expr.strip_prefix('$') {
+            return Ok(self.get_var(var_name));
         }
 
         // String literal

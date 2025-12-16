@@ -16,7 +16,7 @@
 /// NO external dependencies - pure Rust std implementation
 use crate::modules::web::dom::Document;
 use crate::modules::web::extractors;
-use crate::protocols::har::{HarRecorder, HttpClientWithHar};
+use crate::protocols::har::HarRecorder;
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponseHandler, HttpResponseHead};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -303,7 +303,7 @@ impl WebCrawler {
     }
 
     /// Fetch a page and extract links
-    fn fetch_page(&self, url: &str, base_url: &str) -> Result<CrawledPage, String> {
+    fn fetch_page(&self, url: &str, _base_url: &str) -> Result<CrawledPage, String> {
         let mut handler = CollectingHandler::new();
         let request = HttpRequest::get(url);
 
@@ -574,10 +574,9 @@ impl WebCrawler {
                         && !resolved.starts_with('#')
                         && !resolved.starts_with("javascript:")
                         && !resolved.starts_with("mailto:")
+                        && seen.insert(resolved.clone())
                     {
-                        if seen.insert(resolved.clone()) {
-                            links.push(resolved);
-                        }
+                        links.push(resolved);
                     }
                 }
             }

@@ -31,7 +31,7 @@ impl VulnSegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("vuln header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid vuln segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());
@@ -154,7 +154,7 @@ impl VulnSegment {
             dir_pos += 4;
             let offset = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
-            let len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
+            let _len = u64::from_le_bytes(dir_bytes[dir_pos..dir_pos + 8].try_into().unwrap());
             dir_pos += 8;
 
             let mut tech_indices = Vec::with_capacity(count as usize);

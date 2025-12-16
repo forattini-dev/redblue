@@ -63,7 +63,7 @@ pub fn launchd_plist(config: &ServiceConfig, rb_path: &str) -> String {
 
     let label = format!("io.redblue.{}", config.name);
 
-    let description = config.description.as_deref().unwrap_or("redblue service");
+    let _description = config.description.as_deref().unwrap_or("redblue service");
 
     let keep_alive = if config.restart_on_failure {
         "<key>KeepAlive</key>\n\t<true/>"

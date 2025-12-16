@@ -169,7 +169,7 @@ fn days_since_published(published: &str) -> Option<u32> {
 /// Calculate days since Unix epoch for a date
 fn days_since_epoch(year: i32, month: u32, day: u32) -> Option<u32> {
     // Simplified calculation
-    if year < 1970 || month < 1 || month > 12 || day < 1 || day > 31 {
+    if year < 1970 || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
 

@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Persistence configuration options
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PersistenceConfig {
     /// Database path (if None, auto-generated from target)
     pub db_path: Option<PathBuf>,
@@ -29,16 +29,6 @@ pub struct PersistenceConfig {
     pub password: Option<String>,
     /// Force persistence even if auto_persist is disabled
     pub force_save: bool,
-}
-
-impl Default for PersistenceConfig {
-    fn default() -> Self {
-        Self {
-            db_path: None,
-            password: None,
-            force_save: false,
-        }
-    }
 }
 
 impl PersistenceConfig {

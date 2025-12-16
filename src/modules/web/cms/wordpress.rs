@@ -27,7 +27,7 @@ pub struct WordPressScanResult {
 }
 
 /// Scan WordPress site
-pub fn scan(config: &CmsScanConfig, detection: &DetectionResult) -> WordPressScanResult {
+pub fn scan(config: &CmsScanConfig, _detection: &DetectionResult) -> WordPressScanResult {
     let mut result = WordPressScanResult {
         plugins: Vec::new(),
         themes: Vec::new(),
@@ -100,7 +100,7 @@ impl WordPressScanner {
                 while let Some(start) = response.body[pos..].find(pattern) {
                     let abs_start = pos + start + pattern.len();
                     if let Some(end) = response.body[abs_start..]
-                        .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                        .find(|c: char| matches!(c, '/' | '"' | '\'' | '?'))
                     {
                         let plugin_name = &response.body[abs_start..abs_start + end];
                         if !plugin_name.is_empty() && self.is_valid_slug(plugin_name) {
@@ -195,8 +195,8 @@ impl WordPressScanner {
             let mut pos = 0;
             while let Some(start) = response.body[pos..].find(pattern) {
                 let abs_start = pos + start + pattern.len();
-                if let Some(end) = response.body[abs_start..]
-                    .find(|c: char| c == '/' || c == '"' || c == '\'' || c == '?')
+                if let Some(end) =
+                    response.body[abs_start..].find(|c: char| matches!(c, '/' | '"' | '\'' | '?'))
                 {
                     let theme_name = &response.body[abs_start..abs_start + end];
                     if !theme_name.is_empty() && self.is_valid_slug(theme_name) {
@@ -689,10 +689,10 @@ fn post_url(
 
 /// Parse URL
 fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
-    let (scheme, rest) = if url.starts_with("https://") {
-        ("https", &url[8..])
-    } else if url.starts_with("http://") {
-        ("http", &url[7..])
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+        ("https", rest)
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        ("http", rest)
     } else {
         ("http", url)
     };

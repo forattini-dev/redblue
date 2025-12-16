@@ -7,15 +7,16 @@ impl SarifFormatter {
         let mut results = Vec::new();
 
         for finding in findings {
-            let mut properties = Vec::new();
-            properties.push((
-                "severity".to_string(),
-                JsonValue::String(finding.severity.to_string()),
-            ));
-            properties.push((
-                "secret_type".to_string(),
-                JsonValue::String(finding.secret_type.clone()),
-            ));
+            let properties = vec![
+                (
+                    "severity".to_string(),
+                    JsonValue::String(finding.severity.to_string()),
+                ),
+                (
+                    "secret_type".to_string(),
+                    JsonValue::String(finding.secret_type.clone()),
+                ),
+            ];
 
             let location = if let Some(line) = finding.line {
                 JsonValue::Object(vec![(

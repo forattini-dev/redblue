@@ -36,11 +36,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::{Address, Protocol, ProxyContext, ProxyError, ProxyResult};
-use crate::crypto::certs::ca::{CertificateAuthority, KeyAlgorithm};
-use crate::crypto::certs::x509::Certificate;
+use super::{Address, ProxyContext, ProxyError, ProxyResult};
+use crate::crypto::certs::ca::CertificateAuthority;
 use crate::modules::exploit::browser::hook as rbb_hook;
-use crate::{debug, error, info, warn};
+use crate::{debug, error, info};
 
 /// Log format for traffic logging
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -721,7 +720,7 @@ impl MitmProxy {
     fn handle_client(
         mut client: TcpStream,
         config: &MitmConfig,
-        context: &ProxyContext,
+        _context: &ProxyContext,
         cert_cache: &CertCache,
     ) -> ProxyResult<()> {
         client.set_read_timeout(Some(config.timeout))?;
@@ -815,7 +814,7 @@ impl MitmProxy {
         cert_cache: &CertCache,
     ) -> ProxyResult<()> {
         use boring::pkey::PKey;
-        use boring::ssl::{SslAcceptor, SslConnector, SslFiletype, SslMethod, SslVerifyMode};
+        use boring::ssl::{SslAcceptor, SslConnector, SslMethod, SslVerifyMode};
         use boring::x509::X509;
 
         // Get/generate certificate for this hostname

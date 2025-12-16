@@ -137,10 +137,7 @@ impl SubdomainSource for UrlScanSource {
     fn query(&self, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
         let url = format!("https://urlscan.io/api/v1/search/?q=domain:{}", domain);
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 429 {
             return Err(SourceError::RateLimited(std::time::Duration::from_secs(

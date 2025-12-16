@@ -256,7 +256,7 @@ impl<R: Read> Deflate<R> {
 
     /// Decode length from symbol (257-285) and extra bits
     fn decode_length(&mut self, symbol: u32) -> Result<usize> {
-        if symbol < 257 || symbol > 285 {
+        if !(257..=285).contains(&symbol) {
             return Err(GzipError::HuffmanCodeNotFound);
         }
 

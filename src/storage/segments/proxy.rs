@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::storage::encoding::{read_varu32, read_varu64, write_varu32, write_varu64, DecodeError};
+use crate::storage::encoding::{read_varu32, write_varu32, DecodeError};
 use crate::storage::records::{
     ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
 };
@@ -107,7 +107,7 @@ impl ProxySegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("proxy header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid proxy segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());

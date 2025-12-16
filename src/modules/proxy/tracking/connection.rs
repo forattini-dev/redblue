@@ -128,7 +128,7 @@ impl ConnectionTracker {
 
     /// Cleanup expired connections
     pub fn cleanup_expired(&self) -> usize {
-        let now = Instant::now();
+        let _now = Instant::now();
         let mut to_remove = Vec::new();
 
         {

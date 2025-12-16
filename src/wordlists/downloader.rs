@@ -543,7 +543,7 @@ impl Downloader {
         Output::spinner_done();
 
         // Determine output path (remove .gz extension)
-        let output_path = if gz_path.extension().map_or(false, |ext| ext == "gz") {
+        let output_path = if gz_path.extension().is_some_and(|ext| ext == "gz") {
             gz_path.with_extension("")
         } else {
             // If no .gz extension, append .txt

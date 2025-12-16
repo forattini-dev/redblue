@@ -268,14 +268,12 @@ pub fn analyze_http_error(
     }
 
     // Generic patterns
-    if status_code == 403 {
-        if lower.contains("directory listing denied") {
-            fingerprint.patterns.push(BehaviorPattern {
-                category: PatternCategory::DefaultConfig,
-                observation: "Directory listing disabled (good security practice)".to_string(),
-                significance: Significance::Low,
-            });
-        }
+    if status_code == 403 && lower.contains("directory listing denied") {
+        fingerprint.patterns.push(BehaviorPattern {
+            category: PatternCategory::DefaultConfig,
+            observation: "Directory listing disabled (good security practice)".to_string(),
+            significance: Significance::Low,
+        });
     }
 
     // Check for overly verbose errors
@@ -406,17 +404,13 @@ pub fn detect_protocol_quirks(service: &str, observations: &[String]) -> Vec<Str
         }
 
         // SSH quirks
-        if service == "SSH" {
-            if lower.contains("ssh-1.") {
-                quirks.push("SSH protocol version 1 (DEPRECATED and insecure)".to_string());
-            }
+        if service == "SSH" && lower.contains("ssh-1.") {
+            quirks.push("SSH protocol version 1 (DEPRECATED and insecure)".to_string());
         }
 
         // TLS quirks
-        if service == "TLS" {
-            if lower.contains("sslv3") || lower.contains("sslv2") {
-                quirks.push("Obsolete SSL version supported (security risk)".to_string());
-            }
+        if service == "TLS" && (lower.contains("sslv3") || lower.contains("sslv2")) {
+            quirks.push("Obsolete SSL version supported (security risk)".to_string());
         }
     }
 
@@ -436,7 +430,7 @@ pub fn detect_default_config(
         "MongoDB" => {
             if config_indicators
                 .get("auth")
-                .map_or(false, |v| v == "disabled")
+                .is_some_and(|v| v == "disabled")
             {
                 indicators.push(SecurityIndicator {
                     indicator_type: IndicatorType::NoAuthentication,
@@ -449,7 +443,7 @@ pub fn detect_default_config(
         "Redis" => {
             if config_indicators
                 .get("requirepass")
-                .map_or(true, |v| v.is_empty())
+                .is_none_or(|v| v.is_empty())
             {
                 indicators.push(SecurityIndicator {
                     indicator_type: IndicatorType::NoAuthentication,
@@ -462,7 +456,7 @@ pub fn detect_default_config(
         "Elasticsearch" => {
             if config_indicators
                 .get("xpack.security.enabled")
-                .map_or(true, |v| v == "false")
+                .is_none_or(|v| v == "false")
             {
                 indicators.push(SecurityIndicator {
                     indicator_type: IndicatorType::NoAuthentication,
@@ -475,7 +469,7 @@ pub fn detect_default_config(
         "Tomcat" => {
             if config_indicators
                 .get("user")
-                .map_or(false, |v| v == "tomcat" || v == "admin")
+                .is_some_and(|v| v == "tomcat" || v == "admin")
             {
                 indicators.push(SecurityIndicator {
                     indicator_type: IndicatorType::DefaultCredentials,

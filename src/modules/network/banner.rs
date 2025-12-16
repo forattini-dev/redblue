@@ -253,15 +253,13 @@ impl ServiceBanner {
         }
 
         // SSH-specific OS hints
-        if matches!(service, ServiceType::SSH) {
-            if banner.contains("Debian") {
-                if let Some(version_start) = banner.find("Debian-") {
-                    let version_str = &banner[version_start..];
-                    if let Some(space_pos) = version_str.find(' ') {
-                        hints.push(version_str[..space_pos].to_string());
-                    } else {
-                        hints.push(version_str.to_string());
-                    }
+        if matches!(service, ServiceType::SSH) && banner.contains("Debian") {
+            if let Some(version_start) = banner.find("Debian-") {
+                let version_str = &banner[version_start..];
+                if let Some(space_pos) = version_str.find(' ') {
+                    hints.push(version_str[..space_pos].to_string());
+                } else {
+                    hints.push(version_str.to_string());
                 }
             }
         }

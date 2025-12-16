@@ -35,7 +35,7 @@ impl PlaybookSegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("playbook header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid playbook segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());

@@ -425,12 +425,13 @@ fn build_sni_extension(host: &str) -> Vec<u8> {
 
 /// Send a TLS record
 fn send_record(stream: &mut TcpStream, content_type: u8, data: &[u8]) -> Result<(), String> {
-    let mut record = Vec::new();
-    record.push(content_type);
-    record.push(0x03); // TLS 1.0 for record layer
-    record.push(0x01);
-    record.push((data.len() >> 8) as u8);
-    record.push((data.len() & 0xff) as u8);
+    let mut record = vec![
+        content_type,
+        0x03, // TLS 1.0 for record layer
+        0x01,
+        (data.len() >> 8) as u8,
+        (data.len() & 0xff) as u8,
+    ];
     record.extend_from_slice(data);
 
     stream

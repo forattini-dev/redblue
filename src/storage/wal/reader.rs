@@ -1,6 +1,6 @@
 use super::record::{WalRecord, WAL_MAGIC, WAL_VERSION};
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 /// Reader for the Write-Ahead Log

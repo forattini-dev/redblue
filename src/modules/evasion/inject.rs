@@ -438,7 +438,7 @@ impl ProcessInjector {
             }
 
             // Save original instruction pointer
-            let original_rip = regs.rip;
+            let _original_rip = regs.rip;
 
             // Write shellcode to instruction pointer location
             // (This is a simplified version - real implementation would allocate memory)

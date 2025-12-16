@@ -1,4 +1,4 @@
-/// CMS Types and Data Structures
+//! CMS Types and Data Structures
 
 /// Supported CMS types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

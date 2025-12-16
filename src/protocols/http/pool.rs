@@ -1,5 +1,4 @@
 use crate::protocols::http::body::{analyze_headers, chunked_body_complete, BodyStrategy};
-use crate::protocols::http::build_default_ssl_connector;
 use crate::protocols::tls_impersonator::TlsProfile;
 use boring::ssl::{
     Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
@@ -122,7 +121,7 @@ impl ConnectionPool {
     fn get_or_create_ssl_context(
         &self,
         host: &str,
-        profile: Option<TlsProfile>,
+        _profile: Option<TlsProfile>,
     ) -> Result<SslContext, String> {
         let mut contexts = self.ssl_contexts.lock().unwrap();
 
@@ -530,10 +529,8 @@ impl PooledHttpClient {
             }
         }
 
-        let status_code = Self::parse_status_code(&buffer).map_err(|e| PooledError {
-            message: e,
-            ttfb: ttfb,
-        })?;
+        let status_code =
+            Self::parse_status_code(&buffer).map_err(|e| PooledError { message: e, ttfb })?;
 
         let ttfb_duration = ttfb.unwrap_or_else(|| start.elapsed());
 

@@ -37,3 +37,6 @@ chrono = "0.4.42"
 
 [dev-dependencies]
 hex = "0.4"  # Only for tests - hex encode/decode
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)', 'cfg(feature, values("tls_debug"))'] }

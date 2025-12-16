@@ -148,14 +148,14 @@ impl SmbClient {
 
     /// Build SMB2 Negotiate Protocol Request
     fn build_smb2_negotiate(&self) -> Result<Vec<u8>, String> {
-        let mut packet = Vec::new();
-
         // NetBIOS Session Service header (4 bytes)
         // We'll calculate length later
-        packet.push(NetBiosMessageType::SessionMessage as u8);
-        packet.push(0x00); // Length (3 bytes, big-endian) - placeholder
-        packet.push(0x00);
-        packet.push(0x00);
+        let mut packet = vec![
+            NetBiosMessageType::SessionMessage as u8,
+            0x00, // Length (3 bytes, big-endian) - placeholder
+            0x00,
+            0x00,
+        ];
 
         // SMB2 Header (64 bytes)
         packet.extend_from_slice(b"\xFESMB"); // Protocol ID

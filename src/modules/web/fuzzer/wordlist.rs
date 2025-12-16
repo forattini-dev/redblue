@@ -32,11 +32,10 @@ impl WordlistManager {
         for line in reader.lines() {
             if let Ok(word) = line {
                 let word = word.trim();
-                if !word.is_empty() && !word.starts_with('#') {
-                    if self.seen.insert(word.to_string()) {
-                        self.words.push(word.to_string());
-                        count += 1;
-                    }
+                if !word.is_empty() && !word.starts_with('#') && self.seen.insert(word.to_string())
+                {
+                    self.words.push(word.to_string());
+                    count += 1;
                 }
             }
         }

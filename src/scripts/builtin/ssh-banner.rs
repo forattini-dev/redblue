@@ -214,17 +214,13 @@ impl SshBannerScript {
         }
 
         // Dropbear vulnerabilities
-        if software.contains("dropbear") {
-            if self.version_lt(ver, "2022.83") {
-                result.add_finding(
-                    Finding::new(FindingType::Vulnerability, "Outdated Dropbear SSH")
-                        .with_description(
-                            "Dropbear versions before 2022.83 have known vulnerabilities",
-                        )
-                        .with_severity(FindingSeverity::Medium)
-                        .with_remediation("Upgrade to Dropbear 2022.83 or later"),
-                );
-            }
+        if software.contains("dropbear") && self.version_lt(ver, "2022.83") {
+            result.add_finding(
+                Finding::new(FindingType::Vulnerability, "Outdated Dropbear SSH")
+                    .with_description("Dropbear versions before 2022.83 have known vulnerabilities")
+                    .with_severity(FindingSeverity::Medium)
+                    .with_remediation("Upgrade to Dropbear 2022.83 or later"),
+            );
         }
     }
 

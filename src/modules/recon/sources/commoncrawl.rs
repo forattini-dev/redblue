@@ -31,10 +31,7 @@ impl CommonCrawlSource {
     fn get_latest_index(&self) -> Result<String, SourceError> {
         let url = "https://index.commoncrawl.org/collinfo.json";
 
-        let response = self
-            .http
-            .get(url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(url).map_err(SourceError::NetworkError)?;
 
         if response.status_code != 200 {
             // Fall back to a known recent index
@@ -171,10 +168,7 @@ impl SubdomainSource for CommonCrawlSource {
             index, domain
         );
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 404 {
             // Index might not have data for this domain

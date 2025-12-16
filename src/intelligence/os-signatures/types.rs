@@ -121,7 +121,7 @@ impl WindowMatch {
         match self {
             WindowMatch::Exact(v) => observed == *v,
             WindowMatch::Range(min, max) => observed >= *min && observed <= *max,
-            WindowMatch::Multiple(m) => *m > 0 && observed % m == 0,
+            WindowMatch::Multiple(m) => *m > 0 && observed.is_multiple_of(*m),
             WindowMatch::Any => true,
         }
     }

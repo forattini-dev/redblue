@@ -1,7 +1,9 @@
-/// AES-128 implementation from scratch
-/// FIPS-197 - Advanced Encryption Standard
-///
-/// Implements AES-128 in CBC mode for TLS
+//! AES-128 implementation from scratch
+//! FIPS-197 - Advanced Encryption Standard
+//!
+//! Implements AES-128 in CBC mode for TLS
+
+#![allow(clippy::needless_range_loop)]
 
 // S-box for SubBytes transformation
 const SBOX: [u8; 256] = [
@@ -277,7 +279,7 @@ pub fn aes128_cbc_decrypt(
     iv: &[u8; 16],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, String> {
-    if ciphertext.len() % 16 != 0 {
+    if !ciphertext.len().is_multiple_of(16) {
         return Err("Ciphertext length must be multiple of 16".to_string());
     }
 

@@ -5,7 +5,6 @@
 
 use super::types::*;
 use crate::protocols::http::HttpClient;
-use std::collections::HashMap;
 use std::time::Duration;
 
 /// Base URL for MITRE ATT&CK STIX data on GitHub
@@ -398,10 +397,10 @@ impl MitreClient {
         // This is a simplified approach - in production we'd build a proper index
 
         // Try to find by matching the UUID portion
-        let uuid = stix_ref.split("--").last()?;
+        let _uuid = stix_ref.split("--").last()?;
 
         // Check techniques
-        for (id, tech) in &data.techniques {
+        for (id, _tech) in &data.techniques {
             if stix_ref.contains("attack-pattern") {
                 // Match by comparing with stored STIX ID if available
                 // For simplicity, we use pattern matching on the ref
@@ -576,20 +575,18 @@ fn extract_string(json: &str, key: &str) -> Option<String> {
 
     // Find end of string value
     let value_start = 1;
-    let mut value_end = value_start;
+
     let chars: Vec<char> = trimmed.chars().collect();
     let mut escape_next = false;
 
     for i in value_start..chars.len() {
         if escape_next {
             escape_next = false;
-            value_end = i + 1;
             continue;
         }
         match chars[i] {
             '\\' => {
                 escape_next = true;
-                value_end = i + 1;
             }
             '"' => {
                 return Some(
@@ -598,7 +595,7 @@ fn extract_string(json: &str, key: &str) -> Option<String> {
                         .replace("\\\"", "\""),
                 );
             }
-            _ => value_end = i + 1,
+            _ => {}
         }
     }
 

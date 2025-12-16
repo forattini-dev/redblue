@@ -148,7 +148,7 @@ impl MassDnsScanner {
         for thread_id in 0..self.config.threads {
             let queue = Arc::clone(&work_queue);
             let tx = tx.clone();
-            let errors = Arc::clone(&errors);
+            let _errors = Arc::clone(&errors);
             let domain = domain.clone();
             let config = config.clone();
             let wildcard_ips = wildcard_ips_clone.clone();

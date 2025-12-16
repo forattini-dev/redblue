@@ -1,6 +1,5 @@
 use crate::modules::recon::breach::BreachClient; // Reuse existing HIBP client
                                                  // use crate::modules::recon::ip_intel::IpIntelClient; // If an IP intelligence client exists
-use std::collections::HashSet;
 
 pub struct ThreatIntelCorrelator {
     breach_client: BreachClient,

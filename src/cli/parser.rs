@@ -57,7 +57,7 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     ctx.raw = args.to_vec();
 
     // Load YAML config from current directory (cached)
-    let cached_config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
+    let config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
 
     let mut i = 0;
     let mut positionals: Vec<String> = Vec::new();
@@ -132,9 +132,7 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
         ctx.args = positionals[4..].to_vec();
     }
 
-    if let Some(config) = cached_config {
-        apply_config_defaults(&mut ctx, config);
-    }
+    apply_config_defaults(&mut ctx, config);
 
     Ok(ctx)
 }

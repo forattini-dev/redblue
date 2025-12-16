@@ -190,14 +190,14 @@ impl Script for DockerInfoScript {
         }
 
         // Check for swarm mode
-        if data_lower.contains("swarm") {
-            if data_lower.contains("\"localnodelocked\":false") || data_lower.contains("active") {
-                result.add_finding(
-                    Finding::new(FindingType::Discovery, "Docker Swarm Mode Active")
-                        .with_description("Docker Swarm mode is enabled on this node")
-                        .with_severity(FindingSeverity::Info),
-                );
-            }
+        if data_lower.contains("swarm")
+            && (data_lower.contains("\"localnodelocked\":false") || data_lower.contains("active"))
+        {
+            result.add_finding(
+                Finding::new(FindingType::Discovery, "Docker Swarm Mode Active")
+                    .with_description("Docker Swarm mode is enabled on this node")
+                    .with_severity(FindingSeverity::Info),
+            );
         }
 
         // Internet exposure check

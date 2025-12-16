@@ -8,6 +8,8 @@
 //! - Curve equation: y^2 = x^3 - 3x + b (mod p)
 //! - Generator point G with prime order n
 //!
+
+#![allow(clippy::needless_range_loop)]
 //! References:
 //! - RFC 5639: Elliptic Curve Cryptography (ECC) Brainpool Standard Curves
 //! - RFC 4492: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS

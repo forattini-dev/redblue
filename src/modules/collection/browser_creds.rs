@@ -3,7 +3,7 @@ use crate::storage::import::sqlite::SqliteReader;
 use serde_json::Value;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct BrowserCredential {

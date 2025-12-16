@@ -82,7 +82,7 @@ impl SqliteReader {
     /// Read a varint (1-9 bytes)
     fn read_varint(data: &[u8], pos: &mut usize) -> u64 {
         let mut result = 0u64;
-        for i in 0..8 {
+        for _i in 0..8 {
             if *pos >= data.len() {
                 return result;
             }

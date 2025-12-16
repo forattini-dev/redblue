@@ -544,7 +544,7 @@ impl Netcat {
                     }
                     Ok(n) => {
                         total_received += n as u64;
-                        if verbose && total_received % 4096 == 0 {
+                        if verbose && total_received.is_multiple_of(4096) {
                             eprintln!("[*] Received {} bytes (encrypted)", total_received);
                         }
 
@@ -616,7 +616,7 @@ impl Netcat {
                     let ciphertext = cipher_send.lock().unwrap().encrypt(plaintext);
                     total_sent += ciphertext.len() as u64;
 
-                    if self.config.verbose && total_sent % 4096 == 0 {
+                    if self.config.verbose && total_sent.is_multiple_of(4096) {
                         eprintln!("[*] Sent {} bytes (encrypted)", total_sent);
                     }
 

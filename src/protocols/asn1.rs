@@ -74,7 +74,7 @@ impl Asn1Object {
         offset += 1;
 
         let constructed = (tag_byte & 0x20) != 0;
-        let tag_class = (tag_byte >> 6) & 0x03; // 0=Universal, 2=Context-specific
+        let _tag_class = (tag_byte >> 6) & 0x03; // 0=Universal, 2=Context-specific
         let tag_number = tag_byte & 0x1F;
 
         // Parse length

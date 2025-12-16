@@ -10,6 +10,8 @@
 //! # References
 //! - [RFC 7693](https://tools.ietf.org/html/rfc7693)
 
+#![allow(clippy::needless_range_loop)]
+
 use std::convert::TryInto;
 
 /// BLAKE2b context state

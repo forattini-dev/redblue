@@ -7,7 +7,6 @@ use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::network::health::{
     PortCheckResult, PortDiff, PortHealthChecker, PortWatcher, WatchConfig,
 };
-use crate::storage::records::PortStateChange;
 use std::time::Duration;
 
 pub struct HealthCommand;

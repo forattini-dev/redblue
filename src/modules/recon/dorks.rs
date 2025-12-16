@@ -279,10 +279,10 @@ impl DorksSearcher {
         ];
 
         let mut emails = HashSet::new();
-        let email_pattern = format!("@{}", domain);
+        let _email_pattern = format!("@{}", domain);
 
         for query in queries {
-            let urls = self.perform_search(&query);
+            let _urls = self.perform_search(&query);
             // For each URL, try to fetch and extract emails
             // For performance, just extract emails from the search results snippets
             self.rate_limit();

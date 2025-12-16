@@ -146,7 +146,7 @@ impl MongoClient {
         // Parse message length (first 4 bytes)
         let message_len = i32::from_le_bytes([header[0], header[1], header[2], header[3]]) as usize;
 
-        if message_len < 16 || message_len > 48_000_000 {
+        if !(16..=48_000_000).contains(&message_len) {
             return Err(format!("Invalid message length: {}", message_len));
         }
 

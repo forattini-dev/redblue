@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::storage::encoding::{read_string, read_varu32, write_string, write_varu32, DecodeError};
+use crate::storage::encoding::{read_string, write_string, DecodeError};
 use crate::storage::records::{SessionRecord, SessionStatus};
 
 #[derive(Debug, Clone, Copy)]
@@ -33,7 +33,7 @@ impl SessionSegmentHeader {
         if bytes.len() < Self::SIZE {
             return Err(DecodeError("session header too small"));
         }
-        if &bytes[0..4] != Self::MAGIC {
+        if bytes[0..4] != Self::MAGIC {
             return Err(DecodeError("invalid session segment magic"));
         }
         let version = u16::from_le_bytes(bytes[4..6].try_into().unwrap());

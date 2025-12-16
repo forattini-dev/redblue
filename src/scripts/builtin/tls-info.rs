@@ -291,7 +291,7 @@ impl TlsInfoScript {
                 digits.push(c);
                 if digits.len() == 4 {
                     if let Ok(year) = digits.parse::<u32>() {
-                        if year >= 2000 && year <= 2100 {
+                        if (2000..=2100).contains(&year) {
                             return Some(year);
                         }
                     }
@@ -300,7 +300,7 @@ impl TlsInfoScript {
             } else {
                 if digits.len() == 4 {
                     if let Ok(year) = digits.parse::<u32>() {
-                        if year >= 2000 && year <= 2100 {
+                        if (2000..=2100).contains(&year) {
                             return Some(year);
                         }
                     }
@@ -311,7 +311,7 @@ impl TlsInfoScript {
 
         if digits.len() == 4 {
             if let Ok(year) = digits.parse::<u32>() {
-                if year >= 2000 && year <= 2100 {
+                if (2000..=2100).contains(&year) {
                     return Some(year);
                 }
             }

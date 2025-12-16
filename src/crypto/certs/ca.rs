@@ -5,13 +5,8 @@
 //! - Signing certificates for MITM interception
 //! - Managing certificate serial numbers
 
-use super::x509::{
-    AlgorithmIdentifier, CertError, Certificate, Extension, Name, SubjectPublicKeyInfo,
-    TbsCertificate, Validity,
-};
-use crate::crypto::encoding::asn1::Asn1Value;
+use super::x509::{CertError, Certificate, Name};
 use crate::crypto::encoding::oid::Oid;
-use crate::crypto::sha256::sha256;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 

@@ -157,17 +157,17 @@ impl IntelIocCommand {
                             *target = value.to_string();
                         }
                         "ip" => {
-                            let extractor = IocExtractor::new(target.as_str());
+                            let _extractor = IocExtractor::new(target.as_str());
                             // Try to parse and add IP
                             let ioc_type = if value.contains(':') {
                                 IocType::IPv6
                             } else {
                                 IocType::IPv4
                             };
-                            let ioc =
+                            let _ioc =
                                 Ioc::new(ioc_type, value, IocSource::PortScan, 85, target.as_str())
                                     .with_tag("manual_input");
-                            collection.add(ioc);
+                            collection.add(_ioc);
                         }
                         "ports" | "p" => {
                             // Extract ports and add as context to existing IP IOCs
@@ -177,7 +177,7 @@ impl IntelIocCommand {
                                 .collect();
 
                             for port in &ports {
-                                let ioc = Ioc::new(
+                                let _ioc = Ioc::new(
                                     IocType::IPv4,
                                     "scan_target", // placeholder
                                     IocSource::PortScan,
@@ -199,7 +199,7 @@ impl IntelIocCommand {
                             ));
                         }
                         "dns" | "domain" => {
-                            let extractor = IocExtractor::new(target.as_str());
+                            let _extractor = IocExtractor::new(target.as_str());
                             // Add domain as IOC
                             let ioc = Ioc::new(
                                 IocType::Domain,
@@ -462,11 +462,7 @@ impl IntelIocCommand {
 
     /// Run demo extraction
     fn run_demo(&self, ctx: &CliContext) -> Result<(), String> {
-        let target = ctx
-            .target
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("example.com");
+        let target = ctx.target.as_deref().unwrap_or("example.com");
 
         Output::header(&format!("IOC Extraction Demo: {}", target));
         println!();
@@ -1374,11 +1370,12 @@ fn format_timestamp(ts: u64) -> String {
     let mut remaining_days = days;
 
     loop {
-        let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-            366
-        } else {
-            365
-        };
+        let days_in_year =
+            if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) {
+                366
+            } else {
+                365
+            };
         if remaining_days < days_in_year {
             break;
         }
@@ -1386,7 +1383,7 @@ fn format_timestamp(ts: u64) -> String {
         year += 1;
     }
 
-    let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let is_leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
     let days_in_months = if is_leap {
         [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     } else {

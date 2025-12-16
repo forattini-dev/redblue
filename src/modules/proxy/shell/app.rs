@@ -1,10 +1,8 @@
 //! Main MITM Shell application
 
-use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -60,7 +58,7 @@ impl MitmShell {
 
         // Start proxy in background thread
         let proxy = MitmProxy::new(config);
-        let proxy_addr = self.proxy_addr;
+        let _proxy_addr = self.proxy_addr;
 
         thread::spawn(move || {
             if let Err(e) = proxy.run() {

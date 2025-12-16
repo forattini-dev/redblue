@@ -1,5 +1,5 @@
-/// CRC32 implementation (IEEE 802.3 polynomial)
-/// Used for gzip file integrity verification (RFC 1952)
+//! CRC32 implementation (IEEE 802.3 polynomial)
+//! Used for gzip file integrity verification (RFC 1952)
 
 /// CRC32 lookup table for fast computation
 /// Polynomial: 0xEDB88320 (reversed representation of 0x04C11DB7)

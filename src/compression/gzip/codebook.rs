@@ -1,7 +1,10 @@
-/// Huffman CodeBook construction (RFC 1951 Section 3.2.2)
-///
-/// Builds canonical Huffman codes from a list of code lengths.
-/// The algorithm follows the exact specification in RFC 1951.
+//! Huffman CodeBook construction (RFC 1951 Section 3.2.2)
+//!
+//! Builds canonical Huffman codes from a list of code lengths.
+//! The algorithm follows the exact specification in RFC 1951.
+
+#![allow(clippy::needless_range_loop)]
+
 use super::error::{GzipError, Result};
 
 /// Maximum code length allowed by DEFLATE

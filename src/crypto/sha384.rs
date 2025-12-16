@@ -1,7 +1,9 @@
-/// SHA-384 implementation from scratch
-/// Based on FIPS 180-4 (SHA-2 family, 64-bit)
-///
-/// This module provides a streaming SHA-384 hasher and a convenience helper.
+//! SHA-384 implementation from scratch
+//! Based on FIPS 180-4 (SHA-2 family, 64-bit)
+//!
+//! This module provides a streaming SHA-384 hasher and a convenience helper.
+
+#![allow(clippy::needless_range_loop)]
 
 pub struct Sha384 {
     state: [u64; 8],

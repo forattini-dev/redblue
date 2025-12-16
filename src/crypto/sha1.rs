@@ -1,5 +1,5 @@
-/// SHA-1 hash implementation (FIPS PUB 180-4)
-/// Minimal, dependency-free digest used for TLS 1.0/1.1/1.2 CBC HMACs.
+//! SHA-1 hash implementation (FIPS PUB 180-4)
+//! Minimal, dependency-free digest used for TLS 1.0/1.1/1.2 CBC HMACs.
 
 pub struct Sha1 {
     state: [u32; 5],

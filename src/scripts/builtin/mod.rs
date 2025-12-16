@@ -1,13 +1,13 @@
-/// Built-in Scripts
-///
-/// Compiled Rust scripts that implement common security checks.
-/// These scripts are included in the binary and require no external files.
-///
-/// ## Script Categories
-///
-/// - **Discovery**: Banner grabbing, service detection, version identification
-/// - **Security**: Security header checks, TLS configuration
-/// - **Vulnerability**: Known CVE checks, misconfigurations
+//! Built-in Scripts
+//!
+//! Compiled Rust scripts that implement common security checks.
+//! These scripts are included in the binary and require no external files.
+//!
+//! ## Script Categories
+//!
+//! - **Discovery**: Banner grabbing, service detection, version identification
+//! - **Security**: Security header checks, TLS configuration
+//! - **Vulnerability**: Known CVE checks, misconfigurations
 
 // HTTP/Web Scripts
 #[path = "http-headers.rs"]

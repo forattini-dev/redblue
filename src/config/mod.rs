@@ -6,7 +6,7 @@ pub use presets::{Module, OutputFormat, Parallelism, RateLimit, ScanPreset};
 pub use yaml::YamlConfig;
 
 use std::collections::HashMap;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct RedBlueConfig {
@@ -68,16 +68,10 @@ pub struct DatabaseConfig {
 }
 
 static INIT: Once = Once::new();
-static mut GLOBAL_CONFIG: Option<RedBlueConfig> = None;
+static GLOBAL_CONFIG: OnceLock<RedBlueConfig> = OnceLock::new();
 
-/// Initialize and return the global configuration (idempotent).
 pub fn init() -> &'static RedBlueConfig {
-    unsafe {
-        INIT.call_once(|| {
-            GLOBAL_CONFIG = Some(RedBlueConfig::load());
-        });
-        GLOBAL_CONFIG.as_ref().unwrap()
-    }
+    GLOBAL_CONFIG.get_or_init(RedBlueConfig::load)
 }
 
 /// Access the global configuration, loading defaults if necessary.
@@ -145,10 +139,8 @@ impl RedBlueConfig {
     }
 
     pub fn load() -> Self {
-        if let Some(yaml_config) = YamlConfig::load_from_cwd_cached() {
-            return Self::from_yaml_config(yaml_config.clone());
-        }
-        Self::default()
+        let yaml_config = YamlConfig::load_from_cwd_cached();
+        Self::from_yaml_config(yaml_config.clone())
     }
 
     pub fn create_default_file() -> Result<(), String> {

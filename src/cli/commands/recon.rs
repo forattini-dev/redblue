@@ -1672,11 +1672,8 @@ impl ReconCommand {
         let exclude_pattern = ctx.get_flag("exclude").or_else(|| ctx.get_flag("e"));
 
         if include_pattern.is_some() || exclude_pattern.is_some() {
-            urls = harvester.filter_urls(
-                urls,
-                include_pattern.as_ref().map(|s| s.as_str()),
-                exclude_pattern.as_ref().map(|s| s.as_str()),
-            );
+            urls =
+                harvester.filter_urls(urls, include_pattern.as_deref(), exclude_pattern.as_deref());
         }
 
         // Filter by extensions if specified
@@ -1813,7 +1810,7 @@ impl ReconCommand {
             println!("  ],");
             println!("  \"social_profiles\": [");
             for (i, profile) in result.social_profiles.iter().enumerate() {
-                let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("");
+                let url = profile.url.as_deref().unwrap_or("");
                 let comma = if i < result.social_profiles.len() - 1 {
                     ","
                 } else {
@@ -1860,7 +1857,7 @@ impl ReconCommand {
                 result.social_profiles.len()
             ));
             for profile in &result.social_profiles {
-                let url = profile.url.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+                let url = profile.url.as_deref().unwrap_or("N/A");
                 println!(
                     "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
                     profile.platform, url
@@ -2668,7 +2665,7 @@ impl ReconCommand {
             return Ok(());
         }
 
-        println!("  {:<40} {:<15} {}", "SUBDOMAIN", "SOURCE", "IP ADDRESSES");
+        println!("  {:<40} {:<15} IP ADDRESSES", "SUBDOMAIN", "SOURCE");
         println!("  {}", "─".repeat(75));
 
         for subdomain in &subdomains {
@@ -2677,7 +2674,6 @@ impl ReconCommand {
                 SubdomainSource::CertTransparency => "CT Logs",
                 SubdomainSource::SearchEngine => "Search Engine",
                 SubdomainSource::WebCrawl => "Web Crawl",
-                _ => "Unknown", // Default case
             };
             let ips_str = subdomain
                 .ips
@@ -2743,7 +2739,6 @@ impl ReconCommand {
             SubdomainSource::CertTransparency => "CT Logs",
             SubdomainSource::SearchEngine => "Search Engine",
             SubdomainSource::WebCrawl => "Web Crawl",
-            _ => "Unknown", // Default case
         };
         let ips_str = info
             .ips

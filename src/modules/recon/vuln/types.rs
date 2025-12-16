@@ -219,7 +219,7 @@ impl VersionRange {
 /// Parse version string into comparable tuple
 fn parse_version(version: &str) -> Vec<u32> {
     version
-        .split(|c: char| c == '.' || c == '-' || c == '_')
+        .split(|c: char| matches!(c, '.' | '-' | '_'))
         .filter_map(|part| {
             // Extract leading digits from each part
             let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -310,7 +310,7 @@ impl Vulnerability {
     pub fn merge(&mut self, other: &Vulnerability) {
         // Take higher CVSS
         if let Some(other_cvss) = other.cvss_v3 {
-            if self.cvss_v3.map_or(true, |s| other_cvss > s) {
+            if self.cvss_v3.is_none_or(|s| other_cvss > s) {
                 self.cvss_v3 = Some(other_cvss);
             }
         }

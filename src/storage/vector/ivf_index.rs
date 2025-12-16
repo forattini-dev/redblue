@@ -9,8 +9,7 @@
 
 use super::dense::DenseVectorStorage;
 use super::distance::{
-    cosine_distance, dot_product, l2_squared_distance, manhattan_distance, normalize_vector,
-    Distance,
+    cosine_distance, dot_product, l2_squared_distance, manhattan_distance, Distance,
 };
 use super::types::{DenseVector, SearchResult, VectorId};
 use std::cmp::Ordering;

@@ -321,7 +321,7 @@ impl ReportGenerator {
     /// Build card HTML for a single result
     fn build_card(&self, result: &ScreenshotResult) -> String {
         let success = result.success();
-        let status_class = if success {
+        let _status_class = if success {
             "status-success"
         } else {
             "status-error"

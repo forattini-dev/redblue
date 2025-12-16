@@ -65,22 +65,22 @@ impl VulnDatabase {
 
         // Check core vulnerabilities
         for entry in &self.core_vulns {
-            if entry.cms.map_or(true, |c| c == cms_type) {
-                if self.version_matches(version, &entry.affected_versions) {
-                    vulns.push(entry.to_vulnerability());
-                }
+            if entry.cms.is_none_or(|c| c == cms_type)
+                && self.version_matches(version, &entry.affected_versions)
+            {
+                vulns.push(entry.to_vulnerability());
             }
         }
 
         // Check plugin vulnerabilities
         for plugin in plugins {
             for entry in &self.plugin_vulns {
-                if entry.cms.map_or(true, |c| c == cms_type) {
-                    if self.component_matches(&plugin.name, &entry.component_name) {
-                        let plugin_version = plugin.version.as_deref().unwrap_or("0.0.0");
-                        if self.version_matches(plugin_version, &entry.affected_versions) {
-                            vulns.push(entry.to_vulnerability());
-                        }
+                if entry.cms.is_none_or(|c| c == cms_type)
+                    && self.component_matches(&plugin.name, &entry.component_name)
+                {
+                    let plugin_version = plugin.version.as_deref().unwrap_or("0.0.0");
+                    if self.version_matches(plugin_version, &entry.affected_versions) {
+                        vulns.push(entry.to_vulnerability());
                     }
                 }
             }
@@ -89,12 +89,12 @@ impl VulnDatabase {
         // Check theme vulnerabilities
         for theme in themes {
             for entry in &self.theme_vulns {
-                if entry.cms.map_or(true, |c| c == cms_type) {
-                    if self.component_matches(&theme.name, &entry.component_name) {
-                        let theme_version = theme.version.as_deref().unwrap_or("0.0.0");
-                        if self.version_matches(theme_version, &entry.affected_versions) {
-                            vulns.push(entry.to_vulnerability());
-                        }
+                if entry.cms.is_none_or(|c| c == cms_type)
+                    && self.component_matches(&theme.name, &entry.component_name)
+                {
+                    let theme_version = theme.version.as_deref().unwrap_or("0.0.0");
+                    if self.version_matches(theme_version, &entry.affected_versions) {
+                        vulns.push(entry.to_vulnerability());
                     }
                 }
             }

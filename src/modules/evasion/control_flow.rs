@@ -8,6 +8,8 @@
 //!
 //! These techniques increase code complexity without affecting functionality.
 
+#![allow(clippy::needless_range_loop)]
+
 use std::hint::black_box;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,7 +24,7 @@ impl OpaquePredicates {
     pub fn always_true_math(seed: u32) -> bool {
         let x = black_box(seed);
         let result = x.wrapping_mul(x).wrapping_add(x);
-        result % 2 == 0
+        result.is_multiple_of(2)
     }
 
     /// Always returns false

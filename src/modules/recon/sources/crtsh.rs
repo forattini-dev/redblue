@@ -69,11 +69,7 @@ impl CrtShSource {
                     }
 
                     // Handle wildcards
-                    let clean_name = if name.starts_with("*.") {
-                        &name[2..]
-                    } else {
-                        &name
-                    };
+                    let clean_name = name.strip_prefix("*.").unwrap_or(&name);
 
                     // Validate it belongs to target domain
                     if (clean_name.ends_with(&format!(".{}", domain_lower))
@@ -192,10 +188,7 @@ impl SubdomainSource for CrtShSource {
     fn query(&self, domain: &str) -> Result<Vec<SubdomainRecord>, SourceError> {
         let url = format!("https://crt.sh/?q=%25.{}&output=json", domain);
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code == 429 {
             return Err(SourceError::RateLimited(std::time::Duration::from_secs(60)));

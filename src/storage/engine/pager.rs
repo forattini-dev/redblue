@@ -32,15 +32,13 @@
 //! - Turso `core/storage/pager.rs:54-134` - HeaderRef::from_pager()
 //! - Turso `core/storage/pager.rs:120` - pager.add_dirty(&page)
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
-
-use super::crc32::crc32;
 use super::freelist::FreeList;
 use super::page::{Page, PageError, PageType, DB_VERSION, HEADER_SIZE, MAGIC_BYTES, PAGE_SIZE};
 use super::page_cache::PageCache;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, RwLock};
 
 /// Default cache size (pages)
 const DEFAULT_CACHE_SIZE: usize = 10_000;

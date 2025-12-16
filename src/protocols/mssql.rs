@@ -103,17 +103,17 @@ impl MssqlClient {
 
     /// Build TDS pre-login packet
     fn build_prelogin_packet(&self) -> Vec<u8> {
-        let mut packet = Vec::new();
-
         // TDS header (8 bytes)
-        packet.push(TdsPacketType::PreLogin as u8); // Type
-        packet.push(TdsPacketStatus::EndOfMessage as u8); // Status
-        packet.push(0x00); // Length (high byte) - placeholder
-        packet.push(0x00); // Length (low byte) - placeholder
-        packet.push(0x00); // SPID (high)
-        packet.push(0x00); // SPID (low)
-        packet.push(0x00); // Packet ID
-        packet.push(0x00); // Window
+        let mut packet = vec![
+            TdsPacketType::PreLogin as u8,       // Type
+            TdsPacketStatus::EndOfMessage as u8, // Status
+            0x00,                                // Length (high byte) - placeholder
+            0x00,                                // Length (low byte) - placeholder
+            0x00,                                // SPID (high)
+            0x00,                                // SPID (low)
+            0x00,                                // Packet ID
+            0x00,                                // Window
+        ];
 
         // Pre-login data
         let mut data = Vec::new();
@@ -167,7 +167,7 @@ impl MssqlClient {
         // Parse packet length from header (bytes 2-3, big-endian)
         let packet_len = ((header[2] as usize) << 8) | (header[3] as usize);
 
-        if packet_len < 8 || packet_len > 32768 {
+        if !(8..=32768).contains(&packet_len) {
             return Err(format!("Invalid packet length: {}", packet_len));
         }
 

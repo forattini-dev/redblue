@@ -55,14 +55,13 @@ impl LoginDetector {
                 "text" | "email" => {
                     // Heuristics for user field
                     let lower = name_attr.to_lowercase();
-                    if lower.contains("user")
+                    if (lower.contains("user")
                         || lower.contains("email")
                         || lower.contains("login")
-                        || lower.contains("id")
+                        || lower.contains("id"))
+                        && user_field.is_none()
                     {
-                        if user_field.is_none() {
-                            user_field = Some(name_attr.to_string());
-                        }
+                        user_field = Some(name_attr.to_string());
                     }
                 }
                 "hidden" => {

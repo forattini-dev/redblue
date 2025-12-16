@@ -140,7 +140,7 @@ impl TraceCommand {
         println!("  {}", "─".repeat(80));
 
         for hop in &hops {
-            let hostname = hop.hostname.as_ref().map(|h| h.as_str()).unwrap_or("*");
+            let hostname = hop.hostname.as_deref().unwrap_or("*");
 
             let ip = if let Some(addr) = hop.ip {
                 addr.to_string()

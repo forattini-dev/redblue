@@ -483,20 +483,21 @@ impl Database {
             return Ok(());
         }
 
-        let mut segments: Vec<(SegmentKind, Vec<u8>)> = Vec::new();
-        segments.push((SegmentKind::Ports, self.ports.serialize()));
-        segments.push((SegmentKind::Subdomains, self.subdomains.serialize()));
-        segments.push((SegmentKind::Whois, self.whois.serialize()));
-        segments.push((SegmentKind::Tls, self.tls.serialize()));
-        segments.push((SegmentKind::Dns, self.dns.serialize()));
-        segments.push((SegmentKind::Http, self.http.serialize()));
-        segments.push((SegmentKind::Host, self.hosts.serialize()));
-        segments.push((SegmentKind::Proxy, self.proxy.serialize()));
-        segments.push((SegmentKind::Mitre, self.mitre.serialize()));
-        segments.push((SegmentKind::Ioc, self.iocs.serialize()));
-        segments.push((SegmentKind::Vuln, self.vulns.serialize()));
-        segments.push((SegmentKind::Sessions, self.sessions.serialize()));
-        segments.push((SegmentKind::Playbooks, self.playbooks.serialize()));
+        let segments: Vec<(SegmentKind, Vec<u8>)> = vec![
+            (SegmentKind::Ports, self.ports.serialize()),
+            (SegmentKind::Subdomains, self.subdomains.serialize()),
+            (SegmentKind::Whois, self.whois.serialize()),
+            (SegmentKind::Tls, self.tls.serialize()),
+            (SegmentKind::Dns, self.dns.serialize()),
+            (SegmentKind::Http, self.http.serialize()),
+            (SegmentKind::Host, self.hosts.serialize()),
+            (SegmentKind::Proxy, self.proxy.serialize()),
+            (SegmentKind::Mitre, self.mitre.serialize()),
+            (SegmentKind::Ioc, self.iocs.serialize()),
+            (SegmentKind::Vuln, self.vulns.serialize()),
+            (SegmentKind::Sessions, self.sessions.serialize()),
+            (SegmentKind::Playbooks, self.playbooks.serialize()),
+        ];
 
         let mut file = OpenOptions::new()
             .write(true)

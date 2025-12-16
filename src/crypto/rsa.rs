@@ -35,7 +35,7 @@ impl RsaPublicKey {
     /// Encrypt data with PKCS#1 v1.5 padding
     /// Used for TLS ClientKeyExchange to encrypt the pre-master secret
     pub fn encrypt_pkcs1v15(&self, plaintext: &[u8]) -> Result<Vec<u8>, String> {
-        let k = (self.bits + 7) / 8; // modulus size in bytes
+        let k = self.bits.div_ceil(8); // modulus size in bytes
 
         // PKCS#1 v1.5 padding: EM = 0x00 || 0x02 || PS || 0x00 || M
         // where PS is random non-zero padding, at least 8 bytes
@@ -79,7 +79,7 @@ impl RsaPublicKey {
 
     /// Get key size in bytes
     pub fn size(&self) -> usize {
-        (self.bits + 7) / 8
+        self.bits.div_ceil(8)
     }
 
     /// Get key size in bits

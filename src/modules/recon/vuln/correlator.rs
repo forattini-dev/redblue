@@ -21,13 +21,11 @@
 //! └─────────────────┘     └──────────────┘     └─────────────────┘
 //! ```
 
-use super::exploitdb::ExploitDbEntry;
 use super::kev::KevEntry;
 use super::osv::Ecosystem;
 use super::{
-    calculate_risk_score, find_cpe, generate_cpe, CpeMapping, DetectedTech, ExploitDbClient,
-    KevClient, NvdClient, OsvClient, Severity, TechCategory, VulnCollection, VulnSource,
-    Vulnerability,
+    calculate_risk_score, find_cpe, generate_cpe, DetectedTech, ExploitDbClient, KevClient,
+    NvdClient, OsvClient, Severity, TechCategory, VulnCollection, VulnSource, Vulnerability,
 };
 use std::time::{Duration, Instant};
 
@@ -593,10 +591,7 @@ impl VulnCorrelator {
         let entries = self.kev_client.get_by_product(name)?;
 
         // Convert KEV entries to Vulnerability records
-        let vulns: Vec<Vulnerability> = entries
-            .into_iter()
-            .map(|entry| kev_entry_to_vuln(entry))
-            .collect();
+        let vulns: Vec<Vulnerability> = entries.into_iter().map(kev_entry_to_vuln).collect();
 
         Ok(vulns)
     }

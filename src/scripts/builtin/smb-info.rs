@@ -112,26 +112,25 @@ impl Script for SmbInfoScript {
         let data_lower = smb_data.to_lowercase();
 
         // EternalBlue (CVE-2017-0144) - Windows 7, Server 2008
-        if data_lower.contains("windows 7")
+        if (data_lower.contains("windows 7")
             || data_lower.contains("windows server 2008")
             || data_lower.contains("windows xp")
-            || data_lower.contains("windows vista")
+            || data_lower.contains("windows vista"))
+            && (version_lower.contains("1") || version_lower.contains("smb1"))
         {
-            if version_lower.contains("1") || version_lower.contains("smb1") {
-                result.add_finding(
-                    Finding::new(
-                        FindingType::Vulnerability,
-                        "Potential EternalBlue Vulnerability",
-                    )
-                    .with_cve("CVE-2017-0144")
-                    .with_description(
-                        "System may be vulnerable to EternalBlue (MS17-010), \
-                             a critical RCE vulnerability in SMBv1.",
-                    )
-                    .with_severity(FindingSeverity::Critical)
-                    .with_remediation("Apply MS17-010 patches immediately. Disable SMBv1."),
-                );
-            }
+            result.add_finding(
+                Finding::new(
+                    FindingType::Vulnerability,
+                    "Potential EternalBlue Vulnerability",
+                )
+                .with_cve("CVE-2017-0144")
+                .with_description(
+                    "System may be vulnerable to EternalBlue (MS17-010), \
+                         a critical RCE vulnerability in SMBv1.",
+                )
+                .with_severity(FindingSeverity::Critical)
+                .with_remediation("Apply MS17-010 patches immediately. Disable SMBv1."),
+            );
         }
 
         // SMBGhost (CVE-2020-0796) - Windows 10 1903/1909

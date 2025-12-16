@@ -31,7 +31,7 @@ impl DenseVector {
 
     /// Create a vector from bytes (little-endian f32)
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return None;
         }
         let dim = bytes.len() / 4;

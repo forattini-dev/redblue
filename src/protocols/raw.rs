@@ -7,7 +7,7 @@
 ///
 /// Requires CAP_NET_RAW on Linux or root privileges.
 /// Reference: RFC 791 (IP), RFC 793 (TCP), RFC 768 (UDP)
-use std::io::{self, Read, Write};
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
@@ -416,7 +416,7 @@ fn rand_u32() -> u32 {
 #[cfg(target_family = "unix")]
 pub mod raw_socket {
     use super::*;
-    use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+    use std::os::unix::io::{AsRawFd, RawFd};
 
     /// Raw socket for packet injection
     pub struct RawSocket {
@@ -798,15 +798,16 @@ impl StealthScanner {
                         let ip_hdr_len = (resp_ip.ihl as usize) * 4;
                         if len >= ip_hdr_len + 20 {
                             if let Ok(resp_tcp) = TcpHeader::from_bytes(&buf[ip_hdr_len..]) {
-                                if resp_tcp.src_port == port && resp_tcp.dst_port == src_port {
-                                    if resp_tcp.is_rst() {
-                                        return Ok(RawScanResult {
-                                            port,
-                                            state: PortState::Closed,
-                                            rtt: Some(start.elapsed()),
-                                            ttl: Some(resp_ip.ttl),
-                                        });
-                                    }
+                                if resp_tcp.src_port == port
+                                    && resp_tcp.dst_port == src_port
+                                    && resp_tcp.is_rst()
+                                {
+                                    return Ok(RawScanResult {
+                                        port,
+                                        state: PortState::Closed,
+                                        rtt: Some(start.elapsed()),
+                                        ttl: Some(resp_ip.ttl),
+                                    });
                                 }
                             }
                         }

@@ -73,7 +73,7 @@ impl ServiceManager for MacOSServiceManager {
 
         // Load if auto-start requested
         if config.auto_start {
-            let label = self.label(&config.name);
+            let _label = self.label(&config.name);
             Command::new("launchctl")
                 .args(["load", "-w"])
                 .arg(&plist_path)
@@ -92,7 +92,7 @@ impl ServiceManager for MacOSServiceManager {
 
     fn uninstall(&self, name: &str) -> Result<(), String> {
         let plist_path = self.plist_path(name);
-        let label = self.label(name);
+        let _label = self.label(name);
 
         // Unload service
         Command::new("launchctl")

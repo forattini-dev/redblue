@@ -155,7 +155,7 @@ impl SubdomainBruteforcer {
     pub fn run(&self, progress_bar: Arc<ProgressBar>) -> Vec<BruteforceResult> {
         let results = Arc::new(Mutex::new(Vec::new()));
         let wordlist = self.wordlist.clone();
-        let chunk_size = (wordlist.len() + self.threads - 1) / self.threads;
+        let chunk_size = wordlist.len().div_ceil(self.threads);
         let chunks: Vec<Vec<String>> = wordlist.chunks(chunk_size).map(|c| c.to_vec()).collect();
 
         let wildcard_ips = self.wildcard_ips.clone();

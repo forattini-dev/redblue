@@ -54,7 +54,7 @@ pub enum Combinator {
 }
 
 /// A simple selector (tag, class, id, attribute, pseudo)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SimpleSelector {
     pub tag: Option<String>,
     pub id: Option<String>,
@@ -62,19 +62,6 @@ pub struct SimpleSelector {
     pub attributes: Vec<AttributeSelector>,
     pub pseudo_classes: Vec<PseudoClass>,
     pub is_universal: bool,
-}
-
-impl Default for SimpleSelector {
-    fn default() -> Self {
-        Self {
-            tag: None,
-            id: None,
-            classes: Vec::new(),
-            attributes: Vec::new(),
-            pseudo_classes: Vec::new(),
-            is_universal: false,
-        }
-    }
 }
 
 /// Attribute selector with operator
@@ -710,10 +697,10 @@ impl Selector {
         for child in &parent.children {
             if let crate::modules::web::dom::Node::ElementRef(idx) = child {
                 if let Some(doc_elem) = doc.get_element(*idx) {
-                    if selector.matches(doc_elem, doc, parent.parent_index) {
-                        if !results.iter().any(|e| e.self_index == doc_elem.self_index) {
-                            results.push(doc_elem);
-                        }
+                    if selector.matches(doc_elem, doc, parent.parent_index)
+                        && !results.iter().any(|e| e.self_index == doc_elem.self_index)
+                    {
+                        results.push(doc_elem);
                     }
                     // Recurse into children
                     self.find_descendants(doc_elem, selector, doc, results);

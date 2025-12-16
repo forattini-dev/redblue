@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use uuid::Uuid;
 
-use crate::scripts::{Finding, FindingSeverity, ScriptCategory, ScriptContext, ScriptResult};
+use crate::scripts::{Finding, FindingSeverity};
 
 /// Helper for serializing Duration as seconds
 mod duration_serde {

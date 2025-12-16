@@ -3,9 +3,10 @@
 /// Output formatting system - supports multiple output formats
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum OutputFormat {
     /// Human-readable colorized output (default)
+    #[default]
     Human,
     /// JSON output for automation/scripting
     Json,
@@ -29,12 +30,6 @@ impl OutputFormat {
             OutputFormat::Json => "json",
             OutputFormat::Yaml => "yaml",
         }
-    }
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        OutputFormat::Human
     }
 }
 

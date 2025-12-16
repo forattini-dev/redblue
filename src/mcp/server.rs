@@ -7,10 +7,9 @@ use crate::modules::recon::massdns::{
 };
 use crate::modules::recon::vuln::osv::{Ecosystem, OsvClient};
 use crate::modules::recon::vuln::{
-    calculate_risk_score, generate_cpe, ExploitDbClient, KevClient, NvdClient, Severity,
-    VulnCollection,
+    calculate_risk_score, generate_cpe, ExploitDbClient, KevClient, NvdClient, VulnCollection,
 };
-use crate::modules::web::crawler::{CrawlerConfig, WebCrawler};
+use crate::modules::web::crawler::WebCrawler;
 use crate::modules::web::dom::Document;
 use crate::modules::web::extractors;
 use crate::modules::web::fingerprinter::WebFingerprinter;
@@ -679,13 +678,14 @@ impl McpServer {
 
         let mut tools_json = Vec::new();
         for tool in &self.tools {
-            let mut entry = Vec::new();
-            entry.push(("name".to_string(), JsonValue::String(tool.name.to_string())));
-            entry.push((
-                "description".to_string(),
-                JsonValue::String(tool.description.to_string()),
-            ));
-            entry.push(("inputSchema".to_string(), build_input_schema(tool.fields)));
+            let entry = vec![
+                ("name".to_string(), JsonValue::String(tool.name.to_string())),
+                (
+                    "description".to_string(),
+                    JsonValue::String(tool.description.to_string()),
+                ),
+                ("inputSchema".to_string(), build_input_schema(tool.fields)),
+            ];
             tools_json.push(JsonValue::Object(entry));
         }
 
@@ -1910,7 +1910,7 @@ impl McpServer {
         // Sort and limit results
         let vulns: Vec<_> = collection.into_sorted().into_iter().take(limit).collect();
 
-        let vulns_json: Vec<JsonValue> = vulns.iter().map(|v| vuln_to_json(v)).collect();
+        let vulns_json: Vec<JsonValue> = vulns.iter().map(vuln_to_json).collect();
 
         let text = format!(
             "Found {} vulnerabilities for '{}'{} from {}",
@@ -2251,7 +2251,7 @@ impl McpServer {
             })
             .collect();
 
-        let vulns_json: Vec<JsonValue> = vulns.iter().map(|v| vuln_to_json(v)).collect();
+        let vulns_json: Vec<JsonValue> = vulns.iter().map(vuln_to_json).collect();
 
         let text = format!(
             "Fingerprint of '{}': {} technologies detected, {} vulnerabilities found",
@@ -2641,7 +2641,7 @@ fn read_payload<R: BufRead>(reader: &mut R) -> Result<Option<String>, String> {
             return Ok(None);
         }
 
-        let trimmed = header.trim_end_matches(|c| c == '\n' || c == '\r');
+        let trimmed = header.trim_end_matches(|c| matches!(c, '\n' | '\r'));
         if trimmed.is_empty() {
             break;
         }
@@ -2889,10 +2889,8 @@ fn slugify(input: &str) -> String {
     for ch in input.chars() {
         if ch.is_ascii_alphanumeric() {
             slug.push(ch.to_ascii_lowercase());
-        } else if ch.is_ascii_whitespace() || ch == '-' {
-            if !slug.ends_with('-') {
-                slug.push('-');
-            }
+        } else if (ch.is_ascii_whitespace() || ch == '-') && !slug.ends_with('-') {
+            slug.push('-');
         }
     }
     slug.trim_matches('-').to_string()
@@ -2905,10 +2903,8 @@ fn extract_markdown_section(content: &str, heading_name: &str) -> Option<String>
 
     for line in content.lines() {
         if let Some((level, heading)) = parse_heading(line) {
-            if collecting {
-                if level <= target_level {
-                    break;
-                }
+            if collecting && level <= target_level {
+                break;
             }
             if heading.eq_ignore_ascii_case(heading_name.trim()) {
                 collecting = true;
@@ -2976,24 +2972,25 @@ struct TargetEntry {
 
 impl TargetEntry {
     fn to_json(&self) -> JsonValue {
-        let mut fields = Vec::new();
-        fields.push(("name".to_string(), JsonValue::String(self.name.clone())));
-        fields.push(("target".to_string(), JsonValue::String(self.target.clone())));
-        fields.push((
-            "created_at".to_string(),
-            JsonValue::Number(self.created_at as f64),
-        ));
-        fields.push((
-            "updated_at".to_string(),
-            JsonValue::Number(self.updated_at as f64),
-        ));
-        fields.push((
-            "notes".to_string(),
-            self.notes
-                .as_ref()
-                .map(|n| JsonValue::String(n.clone()))
-                .unwrap_or(JsonValue::Null),
-        ));
+        let fields = vec![
+            ("name".to_string(), JsonValue::String(self.name.clone())),
+            ("target".to_string(), JsonValue::String(self.target.clone())),
+            (
+                "created_at".to_string(),
+                JsonValue::Number(self.created_at as f64),
+            ),
+            (
+                "updated_at".to_string(),
+                JsonValue::Number(self.updated_at as f64),
+            ),
+            (
+                "notes".to_string(),
+                self.notes
+                    .as_ref()
+                    .map(|n| JsonValue::String(n.clone()))
+                    .unwrap_or(JsonValue::Null),
+            ),
+        ];
         JsonValue::object(fields)
     }
 }

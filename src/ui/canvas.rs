@@ -13,6 +13,8 @@
 //! │2│5│
 //! │6│7│
 //! └─┴─┘
+
+#![allow(clippy::needless_range_loop)]
 //! ```
 //!
 //! Unicode codepoint: U+2800 + bit pattern
@@ -66,8 +68,8 @@ impl BrailleCanvas {
     /// ```
     pub fn new(width: usize, height: usize) -> Self {
         // Round up to character boundaries
-        let char_width = (width + 1) / 2;
-        let char_height = (height + 3) / 4;
+        let char_width = width.div_ceil(2);
+        let char_height = height.div_ceil(4);
         let pixel_width = char_width * 2;
         let pixel_height = char_height * 4;
         let pixel_count = pixel_width * pixel_height;

@@ -1,7 +1,7 @@
 use crate::modules::recon::dorks::DorksSearcher;
 use crate::modules::recon::harvester::Harvester; // Use existing harvester to extract emails from URLs
 use crate::protocols::dns::{DnsClient, DnsRecordType};
-use crate::protocols::http::{HttpClient, HttpRequest};
+use crate::protocols::http::HttpClient;
 use std::collections::HashSet;
 
 pub struct EmailCorrelator {
@@ -65,8 +65,8 @@ impl EmailCorrelator {
             return patterns;
         }
 
-        let tld = domain_parts.last().unwrap_or(&"");
-        let base_domain = domain_parts[0..domain_parts.len() - 1].join("."); // e.g., "example" from "example.com"
+        let _tld = domain_parts.last().unwrap_or(&"");
+        let _base_domain = domain_parts[0..domain_parts.len() - 1].join("."); // e.g., "example" from "example.com"
 
         let common_names = vec!["admin", "info", "support", "sales", "contact", "webmaster"];
         for name in common_names {

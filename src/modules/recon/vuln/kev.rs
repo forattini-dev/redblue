@@ -49,7 +49,7 @@ impl KevClient {
     /// Fetch and cache the KEV catalog
     pub fn fetch_catalog(&mut self) -> Result<(), String> {
         // Check if cache is still valid (1 hour)
-        if let (Some(cache), Some(time)) = (&self.cache, &self.cache_time) {
+        if let (Some(_cache), Some(time)) = (&self.cache, &self.cache_time) {
             if time.elapsed() < std::time::Duration::from_secs(3600) {
                 return Ok(());
             }
@@ -118,9 +118,8 @@ impl KevClient {
 
             // Add note about ransomware use
             if entry.known_ransomware_use {
-                vuln.references.push(format!(
-                    "CISA Warning: Known to be used in ransomware campaigns"
-                ));
+                vuln.references
+                    .push("CISA Warning: Known to be used in ransomware campaigns".to_string());
             }
         }
 

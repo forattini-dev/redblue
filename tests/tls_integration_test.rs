@@ -27,7 +27,7 @@ mod tls_tests {
                 // Try to send HTTP GET request
                 let http_request =
                     "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
-                match tls.write(http_request.as_bytes()) {
+                match tls.write_all(http_request.as_bytes()) {
                     Ok(_) => {
                         println!("✓ HTTP request sent over TLS");
 

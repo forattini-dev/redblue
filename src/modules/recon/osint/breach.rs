@@ -8,7 +8,6 @@
 /// - Credential leak intelligence
 use super::{BreachInfo, OsintConfig, PasteInfo};
 use crate::protocols::http::HttpClient;
-use std::time::Duration;
 
 /// Breach Checker - looks up emails/usernames in known breach databases
 pub struct BreachChecker {
@@ -153,19 +152,19 @@ impl BreachChecker {
     }
 
     /// Check dehashed.com (requires API key)
-    fn check_dehashed(&self, email: &str) -> Option<Vec<BreachInfo>> {
+    fn check_dehashed(&self, _email: &str) -> Option<Vec<BreachInfo>> {
         // Dehashed requires paid API access
         // This is a placeholder for the API integration
         None
     }
 
     /// Check known public breach compilations
-    fn check_compilations(&self, email: &str) -> Option<Vec<BreachInfo>> {
+    fn check_compilations(&self, _email: &str) -> Option<Vec<BreachInfo>> {
         // This would check against locally cached breach data
         // or public breach lookup APIs
 
         // Known major breaches to check against
-        let known_breaches = vec![
+        let _known_breaches = vec![
             ("Collection #1", "2019-01-17", 773_000_000u64),
             ("LinkedIn", "2021-06-22", 700_000_000),
             ("Facebook", "2019-04-03", 533_000_000),
@@ -189,7 +188,7 @@ impl BreachChecker {
 
     /// Check if email domain has been involved in breaches
     pub fn check_domain(&self, domain: &str) -> DomainBreachResult {
-        let url = format!(
+        let _url = format!(
             "https://haveibeenpwned.com/api/v3/breaches?domain={}",
             urlencoded(domain)
         );
@@ -333,10 +332,9 @@ fn extract_json_string(json: &str, key: &str) -> Option<String> {
     let trimmed = after.trim_start();
 
     // Check for string value
-    if trimmed.starts_with('"') {
-        let start = 1;
-        let end = trimmed[1..].find('"')?;
-        return Some(trimmed[start..start + end].to_string());
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
     }
 
     None

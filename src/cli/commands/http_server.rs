@@ -164,9 +164,9 @@ impl HttpServerCommand {
         Output::item("Serve /rb", if serve_self { "enabled" } else { "disabled" });
         println!();
         Output::info("Built-in payloads:");
-        Output::dim(&format!("  /hook.js   - Browser hook payload"));
+        Output::dim("  /hook.js   - Browser hook payload");
         if serve_self {
-            Output::dim(&format!("  /rb        - redblue binary (self-replication)"));
+            Output::dim("  /rb        - redblue binary (self-replication)");
         }
         println!();
         Output::success(&format!("Starting server on http://{}:{} ...", host, port));

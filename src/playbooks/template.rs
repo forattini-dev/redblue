@@ -1,6 +1,5 @@
 use crate::playbooks::PlaybookContext;
 use chrono::Local;
-use std::collections::HashMap;
 use std::env;
 
 /// Template engine for playbook variable substitution

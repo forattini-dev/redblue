@@ -223,20 +223,19 @@ impl HTTPFingerprint {
         }
 
         // Check cookie patterns
-        if response.contains("PHPSESSID") {
-            if !techs.iter().any(|t| matches!(t, Technology::PHP(_))) {
-                techs.push(Technology::PHP(None));
-            }
+        if response.contains("PHPSESSID") && !techs.iter().any(|t| matches!(t, Technology::PHP(_)))
+        {
+            techs.push(Technology::PHP(None));
         }
 
         if response.contains("JSESSIONID") {
             techs.push(Technology::Java);
         }
 
-        if response.contains("ASP.NET_SessionId") || response.contains("X-AspNet-Version") {
-            if !techs.iter().any(|t| matches!(t, Technology::ASPNET(_))) {
-                techs.push(Technology::ASPNET(None));
-            }
+        if (response.contains("ASP.NET_SessionId") || response.contains("X-AspNet-Version"))
+            && !techs.iter().any(|t| matches!(t, Technology::ASPNET(_)))
+        {
+            techs.push(Technology::ASPNET(None));
         }
 
         techs

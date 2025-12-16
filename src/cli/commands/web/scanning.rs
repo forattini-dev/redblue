@@ -355,11 +355,7 @@ fn display_wordpress_results(result: &WPScanResult) -> Result<(), String> {
         println!();
         Output::info(&format!("Found {} plugins", result.plugins.len()));
         for plugin in result.plugins.iter().take(5) {
-            let version = plugin
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = plugin.version.as_deref().unwrap_or("Unknown");
             println!("  \x1b[36m●\x1b[0m  {} ({})", plugin.name, version);
         }
         if result.plugins.len() > 5 {
@@ -371,11 +367,7 @@ fn display_wordpress_results(result: &WPScanResult) -> Result<(), String> {
         println!();
         Output::info(&format!("Found {} themes", result.themes.len()));
         for theme in &result.themes {
-            let version = theme
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = theme.version.as_deref().unwrap_or("Unknown");
             println!("  \x1b[35m●\x1b[0m  {} ({})", theme.name, version);
         }
     }
@@ -635,11 +627,7 @@ fn display_drupal_results(result: &DrupalScanResult) -> Result<(), String> {
         println!();
         Output::info(&format!("Found {} modules", result.modules.len()));
         for module in result.modules.iter().take(10) {
-            let version = module
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = module.version.as_deref().unwrap_or("Unknown");
             println!("  \x1b[36m●\x1b[0m  {} ({})", module.name, version);
         }
         if result.modules.len() > 10 {
@@ -651,11 +639,7 @@ fn display_drupal_results(result: &DrupalScanResult) -> Result<(), String> {
         println!();
         Output::info(&format!("Found {} themes", result.themes.len()));
         for theme in &result.themes {
-            let version = theme
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = theme.version.as_deref().unwrap_or("Unknown");
             println!("  \x1b[35m●\x1b[0m  {} ({})", theme.name, version);
         }
     }
@@ -732,11 +716,7 @@ fn display_joomla_results(
         println!();
         Output::info(&format!("Found {} extensions", result.extensions.len()));
         for ext in result.extensions.iter().take(10) {
-            let version = ext
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = ext.version.as_deref().unwrap_or("Unknown");
             println!(
                 "  \x1b[36m●\x1b[0m  [{:9}] {} ({})",
                 ext.ext_type, ext.name, version
@@ -751,11 +731,7 @@ fn display_joomla_results(
         println!();
         Output::info(&format!("Found {} templates", result.templates.len()));
         for template in &result.templates {
-            let version = template
-                .version
-                .as_ref()
-                .map(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let version = template.version.as_deref().unwrap_or("Unknown");
             println!("  \x1b[35m●\x1b[0m  {} ({})", template.name, version);
         }
     }

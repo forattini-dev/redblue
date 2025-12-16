@@ -173,7 +173,7 @@ fn maybe_create_rbdb(ctx: &cli::CliContext) -> Result<(), std::io::Error> {
 
     SessionFile::create(target, &ctx.raw)
         .map(|_| ())
-        .map_err(|err| std::io::Error::other(err))
+        .map_err(std::io::Error::other)
 }
 
 fn extract_target_identifier(target: &str) -> Option<String> {

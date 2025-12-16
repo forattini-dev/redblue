@@ -10,7 +10,6 @@
 /// - Email format analysis
 use super::{EmailResult, OsintConfig, ProfileResult};
 use crate::protocols::http::HttpClient;
-use std::time::Duration;
 
 /// Email Intelligence Checker
 pub struct EmailIntel {

@@ -47,9 +47,8 @@ pub mod web;
 // SSL/TLS Security Testing
 pub mod tls;
 
-// CT logs moved to module root for backward compatibility
-#[path = "tls/ct-logs.rs"]
-pub mod ct_logs;
+// CT logs re-exported for backward compatibility
+pub use tls::ct_logs;
 
 // Data Collection
 pub mod collection {

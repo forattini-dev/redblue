@@ -3,7 +3,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufRead;
-use std::path::Path;
 
 pub struct NetworkAccessor;
 
@@ -84,8 +83,8 @@ impl NetworkAccessor {
             // IPv4
             if let Ok(ip_int) = u32::from_str_radix(ip_hex, 16) {
                 // Little endian
-                let ip = std::net::Ipv4Addr::from(u32::from_be(ip_int)); // Actually Linux /proc is native endian, but often printed as such. Wait, it's usually machine endian.
-                                                                         // Let's assume standard behavior: bytes 3,2,1,0
+                let _ip = std::net::Ipv4Addr::from(u32::from_be(ip_int)); // Actually Linux /proc is native endian, but often printed as such. Wait, it's usually machine endian.
+                                                                          // Let's assume standard behavior: bytes 3,2,1,0
                 let b = ip_int.to_ne_bytes();
                 return format!(
                     "{}:{}",

@@ -9,12 +9,11 @@ pub mod terminal;
 pub mod tui;
 pub mod validator;
 
-use crate::config::yaml::YamlConfig; // Import YamlConfig
 use crate::storage::PersistenceConfig;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CliContext {
     /// Full argument vector after `rb`
     pub raw: Vec<String>,
@@ -32,20 +31,6 @@ pub struct CliContext {
     pub flags: HashMap<String, String>,
 }
 
-impl Default for CliContext {
-    fn default() -> Self {
-        Self {
-            raw: Vec::new(),
-            domain: None,
-            resource: None,
-            verb: None,
-            target: None,
-            args: Vec::new(),
-            flags: HashMap::new(),
-        }
-    }
-}
-
 impl CliContext {
     pub fn new() -> Self {
         Self::default()
@@ -54,32 +39,26 @@ impl CliContext {
     /// Get flag value from CLI, then from YAML config if not present.
     pub fn get_flag(&self, key: &str) -> Option<String> {
         // 1. Check CLI flags first
-        if let Some(value) = self.flags.get(key) {
-            return Some(value.clone());
+        let config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
+        // Check command-specific flags
+        if let (Some(domain), Some(resource), Some(verb)) = (
+            self.domain.as_deref(),
+            self.resource.as_deref(),
+            self.verb.as_deref(),
+        ) {
+            if let Some(value) = config.get_command_flag(domain, resource, verb, key) {
+                return Some(value);
+            }
         }
 
-        // 2. Check YAML config if present
-        if let Some(config) = YamlConfig::load_from_cwd_cached() {
-            // Check command-specific flags
-            if let (Some(domain), Some(resource), Some(verb)) = (
-                self.domain.as_deref(),
-                self.resource.as_deref(),
-                self.verb.as_deref(),
-            ) {
-                if let Some(value) = config.get_command_flag(domain, resource, verb, key) {
-                    return Some(value);
-                }
-            }
+        // Check global flags/settings from YAML config (not implemented yet in yaml.rs for arbitrary keys)
+        // For now, this is where it would be.
 
-            // Check global flags/settings from YAML config (not implemented yet in yaml.rs for arbitrary keys)
-            // For now, this is where it would be.
-
-            // Check for credentials
-            if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
-                let service_name = key.trim_end_matches("-key").replace("-", "_"); // e.g., "hibp" from "hibp-key"
-                if let Some(cred_value) = config.get_credential(&service_name, key) {
-                    return Some(cred_value);
-                }
+        // Check for credentials
+        if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
+            let service_name = key.trim_end_matches("-key").replace("-", "_"); // e.g., "hibp" from "hibp-key"
+            if let Some(cred_value) = config.get_credential(&service_name, key) {
+                return Some(cred_value);
             }
         }
 
@@ -94,26 +73,25 @@ impl CliContext {
         }
 
         // Check YAML config
-        if let Some(config) = YamlConfig::load_from_cwd_cached() {
-            // Check command-specific flags
-            if let (Some(domain), Some(resource), Some(verb)) = (
-                self.domain.as_deref(),
-                self.resource.as_deref(),
-                self.verb.as_deref(),
-            ) {
-                if config
-                    .get_command_flag(domain, resource, verb, key)
-                    .is_some()
-                {
-                    return true;
-                }
+        let config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
+        // Check command-specific flags
+        if let (Some(domain), Some(resource), Some(verb)) = (
+            self.domain.as_deref(),
+            self.resource.as_deref(),
+            self.verb.as_deref(),
+        ) {
+            if config
+                .get_command_flag(domain, resource, verb, key)
+                .is_some()
+            {
+                return true;
             }
-            // Check for credentials
-            if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
-                let service_name = key.trim_end_matches("-key").replace("-", "_");
-                if config.get_credential(&service_name, key).is_some() {
-                    return true;
-                }
+        }
+        // Check for credentials
+        if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
+            let service_name = key.trim_end_matches("-key").replace("-", "_");
+            if config.get_credential(&service_name, key).is_some() {
+                return true;
             }
         }
 

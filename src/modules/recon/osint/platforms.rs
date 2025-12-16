@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 /// Platform categories
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PlatformCategory {
     Social,
     Development,
@@ -23,6 +23,7 @@ pub enum PlatformCategory {
     Forum,
     Crypto,
     Adult,
+    #[default]
     Other,
 }
 
@@ -47,12 +48,6 @@ impl std::fmt::Display for PlatformCategory {
             Self::Adult => write!(f, "Adult"),
             Self::Other => write!(f, "Other"),
         }
-    }
-}
-
-impl Default for PlatformCategory {
-    fn default() -> Self {
-        Self::Other
     }
 }
 

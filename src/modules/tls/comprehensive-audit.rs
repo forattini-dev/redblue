@@ -34,7 +34,7 @@
 /// See how a complete TLS security audit works end-to-end!
 use crate::modules::tls::{
     heartbleed::{HeartbleedResult, HeartbleedTester},
-    ocsp::{OcspStatus, OcspValidator},
+    ocsp::OcspStatus,
     scanner::{SecurityIssue, Severity, TlsScanner},
 };
 use crate::protocols::tls_cert::{CertificateInfo, TlsClient};

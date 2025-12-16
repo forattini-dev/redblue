@@ -250,7 +250,7 @@ impl PortScanner {
             201 => "at-rtmp",
             264 => "bgmp",
             389 => "ldap",
-            443 | 8443 => "https",
+            443 => "https",
             445 => "smb",
             465 => "smtps",
             500 => "isakmp",
@@ -436,7 +436,7 @@ impl std::fmt::Display for ScanType {
 
 /// Timing templates for scan speed/stealth tradeoffs
 /// Similar to nmap's -T0 through -T5 options
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TimingTemplate {
     /// T0: Paranoid - 5 minute delay between probes, single thread
     /// Use for IDS evasion, extremely slow but stealthy
@@ -449,6 +449,7 @@ pub enum TimingTemplate {
     Polite,
     /// T3: Normal - Default balanced settings
     /// Good balance of speed and reliability
+    #[default]
     Normal,
     /// T4: Aggressive - Faster timeouts, more parallelism
     /// Assumes reliable network, may miss ports on slow networks
@@ -542,12 +543,6 @@ impl TimingTemplate {
             TimingTemplate::Aggressive => "Aggressive (T4) - Fast, may miss on slow networks",
             TimingTemplate::Insane => "Insane (T5) - Maximum speed, unreliable",
         }
-    }
-}
-
-impl Default for TimingTemplate {
-    fn default() -> Self {
-        TimingTemplate::Normal
     }
 }
 
@@ -677,7 +672,6 @@ impl AdvancedScanner {
     #[cfg(target_family = "unix")]
     fn raw_syn_scan(&self, ports: &[u16]) -> Vec<AdvancedScanResult> {
         use crate::protocols::raw::{get_source_ip, PortState, SynScanner};
-        use std::net::Ipv4Addr;
 
         let dst_ip = match self.target {
             IpAddr::V4(ip) => ip,

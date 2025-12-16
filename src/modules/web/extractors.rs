@@ -218,8 +218,8 @@ fn extract_domain(url: &str) -> Option<String> {
     // Skip protocol
     let without_protocol = if let Some(pos) = url.find("://") {
         &url[pos + 3..]
-    } else if url.starts_with("//") {
-        &url[2..]
+    } else if let Some(stripped) = url.strip_prefix("//") {
+        stripped
     } else {
         url
     };
@@ -473,8 +473,7 @@ pub fn open_graph(doc: &Document) -> OpenGraphData {
     for elem in doc.all_elements() {
         if elem.tag == "meta" {
             if let (Some(property), Some(content)) = (elem.attr("property"), elem.attr("content")) {
-                if property.starts_with("og:") {
-                    let key = &property[3..];
+                if let Some(key) = property.strip_prefix("og:") {
                     match key {
                         "type" => result.og_type = Some(content.clone()),
                         "title" => result.title = Some(content.clone()),
@@ -504,8 +503,7 @@ pub fn twitter_card(doc: &Document) -> TwitterCardData {
     for elem in doc.all_elements() {
         if elem.tag == "meta" {
             if let (Some(name), Some(content)) = (elem.attr("name"), elem.attr("content")) {
-                if name.starts_with("twitter:") {
-                    let key = &name[8..];
+                if let Some(key) = name.strip_prefix("twitter:") {
                     match key {
                         "card" => result.card = Some(content.clone()),
                         "site" => result.site = Some(content.clone()),

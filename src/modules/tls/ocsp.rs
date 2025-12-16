@@ -209,7 +209,7 @@ impl OcspValidator {
     ///     requestList         SEQUENCE OF Request,
     ///     requestExtensions   [2] EXPLICIT Extensions OPTIONAL
     /// }
-    fn build_ocsp_request(&self, cert_der: &[u8], issuer_der: &[u8]) -> Result<Vec<u8>, String> {
+    fn build_ocsp_request(&self, _cert_der: &[u8], _issuer_der: &[u8]) -> Result<Vec<u8>, String> {
         // Simplified OCSP request builder
         // Real implementation would build proper DER-encoded ASN.1
 
@@ -342,10 +342,10 @@ impl OcspValidator {
         let url = url.trim();
 
         // Remove protocol
-        let url = if url.starts_with("https://") {
-            &url[8..]
-        } else if url.starts_with("http://") {
-            &url[7..]
+        let url = if let Some(rest) = url.strip_prefix("https://") {
+            rest
+        } else if let Some(rest) = url.strip_prefix("http://") {
+            rest
         } else {
             url
         };
@@ -407,7 +407,7 @@ impl OcspStaplingChecker {
         // Try TLS 1.2 with status_request extension
         use crate::protocols::tls12::Tls12Client;
 
-        let client = Tls12Client::connect_with_timeout(host, port, self.timeout)
+        let _client = Tls12Client::connect_with_timeout(host, port, self.timeout)
             .map_err(|e| format!("TLS connection failed: {}", e))?;
 
         // Check if server sent CertificateStatus message

@@ -108,7 +108,7 @@ impl WindowsServiceManager {
         ];
 
         // Add description if provided
-        if let Some(desc) = &config.description {
+        if let Some(_desc) = &config.description {
             // schtasks doesn't have a direct description flag, we'll store it in marker
         }
 

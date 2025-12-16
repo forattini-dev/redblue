@@ -156,8 +156,6 @@ impl UnixSocketManager {
     fn connect_abstract(&self, name: &str) -> Result<(), String> {
         #[cfg(target_os = "linux")]
         {
-            use std::os::unix::net::SocketAddr;
-
             if self.config.verbose {
                 eprintln!("[*] Connecting to abstract socket: @{}", name);
             }
@@ -180,7 +178,7 @@ impl UnixSocketManager {
     /// Bidirectional copy between Unix socket and stdin/stdout
     #[cfg(unix)]
     fn copy_bidirectional(&self, stream: &mut UnixStream) -> Result<(), String> {
-        use std::io::{self, BufReader, BufWriter};
+        use std::io;
         use std::thread;
 
         let mut stream_clone = stream
@@ -236,17 +234,14 @@ impl UnixSocketManager {
 
 /// Parse Unix socket path or abstract name
 pub fn parse_unix_socket(s: &str) -> Result<UnixSocketMode, String> {
-    if s.starts_with('@') {
+    if let Some(name) = s.strip_prefix('@') {
         // Abstract namespace (Linux)
-        let name = s[1..].to_string();
-        Ok(UnixSocketMode::Abstract(name))
-    } else if s.starts_with("listen:") {
+        Ok(UnixSocketMode::Abstract(name.to_string()))
+    } else if let Some(path) = s.strip_prefix("listen:") {
         // Listen mode
-        let path = s[7..].to_string();
         Ok(UnixSocketMode::Listen(PathBuf::from(path)))
-    } else if s.starts_with("connect:") {
+    } else if let Some(path) = s.strip_prefix("connect:") {
         // Connect mode
-        let path = s[8..].to_string();
         Ok(UnixSocketMode::Connect(PathBuf::from(path)))
     } else {
         // Default to connect mode

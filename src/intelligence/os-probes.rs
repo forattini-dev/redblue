@@ -85,7 +85,7 @@ impl TcpOptionsBuilder {
 
     /// Pad to 4-byte boundary
     pub fn pad_to_boundary(mut self) -> Self {
-        while self.options.len() % 4 != 0 {
+        while !self.options.len().is_multiple_of(4) {
             self.options.push(0); // NOP or EOL padding
         }
         self
@@ -1158,8 +1158,8 @@ pub fn quick_os_detect(
     window_size: u16,
     mss: Option<u16>,
     window_scale: Option<u8>,
-    has_sack: bool,
-    has_timestamp: bool,
+    _has_sack: bool,
+    _has_timestamp: bool,
 ) -> Vec<OsMatch> {
     let db = OsSignatureDb::new();
     let mut matches = Vec::new();
@@ -1189,9 +1189,11 @@ pub fn quick_os_detect(
             }
             WindowMatch::Range(min, max) if window_size >= *min && window_size <= *max => {
                 confidence += 0.15;
-                points.push(format!("Win in range"));
+                points.push("Win in range".to_string());
             }
-            WindowMatch::Multiple(divisor) if *divisor > 0 && window_size % *divisor == 0 => {
+            WindowMatch::Multiple(divisor)
+                if *divisor > 0 && window_size.is_multiple_of(*divisor) =>
+            {
                 confidence += 0.15;
                 points.push(format!("Win multiple of {}", divisor));
             }

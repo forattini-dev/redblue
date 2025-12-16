@@ -1,4 +1,4 @@
-use crate::compression::{gzip, GzipDecoder, TarReader};
+use crate::compression::{GzipDecoder, TarReader};
 use std::fs::File;
 use std::io::{self, BufReader, Cursor, Read};
 use std::path::Path;

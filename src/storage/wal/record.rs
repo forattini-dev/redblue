@@ -1,5 +1,5 @@
 use crate::storage::engine::crc32::{crc32, crc32_update};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 
 /// WAL file magic bytes (RDBW)
 pub const WAL_MAGIC: &[u8; 4] = b"RDBW";

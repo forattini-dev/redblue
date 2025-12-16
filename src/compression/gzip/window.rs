@@ -1,8 +1,8 @@
-/// Sliding Window Buffer for DEFLATE decompression (RFC 1951)
-///
-/// Maintains a 32KB circular buffer of decompressed data for LZ77 back-references.
-/// The DEFLATE algorithm uses (length, distance) pairs to reference previously
-/// decompressed bytes.
+//! Sliding Window Buffer for DEFLATE decompression (RFC 1951)
+//!
+//! Maintains a 32KB circular buffer of decompressed data for LZ77 back-references.
+//! The DEFLATE algorithm uses (length, distance) pairs to reference previously
+//! decompressed bytes.
 
 /// Window size for DEFLATE (32KB as per RFC 1951)
 const WINDOW_SIZE: usize = 32 * 1024;

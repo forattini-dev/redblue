@@ -79,6 +79,7 @@ pub fn chunked_body_complete(data: &[u8]) -> bool {
     }
 }
 
+#[allow(unused_assignments)]
 pub fn decode_chunked_body(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut index = 0usize;
     let mut decoded = Vec::new();

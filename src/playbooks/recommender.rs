@@ -24,9 +24,9 @@
 //! - Internal network → internal-recon, lateral-movement
 
 use super::apt_catalog::all_apt_playbooks;
-use super::catalog::{all_playbooks, get_playbook};
+use super::catalog::all_playbooks;
 use super::types::{Playbook, RiskLevel, TargetOS, TargetType};
-use crate::modules::exploit::planner::{AttackOption, AttackPlan, PlannerInput};
+use crate::modules::exploit::planner::{AttackPlan, PlannerInput};
 use crate::storage::records::{PortScanRecord, Severity, VulnerabilityRecord};
 
 /// Input for playbook recommendation
@@ -282,13 +282,12 @@ impl PlaybookRecommender {
         score += target_score as u32;
 
         // === INTERNAL NETWORK SCORING ===
-        if findings.is_internal {
-            if playbook.metadata.id == "internal-recon"
-                || playbook.metadata.id == "lateral-movement"
-            {
-                score += 30;
-                reasons.push("Internal network detected".to_string());
-            }
+        if findings.is_internal
+            && (playbook.metadata.id == "internal-recon"
+                || playbook.metadata.id == "lateral-movement")
+        {
+            score += 30;
+            reasons.push("Internal network detected".to_string());
         }
 
         // Normalize to 0-100
@@ -367,19 +366,15 @@ impl PlaybookRecommender {
         }
 
         // RDP
-        if has_rdp {
-            if pb_id == "reverse-shell-windows" || pb_id == "windows-privesc" {
-                score += 25;
-                reasons.push("RDP port (3389) suggests Windows".to_string());
-            }
+        if has_rdp && (pb_id == "reverse-shell-windows" || pb_id == "windows-privesc") {
+            score += 25;
+            reasons.push("RDP port (3389) suggests Windows".to_string());
         }
 
         // FTP
-        if has_ftp {
-            if pb_id == "credential-harvesting" {
-                score += 15;
-                reasons.push("FTP port (21) open".to_string());
-            }
+        if has_ftp && pb_id == "credential-harvesting" {
+            score += 15;
+            reasons.push("FTP port (21) open".to_string());
         }
 
         score
@@ -423,24 +418,20 @@ impl PlaybookRecommender {
         }
 
         // High severity vulns
-        if has_high {
-            if pb_id == "web-app-assessment" {
-                score += 20;
-                reasons.push("High severity vulnerabilities found".to_string());
-            }
+        if has_high && pb_id == "web-app-assessment" {
+            score += 20;
+            reasons.push("High severity vulnerabilities found".to_string());
         }
 
         // Exploitable vulns
-        if has_exploit {
-            if pb_id == "reverse-shell-linux" || pb_id == "reverse-shell-windows" {
-                score += 25;
-                let exploit_count = findings
-                    .vulns
-                    .iter()
-                    .filter(|v| v.exploit_available)
-                    .count();
-                reasons.push(format!("{} exploits available", exploit_count));
-            }
+        if has_exploit && (pb_id == "reverse-shell-linux" || pb_id == "reverse-shell-windows") {
+            score += 25;
+            let exploit_count = findings
+                .vulns
+                .iter()
+                .filter(|v| v.exploit_available)
+                .count();
+            reasons.push(format!("{} exploits available", exploit_count));
         }
 
         score
@@ -527,18 +518,18 @@ impl PlaybookRecommender {
             }
 
             // Apache/Nginx
-            if fp_lower.contains("apache") || fp_lower.contains("nginx") {
-                if pb_id == "web-app-assessment" {
-                    score += 15;
-                    reasons.push(format!("{} web server detected", fp));
-                }
+            if (fp_lower.contains("apache") || fp_lower.contains("nginx"))
+                && pb_id == "web-app-assessment"
+            {
+                score += 15;
+                reasons.push(format!("{} web server detected", fp));
             }
 
             // SSH banner (OpenSSH)
-            if fp_lower.contains("openssh") {
-                if pb_id == "ssh-credential-test" || pb_id == "reverse-shell-linux" {
-                    score += 10;
-                }
+            if fp_lower.contains("openssh")
+                && (pb_id == "ssh-credential-test" || pb_id == "reverse-shell-linux")
+            {
+                score += 10;
             }
 
             // Active Directory
@@ -707,47 +698,48 @@ impl PlaybookRecommender {
         let has_smb = findings.ports.iter().any(|p| matches!(p.port, 445 | 139));
 
         // Web-focused APTs
-        if has_web {
-            if matches!(
+        if has_web
+            && matches!(
                 apt_id.as_str(),
                 "apt32" | "muddywater" | "oilrig" | "apt41" | "volt-typhoon"
-            ) {
-                score += 15;
-                reasons.push("Web presence matches APT initial access vectors".to_string());
-            }
+            )
+        {
+            score += 15;
+            reasons.push("Web presence matches APT initial access vectors".to_string());
         }
 
         // Email/phishing-focused APTs
-        if has_mail {
-            if matches!(
+        if has_mail
+            && matches!(
                 apt_id.as_str(),
                 "apt28" | "apt29" | "kimsuky" | "muddywater" | "fin7"
-            ) {
-                score += 20;
-                reasons.push("Email infrastructure aligns with APT phishing TTPs".to_string());
-            }
+            )
+        {
+            score += 20;
+            reasons.push("Email infrastructure aligns with APT phishing TTPs".to_string());
         }
 
         // VPN/Remote access (LOTL APTs)
-        if has_vpn || has_ssh || has_rdp {
-            if matches!(
+        if (has_vpn || has_ssh || has_rdp)
+            && matches!(
                 apt_id.as_str(),
                 "volt-typhoon" | "scattered-spider" | "apt29"
-            ) {
-                score += 20;
-                reasons.push("Remote access exposure matches LOTL APT techniques".to_string());
-            }
+            )
+        {
+            score += 20;
+            reasons.push("Remote access exposure matches LOTL APT techniques".to_string());
         }
 
         // Active Directory focused APTs
-        if has_smb && has_rdp {
-            if matches!(
+        if has_smb
+            && has_rdp
+            && matches!(
                 apt_id.as_str(),
                 "apt29" | "wizard-spider" | "scattered-spider" | "turla"
-            ) {
-                score += 25;
-                reasons.push("AD infrastructure matches APT lateral movement profile".to_string());
-            }
+            )
+        {
+            score += 25;
+            reasons.push("AD infrastructure matches APT lateral movement profile".to_string());
         }
 
         // === FINGERPRINT-BASED MATCHING ===
@@ -755,57 +747,54 @@ impl PlaybookRecommender {
             let fp_lower = fp.to_lowercase();
 
             // Cloud providers
-            if fp_lower.contains("azure")
+            if (fp_lower.contains("azure")
                 || fp_lower.contains("microsoft 365")
-                || fp_lower.contains("office 365")
-            {
-                if matches!(
+                || fp_lower.contains("office 365"))
+                && matches!(
                     apt_id.as_str(),
                     "apt29" | "scattered-spider" | "volt-typhoon"
-                ) {
-                    score += 20;
-                    reasons.push(format!("Cloud tech {} targeted by APT", fp));
-                }
+                )
+            {
+                score += 20;
+                reasons.push(format!("Cloud tech {} targeted by APT", fp));
             }
 
             // Virtualization
-            if fp_lower.contains("vmware") || fp_lower.contains("esxi") {
-                if matches!(apt_id.as_str(), "sandworm-team" | "apt41") {
-                    score += 20;
-                    reasons.push("VMware infrastructure targeted by APT".to_string());
-                }
+            if (fp_lower.contains("vmware") || fp_lower.contains("esxi"))
+                && matches!(apt_id.as_str(), "sandworm-team" | "apt41")
+            {
+                score += 20;
+                reasons.push("VMware infrastructure targeted by APT".to_string());
             }
 
             // Fortinet/VPN appliances
-            if fp_lower.contains("fortinet")
+            if (fp_lower.contains("fortinet")
                 || fp_lower.contains("fortigate")
                 || fp_lower.contains("pulse secure")
-                || fp_lower.contains("citrix")
+                || fp_lower.contains("citrix"))
+                && matches!(apt_id.as_str(), "volt-typhoon" | "apt41" | "sandworm-team")
             {
-                if matches!(apt_id.as_str(), "volt-typhoon" | "apt41" | "sandworm-team") {
-                    score += 25;
-                    reasons.push("Network appliance known APT target".to_string());
-                }
+                score += 25;
+                reasons.push("Network appliance known APT target".to_string());
             }
 
             // Financial systems
-            if fp_lower.contains("swift") || fp_lower.contains("banking") {
-                if matches!(apt_id.as_str(), "lazarus-group" | "fin7") {
-                    score += 30;
-                    reasons
-                        .push("Financial system targeted by financially-motivated APT".to_string());
-                }
+            if (fp_lower.contains("swift") || fp_lower.contains("banking"))
+                && matches!(apt_id.as_str(), "lazarus-group" | "fin7")
+            {
+                score += 30;
+                reasons.push("Financial system targeted by financially-motivated APT".to_string());
             }
 
             // Exchange
-            if fp_lower.contains("exchange") || fp_lower.contains("outlook web") {
-                if matches!(
+            if (fp_lower.contains("exchange") || fp_lower.contains("outlook web"))
+                && matches!(
                     apt_id.as_str(),
                     "apt28" | "apt29" | "turla" | "volt-typhoon"
-                ) {
-                    score += 25;
-                    reasons.push("Exchange server commonly exploited by APT".to_string());
-                }
+                )
+            {
+                score += 25;
+                reasons.push("Exchange server commonly exploited by APT".to_string());
             }
         }
 

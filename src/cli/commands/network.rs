@@ -700,7 +700,7 @@ impl NetworkCommand {
 
         Output::subheader(&format!("IPv4 Bogon Ranges ({})", ipv4_bogons.len()));
         println!();
-        println!("  {:<20} {}", "CIDR", "DESCRIPTION");
+        println!("  {:<20} DESCRIPTION", "CIDR");
         println!("  {}", "─".repeat(60));
         for (cidr, desc) in &ipv4_bogons {
             println!("  {:<20} {}", cidr, desc);
@@ -709,7 +709,7 @@ impl NetworkCommand {
         println!();
         Output::subheader(&format!("IPv6 Bogon Ranges ({})", ipv6_bogons.len()));
         println!();
-        println!("  {:<25} {}", "PREFIX", "DESCRIPTION");
+        println!("  {:<25} DESCRIPTION", "PREFIX");
         println!("  {}", "─".repeat(60));
         for (cidr, desc) in &ipv6_bogons {
             println!("  {:<25} {}", cidr, desc);

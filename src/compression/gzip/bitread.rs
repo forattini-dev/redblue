@@ -140,10 +140,8 @@ impl<R: Read> BitReader<R> {
 
         loop {
             // Ensure we have at least one byte
-            if self.buf_len() == 0 {
-                if self.refill()? == 0 {
-                    return Ok(result);
-                }
+            if self.buf_len() == 0 && self.refill()? == 0 {
+                return Ok(result);
             }
 
             // Search for null terminator in buffer

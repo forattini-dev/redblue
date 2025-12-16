@@ -39,7 +39,7 @@ pub fn prf_tls10(secret: &[u8], label: &[u8], seed: &[u8], output_len: usize) ->
     label_seed.extend_from_slice(label);
     label_seed.extend_from_slice(seed);
 
-    let half_len = (secret.len() + 1) / 2;
+    let half_len = secret.len().div_ceil(2);
     let s1 = &secret[..half_len];
     let s2 = &secret[secret.len() - half_len..];
 

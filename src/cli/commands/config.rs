@@ -125,7 +125,7 @@ impl ConfigDatabaseCommand {
         println!();
         Output::success("Password saved to keyring successfully!");
         Output::info("All databases will now be encrypted with this password.");
-        println!("  {}Tip:{} Use --db-password <pwd> to override per-command, or set REDBLUE_DB_KEY environment variable.", "\x1b[36m", "\x1b[0m");
+        println!("  \x1b[36mTip:\x1b[0m Use --db-password <pwd> to override per-command, or set REDBLUE_DB_KEY environment variable.");
 
         Ok(())
     }
@@ -160,10 +160,7 @@ impl ConfigDatabaseCommand {
 
         println!();
         Output::success("Password cleared from keyring.");
-        println!(
-            "  {}Tip:{} To set a new password: rb config database set-password",
-            "\x1b[36m", "\x1b[0m"
-        );
+        println!("  \x1b[36mTip:\x1b[0m To set a new password: rb config database set-password");
 
         Ok(())
     }
@@ -217,21 +214,16 @@ impl ConfigDatabaseCommand {
 
         println!();
         println!(
-            "  {}Tip:{} Use --save flag on commands to persist results to database.",
-            "\x1b[36m", "\x1b[0m"
+            "  \x1b[36mTip:\x1b[0m Use --save flag on commands to persist results to database."
         );
         println!(
-            "  {}Tip:{} Password priority: --db-password > REDBLUE_DB_KEY > keyring",
-            "\x1b[36m", "\x1b[0m"
+            "  \x1b[36mTip:\x1b[0m Password priority: --db-password > REDBLUE_DB_KEY > keyring"
         );
 
         if !has_keyring {
             println!();
             Output::warning("No password configured. Databases will not be encrypted!");
-            println!(
-                "  {}Tip:{} Run: rb config database set-password",
-                "\x1b[36m", "\x1b[0m"
-            );
+            println!("  \x1b[36mTip:\x1b[0m Run: rb config database set-password");
         }
 
         Ok(())

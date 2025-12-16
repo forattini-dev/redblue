@@ -993,11 +993,11 @@ impl ProxyDataCommand {
             sorted.sort_by_key(|(code, _)| *code);
 
             for (code, count) in sorted {
-                let color = if code >= 200 && code < 300 {
+                let color = if (200..300).contains(&code) {
                     "\x1b[32m"
                 } else if code >= 400 {
                     "\x1b[31m"
-                } else if code >= 300 {
+                } else if (300..400).contains(&code) {
                     "\x1b[33m"
                 } else {
                     ""

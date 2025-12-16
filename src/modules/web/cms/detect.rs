@@ -4,7 +4,6 @@
 use super::{CmsScanConfig, CmsType, DetectionResult, HttpResponse};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
 
 /// CMS Detector with multiple detection methods
 pub struct CmsDetector {
@@ -725,10 +724,10 @@ impl CmsDetector {
     /// Parse URL into components
     fn parse_url(&self, url: &str) -> Option<(String, u16, String, bool)> {
         let url = url.trim();
-        let (scheme, rest) = if url.starts_with("https://") {
-            ("https", &url[8..])
-        } else if url.starts_with("http://") {
-            ("http", &url[7..])
+        let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
+            ("https", rest)
+        } else if let Some(rest) = url.strip_prefix("http://") {
+            ("http", rest)
         } else {
             ("http", url)
         };

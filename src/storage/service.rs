@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Once, RwLock};
+use std::sync::{OnceLock, RwLock};
 use std::time::SystemTime;
 
 /// Identifies a logical partition in the storage engine.
@@ -164,17 +164,8 @@ impl StorageService {
 
     /// Access the global storage service instance.
     pub fn global() -> &'static StorageService {
-        static INIT: Once = Once::new();
-        static mut INSTANCE: Option<StorageService> = None;
-
-        unsafe {
-            INIT.call_once(|| {
-                INSTANCE = Some(StorageService::new());
-            });
-            INSTANCE
-                .as_ref()
-                .expect("storage service should be initialised")
-        }
+        static INSTANCE: OnceLock<StorageService> = OnceLock::new();
+        INSTANCE.get_or_init(StorageService::new)
     }
 
     /// Register or update a partition. Future persistence operations can use this metadata

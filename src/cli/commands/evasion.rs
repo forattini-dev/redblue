@@ -85,7 +85,7 @@ impl Command for EvasionSandboxCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("check");
+        let verb = ctx.verb.as_deref().unwrap_or("check");
 
         match verb {
             "check" => execute_sandbox_check(),
@@ -337,7 +337,7 @@ impl Command for EvasionObfuscateCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("xor");
+        let verb = ctx.verb.as_deref().unwrap_or("xor");
 
         match verb {
             "xor" => execute_obfuscate_xor(ctx),
@@ -532,7 +532,7 @@ impl Command for EvasionNetworkCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("jitter");
+        let verb = ctx.verb.as_deref().unwrap_or("jitter");
 
         match verb {
             "jitter" => execute_network_jitter(ctx),
@@ -729,7 +729,7 @@ impl Command for EvasionConfigCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("show");
+        let verb = ctx.verb.as_deref().unwrap_or("show");
 
         match verb {
             "show" => execute_config_show(),
@@ -845,7 +845,7 @@ impl Command for EvasionBuildCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("info");
+        let verb = ctx.verb.as_deref().unwrap_or("info");
 
         match verb {
             "info" => execute_build_info(),
@@ -1042,7 +1042,7 @@ impl Command for EvasionAntidebugCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("check");
+        let verb = ctx.verb.as_deref().unwrap_or("check");
 
         match verb {
             "check" => execute_antidebug_check(ctx),
@@ -1205,7 +1205,7 @@ impl Command for EvasionMemoryCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("demo");
+        let verb = ctx.verb.as_deref().unwrap_or("demo");
 
         match verb {
             "encrypt" => execute_memory_encrypt(ctx),
@@ -1458,7 +1458,7 @@ impl Command for EvasionApihashCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("hash");
+        let verb = ctx.verb.as_deref().unwrap_or("hash");
 
         match verb {
             "hash" => execute_apihash_hash(ctx),
@@ -1665,7 +1665,7 @@ impl Command for EvasionControlflowCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("demo");
+        let verb = ctx.verb.as_deref().unwrap_or("demo");
 
         match verb {
             "demo" => execute_controlflow_demo(),
@@ -1938,7 +1938,7 @@ impl Command for EvasionInjectCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("shellcode");
+        let verb = ctx.verb.as_deref().unwrap_or("shellcode");
 
         match verb {
             "shellcode" => execute_inject_shellcode(ctx),
@@ -1950,7 +1950,7 @@ impl Command for EvasionInjectCommand {
 }
 
 fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
-    let shellcode_type = ctx.target.as_ref().map(|s| s.as_str()).unwrap_or("shell");
+    let shellcode_type = ctx.target.as_deref().unwrap_or("shell");
 
     let ip_str = ctx
         .flags
@@ -2095,7 +2095,7 @@ fn execute_inject_list(ctx: &CliContext) -> Result<(), String> {
     Output::info(&format!("Found {} processes", processes.len()));
     println!();
 
-    println!("    {:>6}  {}", "PID", "NAME");
+    println!("    {:>6}  NAME", "PID");
     println!("    {:->6}  {:->30}", "", "");
 
     let mut count = 0;
@@ -2186,11 +2186,7 @@ impl Command for EvasionAmsiCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx
-            .verb
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("powershell");
+        let verb = ctx.verb.as_deref().unwrap_or("powershell");
 
         match verb {
             "powershell" | "ps" => execute_amsi_powershell(ctx),
@@ -2333,7 +2329,7 @@ impl Command for EvasionStringsCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("encrypt");
+        let verb = ctx.verb.as_deref().unwrap_or("encrypt");
 
         match verb {
             "encrypt" => execute_strings_encrypt(ctx),
@@ -2541,7 +2537,7 @@ impl Command for EvasionTracksCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().map(|s| s.as_str()).unwrap_or("scan");
+        let verb = ctx.verb.as_deref().unwrap_or("scan");
 
         match verb {
             "scan" => execute_tracks_scan(),
@@ -2758,7 +2754,7 @@ fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
         .flags
         .get("shell")
         .map(|s| s.to_string())
-        .unwrap_or_else(|| tracks::detect_shell());
+        .unwrap_or_else(tracks::detect_shell);
 
     Output::header("Session Clear Command");
     println!();

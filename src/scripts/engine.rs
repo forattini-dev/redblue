@@ -215,7 +215,7 @@ impl ScriptEngine {
 
         // We can't easily parallelize trait objects, so we'll use a simpler approach
         // that chunks the work and runs each chunk sequentially in a thread
-        let chunk_size = (scripts.len() + self.max_threads - 1) / self.max_threads;
+        let chunk_size = scripts.len().div_ceil(self.max_threads);
 
         for (chunk_idx, chunk) in scripts.chunks(chunk_size).enumerate() {
             let results = Arc::clone(&results);

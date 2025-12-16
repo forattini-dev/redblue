@@ -347,7 +347,7 @@ impl CdpClient {
             .read_exact(&mut header)
             .map_err(|e| format!("Failed to read frame header: {}", e))?;
 
-        let opcode = header[0] & 0x0F;
+        let _opcode = header[0] & 0x0F;
         let masked = (header[1] & 0x80) != 0;
         let mut payload_len = (header[1] & 0x7F) as u64;
 
@@ -573,7 +573,7 @@ impl CdpClient {
     /// Close browser
     pub fn close(&mut self) {
         // Try graceful shutdown
-        if let Some(ref mut stream) = self.stream {
+        if let Some(ref mut _stream) = self.stream {
             let _ = self.send("Browser.close", "{}");
         }
 

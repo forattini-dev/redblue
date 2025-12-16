@@ -2,7 +2,6 @@ use crate::utils::json;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
 use std::sync::Mutex;
 
 /// Simple JSON-based session store (replacement for SQLite)

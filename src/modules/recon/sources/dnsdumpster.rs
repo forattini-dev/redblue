@@ -136,7 +136,7 @@ impl SubdomainSource for DnsDumpsterSource {
         let initial_response = self
             .http
             .get("https://dnsdumpster.com/")
-            .map_err(|e| SourceError::NetworkError(e))?;
+            .map_err(SourceError::NetworkError)?;
 
         if initial_response.status_code != 200 {
             return Err(SourceError::NetworkError(format!(
@@ -163,7 +163,7 @@ impl SubdomainSource for DnsDumpsterSource {
                 post_body.as_bytes(),
                 "application/x-www-form-urlencoded",
             )
-            .map_err(|e| SourceError::NetworkError(e))?;
+            .map_err(SourceError::NetworkError)?;
 
         if response.status_code == 403 || response.status_code == 400 {
             // CSRF or cookie issue - return empty rather than error

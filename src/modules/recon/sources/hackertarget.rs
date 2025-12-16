@@ -128,10 +128,7 @@ impl SubdomainSource for HackerTargetSource {
             format!("https://api.hackertarget.com/hostsearch/?q={}", domain)
         };
 
-        let response = self
-            .http
-            .get(&url)
-            .map_err(|e| SourceError::NetworkError(e))?;
+        let response = self.http.get(&url).map_err(SourceError::NetworkError)?;
 
         if response.status_code != 200 {
             return Err(SourceError::NetworkError(format!(

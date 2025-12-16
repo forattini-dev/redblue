@@ -44,7 +44,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use super::{BTree, Page, PageType, Pager, PagerConfig, PAGE_SIZE};
+use super::{Page, PageType, Pager, PagerConfig};
 use crate::storage::wal::{
     CheckpointError, CheckpointMode, CheckpointResult, Checkpointer, Transaction,
     TransactionManager, TxError,
@@ -199,8 +199,7 @@ impl Database {
 
         // Create transaction manager
         let tx_manager = Arc::new(
-            TransactionManager::new(Arc::clone(&pager), &wal_path)
-                .map_err(|e| DatabaseError::Io(e))?,
+            TransactionManager::new(Arc::clone(&pager), &wal_path).map_err(DatabaseError::Io)?,
         );
 
         Ok(Self {

@@ -529,13 +529,13 @@ impl SubdomainEnumerator {
                     }
 
                     // Extract hostname from URL
-                    let hostname = if url.starts_with("http://") {
-                        url[7..].split('/').next().unwrap_or("")
-                    } else if url.starts_with("https://") {
-                        url[8..].split('/').next().unwrap_or("")
-                    } else {
-                        url.split('/').next().unwrap_or("")
-                    };
+                    let hostname = url
+                        .strip_prefix("http://")
+                        .or_else(|| url.strip_prefix("https://"))
+                        .unwrap_or(url)
+                        .split('/')
+                        .next()
+                        .unwrap_or("");
 
                     // Remove port if present
                     let subdomain = hostname.split(':').next().unwrap_or("").to_lowercase();
@@ -729,7 +729,7 @@ impl SubdomainEnumerator {
         let dns_timeout = self.timeout_ms;
 
         // Split wordlist into chunks for threading
-        let chunk_size = (wordlist.len() + self.threads - 1) / self.threads;
+        let chunk_size = wordlist.len().div_ceil(self.threads);
         let mut chunks = Vec::new();
 
         for i in 0..self.threads {
@@ -875,7 +875,7 @@ impl SubdomainEnumerator {
 
     /// Split wordlist into chunks for multi-threading
     fn chunk_wordlist(&self, num_chunks: usize) -> Vec<Vec<String>> {
-        let chunk_size = (self.wordlist.len() + num_chunks - 1) / num_chunks;
+        let chunk_size = self.wordlist.len().div_ceil(num_chunks);
         let mut chunks = Vec::new();
 
         for i in 0..num_chunks {

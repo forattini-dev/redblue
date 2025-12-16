@@ -12,7 +12,6 @@
 ///
 /// NO external dependencies - pure Rust implementation
 use crate::protocols::http::HttpClient;
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -317,7 +316,7 @@ impl WebFuzzer {
         }
 
         // Split into chunks for threading
-        let chunk_size = (queue.len() + self.config.threads - 1) / self.config.threads;
+        let chunk_size = queue.len().div_ceil(self.config.threads);
         let chunks: Vec<Vec<String>> = queue.chunks(chunk_size).map(|c| c.to_vec()).collect();
 
         let mut handles = vec![];
@@ -611,7 +610,7 @@ impl DirectoryFuzzer {
         let requests = Arc::new(Mutex::new(0usize));
 
         // Split into chunks for threading
-        let chunk_size = (total_words + self.threads - 1) / self.threads;
+        let chunk_size = total_words.div_ceil(self.threads);
         let chunks: Vec<Vec<String>> = words.chunks(chunk_size).map(|c| c.to_vec()).collect();
 
         let mut handles = vec![];
@@ -624,7 +623,7 @@ impl DirectoryFuzzer {
             let errors = Arc::clone(&errors);
             let requests = Arc::clone(&requests);
             let progress = self.progress.clone();
-            let timeout = self.timeout;
+            let _timeout = self.timeout;
 
             let handle = thread::spawn(move || {
                 let http = HttpClient::new();
