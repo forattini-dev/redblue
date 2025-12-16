@@ -38,9 +38,13 @@ impl CliContext {
 
     /// Get flag value from CLI, then from YAML config if not present.
     pub fn get_flag(&self, key: &str) -> Option<String> {
-        // 1. Check CLI flags first
+        // 1. Check CLI flags first (highest priority)
+        if let Some(value) = self.flags.get(key) {
+            return Some(value.clone());
+        }
+
+        // 2. Check YAML config for command-specific flags
         let config = crate::config::yaml::YamlConfig::load_from_cwd_cached();
-        // Check command-specific flags
         if let (Some(domain), Some(resource), Some(verb)) = (
             self.domain.as_deref(),
             self.resource.as_deref(),
@@ -51,10 +55,7 @@ impl CliContext {
             }
         }
 
-        // Check global flags/settings from YAML config (not implemented yet in yaml.rs for arbitrary keys)
-        // For now, this is where it would be.
-
-        // Check for credentials
+        // 3. Check for credentials from YAML config
         if key.ends_with("_key") || key == "api-key" || key == "hibp-key" {
             let service_name = key.trim_end_matches("-key").replace("-", "_"); // e.g., "hibp" from "hibp-key"
             if let Some(cred_value) = config.get_credential(&service_name, key) {

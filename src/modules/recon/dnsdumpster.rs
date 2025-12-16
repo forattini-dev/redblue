@@ -436,61 +436,47 @@ impl DnsDumpsterClient {
     /// Extract IP address from text
     fn extract_ip_from_text(&self, text: &str) -> Option<String> {
         // Simple IPv4 pattern matching
-        let mut current = String::new();
-        let mut octets = 0;
-        let mut dots = 0;
+        let mut ip_parts: Vec<String> = Vec::new();
+        let mut current_octet = String::new();
 
         for ch in text.chars() {
             if ch.is_ascii_digit() {
-                current.push(ch);
-            } else if ch == '.' && !current.is_empty() && octets < 3 {
+                current_octet.push(ch);
+            } else if ch == '.' && !current_octet.is_empty() && ip_parts.len() < 3 {
                 // Validate octet
-                if let Ok(num) = current.parse::<u32>() {
+                if let Ok(num) = current_octet.parse::<u32>() {
                     if num <= 255 {
-                        if octets == 0 {
-                            current.push('.');
-                        }
-                        dots += 1;
-                        octets += 1;
+                        ip_parts.push(current_octet.clone());
+                        current_octet.clear();
                     } else {
-                        current.clear();
-                        octets = 0;
-                        dots = 0;
+                        ip_parts.clear();
+                        current_octet.clear();
                     }
                 } else {
-                    current.clear();
-                    octets = 0;
-                    dots = 0;
+                    ip_parts.clear();
+                    current_octet.clear();
                 }
-            } else if !current.is_empty() {
-                if dots == 3 {
-                    // We might have a complete IP
-                    // Validate the last octet
-                    let parts: Vec<&str> = current.split('.').collect();
-                    if parts.len() == 4 {
-                        let valid = parts
-                            .iter()
-                            .all(|p| p.parse::<u32>().map(|n| n <= 255).unwrap_or(false));
-                        if valid {
-                            return Some(current);
+            } else if !current_octet.is_empty() || !ip_parts.is_empty() {
+                // Non-digit, non-dot character - check if we have a complete IP
+                if ip_parts.len() == 3 && !current_octet.is_empty() {
+                    if let Ok(num) = current_octet.parse::<u32>() {
+                        if num <= 255 {
+                            ip_parts.push(current_octet.clone());
+                            return Some(ip_parts.join("."));
                         }
                     }
                 }
-                current.clear();
-                octets = 0;
-                dots = 0;
+                ip_parts.clear();
+                current_octet.clear();
             }
         }
 
         // Check if we ended with a valid IP
-        if dots == 3 {
-            let parts: Vec<&str> = current.split('.').collect();
-            if parts.len() == 4 {
-                let valid = parts
-                    .iter()
-                    .all(|p| p.parse::<u32>().map(|n| n <= 255).unwrap_or(false));
-                if valid {
-                    return Some(current);
+        if ip_parts.len() == 3 && !current_octet.is_empty() {
+            if let Ok(num) = current_octet.parse::<u32>() {
+                if num <= 255 {
+                    ip_parts.push(current_octet);
+                    return Some(ip_parts.join("."));
                 }
             }
         }

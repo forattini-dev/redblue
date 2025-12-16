@@ -973,8 +973,10 @@ mod tests {
     #[test]
     fn test_scanner_creation_defaults() {
         let scanner = PortScanner::new(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        assert_eq!(scanner.timeout_ms, 5000);
-        assert_eq!(scanner.threads, 100);
+        // Defaults are now read from config
+        let cfg = crate::config::get();
+        assert_eq!(scanner.timeout_ms, cfg.network.timeout_ms.max(1));
+        assert_eq!(scanner.threads, cfg.network.threads.max(1));
     }
 
     #[test]
