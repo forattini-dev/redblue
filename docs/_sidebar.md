@@ -4,6 +4,7 @@
   - [Quick Start](/getting-started/quickstart.md)
 
 - **CLI Reference**
+  - [Command Map](/cli-commands.md)
   - [Command Structure](/cli-semantics.md)
   - [CLI Aliases](/cli-aliases.md)
 
