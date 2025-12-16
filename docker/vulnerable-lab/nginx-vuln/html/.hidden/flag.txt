@@ -1,0 +1,11 @@
+Congratulations! You found the hidden directory!
+
+FLAG{hidden_directories_are_not_secure}
+
+Pro tip: Always check for common hidden paths like:
+- /.git/
+- /.env
+- /.htaccess
+- /backup/
+- /admin/
+- /.hidden/

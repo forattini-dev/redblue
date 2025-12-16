@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="WordPress 5.0">
+    <title>Vulnerable Test Server</title>
+    <!-- jQuery 1.x - Known vulnerabilities -->
+    <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+    <!-- Bootstrap 3.x - Known XSS vulnerabilities -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+    <!-- Angular 1.x - Known vulnerabilities -->
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #e94560; }
+        .vuln-box {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid #e94560;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        code {
+            background: #0f0f23;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #00ff88;
+        }
+        ul { list-style-type: none; padding: 0; }
+        li { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        li:before { content: "⚠️ "; }
+        .flag {
+            font-family: monospace;
+            background: #e94560;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body ng-app="vulnApp">
+    <div class="container">
+        <h1>🔴🔵 RedBlue Vulnerable Lab</h1>
+        <p>This server is intentionally vulnerable for security testing.</p>
+
+        <div class="vuln-box">
+            <h3>🎯 Technologies Detected</h3>
+            <ul>
+                <li>nginx/1.16.0 (CVE-2019-20372, CVE-2021-23017)</li>
+                <li>jQuery 1.12.4 (CVE-2020-11022, CVE-2020-11023)</li>
+                <li>Bootstrap 3.3.7 (CVE-2018-14041, CVE-2019-8331)</li>
+                <li>AngularJS 1.5.8 (Multiple XSS vulnerabilities)</li>
+            </ul>
+        </div>
+
+        <div class="vuln-box">
+            <h3>🚨 Security Misconfigurations</h3>
+            <ul>
+                <li>Server tokens enabled (information disclosure)</li>
+                <li>Directory listing enabled at <code>/files/</code></li>
+                <li>No security headers (CSP, X-Frame-Options, etc.)</li>
+                <li>nginx_status exposed at <code>/nginx_status</code></li>
+            </ul>
+        </div>
+
+        <div class="vuln-box">
+            <h3>🏁 CTF Challenges</h3>
+            <p>Find the flags hidden in this lab:</p>
+            <ul>
+                <li>Flag 1: Check the HTTP headers</li>
+                <li>Flag 2: Find the hidden directory</li>
+                <li>Flag 3: Decode the base64 in the comment below</li>
+            </ul>
+            <!-- RkxBR3tyZWRibHVlX2Fzc2Vzc21lbnRfd29ya3N9 -->
+        </div>
+
+        <div class="vuln-box">
+            <h3>📋 Test Commands</h3>
+            <pre style="background: #0f0f23; padding: 15px; border-radius: 4px; overflow-x: auto;">
+# Fingerprint this server
+rb web asset fingerprint http://localhost:8083
+
+# Full assessment
+rb assess target run http://localhost:8083
+
+# Check security headers
+rb web asset security http://localhost:8083
+
+# Scan for vulnerabilities
+rb intel vuln scan http://localhost:8083
+            </pre>
+        </div>
+
+        <p class="flag">FLAG{welcome_to_redblue_lab}</p>
+
+        <!-- Debug info (intentional information disclosure) -->
+        <!-- Server: nginx/1.16.0 -->
+        <!-- PHP Version: 7.2.34 -->
+        <!-- MySQL: 5.7.32 -->
+        <!-- Admin panel: /admin (user: admin, pass: admin123) -->
+    </div>
+
+    <script>
+        // Vulnerable Angular app
+        angular.module('vulnApp', [])
+            .controller('MainCtrl', function($scope) {
+                $scope.message = "Welcome to the vulnerable lab!";
+            });
+
+        // Intentionally vulnerable code (for demonstration)
+        function vulnerableEval(input) {
+            // eval is dangerous!
+            return eval(input);
+        }
+    </script>
+</body>
+</html>
