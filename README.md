@@ -118,13 +118,31 @@ rb auth test http://10.10.10.1 -u users.txt -p pass.txt --type basic --delay 500
 
 ## Installation
 
-**Quick Install (Linux/macOS):**
+### Quick Install (Recommended)
 
 ```bash
+# Install latest stable release
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
+
+# Install latest pre-release (next channel)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
+
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --version v0.1.0
+
+# Install to custom directory
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --install-dir /usr/local/bin
+
+# Static build (for Alpine/Docker)
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --static
 ```
 
-**Build from Source:**
+**Supported Platforms:**
+- Linux x86_64, aarch64 (ARM64), armv7
+- macOS x86_64 (Intel), aarch64 (Apple Silicon)
+- Windows x86_64
+
+### Build from Source
 
 ```bash
 git clone https://github.com/forattini-dev/redblue
