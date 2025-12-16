@@ -1,5 +1,7 @@
 use crate::protocols::http::body::{analyze_headers, chunked_body_complete, BodyStrategy};
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::tls_impersonator::TlsProfile;
+#[cfg(not(target_os = "windows"))]
 use boring::ssl::{
     Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
 };
@@ -9,12 +11,29 @@ use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+// Stub TlsProfile for Windows
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub enum TlsProfile {
+    Chrome120,
+    Firefox120,
+    Safari16,
+}
+
 /// Wrapper around either a raw TCP stream or a negotiated TLS 1.3 client
+#[cfg(not(target_os = "windows"))]
 pub enum PooledStream {
     Plain(TcpStream),
     Tls(SslStream<TcpStream>),
 }
 
+/// On Windows, only plain HTTP is supported (no TLS)
+#[cfg(target_os = "windows")]
+pub enum PooledStream {
+    Plain(TcpStream),
+}
+
+#[cfg(not(target_os = "windows"))]
 impl std::fmt::Debug for PooledStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -30,6 +49,19 @@ impl std::fmt::Debug for PooledStream {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl std::fmt::Debug for PooledStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PooledStream::Plain(stream) => f
+                .debug_struct("PooledStream::Plain")
+                .field("peer_addr", &stream.peer_addr().ok())
+                .finish(),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 impl PooledStream {
     pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
         match self {
@@ -56,6 +88,28 @@ impl PooledStream {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl PooledStream {
+    pub fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.set_read_timeout(timeout),
+        }
+    }
+
+    pub fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.set_write_timeout(timeout),
+        }
+    }
+
+    pub fn peek(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.peek(buf),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 impl Read for PooledStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
@@ -65,6 +119,16 @@ impl Read for PooledStream {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl Read for PooledStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.read(buf),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 impl Write for PooledStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         match self {
@@ -81,6 +145,21 @@ impl Write for PooledStream {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl Write for PooledStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            PooledStream::Plain(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            PooledStream::Plain(stream) => stream.flush(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PooledConnection {
     stream: PooledStream,
@@ -88,6 +167,7 @@ struct PooledConnection {
 }
 
 /// Thread-safe connection pool keyed by host/port/protocol
+#[cfg(not(target_os = "windows"))]
 #[derive(Debug)]
 pub struct ConnectionPool {
     pools: Arc<Mutex<HashMap<String, Vec<PooledConnection>>>>,
@@ -97,6 +177,16 @@ pub struct ConnectionPool {
     idle_timeout: Duration,
 }
 
+/// Thread-safe connection pool keyed by host/port/protocol (Windows - no TLS support)
+#[cfg(target_os = "windows")]
+#[derive(Debug)]
+pub struct ConnectionPool {
+    pools: Arc<Mutex<HashMap<String, Vec<PooledConnection>>>>,
+    max_idle_per_host: usize,
+    idle_timeout: Duration,
+}
+
+#[cfg(not(target_os = "windows"))]
 impl ConnectionPool {
     pub fn new() -> Self {
         Self {
@@ -244,6 +334,114 @@ impl ConnectionPool {
                 }
             }
             PooledStream::Tls(_) => true,
+        }
+    }
+
+    pub fn clear(&self) {
+        let mut pools = self.pools.lock().unwrap();
+        pools.clear();
+    }
+
+    pub fn stats(&self) -> PoolStats {
+        let pools = self.pools.lock().unwrap();
+        let total_connections: usize = pools.values().map(|p| p.len()).sum();
+        let hosts = pools.len();
+
+        PoolStats {
+            total_connections,
+            hosts,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl ConnectionPool {
+    pub fn new() -> Self {
+        Self {
+            pools: Arc::new(Mutex::new(HashMap::new())),
+            max_idle_per_host: 10,
+            idle_timeout: Duration::from_secs(30),
+        }
+    }
+
+    pub fn with_max_idle(mut self, max: usize) -> Self {
+        self.max_idle_per_host = max;
+        self
+    }
+
+    pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.idle_timeout = timeout;
+        self
+    }
+
+    pub fn get_connection(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+    ) -> Result<PooledStream, String> {
+        if use_tls {
+            return Err("HTTPS/TLS is not supported on Windows. Use HTTP instead.".to_string());
+        }
+
+        let key = format!("http:{}:{}", host, port);
+
+        {
+            let mut pools = self.pools.lock().unwrap();
+            if let Some(pool) = pools.get_mut(&key) {
+                let now = Instant::now();
+                pool.retain(|conn| now.duration_since(conn.last_used) < self.idle_timeout);
+
+                if let Some(pooled) = pool.pop() {
+                    if Self::is_alive(&pooled.stream) {
+                        return Ok(pooled.stream);
+                    }
+                }
+            }
+        }
+
+        let addr = format!("{}:{}", host, port);
+        let tcp_stream = TcpStream::connect(&addr)
+            .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
+        Ok(PooledStream::Plain(tcp_stream))
+    }
+
+    pub fn return_connection(&self, stream: PooledStream, host: &str, port: u16, use_tls: bool) {
+        let key = format!(
+            "{}:{}:{}",
+            if use_tls { "https" } else { "http" },
+            host,
+            port
+        );
+
+        let mut pools = self.pools.lock().unwrap();
+        let pool = pools.entry(key).or_insert_with(Vec::new);
+
+        if pool.len() < self.max_idle_per_host {
+            pool.push(PooledConnection {
+                stream,
+                last_used: Instant::now(),
+            });
+        }
+    }
+
+    fn is_alive(stream: &PooledStream) -> bool {
+        match stream {
+            PooledStream::Plain(tcp_stream) => {
+                if let Ok(cloned) = tcp_stream.try_clone() {
+                    let _ = cloned.set_read_timeout(Some(Duration::from_millis(1)));
+                    let _ = cloned.set_nonblocking(true);
+
+                    let mut buf = [0u8; 1];
+                    match cloned.peek(&mut buf) {
+                        Ok(0) => false,
+                        Ok(_) => true,
+                        Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+                    }
+                } else {
+                    false
+                }
+            }
         }
     }
 

@@ -1,5 +1,9 @@
 /// HTTP/1.1 Protocol Implementation from Scratch
 /// RFC 2616 - Hypertext Transfer Protocol
+///
+/// Platform notes:
+/// - On non-Windows: Full HTTPS support via OpenSSL (boring)
+/// - On Windows: HTTP only; HTTPS requires the boring crate which is not available
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::str;
@@ -7,8 +11,20 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config;
+
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::tls_impersonator::TlsProfile;
+#[cfg(not(target_os = "windows"))]
 use boring::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
+
+// Stub TlsProfile for Windows - just enough to compile
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TlsProfile {
+    Chrome120,
+    Firefox120,
+    Safari16,
+}
 
 mod body;
 pub mod pool;
@@ -1471,6 +1487,7 @@ fn find_header_end(buffer: &[u8]) -> Option<usize> {
         .map(|pos| pos + 4)
 }
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) fn build_default_ssl_connector() -> Result<SslConnector, String> {
     let mut builder = SslConnector::builder(SslMethod::tls())
         .map_err(|e| format!("Failed to create TLS connector: {}", e))?;

@@ -1,7 +1,10 @@
-/// AES-GCM (Galois/Counter Mode) Implementation using OpenSSL
+/// AES-GCM (Galois/Counter Mode) Implementation
 ///
-/// This replaces our custom AES-GCM implementation with OpenSSL's battle-tested implementation.
-/// OpenSSL provides optimized, constant-time cryptography with hardware acceleration when available.
+/// On non-Windows platforms: Uses OpenSSL (boring) for performance and hardware acceleration.
+/// On Windows: This module is not available - use the pure Rust AES-GCM in crypto/aes.rs instead.
+///
+/// Note: This module is conditionally compiled only on non-Windows platforms.
+/// The cfg attribute is applied in protocols/mod.rs.
 use boring::symm::{Cipher, Crypter, Mode};
 
 /// AES-128-GCM encryption using OpenSSL

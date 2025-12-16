@@ -46,6 +46,7 @@
 
 pub mod acl;
 pub mod http;
+#[cfg(not(target_os = "windows"))]
 pub mod mitm;
 pub mod relay;
 pub mod shell;

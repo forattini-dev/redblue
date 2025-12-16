@@ -805,7 +805,22 @@ impl MitmProxy {
         }
     }
 
+    /// Handle TLS interception (Windows stub - returns error)
+    #[cfg(target_os = "windows")]
+    fn handle_tls_intercept(
+        _client: TcpStream,
+        _target: TcpStream,
+        _hostname: &str,
+        _config: &MitmConfig,
+        _cert_cache: &CertCache,
+    ) -> ProxyResult<()> {
+        Err(ProxyError::Tls(
+            "TLS interception is not available on Windows (requires OpenSSL)".to_string(),
+        ))
+    }
+
     /// Handle TLS interception
+    #[cfg(not(target_os = "windows"))]
     fn handle_tls_intercept(
         client: TcpStream,
         target: TcpStream,

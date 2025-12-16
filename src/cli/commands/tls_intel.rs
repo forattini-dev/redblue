@@ -6,16 +6,24 @@
 /// hidden assets.
 ///
 /// Replaces: censys, shodan (TLS portion), testssl.sh --intel
+///
+/// Note: This module requires OpenSSL (boring) which is not available on Windows.
+/// On Windows, this command will return an error.
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+#[cfg(not(target_os = "windows"))]
 use crate::modules::network::tls::{TlsConfig, TlsStream, TlsVersion};
+#[cfg(not(target_os = "windows"))]
 use boring::nid::Nid;
-use boring::pkey::{Id as PKeyId, PKeyRef, Public};
-use boring::sha::sha256;
+#[cfg(not(target_os = "windows"))]
 use boring::ssl::{SslConnector, SslMethod, SslRef, SslVerifyMode, SslVersion};
+#[cfg(not(target_os = "windows"))]
 use boring::x509::{X509Ref, X509};
+#[cfg(not(target_os = "windows"))]
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpStream};
+#[cfg(not(target_os = "windows"))]
 use std::str;
+#[cfg(not(target_os = "windows"))]
 use std::time::{Duration, Instant};
 
 pub struct TlsIntelCommand;
@@ -84,6 +92,12 @@ impl Command for TlsIntelCommand {
         ]
     }
 
+    #[cfg(target_os = "windows")]
+    fn execute(&self, _ctx: &CliContext) -> Result<(), String> {
+        Err("TLS intelligence gathering is not available on Windows (requires OpenSSL)".to_string())
+    }
+
+    #[cfg(not(target_os = "windows"))]
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
         let verb = ctx.verb.as_ref().ok_or_else(|| {
             print_help(self);
@@ -102,6 +116,7 @@ impl Command for TlsIntelCommand {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl TlsIntelCommand {
     fn gather_tls_telemetry(
         &self,
@@ -928,124 +943,134 @@ impl TlsIntelCommand {
     }
 }
 
-/// Simplified certificate info
-#[derive(Debug, Clone)]
-struct CertInfo {
-    subject: String,
-    issuer: String,
-    sans: Vec<String>,
-}
+// Helper types and functions only used on non-Windows platforms
+#[cfg(not(target_os = "windows"))]
+mod tls_intel_impl {
+    use boring::pkey::{Id as PKeyId, PKeyRef, Public};
+    use boring::sha::sha256;
 
-/// Detailed timing breakdown for TLS handshake
-#[derive(Debug, Clone)]
-struct HandshakeTiming {
-    dns_resolution_ms: f64,
-    tcp_connect_ms: f64,
-    tls_client_hello_ms: f64,
-    tls_server_hello_ms: f64,
-    tls_key_derivation_ms: f64,
-    tls_encrypted_handshake_ms: f64,
-    cert_parse_ms: f64,
-}
-
-#[derive(Debug, Clone)]
-struct TlsHandshakeTelemetry {
-    tls_version: String,
-    cipher_suite: Option<String>,
-    alpn_protocol: Option<String>,
-    sni: Option<String>,
-    session_id: Option<String>,
-    session_resumed: bool,
-    client_random: Option<String>,
-    server_random: Option<String>,
-    master_key_hash: Option<String>,
-    master_key_len: Option<usize>,
-    ocsp_stapled: bool,
-    peer_tmp_key: Option<String>,
-    peer_named_group: Option<String>,
-    peer_signature_algorithm: Option<String>,
-    fingerprint_sha256: Option<String>,
-}
-
-fn hex_from_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{:02x}", byte));
+    /// Simplified certificate info
+    #[derive(Debug, Clone)]
+    pub struct CertInfo {
+        pub subject: String,
+        pub issuer: String,
+        pub sans: Vec<String>,
     }
-    out
-}
 
-fn sha256_hex(data: &[u8]) -> String {
-    hex_from_bytes(&sha256(data))
-}
-
-fn format_alpn(protocol: &[u8]) -> String {
-    match str::from_utf8(protocol) {
-        Ok(s) if !s.is_empty() => s.to_string(),
-        _ => format!("0x{}", hex_from_bytes(protocol)),
+    /// Detailed timing breakdown for TLS handshake
+    #[derive(Debug, Clone)]
+    pub struct HandshakeTiming {
+        pub dns_resolution_ms: f64,
+        pub tcp_connect_ms: f64,
+        pub tls_client_hello_ms: f64,
+        pub tls_server_hello_ms: f64,
+        pub tls_key_derivation_ms: f64,
+        pub tls_encrypted_handshake_ms: f64,
+        pub cert_parse_ms: f64,
     }
-}
 
-fn abbreviate_hex(hex: &str, keep: usize) -> String {
-    if hex.len() <= keep {
-        hex.to_string()
-    } else {
-        format!("{}…", &hex[..keep])
+    #[derive(Debug, Clone)]
+    pub struct TlsHandshakeTelemetry {
+        pub tls_version: String,
+        pub cipher_suite: Option<String>,
+        pub alpn_protocol: Option<String>,
+        pub sni: Option<String>,
+        pub session_id: Option<String>,
+        pub session_resumed: bool,
+        pub client_random: Option<String>,
+        pub server_random: Option<String>,
+        pub master_key_hash: Option<String>,
+        pub master_key_len: Option<usize>,
+        pub ocsp_stapled: bool,
+        pub peer_tmp_key: Option<String>,
+        pub peer_named_group: Option<String>,
+        pub peer_signature_algorithm: Option<String>,
+        pub fingerprint_sha256: Option<String>,
     }
-}
 
-fn describe_tmp_key(key: &PKeyRef<Public>) -> (String, Option<String>) {
-    let bits = key.bits();
-    let bits_opt = if bits > 0 { Some(bits) } else { None };
-    let mut named_group: Option<String> = None;
-    let base = match key.id() {
-        PKeyId::EC => {
-            if let Ok(ec_key) = key.ec_key() {
-                if let Some(group) = ec_key.group().curve_name() {
-                    if let Ok(name) = group.short_name() {
-                        named_group = Some(name.to_string());
-                        "ECDHE"
+    pub fn hex_from_bytes(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            out.push_str(&format!("{:02x}", byte));
+        }
+        out
+    }
+
+    pub fn sha256_hex(data: &[u8]) -> String {
+        hex_from_bytes(&sha256(data))
+    }
+
+    pub fn format_alpn(protocol: &[u8]) -> String {
+        match std::str::from_utf8(protocol) {
+            Ok(s) if !s.is_empty() => s.to_string(),
+            _ => format!("0x{}", hex_from_bytes(protocol)),
+        }
+    }
+
+    pub fn abbreviate_hex(hex: &str, keep: usize) -> String {
+        if hex.len() <= keep {
+            hex.to_string()
+        } else {
+            format!("{}…", &hex[..keep])
+        }
+    }
+
+    pub fn describe_tmp_key(key: &PKeyRef<Public>) -> (String, Option<String>) {
+        let bits = key.bits();
+        let bits_opt = if bits > 0 { Some(bits) } else { None };
+        let mut named_group: Option<String> = None;
+        let base = match key.id() {
+            PKeyId::EC => {
+                if let Ok(ec_key) = key.ec_key() {
+                    if let Some(group) = ec_key.group().curve_name() {
+                        if let Ok(name) = group.short_name() {
+                            named_group = Some(name.to_string());
+                            "ECDHE"
+                        } else {
+                            "ECDHE"
+                        }
                     } else {
                         "ECDHE"
                     }
                 } else {
                     "ECDHE"
                 }
-            } else {
-                "ECDHE"
             }
-        }
-        PKeyId::X25519 => {
-            named_group = Some("x25519".to_string());
-            "X25519"
-        }
-        PKeyId::X448 => {
-            named_group = Some("x448".to_string());
-            "X448"
-        }
-        PKeyId::ED25519 => "ED25519",
-        PKeyId::ED448 => "ED448",
-        PKeyId::DH => "DHE",
-        other => {
-            return (
-                if let Some(bits) = bits_opt {
-                    format!("{:?} ({} bits)", other, bits)
-                } else {
-                    format!("{:?}", other)
-                },
-                None,
-            );
-        }
-    };
+            PKeyId::X25519 => {
+                named_group = Some("x25519".to_string());
+                "X25519"
+            }
+            PKeyId::X448 => {
+                named_group = Some("x448".to_string());
+                "X448"
+            }
+            PKeyId::ED25519 => "ED25519",
+            PKeyId::ED448 => "ED448",
+            PKeyId::DH => "DHE",
+            other => {
+                return (
+                    if let Some(bits) = bits_opt {
+                        format!("{:?} ({} bits)", other, bits)
+                    } else {
+                        format!("{:?}", other)
+                    },
+                    None,
+                );
+            }
+        };
 
-    let mut descriptor = base.to_string();
-    if let Some(ref group) = named_group {
-        descriptor.push_str(" ");
-        descriptor.push_str(group);
-    }
-    if let Some(bits) = bits_opt {
-        descriptor.push_str(&format!(" ({} bits)", bits));
-    }
+        let mut descriptor = base.to_string();
+        if let Some(ref group) = named_group {
+            descriptor.push_str(" ");
+            descriptor.push_str(group);
+        }
+        if let Some(bits) = bits_opt {
+            descriptor.push_str(&format!(" ({} bits)", bits));
+        }
 
-    (descriptor, named_group)
+        (descriptor, named_group)
+    }
 }
+
+#[cfg(not(target_os = "windows"))]
+use tls_intel_impl::*;

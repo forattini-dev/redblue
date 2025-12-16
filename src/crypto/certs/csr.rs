@@ -354,6 +354,9 @@ impl CsrBuilder {
     }
 
     /// Build CSR using OpenSSL
+    ///
+    /// Note: This method is not available on Windows (requires OpenSSL).
+    #[cfg(not(target_os = "windows"))]
     pub fn build(self, key_pem: &str) -> Result<String, CertError> {
         use boring::hash::MessageDigest;
         use boring::nid::Nid;
@@ -449,7 +452,7 @@ impl CsrBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     use super::*;
 

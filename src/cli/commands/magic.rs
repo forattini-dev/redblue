@@ -12,8 +12,11 @@ use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::http::HttpClient;
 use crate::protocols::whois::WhoisClient;
 use crate::storage::session::SessionFile;
+#[cfg(not(target_os = "windows"))]
 use boring::nid::Nid;
+#[cfg(not(target_os = "windows"))]
 use boring::ssl::{SslConnector, SslMethod, SslVerifyMode, SslVersion};
+#[cfg(not(target_os = "windows"))]
 use boring::x509::X509;
 use std::net::{IpAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
@@ -489,6 +492,7 @@ impl MagicScan {
         Ok(PhaseResult::new(summary, details))
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn inspect_tls_certificate(&self) -> Result<PhaseResult, String> {
         let (host, port) = self.parse_host_port(443);
         if host.is_empty() {
@@ -516,6 +520,11 @@ impl MagicScan {
             .ok_or_else(|| "Server did not present a certificate".to_string())?;
 
         self.summarize_certificate(&cert, &host)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn inspect_tls_certificate(&self) -> Result<PhaseResult, String> {
+        Err("TLS certificate inspection is not available on Windows".to_string())
     }
 
     fn analyze_http_headers(&self) -> Result<PhaseResult, String> {
@@ -764,6 +773,7 @@ impl MagicScan {
         host.chars().any(|c| c.is_ascii_alphabetic()) && host.contains('.')
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn build_ssl_connector() -> Result<SslConnector, String> {
         let mut builder = SslConnector::builder(SslMethod::tls())
             .map_err(|e| format!("Failed to create TLS connector: {}", e))?;
@@ -777,6 +787,7 @@ impl MagicScan {
         Ok(builder.build())
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn summarize_certificate(
         &self,
         cert: &X509,
@@ -830,6 +841,7 @@ impl MagicScan {
         Ok(PhaseResult::new(summary, details))
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn extract_name(name: &boring::x509::X509NameRef, nid: Nid) -> Option<String> {
         name.entries_by_nid(nid)
             .next()

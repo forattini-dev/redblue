@@ -2,16 +2,22 @@
 ///
 /// NOTE: Crypto primitives (AES, RSA, HMAC, etc) moved to crate::crypto
 /// NOTE: TLS/HTTPS implementation at modules::network::tls
+///
+/// Platform notes:
+/// - Some modules require OpenSSL (boring) which is not available on Windows
+/// - These modules are conditionally compiled with #[cfg(not(target_os = "windows"))]
 pub mod asn1; // ASN.1/DER parser (RFC 2459)
 pub mod crypto; // Shared protocol crypto helpers (SHA-384, HKDF)
 pub mod dns; // DNS (RFC 1035)
 pub mod doh; // DNS-over-HTTPS (RFC 8484)
 pub mod ecdh; // ECDH key exchange
 pub mod ftp; // FTP/FTPS (RFC 959)
-pub mod gcm; // AES-128-GCM implementation
+#[cfg(not(target_os = "windows"))]
+pub mod gcm; // AES-128-GCM implementation (requires OpenSSL)
 pub mod har; // HAR 1.2 (HTTP Archive) recording/replay
 pub mod http; // HTTP/1.1 (RFC 2616)
-pub mod http2; // HTTP/2 (RFC 7540) - Binary framing, HPACK, multiplexing ✅ COMPLETE
+#[cfg(not(target_os = "windows"))]
+pub mod http2; // HTTP/2 (RFC 7540) - Binary framing, HPACK, multiplexing (requires OpenSSL)
 pub mod https; // HTTPS (HTTP over TLS)
 pub mod icmp; // ICMP (RFC 792)
 pub mod ldap; // LDAP (RFC 4511)
@@ -34,7 +40,8 @@ pub mod telnet; // Telnet (RFC 854)
 pub mod tls; // TLS handshake for certificate extraction
 pub mod tls12; // TLS 1.2 full implementation
 pub mod tls_cert; // TLS certificate display structures
-pub mod tls_impersonator; // TLS impersonation profiles
+#[cfg(not(target_os = "windows"))]
+pub mod tls_impersonator; // TLS impersonation profiles (requires OpenSSL)
 pub mod udp; // Raw UDP
 pub mod whois; // WHOIS (RFC 3912)
 pub mod x509; // Rich X.509 certificate parser
