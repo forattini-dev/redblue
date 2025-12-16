@@ -210,7 +210,8 @@ impl HttpServerCommand {
     }
 }
 
-/// Simple Ctrl+C handler without external dependencies
+/// Simple Ctrl+C handler without external dependencies (Unix)
+#[cfg(not(target_os = "windows"))]
 fn ctrlc_handler<F>(handler: F)
 where
     F: Fn() + Send + 'static,
@@ -237,4 +238,46 @@ where
             }
         }
     });
+}
+
+/// Simple Ctrl+C handler for Windows (uses SetConsoleCtrlHandler)
+#[cfg(target_os = "windows")]
+fn ctrlc_handler<F>(handler: F)
+where
+    F: Fn() + Send + 'static,
+{
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+
+    // Use a static to communicate between handler and thread
+    static CTRL_C_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+    // Spawn a thread that polls for the signal
+    thread::spawn(move || {
+        // Poll until Ctrl+C is received
+        while !CTRL_C_RECEIVED.load(Ordering::SeqCst) {
+            thread::sleep(std::time::Duration::from_millis(100));
+        }
+        handler();
+    });
+
+    // Set console control handler
+    unsafe {
+        extern "system" fn console_handler(_: u32) -> i32 {
+            CTRL_C_RECEIVED.store(true, Ordering::SeqCst);
+            1 // Return TRUE to indicate we handled it
+        }
+
+        // kernel32.dll SetConsoleCtrlHandler
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn SetConsoleCtrlHandler(
+                handler: Option<extern "system" fn(u32) -> i32>,
+                add: i32,
+            ) -> i32;
+        }
+
+        SetConsoleCtrlHandler(Some(console_handler), 1);
+    }
 }

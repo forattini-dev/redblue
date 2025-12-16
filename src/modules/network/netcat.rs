@@ -638,6 +638,7 @@ impl Netcat {
     }
 
     /// Handle exec mode: spawn command and redirect I/O through network stream
+    #[cfg(not(target_os = "windows"))]
     fn handle_exec_mode(&self, stream: TcpStream, cmd: &str) -> Result<(), String> {
         use std::os::unix::io::{FromRawFd, IntoRawFd};
         use std::process::{Command, Stdio};
@@ -687,6 +688,12 @@ impl Netcat {
             }
             Err(e) => Err(format!("Failed to spawn command '{}': {}", cmd, e)),
         }
+    }
+
+    /// Handle exec mode - Windows stub (not supported)
+    #[cfg(target_os = "windows")]
+    fn handle_exec_mode(&self, _stream: TcpStream, _cmd: &str) -> Result<(), String> {
+        Err("Exec mode (-e) is not supported on Windows".to_string())
     }
 
     /// UDP client mode

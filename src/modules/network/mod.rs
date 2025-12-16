@@ -8,11 +8,14 @@ pub mod health; // Port health monitoring (check, diff, watch)
 pub mod netcat;
 pub mod ping;
 pub mod proxy; // NEW: Proxy support (SOCKS4/5, HTTP CONNECT)
+#[cfg(not(target_os = "windows"))]
 pub mod pty; // NEW: PTY/TTY support (requires libc for syscalls)
 pub mod relay; // NEW: Port forwarding / relay (socat-style)
 pub mod scanner;
-pub mod tls; // NEW: TLS/SSL encryption (from scratch)
+#[cfg(not(target_os = "windows"))]
+pub mod tls; // NEW: TLS/SSL encryption (requires gcm module)
 pub mod traceroute;
 pub mod twofish; // NEW: Twofish encryption (cryptcat compatibility)
+#[cfg(not(target_os = "windows"))]
 #[path = "unix-socket.rs"]
 pub mod unix_socket; // NEW: Unix domain sockets

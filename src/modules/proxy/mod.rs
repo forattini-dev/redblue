@@ -49,10 +49,12 @@ pub mod http;
 #[cfg(not(target_os = "windows"))]
 pub mod mitm;
 pub mod relay;
+#[cfg(not(target_os = "windows"))]
 pub mod shell;
 pub mod socks5;
 pub mod stream;
 pub mod tracking;
+#[cfg(not(target_os = "windows"))]
 pub mod transparent;
 
 use std::net::SocketAddr;
