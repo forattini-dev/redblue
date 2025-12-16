@@ -6,7 +6,9 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::modules::proxy::http::{HttpProxy, HttpProxyConfig};
 use crate::modules::proxy::socks5::{Socks5Config, Socks5Server};
+#[cfg(not(target_os = "windows"))]
 use crate::modules::proxy::transparent::{generate_iptables_rules, generate_nftables_rules};
+#[cfg(not(target_os = "windows"))]
 use crate::modules::proxy::transparent::{TransparentConfig, TransparentMode, TransparentProxy};
 use crate::modules::proxy::ProxyContext;
 use crate::storage::QueryManager;
@@ -252,11 +254,13 @@ impl Socks5ProxyCommand {
 }
 
 // ============================================================================
-// Transparent Proxy Command
+// Transparent Proxy Command (Unix only - requires iptables/nftables)
 // ============================================================================
 
+#[cfg(not(target_os = "windows"))]
 pub struct TransparentProxyCommand;
 
+#[cfg(not(target_os = "windows"))]
 impl Command for TransparentProxyCommand {
     fn domain(&self) -> &str {
         "proxy"
@@ -346,6 +350,7 @@ impl Command for TransparentProxyCommand {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl TransparentProxyCommand {
     fn parse_mode(&self, mode_str: &str) -> Result<TransparentMode, String> {
         match mode_str.to_lowercase().as_str() {

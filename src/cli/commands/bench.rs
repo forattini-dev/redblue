@@ -1124,8 +1124,26 @@ impl ColorMode {
                 if env::var_os("NO_COLOR").is_some() {
                     return false;
                 }
-                // Use libc isatty instead of unstable is_terminal
-                unsafe { libc::isatty(libc::STDOUT_FILENO) != 0 }
+                // Check if stdout is a terminal
+                #[cfg(not(target_os = "windows"))]
+                {
+                    unsafe { libc::isatty(libc::STDOUT_FILENO) != 0 }
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    // On Windows, check via GetStdHandle
+                    use std::os::windows::io::AsRawHandle;
+                    let handle = std::io::stdout().as_raw_handle();
+                    unsafe {
+                        #[link(name = "kernel32")]
+                        extern "system" {
+                            fn GetConsoleMode(handle: *mut std::ffi::c_void, mode: *mut u32)
+                                -> i32;
+                        }
+                        let mut mode = 0;
+                        GetConsoleMode(handle as *mut _, &mut mode) != 0
+                    }
+                }
             }
         }
     }

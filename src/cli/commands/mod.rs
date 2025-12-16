@@ -24,7 +24,8 @@ pub mod http_server; // ✅ HTTP server for file serving and payload hosting
 pub mod init; // ✅ Config init command
 pub mod magic;
 pub mod mcp;
-pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception
+#[cfg(not(target_os = "windows"))]
+pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception (requires TLS)
               // pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
 pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
@@ -104,10 +105,12 @@ impl CommandRegistry {
             Box::new(intel_taxii::IntelTaxiiCommand), // ✅ TAXII 2.1 client - rb intel taxii *
             Box::new(proxy::HttpProxyCommand),        // ✅ HTTP CONNECT proxy
             Box::new(proxy::Socks5ProxyCommand),      // ✅ SOCKS5 proxy (RFC 1928)
+            #[cfg(not(target_os = "windows"))]
             Box::new(proxy::TransparentProxyCommand), // ✅ Transparent proxy (iptables/nftables)
             Box::new(proxy::ProxyDataCommand), // ✅ Query stored proxy history and traffic data
             Box::new(dns_server::DnsServerCommand), // ✅ DNS server with hijacking for MITM
-            Box::new(mitm::MitmCommand),       // ✅ MITM attack orchestrator
+            #[cfg(not(target_os = "windows"))]
+            Box::new(mitm::MitmCommand), // ✅ MITM attack orchestrator
             Box::new(exploit_browser::BrowserExploitCommand), // ✅ RBB Browser Exploitation
             Box::new(http_server::HttpServerCommand), // ✅ HTTP server for file serving
             Box::new(service::ServiceCommand), // ✅ Service manager - persistence
