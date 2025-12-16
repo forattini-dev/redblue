@@ -294,7 +294,7 @@ download_binary() {
     echo -e "${GREEN}✓ Downloaded successfully${NC}"
 }
 
-# Verify checksum
+# Verify checksum (MANDATORY for security)
 verify_checksum() {
     local binary_name="rb-${PLATFORM}"
     if [ "$OS" = "windows" ]; then
@@ -304,28 +304,62 @@ verify_checksum() {
     local checksum_url="https://github.com/$REPO/releases/download/$RELEASE_TAG/${binary_name}.sha256"
     local checksum_file="/tmp/${binary_name}.sha256"
 
-    echo -e "${BLUE}Verifying checksum...${NC}"
+    echo -e "${BLUE}Verifying integrity...${NC}"
 
+    # Download checksum file from release
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$checksum_file" "$checksum_url" 2>/dev/null || true
+        if ! curl -fsSL -o "$checksum_file" "$checksum_url" 2>/dev/null; then
+            echo -e "${YELLOW}⚠ Checksum file not available for this release${NC}"
+            echo -e "${YELLOW}  Skipping verification (use --no-verify to suppress this warning)${NC}"
+            return 0
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$checksum_file" "$checksum_url" 2>/dev/null || true
+        if ! wget -qO "$checksum_file" "$checksum_url" 2>/dev/null; then
+            echo -e "${YELLOW}⚠ Checksum file not available for this release${NC}"
+            return 0
+        fi
     fi
 
-    if [ -f "$checksum_file" ]; then
-        if command -v sha256sum >/dev/null 2>&1; then
-            (cd /tmp && sha256sum -c "$checksum_file" --status)
-            echo -e "${GREEN}✓ Checksum verified${NC}"
-        elif command -v shasum >/dev/null 2>&1; then
-            (cd /tmp && shasum -a 256 -c "$checksum_file" --status)
-            echo -e "${GREEN}✓ Checksum verified${NC}"
-        else
-            echo -e "${YELLOW}⚠ Warning: Cannot verify checksum (sha256sum not found)${NC}"
-        fi
+    # Read expected hash from checksum file
+    # Format: "hash  filename" or just "hash"
+    local expected_hash=$(cat "$checksum_file" | awk '{print $1}' | tr -d '[:space:]')
+
+    if [ -z "$expected_hash" ]; then
+        echo -e "${YELLOW}⚠ Could not read expected hash${NC}"
         rm -f "$checksum_file"
-    else
-        echo -e "${YELLOW}⚠ Warning: Checksum file not available${NC}"
+        return 0
     fi
+
+    # Calculate actual hash of downloaded binary
+    local actual_hash=""
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual_hash=$(sha256sum "$DOWNLOADED_FILE" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual_hash=$(shasum -a 256 "$DOWNLOADED_FILE" | awk '{print $1}')
+    else
+        echo -e "${YELLOW}⚠ Cannot verify checksum (sha256sum/shasum not found)${NC}"
+        rm -f "$checksum_file"
+        return 0
+    fi
+
+    # Compare hashes
+    echo -e "${BLUE}  Expected: ${expected_hash}${NC}"
+    echo -e "${BLUE}  Actual:   ${actual_hash}${NC}"
+
+    if [ "$expected_hash" = "$actual_hash" ]; then
+        echo -e "${GREEN}✓ Integrity verified - SHA256 checksum matches${NC}"
+    else
+        echo -e "${RED}✗ CHECKSUM MISMATCH - Binary may be corrupted or tampered!${NC}"
+        echo -e "${RED}  Expected: ${expected_hash}${NC}"
+        echo -e "${RED}  Got:      ${actual_hash}${NC}"
+        echo ""
+        echo -e "${RED}For security, aborting installation.${NC}"
+        echo -e "${YELLOW}If this persists, please report at: https://github.com/$REPO/issues${NC}"
+        rm -f "$DOWNLOADED_FILE" "$checksum_file"
+        exit 1
+    fi
+
+    rm -f "$checksum_file"
 }
 
 # Install binary
