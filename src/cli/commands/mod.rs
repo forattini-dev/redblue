@@ -52,7 +52,7 @@ use crate::cli::{output::Output, CliContext};
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Once;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct CommandRegistry {
@@ -61,8 +61,7 @@ struct CommandRegistry {
     resource_index: HashMap<String, HashMap<String, usize>>,
 }
 
-static INIT: Once = Once::new();
-static mut COMMAND_REGISTRY: Option<CommandRegistry> = None;
+static COMMAND_REGISTRY: OnceLock<CommandRegistry> = OnceLock::new();
 
 impl CommandRegistry {
     fn new() -> Self {
@@ -176,12 +175,7 @@ impl CommandRegistry {
 }
 
 fn command_registry() -> &'static CommandRegistry {
-    unsafe {
-        INIT.call_once(|| {
-            COMMAND_REGISTRY = Some(CommandRegistry::new());
-        });
-        COMMAND_REGISTRY.as_ref().unwrap()
-    }
+    COMMAND_REGISTRY.get_or_init(CommandRegistry::new)
 }
 
 pub fn all_commands() -> &'static [Box<dyn Command>] {
@@ -492,7 +486,7 @@ pub fn print_help(cmd: &dyn Command) {
         cmd.description()
     ));
 
-    println!("\n{}USAGE:{}", "\x1b[1m", "\x1b[0m");
+    println!("\n\x1b[1mUSAGE:\x1b[0m");
     println!(
         "  rb {} {} <verb> [target] [FLAGS]",
         cmd.domain(),
@@ -501,12 +495,12 @@ pub fn print_help(cmd: &dyn Command) {
 
     let routes = cmd.routes();
     if !routes.is_empty() {
-        println!("\n{}VERBS:{}", "\x1b[1m", "\x1b[0m");
+        println!("\n\x1b[1mVERBS:\x1b[0m");
         for route in &routes {
             println!("  {:<12} {}", route.verb, route.summary);
         }
 
-        println!("\n{}ROUTE EXAMPLES:{}", "\x1b[1m", "\x1b[0m");
+        println!("\n\x1b[1mROUTE EXAMPLES:\x1b[0m");
         for route in &routes {
             println!("  {}", route.usage);
         }
@@ -514,7 +508,7 @@ pub fn print_help(cmd: &dyn Command) {
 
     let flags = cmd.flags();
     if !flags.is_empty() {
-        println!("\n{}FLAGS:{}", "\x1b[1m", "\x1b[0m");
+        println!("\n\x1b[1mFLAGS:\x1b[0m");
         for flag in flags {
             let short = flag.short.map(|c| format!("-{}, ", c)).unwrap_or_default();
             let default = flag
@@ -531,7 +525,7 @@ pub fn print_help(cmd: &dyn Command) {
 
     let examples = cmd.examples();
     if !examples.is_empty() {
-        println!("\n{}EXAMPLES:{}", "\x1b[1m", "\x1b[0m");
+        println!("\n\x1b[1mEXAMPLES:\x1b[0m");
         for (desc, example) in examples {
             println!("  \x1b[2m# {}\x1b[0m", desc);
             println!("  \x1b[36m{}\x1b[0m\n", example);

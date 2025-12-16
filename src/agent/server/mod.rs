@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 use crate::agent::crypto::AgentCrypto;
 use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
@@ -374,7 +373,7 @@ mod tests {
     use crate::agent::client::{AgentClient, AgentConfig};
     use crate::protocols::http::HttpClient;
     use std::sync::mpsc;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_agent_server_lifecycle() {
