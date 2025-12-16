@@ -19,10 +19,30 @@ use crate::utils::json::{parse_json, JsonValue};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, BufRead, Write};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+// Network scanning
+use crate::modules::network::scanner::PortScanner;
+
+// DNS
+use crate::protocols::dns::DnsClient;
+
+// Recon
+use crate::modules::recon::crtsh::CrtShClient;
+use crate::protocols::whois::WhoisClient;
+
+// Intel
+use crate::modules::intel::ioc::{IocCollection, IocExtractor};
+use crate::modules::intel::mapper::TechniqueMapper;
+use crate::modules::intel::navigator::create_layer_from_techniques;
+
+// Evasion - use functions directly
+use crate::modules::evasion::antidebug::AntiDebug;
+use crate::modules::evasion::sandbox;
 
 type ToolHandler = fn(&mut McpServer, &JsonValue) -> Result<ToolResult, String>;
 
@@ -496,6 +516,324 @@ impl McpServer {
                         },
                     ],
                     handler: Self::tool_recon_massdns,
+                },
+                // ================================================================
+                // NETWORK TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.network.scan",
+                    description: "Scan ports on a target host. Returns open ports with service detection.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target IP address or hostname to scan.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "ports",
+                            field_type: "string",
+                            description: "Ports to scan: 'common' (top 1000), 'web' (80,443,8080...), 'full' (1-65535), or custom range like '1-1000' or '22,80,443'.",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "timeout",
+                            field_type: "integer",
+                            description: "Timeout per port in milliseconds (default: 1000).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "threads",
+                            field_type: "integer",
+                            description: "Number of concurrent threads (default: 100).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_network_scan,
+                },
+                ToolDefinition {
+                    name: "rb.network.ping",
+                    description: "Check if a host is reachable using TCP connect to common ports.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target IP address or hostname to ping.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_network_ping,
+                },
+                ToolDefinition {
+                    name: "rb.network.health",
+                    description: "Check health status of specific ports on a target.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target IP address or hostname.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "ports",
+                            field_type: "string",
+                            description: "Comma-separated list of ports to check (e.g., '22,80,443').",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_network_health,
+                },
+                // ================================================================
+                // DNS TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.dns.lookup",
+                    description: "Perform DNS lookup for various record types (A, AAAA, MX, NS, TXT, CNAME, SOA).",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain name to lookup.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "type",
+                            field_type: "string",
+                            description: "Record type: A, AAAA, MX, NS, TXT, CNAME, SOA (default: A).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "server",
+                            field_type: "string",
+                            description: "DNS server to use (default: 8.8.8.8).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_dns_lookup,
+                },
+                ToolDefinition {
+                    name: "rb.dns.resolve",
+                    description: "Quick DNS resolution - returns IP addresses for a domain.",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain name to resolve.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_dns_resolve,
+                },
+                // ================================================================
+                // TLS TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.tls.cert",
+                    description: "Inspect TLS certificate of a host. Returns subject, issuer, validity, SANs.",
+                    fields: &[
+                        ToolField {
+                            name: "host",
+                            field_type: "string",
+                            description: "Hostname to inspect (optionally with :port).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_tls_cert,
+                },
+                ToolDefinition {
+                    name: "rb.tls.audit",
+                    description: "Full TLS security audit - checks protocols, ciphers, vulnerabilities.",
+                    fields: &[
+                        ToolField {
+                            name: "host",
+                            field_type: "string",
+                            description: "Hostname to audit (optionally with :port).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_tls_audit,
+                },
+                // ================================================================
+                // RECON TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.recon.whois",
+                    description: "Perform WHOIS lookup for a domain. Returns registrar, dates, nameservers.",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain to lookup.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_recon_whois,
+                },
+                ToolDefinition {
+                    name: "rb.recon.subdomains",
+                    description: "Enumerate subdomains using multiple sources (CT logs, DNS bruteforce).",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain to enumerate subdomains for.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "passive",
+                            field_type: "boolean",
+                            description: "Use only passive sources (no DNS bruteforce). Default: true.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_recon_subdomains,
+                },
+                ToolDefinition {
+                    name: "rb.recon.crtsh",
+                    description: "Query Certificate Transparency logs via crt.sh for subdomains.",
+                    fields: &[
+                        ToolField {
+                            name: "domain",
+                            field_type: "string",
+                            description: "Domain to search in CT logs.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_recon_crtsh,
+                },
+                // ================================================================
+                // INTEL TOOLS (MITRE ATT&CK)
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.intel.mitre.map",
+                    description: "Map security findings to MITRE ATT&CK techniques.",
+                    fields: &[
+                        ToolField {
+                            name: "ports",
+                            field_type: "string",
+                            description: "Comma-separated list of open ports (e.g., '22,80,443,3389').",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "cves",
+                            field_type: "string",
+                            description: "Comma-separated list of CVE IDs (e.g., 'CVE-2021-44228,CVE-2022-22965').",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "technologies",
+                            field_type: "string",
+                            description: "Comma-separated list of detected technologies (e.g., 'wordpress,apache,mysql').",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_intel_mitre_map,
+                },
+                ToolDefinition {
+                    name: "rb.intel.mitre.layer",
+                    description: "Generate MITRE ATT&CK Navigator layer JSON from techniques.",
+                    fields: &[
+                        ToolField {
+                            name: "techniques",
+                            field_type: "string",
+                            description: "Comma-separated list of technique IDs (e.g., 'T1021.001,T1059.001').",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "name",
+                            field_type: "string",
+                            description: "Layer name for the Navigator (default: 'RedBlue Assessment').",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_intel_mitre_layer,
+                },
+                ToolDefinition {
+                    name: "rb.intel.ioc.extract",
+                    description: "Extract Indicators of Compromise (IOCs) from scan results.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target that was scanned.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "ports",
+                            field_type: "string",
+                            description: "Comma-separated list of open ports.",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "technologies",
+                            field_type: "string",
+                            description: "Comma-separated list of detected technologies.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_intel_ioc_extract,
+                },
+                // ================================================================
+                // EVASION TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.evasion.sandbox",
+                    description: "Check if running in a sandbox/VM environment. Returns detection score and indicators.",
+                    fields: &[],
+                    handler: Self::tool_evasion_sandbox,
+                },
+                ToolDefinition {
+                    name: "rb.evasion.obfuscate",
+                    description: "Obfuscate a string using various encoding methods.",
+                    fields: &[
+                        ToolField {
+                            name: "input",
+                            field_type: "string",
+                            description: "String to obfuscate.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "method",
+                            field_type: "string",
+                            description: "Obfuscation method: xor, base64, rot13, hex (default: base64).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "key",
+                            field_type: "string",
+                            description: "Key for XOR encoding (default: 0x42).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_evasion_obfuscate,
+                },
+                ToolDefinition {
+                    name: "rb.evasion.antidebug",
+                    description: "Check for debugger presence using various techniques.",
+                    fields: &[],
+                    handler: Self::tool_evasion_antidebug,
+                },
+                // ================================================================
+                // FINGERPRINT TOOLS
+                // ================================================================
+                ToolDefinition {
+                    name: "rb.fingerprint.service",
+                    description: "Detect services running on specific ports by analyzing banners.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target IP or hostname.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "port",
+                            field_type: "integer",
+                            description: "Port to fingerprint.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_fingerprint_service,
                 },
             ],
             initialized: false,
@@ -2471,6 +2809,1296 @@ impl McpServer {
                     JsonValue::Number(result.duration_ms as f64),
                 ),
                 ("resolved".to_string(), JsonValue::array(resolved_json)),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // NETWORK TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_network_scan(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target_str = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        // Resolve hostname to IP if needed
+        let target_ip: IpAddr = target_str.parse().or_else(|_| {
+            // Try DNS resolution
+            use std::net::ToSocketAddrs;
+            format!("{}:80", target_str)
+                .to_socket_addrs()
+                .ok()
+                .and_then(|mut addrs| addrs.next())
+                .map(|addr| addr.ip())
+                .ok_or_else(|| format!("Could not resolve hostname: {}", target_str))
+        })?;
+
+        let mut scanner = PortScanner::new(target_ip);
+
+        // Configure timeout
+        if let Some(timeout) = args.get("timeout").and_then(|v| v.as_f64()) {
+            scanner = scanner.with_timeout(timeout as u64);
+        }
+
+        // Configure threads
+        if let Some(threads) = args.get("threads").and_then(|v| v.as_f64()) {
+            scanner = scanner.with_threads(threads as usize);
+        }
+
+        // Determine ports to scan
+        let ports_arg = args
+            .get("ports")
+            .and_then(|v| v.as_str())
+            .unwrap_or("common");
+        let ports: Vec<u16> = match ports_arg {
+            "common" => PortScanner::get_common_ports(),
+            "web" => vec![80, 443, 8080, 8443, 8000, 8888, 3000, 5000],
+            "full" => (1..=65535).collect(),
+            custom => {
+                // Parse custom port specification
+                let mut result = Vec::new();
+                for part in custom.split(',') {
+                    let part = part.trim();
+                    if part.contains('-') {
+                        // Range like "1-1000"
+                        let bounds: Vec<&str> = part.split('-').collect();
+                        if bounds.len() == 2 {
+                            if let (Ok(start), Ok(end)) =
+                                (bounds[0].parse::<u16>(), bounds[1].parse::<u16>())
+                            {
+                                result.extend(start..=end);
+                            }
+                        }
+                    } else if let Ok(port) = part.parse::<u16>() {
+                        result.push(port);
+                    }
+                }
+                if result.is_empty() {
+                    PortScanner::get_common_ports()
+                } else {
+                    result
+                }
+            }
+        };
+
+        let results = scanner.scan_ports(&ports);
+
+        // Filter open ports
+        let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
+
+        // Build JSON response
+        let ports_json: Vec<JsonValue> = open_ports
+            .iter()
+            .map(|r| {
+                JsonValue::object(vec![
+                    ("port".to_string(), JsonValue::Number(r.port as f64)),
+                    ("state".to_string(), JsonValue::String("open".to_string())),
+                    (
+                        "service".to_string(),
+                        r.service
+                            .as_ref()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                    (
+                        "banner".to_string(),
+                        r.banner
+                            .as_ref()
+                            .map(|b| JsonValue::String(b.clone()))
+                            .unwrap_or(JsonValue::Null),
+                    ),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Port scan of {}: {} open ports found out of {} scanned",
+            target_str,
+            open_ports.len(),
+            ports.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                (
+                    "target".to_string(),
+                    JsonValue::String(target_str.to_string()),
+                ),
+                (
+                    "target_ip".to_string(),
+                    JsonValue::String(target_ip.to_string()),
+                ),
+                (
+                    "ports_scanned".to_string(),
+                    JsonValue::Number(ports.len() as f64),
+                ),
+                (
+                    "open_count".to_string(),
+                    JsonValue::Number(open_ports.len() as f64),
+                ),
+                ("open_ports".to_string(), JsonValue::array(ports_json)),
+            ]),
+        })
+    }
+
+    fn tool_network_ping(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        // Try to connect to common ports to check if host is up
+        let common_ports = [80, 443, 22, 21, 25, 8080];
+        let timeout = Duration::from_millis(2000);
+
+        let mut reachable = false;
+        let mut open_port = None;
+        let mut response_time = Duration::ZERO;
+
+        for port in &common_ports {
+            let start = std::time::Instant::now();
+            let addr = format!("{}:{}", target, port);
+            if let Ok(socket_addr) = addr.parse::<std::net::SocketAddr>() {
+                if std::net::TcpStream::connect_timeout(&socket_addr, timeout).is_ok() {
+                    reachable = true;
+                    open_port = Some(*port);
+                    response_time = start.elapsed();
+                    break;
+                }
+            } else {
+                // Try resolving hostname
+                use std::net::ToSocketAddrs;
+                if let Ok(mut addrs) = addr.to_socket_addrs() {
+                    if let Some(socket_addr) = addrs.next() {
+                        if std::net::TcpStream::connect_timeout(&socket_addr, timeout).is_ok() {
+                            reachable = true;
+                            open_port = Some(*port);
+                            response_time = start.elapsed();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let text = if reachable {
+            format!(
+                "Host {} is UP (port {} responded in {}ms)",
+                target,
+                open_port.unwrap_or(0),
+                response_time.as_millis()
+            )
+        } else {
+            format!("Host {} appears to be DOWN or filtered", target)
+        };
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                ("reachable".to_string(), JsonValue::Bool(reachable)),
+                (
+                    "responding_port".to_string(),
+                    open_port
+                        .map(|p| JsonValue::Number(p as f64))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "response_time_ms".to_string(),
+                    JsonValue::Number(response_time.as_millis() as f64),
+                ),
+            ]),
+        })
+    }
+
+    fn tool_network_health(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        let ports_str = args
+            .get("ports")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: ports")?;
+
+        let ports: Vec<u16> = ports_str
+            .split(',')
+            .filter_map(|p| p.trim().parse().ok())
+            .collect();
+
+        if ports.is_empty() {
+            return Err("No valid ports provided".to_string());
+        }
+
+        let timeout = Duration::from_millis(2000);
+        let mut results = Vec::new();
+
+        for port in &ports {
+            let start = std::time::Instant::now();
+            let addr = format!("{}:{}", target, port);
+            let is_open = if let Ok(socket_addr) = addr.parse::<std::net::SocketAddr>() {
+                std::net::TcpStream::connect_timeout(&socket_addr, timeout).is_ok()
+            } else {
+                use std::net::ToSocketAddrs;
+                addr.to_socket_addrs()
+                    .ok()
+                    .and_then(|mut addrs| addrs.next())
+                    .map(|sa| std::net::TcpStream::connect_timeout(&sa, timeout).is_ok())
+                    .unwrap_or(false)
+            };
+            let elapsed = start.elapsed();
+
+            results.push(JsonValue::object(vec![
+                ("port".to_string(), JsonValue::Number(*port as f64)),
+                (
+                    "status".to_string(),
+                    JsonValue::String(if is_open { "open" } else { "closed" }.to_string()),
+                ),
+                (
+                    "response_time_ms".to_string(),
+                    JsonValue::Number(elapsed.as_millis() as f64),
+                ),
+            ]));
+        }
+
+        let open_count = results
+            .iter()
+            .filter(|r| r.get("status").and_then(|s| s.as_str()) == Some("open"))
+            .count();
+
+        let text = format!(
+            "Health check for {}: {}/{} ports open",
+            target,
+            open_count,
+            ports.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                (
+                    "total_ports".to_string(),
+                    JsonValue::Number(ports.len() as f64),
+                ),
+                (
+                    "open_count".to_string(),
+                    JsonValue::Number(open_count as f64),
+                ),
+                ("results".to_string(), JsonValue::array(results)),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // DNS TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_dns_lookup(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let record_type = args
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("A")
+            .to_uppercase();
+
+        let server = args
+            .get("server")
+            .and_then(|v| v.as_str())
+            .unwrap_or("8.8.8.8");
+
+        let client = DnsClient::new(server);
+
+        let query_type = match record_type.as_str() {
+            "A" => crate::protocols::dns::DnsRecordType::A,
+            "AAAA" => crate::protocols::dns::DnsRecordType::AAAA,
+            "MX" => crate::protocols::dns::DnsRecordType::MX,
+            "NS" => crate::protocols::dns::DnsRecordType::NS,
+            "TXT" => crate::protocols::dns::DnsRecordType::TXT,
+            "CNAME" => crate::protocols::dns::DnsRecordType::CNAME,
+            "SOA" => crate::protocols::dns::DnsRecordType::SOA,
+            _ => return Err(format!("Unsupported record type: {}", record_type)),
+        };
+
+        let answers = client.query(domain, query_type)?;
+
+        let records_json: Vec<JsonValue> = answers
+            .iter()
+            .map(|r| {
+                // Format DnsRdata as string
+                let data_str = match &r.data {
+                    crate::protocols::dns::DnsRdata::A(ip) => ip.clone(),
+                    crate::protocols::dns::DnsRdata::AAAA(ip) => ip.clone(),
+                    crate::protocols::dns::DnsRdata::NS(ns) => ns.clone(),
+                    crate::protocols::dns::DnsRdata::CNAME(name) => name.clone(),
+                    crate::protocols::dns::DnsRdata::PTR(ptr) => ptr.clone(),
+                    crate::protocols::dns::DnsRdata::MX {
+                        preference,
+                        exchange,
+                    } => {
+                        format!("{} {}", preference, exchange)
+                    }
+                    crate::protocols::dns::DnsRdata::TXT(texts) => texts.join(" "),
+                    crate::protocols::dns::DnsRdata::SOA {
+                        mname,
+                        rname,
+                        serial,
+                        ..
+                    } => {
+                        format!("{} {} {}", mname, rname, serial)
+                    }
+                    crate::protocols::dns::DnsRdata::Raw(bytes) => {
+                        format!(
+                            "0x{}",
+                            bytes
+                                .iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<String>()
+                        )
+                    }
+                };
+                JsonValue::object(vec![
+                    ("name".to_string(), JsonValue::String(r.name.clone())),
+                    (
+                        "type".to_string(),
+                        JsonValue::String(format!("{}", r.record_type)),
+                    ),
+                    ("ttl".to_string(), JsonValue::Number(r.ttl as f64)),
+                    ("data".to_string(), JsonValue::String(data_str)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "DNS {} lookup for {}: {} records found",
+            record_type,
+            domain,
+            records_json.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                ("type".to_string(), JsonValue::String(record_type)),
+                ("server".to_string(), JsonValue::String(server.to_string())),
+                (
+                    "record_count".to_string(),
+                    JsonValue::Number(records_json.len() as f64),
+                ),
+                ("records".to_string(), JsonValue::array(records_json)),
+            ]),
+        })
+    }
+
+    fn tool_dns_resolve(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let client = DnsClient::new("8.8.8.8");
+        let answers = client.query(domain, crate::protocols::dns::DnsRecordType::A)?;
+
+        let ips: Vec<String> = answers
+            .iter()
+            .filter_map(|r| {
+                if let crate::protocols::dns::DnsRdata::A(ip) = &r.data {
+                    Some(ip.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let text = if ips.is_empty() {
+            format!("No IP addresses found for {}", domain)
+        } else {
+            format!("{} resolves to: {}", domain, ips.join(", "))
+        };
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                (
+                    "ips".to_string(),
+                    JsonValue::array(ips.iter().map(|ip| JsonValue::String(ip.clone())).collect()),
+                ),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // TLS TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_tls_cert(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let host = args
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: host")?;
+
+        // Parse host:port
+        let (hostname, port) = if host.contains(':') {
+            let parts: Vec<&str> = host.splitn(2, ':').collect();
+            (
+                parts[0],
+                parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(443),
+            )
+        } else {
+            (host, 443)
+        };
+
+        // Use openssl s_client to get certificate (fallback since we don't have full TLS impl)
+        let output = Command::new("openssl")
+            .args([
+                "s_client",
+                "-connect",
+                &format!("{}:{}", hostname, port),
+                "-servername",
+                hostname,
+            ])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("Failed to execute openssl: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let combined = format!("{}\n{}", stdout, stderr);
+
+        // Parse basic certificate info
+        let mut subject = String::new();
+        let mut issuer = String::new();
+        let mut not_before = String::new();
+        let mut not_after = String::new();
+
+        for line in combined.lines() {
+            let line = line.trim();
+            if line.starts_with("subject=") {
+                subject = line.trim_start_matches("subject=").trim().to_string();
+            } else if line.starts_with("issuer=") {
+                issuer = line.trim_start_matches("issuer=").trim().to_string();
+            } else if line.starts_with("notBefore=") {
+                not_before = line.trim_start_matches("notBefore=").trim().to_string();
+            } else if line.starts_with("notAfter=") {
+                not_after = line.trim_start_matches("notAfter=").trim().to_string();
+            }
+        }
+
+        let text = format!(
+            "TLS Certificate for {}:{}\nSubject: {}\nIssuer: {}\nValid: {} to {}",
+            hostname, port, subject, issuer, not_before, not_after
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("host".to_string(), JsonValue::String(hostname.to_string())),
+                ("port".to_string(), JsonValue::Number(port as f64)),
+                ("subject".to_string(), JsonValue::String(subject)),
+                ("issuer".to_string(), JsonValue::String(issuer)),
+                ("not_before".to_string(), JsonValue::String(not_before)),
+                ("not_after".to_string(), JsonValue::String(not_after)),
+            ]),
+        })
+    }
+
+    fn tool_tls_audit(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let host = args
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: host")?;
+
+        // Parse host:port
+        let (hostname, port) = if host.contains(':') {
+            let parts: Vec<&str> = host.splitn(2, ':').collect();
+            (
+                parts[0],
+                parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(443),
+            )
+        } else {
+            (host, 443)
+        };
+
+        // Get certificate info first
+        let cert_result = self.tool_tls_cert(args)?;
+
+        // Check supported TLS versions
+        let mut supported_versions = Vec::new();
+        for version in &["tls1", "tls1_1", "tls1_2", "tls1_3"] {
+            let output = Command::new("openssl")
+                .args([
+                    "s_client",
+                    "-connect",
+                    &format!("{}:{}", hostname, port),
+                    &format!("-{}", version),
+                    "-servername",
+                    hostname,
+                ])
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output();
+
+            if let Ok(out) = output {
+                if out.status.success()
+                    || String::from_utf8_lossy(&out.stdout).contains("Certificate chain")
+                {
+                    supported_versions.push(version.replace("_", ".").replace("tls", "TLS "));
+                }
+            }
+        }
+
+        let mut issues = Vec::new();
+        if supported_versions
+            .iter()
+            .any(|v| v.contains("1.0") || v.contains("1.1"))
+        {
+            issues.push("Deprecated TLS versions supported (TLS 1.0/1.1)");
+        }
+
+        let issues_str = if issues.is_empty() {
+            "None".to_string()
+        } else {
+            issues.join(", ")
+        };
+        let text = format!(
+            "TLS Audit for {}:{}\nSupported versions: {}\nIssues: {}",
+            hostname,
+            port,
+            supported_versions.join(", "),
+            issues_str
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("host".to_string(), JsonValue::String(hostname.to_string())),
+                ("port".to_string(), JsonValue::Number(port as f64)),
+                (
+                    "supported_versions".to_string(),
+                    JsonValue::array(
+                        supported_versions
+                            .iter()
+                            .map(|v| JsonValue::String(v.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "issues".to_string(),
+                    JsonValue::array(
+                        issues
+                            .iter()
+                            .map(|i| JsonValue::String(i.to_string()))
+                            .collect(),
+                    ),
+                ),
+                ("certificate".to_string(), cert_result.data),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // RECON TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_recon_whois(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let client = WhoisClient::new();
+        let result = client.query(domain)?;
+
+        let text = format!(
+            "WHOIS for {}:\nRegistrar: {}\nCreated: {}\nExpires: {}\nNameservers: {}",
+            domain,
+            result.registrar.as_deref().unwrap_or("Unknown"),
+            result.creation_date.as_deref().unwrap_or("Unknown"),
+            result.expiration_date.as_deref().unwrap_or("Unknown"),
+            result.name_servers.join(", ")
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                (
+                    "registrar".to_string(),
+                    result
+                        .registrar
+                        .map(|r| JsonValue::String(r))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "creation_date".to_string(),
+                    result
+                        .creation_date
+                        .map(|d| JsonValue::String(d))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "expiration_date".to_string(),
+                    result
+                        .expiration_date
+                        .map(|d| JsonValue::String(d))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "updated_date".to_string(),
+                    result
+                        .updated_date
+                        .map(|d| JsonValue::String(d))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "name_servers".to_string(),
+                    JsonValue::array(
+                        result
+                            .name_servers
+                            .iter()
+                            .map(|ns| JsonValue::String(ns.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "status".to_string(),
+                    JsonValue::array(
+                        result
+                            .status
+                            .iter()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .collect(),
+                    ),
+                ),
+            ]),
+        })
+    }
+
+    fn tool_recon_subdomains(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let passive_only = args
+            .get("passive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let mut all_subdomains = HashSet::new();
+
+        // Use CT logs via crt.sh
+        if let Ok(crtsh_result) = CrtShClient::new().query_subdomains(domain) {
+            for sub in crtsh_result {
+                all_subdomains.insert(sub);
+            }
+        }
+
+        // If not passive only, use DNS bruteforce
+        if !passive_only {
+            let config = MassDnsConfig::default();
+            let scanner = MassDnsScanner::with_config(config);
+            let wordlist = common_subdomains();
+            if let Ok(result) = scanner.bruteforce(domain, &wordlist) {
+                for r in result.resolved {
+                    all_subdomains.insert(r.subdomain);
+                }
+            }
+        }
+
+        let subdomains: Vec<String> = all_subdomains.into_iter().collect();
+
+        let text = format!(
+            "Subdomain enumeration for {}: {} subdomains found{}",
+            domain,
+            subdomains.len(),
+            if passive_only { " (passive only)" } else { "" }
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                (
+                    "count".to_string(),
+                    JsonValue::Number(subdomains.len() as f64),
+                ),
+                ("passive_only".to_string(), JsonValue::Bool(passive_only)),
+                (
+                    "subdomains".to_string(),
+                    JsonValue::array(
+                        subdomains
+                            .iter()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .collect(),
+                    ),
+                ),
+            ]),
+        })
+    }
+
+    fn tool_recon_crtsh(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let domain = args
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: domain")?;
+
+        let client = CrtShClient::new();
+        let subdomains = client.query_subdomains(domain)?;
+
+        let text = format!(
+            "crt.sh query for {}: {} unique subdomains found in CT logs",
+            domain,
+            subdomains.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("domain".to_string(), JsonValue::String(domain.to_string())),
+                (
+                    "count".to_string(),
+                    JsonValue::Number(subdomains.len() as f64),
+                ),
+                (
+                    "subdomains".to_string(),
+                    JsonValue::array(
+                        subdomains
+                            .iter()
+                            .map(|s| JsonValue::String(s.clone()))
+                            .collect(),
+                    ),
+                ),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // INTEL TOOL HANDLERS (MITRE ATT&CK)
+    // ========================================================================
+
+    fn tool_intel_mitre_map(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let mapper = TechniqueMapper::new();
+
+        let mut all_techniques = Vec::new();
+
+        // Map ports
+        if let Some(ports_str) = args.get("ports").and_then(|v| v.as_str()) {
+            let ports: Vec<u16> = ports_str
+                .split(',')
+                .filter_map(|p| p.trim().parse().ok())
+                .collect();
+
+            for port in ports {
+                let techniques = mapper.map_port(port);
+                all_techniques.extend(techniques);
+            }
+        }
+
+        // Map CVEs
+        if let Some(cves_str) = args.get("cves").and_then(|v| v.as_str()) {
+            for cve in cves_str.split(',').map(|s| s.trim()) {
+                // map_cve requires (cve_id, description) - use cve as description placeholder
+                let techniques = mapper.map_cve(cve, cve);
+                all_techniques.extend(techniques);
+            }
+        }
+
+        // Map technologies/fingerprints
+        if let Some(techs_str) = args.get("technologies").and_then(|v| v.as_str()) {
+            for tech in techs_str.split(',').map(|s| s.trim()) {
+                let techniques = mapper.map_fingerprint(tech);
+                all_techniques.extend(techniques);
+            }
+        }
+
+        // Deduplicate by technique_id
+        all_techniques.sort_by(|a, b| a.technique_id.cmp(&b.technique_id));
+        all_techniques.dedup_by(|a, b| a.technique_id == b.technique_id);
+
+        let techniques_json: Vec<JsonValue> = all_techniques
+            .iter()
+            .map(|t| {
+                JsonValue::object(vec![
+                    ("id".to_string(), JsonValue::String(t.technique_id.clone())),
+                    ("name".to_string(), JsonValue::String(t.name.clone())),
+                    ("tactic".to_string(), JsonValue::String(t.tactic.clone())),
+                    ("reason".to_string(), JsonValue::String(t.reason.clone())),
+                    (
+                        "confidence".to_string(),
+                        JsonValue::String(format!("{:?}", t.confidence)),
+                    ),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "MITRE ATT&CK mapping: {} techniques identified",
+            all_techniques.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                (
+                    "technique_count".to_string(),
+                    JsonValue::Number(all_techniques.len() as f64),
+                ),
+                ("techniques".to_string(), JsonValue::array(techniques_json)),
+            ]),
+        })
+    }
+
+    fn tool_intel_mitre_layer(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let techniques_str = args
+            .get("techniques")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: techniques")?;
+
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("RedBlue Assessment");
+
+        let technique_ids: Vec<String> = techniques_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        // Create MappedTechnique structs for the given IDs
+        let techniques: Vec<crate::modules::intel::mapper::MappedTechnique> = technique_ids
+            .iter()
+            .map(|id| crate::modules::intel::mapper::MappedTechnique {
+                technique_id: id.clone(),
+                name: id.clone(), // Use ID as name placeholder
+                reason: "User provided".to_string(),
+                tactic: "unknown".to_string(),
+                confidence: crate::modules::intel::mapper::Confidence::Medium,
+                source: crate::modules::intel::mapper::MappingSource::Port,
+                original_value: id.clone(),
+            })
+            .collect();
+
+        let layer = create_layer_from_techniques(&techniques, name, "manual");
+        let layer_json = layer.to_json();
+
+        let text = format!(
+            "Generated ATT&CK Navigator layer '{}' with {} techniques",
+            name,
+            technique_ids.len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                (
+                    "layer_name".to_string(),
+                    JsonValue::String(name.to_string()),
+                ),
+                (
+                    "technique_count".to_string(),
+                    JsonValue::Number(technique_ids.len() as f64),
+                ),
+                ("layer_json".to_string(), JsonValue::String(layer_json)),
+            ]),
+        })
+    }
+
+    fn tool_intel_ioc_extract(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        let extractor = IocExtractor::new(target);
+        let mut collection = IocCollection::new();
+
+        // Extract from ports if provided
+        if let Some(ports_str) = args.get("ports").and_then(|v| v.as_str()) {
+            let ports: Vec<u16> = ports_str
+                .split(',')
+                .filter_map(|p| p.trim().parse().ok())
+                .collect();
+
+            let iocs = extractor.extract_from_port_scan(target, &ports);
+            for ioc in iocs {
+                collection.add(ioc);
+            }
+        }
+
+        // Add basic IOC for the target itself
+        let target_ioc = crate::modules::intel::ioc::Ioc::new(
+            crate::modules::intel::ioc::IocType::Domain,
+            target,
+            crate::modules::intel::ioc::IocSource::DnsQuery,
+            100,
+            target,
+        );
+        collection.add(target_ioc);
+
+        let iocs_json: Vec<JsonValue> = collection
+            .all()
+            .iter()
+            .map(|ioc| {
+                JsonValue::object(vec![
+                    (
+                        "type".to_string(),
+                        JsonValue::String(format!("{:?}", ioc.ioc_type)),
+                    ),
+                    ("value".to_string(), JsonValue::String(ioc.value.clone())),
+                    (
+                        "confidence".to_string(),
+                        JsonValue::Number(ioc.confidence_score as f64),
+                    ),
+                    (
+                        "source".to_string(),
+                        JsonValue::String(format!("{:?}", ioc.source)),
+                    ),
+                    (
+                        "tags".to_string(),
+                        JsonValue::array(
+                            ioc.tags
+                                .iter()
+                                .map(|t| JsonValue::String(t.clone()))
+                                .collect(),
+                        ),
+                    ),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "IOC extraction for {}: {} indicators collected",
+            target,
+            collection.all().len()
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                (
+                    "ioc_count".to_string(),
+                    JsonValue::Number(collection.all().len() as f64),
+                ),
+                ("iocs".to_string(), JsonValue::array(iocs_json)),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // EVASION TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_evasion_sandbox(&mut self, _args: &JsonValue) -> Result<ToolResult, String> {
+        // Run individual checks
+        let vm_files = sandbox::check_vm_files();
+        let sandbox_processes = sandbox::check_sandbox_processes();
+        let timing_anomaly = sandbox::check_timing_anomaly();
+        let low_resources = sandbox::check_low_resources();
+        let suspicious_username = sandbox::check_suspicious_username();
+        let debugger = sandbox::check_debugger();
+
+        // Get overall score and detection status
+        let score = sandbox::sandbox_score();
+        let is_sandbox = sandbox::detect_sandbox();
+
+        // Build indicators list
+        let indicators_json = vec![
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("VM Files".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(vm_files)),
+                ("weight".to_string(), JsonValue::Number(30.0)),
+            ]),
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("Sandbox Processes".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(sandbox_processes)),
+                ("weight".to_string(), JsonValue::Number(25.0)),
+            ]),
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("Timing Anomaly".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(timing_anomaly)),
+                ("weight".to_string(), JsonValue::Number(40.0)),
+            ]),
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("Low Resources".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(low_resources)),
+                ("weight".to_string(), JsonValue::Number(15.0)),
+            ]),
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("Suspicious Username".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(suspicious_username)),
+                ("weight".to_string(), JsonValue::Number(20.0)),
+            ]),
+            JsonValue::object(vec![
+                (
+                    "name".to_string(),
+                    JsonValue::String("Debugger".to_string()),
+                ),
+                ("detected".to_string(), JsonValue::Bool(debugger)),
+                ("weight".to_string(), JsonValue::Number(35.0)),
+            ]),
+        ];
+
+        let text = format!(
+            "Sandbox detection: Score {}/165 - {}",
+            score,
+            if is_sandbox {
+                "SANDBOX DETECTED"
+            } else {
+                "Likely real system"
+            }
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("is_sandbox".to_string(), JsonValue::Bool(is_sandbox)),
+                ("score".to_string(), JsonValue::Number(score as f64)),
+                ("threshold".to_string(), JsonValue::Number(50.0)),
+                ("indicators".to_string(), JsonValue::array(indicators_json)),
+            ]),
+        })
+    }
+
+    fn tool_evasion_obfuscate(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let input = args
+            .get("input")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: input")?;
+
+        let method = args
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("base64");
+
+        let key = args
+            .get("key")
+            .and_then(|v| v.as_str())
+            .and_then(|k| {
+                if k.starts_with("0x") {
+                    u8::from_str_radix(&k[2..], 16).ok()
+                } else {
+                    k.parse().ok()
+                }
+            })
+            .unwrap_or(0x42);
+
+        let output = match method {
+            "xor" => {
+                let bytes: Vec<u8> = input.bytes().map(|b| b ^ key).collect();
+                format!(
+                    "0x{}",
+                    bytes
+                        .iter()
+                        .map(|b| format!("{:02x}", b))
+                        .collect::<String>()
+                )
+            }
+            "base64" => {
+                use crate::crypto::encoding::base64::base64_encode;
+                base64_encode(input.as_bytes())
+            }
+            "rot13" => input
+                .chars()
+                .map(|c| match c {
+                    'a'..='m' | 'A'..='M' => ((c as u8) + 13) as char,
+                    'n'..='z' | 'N'..='Z' => ((c as u8) - 13) as char,
+                    _ => c,
+                })
+                .collect(),
+            "hex" => input
+                .bytes()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>(),
+            _ => return Err(format!("Unknown obfuscation method: {}", method)),
+        };
+
+        let text = format!("Obfuscated with {}: {}", method, output);
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("input".to_string(), JsonValue::String(input.to_string())),
+                ("method".to_string(), JsonValue::String(method.to_string())),
+                ("output".to_string(), JsonValue::String(output)),
+            ]),
+        })
+    }
+
+    fn tool_evasion_antidebug(&mut self, _args: &JsonValue) -> Result<ToolResult, String> {
+        // sensitivity: 0-100, aggressive: whether to take action
+        let antidebug = AntiDebug::new(50, false);
+        let result = antidebug.check_all();
+
+        // checks is Vec<(String, bool)> - (check_name, was_triggered)
+        let checks_json: Vec<JsonValue> = result
+            .checks
+            .iter()
+            .map(|(name, detected)| {
+                JsonValue::object(vec![
+                    ("name".to_string(), JsonValue::String(name.clone())),
+                    ("detected".to_string(), JsonValue::Bool(*detected)),
+                ])
+            })
+            .collect();
+
+        let text = format!(
+            "Anti-debug check: {} (score: {}/100)",
+            if result.debugger_detected {
+                "DEBUGGER DETECTED"
+            } else {
+                "No debugger detected"
+            },
+            result.score
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                (
+                    "debugger_detected".to_string(),
+                    JsonValue::Bool(result.debugger_detected),
+                ),
+                ("score".to_string(), JsonValue::Number(result.score as f64)),
+                ("checks".to_string(), JsonValue::array(checks_json)),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // FINGERPRINT TOOL HANDLERS
+    // ========================================================================
+
+    fn tool_fingerprint_service(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        let port = args
+            .get("port")
+            .and_then(|v| v.as_f64())
+            .map(|p| p as u16)
+            .ok_or("Missing required field: port")?;
+
+        // Try to grab banner
+        let timeout = Duration::from_secs(5);
+        let addr = format!("{}:{}", target, port);
+
+        let banner = if let Ok(socket_addr) = addr.parse::<std::net::SocketAddr>() {
+            if let Ok(mut stream) = std::net::TcpStream::connect_timeout(&socket_addr, timeout) {
+                stream.set_read_timeout(Some(timeout)).ok();
+                let mut buf = [0u8; 1024];
+                // Send a simple probe for HTTP
+                if port == 80 || port == 8080 || port == 443 || port == 8443 {
+                    use std::io::Write;
+                    let _ = stream.write_all(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n");
+                }
+                use std::io::Read;
+                match stream.read(&mut buf) {
+                    Ok(n) if n > 0 => Some(String::from_utf8_lossy(&buf[..n]).to_string()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Guess service from port number (inline simple version)
+        let service_guess: Option<String> = match port {
+            21 => Some("FTP".to_string()),
+            22 => Some("SSH".to_string()),
+            23 => Some("Telnet".to_string()),
+            25 | 587 => Some("SMTP".to_string()),
+            53 => Some("DNS".to_string()),
+            80 | 8080 | 8000 => Some("HTTP".to_string()),
+            110 => Some("POP3".to_string()),
+            143 => Some("IMAP".to_string()),
+            443 | 8443 => Some("HTTPS".to_string()),
+            3306 => Some("MySQL".to_string()),
+            5432 => Some("PostgreSQL".to_string()),
+            6379 => Some("Redis".to_string()),
+            27017 => Some("MongoDB".to_string()),
+            _ => None,
+        };
+
+        // Try to detect service from banner
+        let detected_service = banner.as_ref().and_then(|b| {
+            let b_lower = b.to_lowercase();
+            if b_lower.contains("ssh") {
+                Some("SSH")
+            } else if b_lower.contains("http") {
+                Some("HTTP")
+            } else if b_lower.contains("ftp") {
+                Some("FTP")
+            } else if b_lower.contains("smtp") || b_lower.contains("mail") {
+                Some("SMTP")
+            } else if b_lower.contains("mysql") {
+                Some("MySQL")
+            } else if b_lower.contains("postgresql") || b_lower.contains("postgres") {
+                Some("PostgreSQL")
+            } else if b_lower.contains("redis") {
+                Some("Redis")
+            } else {
+                None
+            }
+        });
+
+        let text = format!(
+            "Service fingerprint for {}:{}: {}",
+            target,
+            port,
+            detected_service
+                .or(service_guess.as_deref())
+                .unwrap_or("Unknown")
+        );
+
+        Ok(ToolResult {
+            text,
+            data: JsonValue::object(vec![
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                ("port".to_string(), JsonValue::Number(port as f64)),
+                (
+                    "service".to_string(),
+                    detected_service
+                        .or(service_guess.as_deref())
+                        .map(|s| JsonValue::String(s.to_string()))
+                        .unwrap_or(JsonValue::Null),
+                ),
+                (
+                    "banner".to_string(),
+                    banner
+                        .map(|b| JsonValue::String(b.chars().take(200).collect()))
+                        .unwrap_or(JsonValue::Null),
+                ),
             ]),
         })
     }
