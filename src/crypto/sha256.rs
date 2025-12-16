@@ -1,7 +1,7 @@
-/// SHA-256 implementation
-///
-/// On non-Windows platforms: Uses OpenSSL (boring) for performance and hardware acceleration.
-/// On Windows: Uses pure Rust implementation (no external dependencies).
+// SHA-256 implementation
+//
+// On non-Windows platforms: Uses OpenSSL (boring) for performance and hardware acceleration.
+// On Windows: Uses pure Rust implementation (no external dependencies).
 
 // Use boring on non-Windows platforms
 #[cfg(not(target_os = "windows"))]
