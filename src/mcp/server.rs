@@ -1,5 +1,9 @@
 use crate::cli::commands;
+use crate::mcp::categories::{CategoryConfig, CategoryPreset, ToolCategory};
 use crate::mcp::embeddings::{load_embeddings, EmbeddingsData, EmbeddingsLoaderConfig};
+use crate::mcp::orchestrator::{Orchestrator, StepResult};
+use crate::mcp::prompts::PromptRegistry;
+use crate::mcp::resources::ResourceRegistry;
 use crate::mcp::search::{hybrid_search, SearchConfig, SearchMode};
 use crate::modules::recon::dnsdumpster::DnsDumpsterClient;
 use crate::modules::recon::massdns::{
@@ -76,6 +80,10 @@ pub struct McpServer {
     initialized: bool,
     embeddings: Option<EmbeddingsData>,
     embeddings_loaded: bool,
+    resources: ResourceRegistry,
+    prompts: PromptRegistry,
+    categories: CategoryConfig,
+    orchestrator: Orchestrator,
 }
 
 impl McpServer {
@@ -835,10 +843,132 @@ impl McpServer {
                     ],
                     handler: Self::tool_fingerprint_service,
                 },
+                // Category management tools
+                ToolDefinition {
+                    name: "rb.config.categories",
+                    description: "List, enable, or disable tool categories. Without args, shows current status.",
+                    fields: &[
+                        ToolField {
+                            name: "action",
+                            field_type: "string",
+                            description: "Action: list, enable, disable, toggle (optional, default: list).",
+                            required: false,
+                        },
+                        ToolField {
+                            name: "category",
+                            field_type: "string",
+                            description: "Category name (discovery, docs, targets, network, dns, web, har, tls, recon, vuln, intel, evasion, fingerprint, command).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_config_categories,
+                },
+                ToolDefinition {
+                    name: "rb.config.preset",
+                    description: "Apply a category preset (all, core, blue-team, red-team, web-security, minimal).",
+                    fields: &[
+                        ToolField {
+                            name: "preset",
+                            field_type: "string",
+                            description: "Preset name: all, core, blue-team, red-team, web-security, minimal.",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_config_preset,
+                },
+                // Autonomous operation tools
+                ToolDefinition {
+                    name: "rb.auto.recon",
+                    description: "Start an autonomous reconnaissance operation on a target. Uses LLM guidance for decision-making.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target host, IP, or domain to assess.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_auto_recon,
+                },
+                ToolDefinition {
+                    name: "rb.auto.vulnscan",
+                    description: "Start an autonomous vulnerability scan. Combines port discovery with vuln intel.",
+                    fields: &[
+                        ToolField {
+                            name: "target",
+                            field_type: "string",
+                            description: "Target to scan for vulnerabilities.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_auto_vulnscan,
+                },
+                ToolDefinition {
+                    name: "rb.auto.step",
+                    description: "Execute next step of an autonomous operation. Returns guidance request if LLM input needed.",
+                    fields: &[
+                        ToolField {
+                            name: "operation_id",
+                            field_type: "string",
+                            description: "Operation ID (from rb.auto.recon or rb.auto.vulnscan).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_auto_step,
+                },
+                ToolDefinition {
+                    name: "rb.auto.guide",
+                    description: "Provide LLM guidance response for a pending operation request.",
+                    fields: &[
+                        ToolField {
+                            name: "operation_id",
+                            field_type: "string",
+                            description: "Operation ID awaiting guidance.",
+                            required: true,
+                        },
+                        ToolField {
+                            name: "response",
+                            field_type: "string",
+                            description: "LLM guidance response (JSON with recommended actions).",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_auto_guide,
+                },
+                ToolDefinition {
+                    name: "rb.auto.status",
+                    description: "Get status of an autonomous operation or list all operations.",
+                    fields: &[
+                        ToolField {
+                            name: "operation_id",
+                            field_type: "string",
+                            description: "Operation ID (optional, lists all if omitted).",
+                            required: false,
+                        },
+                    ],
+                    handler: Self::tool_auto_status,
+                },
+                ToolDefinition {
+                    name: "rb.auto.stop",
+                    description: "Stop an autonomous operation.",
+                    fields: &[
+                        ToolField {
+                            name: "operation_id",
+                            field_type: "string",
+                            description: "Operation ID to stop.",
+                            required: true,
+                        },
+                    ],
+                    handler: Self::tool_auto_stop,
+                },
             ],
             initialized: false,
             embeddings: None,
             embeddings_loaded: false,
+            resources: ResourceRegistry::new(),
+            prompts: PromptRegistry::new(),
+            categories: CategoryConfig::new(),
+            orchestrator: Orchestrator::new(),
         }
     }
 
@@ -963,6 +1093,38 @@ impl McpServer {
                     &format!("tool call failed: {}", err),
                 )),
             },
+            "resources/list" => match self.handle_list_resources(params) {
+                Ok(result) => Some(build_result_message(id, result)),
+                Err(err) => Some(build_error_message(
+                    id,
+                    -32001,
+                    &format!("resources list failed: {}", err),
+                )),
+            },
+            "resources/read" => match self.handle_read_resource(params) {
+                Ok(result) => Some(build_result_message(id, result)),
+                Err(err) => Some(build_error_message(
+                    id,
+                    -32001,
+                    &format!("resource read failed: {}", err),
+                )),
+            },
+            "prompts/list" => match self.handle_list_prompts(params) {
+                Ok(result) => Some(build_result_message(id, result)),
+                Err(err) => Some(build_error_message(
+                    id,
+                    -32001,
+                    &format!("prompts list failed: {}", err),
+                )),
+            },
+            "prompts/get" => match self.handle_get_prompt(params) {
+                Ok(result) => Some(build_result_message(id, result)),
+                Err(err) => Some(build_error_message(
+                    id,
+                    -32001,
+                    &format!("prompt get failed: {}", err),
+                )),
+            },
             "notifications/initialized" => None,
             other => Some(build_error_message(
                 id,
@@ -975,13 +1137,30 @@ impl McpServer {
     }
 
     fn handle_initialize(&mut self, _params: JsonValue) -> Result<JsonValue, String> {
-        let capabilities = JsonValue::object(vec![(
-            "tools".to_string(),
-            JsonValue::object(vec![
-                ("list".to_string(), JsonValue::Bool(true)),
-                ("call".to_string(), JsonValue::Bool(true)),
-            ]),
-        )]);
+        let capabilities = JsonValue::object(vec![
+            (
+                "tools".to_string(),
+                JsonValue::object(vec![
+                    ("list".to_string(), JsonValue::Bool(true)),
+                    ("call".to_string(), JsonValue::Bool(true)),
+                ]),
+            ),
+            (
+                "resources".to_string(),
+                JsonValue::object(vec![
+                    ("list".to_string(), JsonValue::Bool(true)),
+                    ("read".to_string(), JsonValue::Bool(true)),
+                    ("subscribe".to_string(), JsonValue::Bool(false)),
+                ]),
+            ),
+            (
+                "prompts".to_string(),
+                JsonValue::object(vec![
+                    ("list".to_string(), JsonValue::Bool(true)),
+                    ("get".to_string(), JsonValue::Bool(true)),
+                ]),
+            ),
+        ]);
 
         let result = JsonValue::object(vec![
             (
@@ -1016,15 +1195,18 @@ impl McpServer {
 
         let mut tools_json = Vec::new();
         for tool in &self.tools {
-            let entry = vec![
-                ("name".to_string(), JsonValue::String(tool.name.to_string())),
-                (
-                    "description".to_string(),
-                    JsonValue::String(tool.description.to_string()),
-                ),
-                ("inputSchema".to_string(), build_input_schema(tool.fields)),
-            ];
-            tools_json.push(JsonValue::Object(entry));
+            // Filter by enabled categories (config tools are always available)
+            if tool.name.starts_with("rb.config.") || self.categories.is_tool_enabled(tool.name) {
+                let entry = vec![
+                    ("name".to_string(), JsonValue::String(tool.name.to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String(tool.description.to_string()),
+                    ),
+                    ("inputSchema".to_string(), build_input_schema(tool.fields)),
+                ];
+                tools_json.push(JsonValue::Object(entry));
+            }
         }
 
         let result = JsonValue::object(vec![
@@ -1067,6 +1249,167 @@ impl McpServer {
 
         Err(format!("unknown tool '{}'", name))
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MCP RESOURCES HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    fn handle_list_resources(&self, _params: JsonValue) -> Result<JsonValue, String> {
+        let mut resources_json = Vec::new();
+
+        // Add static resources
+        for resource in self.resources.list_resources() {
+            resources_json.push(JsonValue::object(vec![
+                ("uri".to_string(), JsonValue::String(resource.uri.clone())),
+                ("name".to_string(), JsonValue::String(resource.name.clone())),
+                (
+                    "description".to_string(),
+                    JsonValue::String(resource.description.clone()),
+                ),
+                (
+                    "mimeType".to_string(),
+                    JsonValue::String(resource.mime_type.clone()),
+                ),
+            ]));
+        }
+
+        // Add resource templates
+        let mut templates_json = Vec::new();
+        for template in self.resources.list_templates() {
+            templates_json.push(JsonValue::object(vec![
+                (
+                    "uriTemplate".to_string(),
+                    JsonValue::String(template.uri_template.clone()),
+                ),
+                ("name".to_string(), JsonValue::String(template.name.clone())),
+                (
+                    "description".to_string(),
+                    JsonValue::String(template.description.clone()),
+                ),
+                (
+                    "mimeType".to_string(),
+                    JsonValue::String(template.mime_type.clone()),
+                ),
+            ]));
+        }
+
+        Ok(JsonValue::object(vec![
+            ("resources".to_string(), JsonValue::array(resources_json)),
+            (
+                "resourceTemplates".to_string(),
+                JsonValue::array(templates_json),
+            ),
+        ]))
+    }
+
+    fn handle_read_resource(&self, params: JsonValue) -> Result<JsonValue, String> {
+        let uri = params
+            .get("uri")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "missing 'uri' parameter".to_string())?;
+
+        let content = self.resources.read_resource(uri)?;
+
+        let mut content_obj = vec![
+            ("uri".to_string(), JsonValue::String(content.uri)),
+            ("mimeType".to_string(), JsonValue::String(content.mime_type)),
+        ];
+
+        if let Some(text) = content.text {
+            content_obj.push(("text".to_string(), JsonValue::String(text)));
+        }
+        if let Some(blob) = content.blob {
+            content_obj.push(("blob".to_string(), JsonValue::String(blob)));
+        }
+
+        Ok(JsonValue::object(vec![(
+            "contents".to_string(),
+            JsonValue::array(vec![JsonValue::object(content_obj)]),
+        )]))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MCP PROMPTS HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    fn handle_list_prompts(&self, _params: JsonValue) -> Result<JsonValue, String> {
+        let mut prompts_json = Vec::new();
+
+        for prompt in self.prompts.list_prompts() {
+            let mut args_json = Vec::new();
+            for arg in &prompt.arguments {
+                args_json.push(JsonValue::object(vec![
+                    ("name".to_string(), JsonValue::String(arg.name.clone())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String(arg.description.clone()),
+                    ),
+                    ("required".to_string(), JsonValue::Bool(arg.required)),
+                ]));
+            }
+
+            prompts_json.push(JsonValue::object(vec![
+                ("name".to_string(), JsonValue::String(prompt.name.clone())),
+                (
+                    "description".to_string(),
+                    JsonValue::String(prompt.description.clone()),
+                ),
+                ("arguments".to_string(), JsonValue::array(args_json)),
+            ]));
+        }
+
+        Ok(JsonValue::object(vec![(
+            "prompts".to_string(),
+            JsonValue::array(prompts_json),
+        )]))
+    }
+
+    fn handle_get_prompt(&self, params: JsonValue) -> Result<JsonValue, String> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "missing 'name' parameter".to_string())?;
+
+        // Extract arguments from params
+        let mut args = std::collections::HashMap::new();
+        if let Some(arguments) = params.get("arguments") {
+            if let JsonValue::Object(entries) = arguments {
+                for (key, value) in entries {
+                    if let JsonValue::String(s) = value {
+                        args.insert(key.clone(), s.clone());
+                    }
+                }
+            }
+        }
+
+        let result = self.prompts.get_prompt(name, &args)?;
+
+        let mut messages_json = Vec::new();
+        for msg in result.messages {
+            messages_json.push(JsonValue::object(vec![
+                ("role".to_string(), JsonValue::String(msg.role)),
+                (
+                    "content".to_string(),
+                    JsonValue::object(vec![
+                        ("type".to_string(), JsonValue::String("text".to_string())),
+                        ("text".to_string(), JsonValue::String(msg.content)),
+                    ]),
+                ),
+            ]));
+        }
+
+        Ok(JsonValue::object(vec![
+            (
+                "description".to_string(),
+                JsonValue::String(result.description),
+            ),
+            ("messages".to_string(), JsonValue::array(messages_json)),
+        ]))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TOOL IMPLEMENTATIONS
+    // ═══════════════════════════════════════════════════════════════════════
 
     fn tool_list_domains(&mut self, _args: &JsonValue) -> Result<ToolResult, String> {
         let mut domains = HashSet::new();
@@ -4098,6 +4441,554 @@ impl McpServer {
                     banner
                         .map(|b| JsonValue::String(b.chars().take(200).collect()))
                         .unwrap_or(JsonValue::Null),
+                ),
+            ]),
+        })
+    }
+
+    // ========================================================================
+    // CATEGORY CONFIGURATION HANDLERS
+    // ========================================================================
+
+    fn tool_config_categories(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let action = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("list");
+
+        let category_name = args.get("category").and_then(|v| v.as_str());
+
+        match action {
+            "list" => {
+                // List all categories and their status
+                let status = self.categories.status_summary();
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "Current preset: {}",
+                    self.categories.current_preset().as_str()
+                ));
+                lines.push(format!(
+                    "Enabled tools: {}/44",
+                    self.categories.enabled_tool_count()
+                ));
+                lines.push(String::new());
+                lines.push("Category Status:".to_string());
+
+                for (cat, enabled, count) in &status {
+                    let marker = if *enabled { "[x]" } else { "[ ]" };
+                    lines.push(format!(
+                        "  {} {:15} ({:2} tools) - {}",
+                        marker,
+                        cat.as_str(),
+                        count,
+                        cat.description()
+                    ));
+                }
+
+                let categories_json: Vec<JsonValue> = status
+                    .iter()
+                    .map(|(cat, enabled, count)| {
+                        JsonValue::object(vec![
+                            (
+                                "name".to_string(),
+                                JsonValue::String(cat.as_str().to_string()),
+                            ),
+                            ("enabled".to_string(), JsonValue::Bool(*enabled)),
+                            ("tool_count".to_string(), JsonValue::Number(*count as f64)),
+                            (
+                                "description".to_string(),
+                                JsonValue::String(cat.description().to_string()),
+                            ),
+                        ])
+                    })
+                    .collect();
+
+                Ok(ToolResult {
+                    text: lines.join("\n"),
+                    data: JsonValue::object(vec![
+                        (
+                            "preset".to_string(),
+                            JsonValue::String(
+                                self.categories.current_preset().as_str().to_string(),
+                            ),
+                        ),
+                        (
+                            "enabled_count".to_string(),
+                            JsonValue::Number(self.categories.enabled_tool_count() as f64),
+                        ),
+                        ("categories".to_string(), JsonValue::Array(categories_json)),
+                    ]),
+                })
+            }
+            "enable" => {
+                let cat_str = category_name.ok_or("Missing category name for enable action")?;
+                let category = ToolCategory::from_str(cat_str)
+                    .ok_or_else(|| format!("Unknown category: {}", cat_str))?;
+
+                self.categories.enable(category);
+                let text = format!(
+                    "Enabled category '{}'. Now exposing {} tools.",
+                    cat_str,
+                    self.categories.enabled_tool_count()
+                );
+
+                Ok(ToolResult {
+                    text,
+                    data: JsonValue::object(vec![
+                        (
+                            "action".to_string(),
+                            JsonValue::String("enabled".to_string()),
+                        ),
+                        (
+                            "category".to_string(),
+                            JsonValue::String(cat_str.to_string()),
+                        ),
+                        (
+                            "enabled_count".to_string(),
+                            JsonValue::Number(self.categories.enabled_tool_count() as f64),
+                        ),
+                    ]),
+                })
+            }
+            "disable" => {
+                let cat_str = category_name.ok_or("Missing category name for disable action")?;
+                let category = ToolCategory::from_str(cat_str)
+                    .ok_or_else(|| format!("Unknown category: {}", cat_str))?;
+
+                self.categories.disable(category);
+                let text = format!(
+                    "Disabled category '{}'. Now exposing {} tools.",
+                    cat_str,
+                    self.categories.enabled_tool_count()
+                );
+
+                Ok(ToolResult {
+                    text,
+                    data: JsonValue::object(vec![
+                        (
+                            "action".to_string(),
+                            JsonValue::String("disabled".to_string()),
+                        ),
+                        (
+                            "category".to_string(),
+                            JsonValue::String(cat_str.to_string()),
+                        ),
+                        (
+                            "enabled_count".to_string(),
+                            JsonValue::Number(self.categories.enabled_tool_count() as f64),
+                        ),
+                    ]),
+                })
+            }
+            "toggle" => {
+                let cat_str = category_name.ok_or("Missing category name for toggle action")?;
+                let category = ToolCategory::from_str(cat_str)
+                    .ok_or_else(|| format!("Unknown category: {}", cat_str))?;
+
+                let now_enabled = self.categories.toggle(category);
+                let action_str = if now_enabled { "enabled" } else { "disabled" };
+                let text = format!(
+                    "Toggled category '{}' -> {}. Now exposing {} tools.",
+                    cat_str,
+                    action_str,
+                    self.categories.enabled_tool_count()
+                );
+
+                Ok(ToolResult {
+                    text,
+                    data: JsonValue::object(vec![
+                        (
+                            "action".to_string(),
+                            JsonValue::String(action_str.to_string()),
+                        ),
+                        (
+                            "category".to_string(),
+                            JsonValue::String(cat_str.to_string()),
+                        ),
+                        ("enabled".to_string(), JsonValue::Bool(now_enabled)),
+                        (
+                            "enabled_count".to_string(),
+                            JsonValue::Number(self.categories.enabled_tool_count() as f64),
+                        ),
+                    ]),
+                })
+            }
+            _ => Err(format!(
+                "Unknown action: {}. Use list, enable, disable, or toggle.",
+                action
+            )),
+        }
+    }
+
+    fn tool_config_preset(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let preset_name = args.get("preset").and_then(|v| v.as_str());
+
+        if let Some(name) = preset_name {
+            let preset = CategoryPreset::from_str(name)
+                .ok_or_else(|| format!("Unknown preset: {}. Available: all, core, blue-team, red-team, web-security, minimal", name))?;
+
+            self.categories.apply_preset(preset);
+
+            let text = format!(
+                "Applied preset '{}': {}. Now exposing {} tools.",
+                name,
+                preset.description(),
+                self.categories.enabled_tool_count()
+            );
+
+            Ok(ToolResult {
+                text,
+                data: JsonValue::object(vec![
+                    ("preset".to_string(), JsonValue::String(name.to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String(preset.description().to_string()),
+                    ),
+                    (
+                        "enabled_count".to_string(),
+                        JsonValue::Number(self.categories.enabled_tool_count() as f64),
+                    ),
+                ]),
+            })
+        } else {
+            // List available presets
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "Current preset: {}",
+                self.categories.current_preset().as_str()
+            ));
+            lines.push(String::new());
+            lines.push("Available presets:".to_string());
+
+            for preset in CategoryPreset::all_presets() {
+                let marker = if preset == self.categories.current_preset() {
+                    ">"
+                } else {
+                    " "
+                };
+                lines.push(format!(
+                    "{} {:15} - {}",
+                    marker,
+                    preset.as_str(),
+                    preset.description()
+                ));
+            }
+
+            let presets_json: Vec<JsonValue> = CategoryPreset::all_presets()
+                .iter()
+                .map(|p| {
+                    JsonValue::object(vec![
+                        (
+                            "name".to_string(),
+                            JsonValue::String(p.as_str().to_string()),
+                        ),
+                        (
+                            "description".to_string(),
+                            JsonValue::String(p.description().to_string()),
+                        ),
+                        (
+                            "active".to_string(),
+                            JsonValue::Bool(*p == self.categories.current_preset()),
+                        ),
+                    ])
+                })
+                .collect();
+
+            Ok(ToolResult {
+                text: lines.join("\n"),
+                data: JsonValue::object(vec![
+                    (
+                        "current".to_string(),
+                        JsonValue::String(self.categories.current_preset().as_str().to_string()),
+                    ),
+                    ("presets".to_string(), JsonValue::Array(presets_json)),
+                ]),
+            })
+        }
+    }
+
+    // ========================================================================
+    // AUTONOMOUS OPERATION HANDLERS
+    // ========================================================================
+
+    fn tool_auto_recon(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        let op_id = self.orchestrator.start_recon(target);
+
+        Ok(ToolResult {
+            text: format!(
+                "Started autonomous reconnaissance operation on '{}'.\n\
+                 Operation ID: {}\n\n\
+                 Use rb.auto.step with this ID to advance the operation.\n\
+                 The operation will request LLM guidance at decision points.",
+                target, op_id
+            ),
+            data: JsonValue::object(vec![
+                ("operation_id".to_string(), JsonValue::String(op_id.clone())),
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                ("state".to_string(), JsonValue::String("Idle".to_string())),
+            ]),
+        })
+    }
+
+    fn tool_auto_vulnscan(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let target = args
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: target")?;
+
+        let op_id = self.orchestrator.start_vuln_scan(target);
+
+        Ok(ToolResult {
+            text: format!(
+                "Started autonomous vulnerability scan on '{}'.\n\
+                 Operation ID: {}\n\n\
+                 This combines port discovery with vulnerability intelligence.\n\
+                 Use rb.auto.step to advance the operation.",
+                target, op_id
+            ),
+            data: JsonValue::object(vec![
+                ("operation_id".to_string(), JsonValue::String(op_id.clone())),
+                ("target".to_string(), JsonValue::String(target.to_string())),
+                (
+                    "type".to_string(),
+                    JsonValue::String("vuln_scan".to_string()),
+                ),
+            ]),
+        })
+    }
+
+    fn tool_auto_step(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let op_id = args
+            .get("operation_id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: operation_id")?;
+
+        match self.orchestrator.step(op_id)? {
+            StepResult::Progress { message, findings } => Ok(ToolResult {
+                text: format!("Progress: {}", message),
+                data: JsonValue::object(vec![
+                    (
+                        "status".to_string(),
+                        JsonValue::String("progress".to_string()),
+                    ),
+                    ("message".to_string(), JsonValue::String(message)),
+                    ("findings".to_string(), JsonValue::Number(findings as f64)),
+                ]),
+            }),
+            StepResult::NeedsGuidance { request } => {
+                let request_json = if let Some(req) = &request {
+                    crate::mcp::orchestrator::sampling_request_to_json(req)
+                } else {
+                    "null".to_string()
+                };
+
+                Ok(ToolResult {
+                    text: format!(
+                        "Operation needs LLM guidance.\n\n\
+                         A sampling request has been generated. The LLM should analyze the\n\
+                         findings and provide guidance using rb.auto.guide with a JSON response.\n\n\
+                         Sampling Request:\n{}",
+                        request_json
+                    ),
+                    data: JsonValue::object(vec![
+                        ("status".to_string(), JsonValue::String("needs_guidance".to_string())),
+                        ("sampling_request".to_string(), JsonValue::String(request_json)),
+                    ]),
+                })
+            }
+            StepResult::PausedForReview { reason } => Ok(ToolResult {
+                text: format!("Operation paused: {}", reason),
+                data: JsonValue::object(vec![
+                    (
+                        "status".to_string(),
+                        JsonValue::String("paused".to_string()),
+                    ),
+                    ("reason".to_string(), JsonValue::String(reason)),
+                ]),
+            }),
+            StepResult::Paused => Ok(ToolResult {
+                text: "Operation is paused. Use rb.auto.status to see details.".to_string(),
+                data: JsonValue::object(vec![(
+                    "status".to_string(),
+                    JsonValue::String("paused".to_string()),
+                )]),
+            }),
+            StepResult::Completed { findings, actions } => Ok(ToolResult {
+                text: format!(
+                    "Operation completed!\n\
+                         Total findings: {}\n\
+                         Actions taken: {}",
+                    findings, actions
+                ),
+                data: JsonValue::object(vec![
+                    (
+                        "status".to_string(),
+                        JsonValue::String("completed".to_string()),
+                    ),
+                    ("findings".to_string(), JsonValue::Number(findings as f64)),
+                    ("actions".to_string(), JsonValue::Number(actions as f64)),
+                ]),
+            }),
+        }
+    }
+
+    fn tool_auto_guide(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let op_id = args
+            .get("operation_id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: operation_id")?;
+
+        let response_str = args
+            .get("response")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: response")?;
+
+        // Create sampling response from the string
+        let response = crate::mcp::sampling::SamplingResponse {
+            content: response_str.to_string(),
+            model: "user-provided".to_string(),
+            stop_reason: crate::mcp::sampling::StopReason::EndTurn,
+        };
+
+        self.orchestrator.provide_guidance(op_id, response)?;
+
+        Ok(ToolResult {
+            text: format!(
+                "Guidance accepted for operation {}.\n\
+                 Use rb.auto.step to continue the operation.",
+                op_id
+            ),
+            data: JsonValue::object(vec![
+                (
+                    "status".to_string(),
+                    JsonValue::String("guidance_accepted".to_string()),
+                ),
+                (
+                    "operation_id".to_string(),
+                    JsonValue::String(op_id.to_string()),
+                ),
+            ]),
+        })
+    }
+
+    fn tool_auto_status(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let op_id = args.get("operation_id").and_then(|v| v.as_str());
+
+        if let Some(id) = op_id {
+            // Single operation status
+            if let Some(status) = self.orchestrator.get_status(id) {
+                Ok(ToolResult {
+                    text: format!(
+                        "Operation: {}\n\
+                         Target: {}\n\
+                         State: {}\n\
+                         Findings: {}\n\
+                         Actions: {}\n\
+                         Iteration: {}/{}",
+                        status.id,
+                        status.target,
+                        status.state,
+                        status.findings,
+                        status.actions,
+                        status.iteration,
+                        status.max_iterations
+                    ),
+                    data: JsonValue::object(vec![
+                        ("id".to_string(), JsonValue::String(status.id)),
+                        ("target".to_string(), JsonValue::String(status.target)),
+                        ("state".to_string(), JsonValue::String(status.state)),
+                        (
+                            "findings".to_string(),
+                            JsonValue::Number(status.findings as f64),
+                        ),
+                        (
+                            "actions".to_string(),
+                            JsonValue::Number(status.actions as f64),
+                        ),
+                        (
+                            "iteration".to_string(),
+                            JsonValue::Number(status.iteration as f64),
+                        ),
+                        (
+                            "max_iterations".to_string(),
+                            JsonValue::Number(status.max_iterations as f64),
+                        ),
+                    ]),
+                })
+            } else {
+                Err(format!("Operation not found: {}", id))
+            }
+        } else {
+            // List all operations
+            let operations = self.orchestrator.list_operations();
+
+            if operations.is_empty() {
+                return Ok(ToolResult {
+                    text: "No active operations.".to_string(),
+                    data: JsonValue::object(vec![(
+                        "operations".to_string(),
+                        JsonValue::Array(vec![]),
+                    )]),
+                });
+            }
+
+            let mut text = format!("Active operations ({}):\n\n", operations.len());
+            let ops_json: Vec<JsonValue> = operations
+                .iter()
+                .map(|op| {
+                    text.push_str(&format!(
+                        "  {} - {} ({}): {} findings, {} actions\n",
+                        op.id, op.target, op.state, op.findings, op.actions
+                    ));
+                    JsonValue::object(vec![
+                        ("id".to_string(), JsonValue::String(op.id.clone())),
+                        ("target".to_string(), JsonValue::String(op.target.clone())),
+                        ("state".to_string(), JsonValue::String(op.state.clone())),
+                        (
+                            "findings".to_string(),
+                            JsonValue::Number(op.findings as f64),
+                        ),
+                        ("actions".to_string(), JsonValue::Number(op.actions as f64)),
+                    ])
+                })
+                .collect();
+
+            Ok(ToolResult {
+                text,
+                data: JsonValue::object(vec![
+                    (
+                        "count".to_string(),
+                        JsonValue::Number(operations.len() as f64),
+                    ),
+                    ("operations".to_string(), JsonValue::Array(ops_json)),
+                ]),
+            })
+        }
+    }
+
+    fn tool_auto_stop(&mut self, args: &JsonValue) -> Result<ToolResult, String> {
+        let op_id = args
+            .get("operation_id")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing required field: operation_id")?;
+
+        self.orchestrator.stop(op_id)?;
+
+        Ok(ToolResult {
+            text: format!("Operation {} has been stopped.", op_id),
+            data: JsonValue::object(vec![
+                (
+                    "status".to_string(),
+                    JsonValue::String("stopped".to_string()),
+                ),
+                (
+                    "operation_id".to_string(),
+                    JsonValue::String(op_id.to_string()),
                 ),
             ]),
         })
