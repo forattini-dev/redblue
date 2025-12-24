@@ -109,3 +109,7 @@ pub mod evasion;
 
 // Threat Intelligence (MITRE mapping, IOC extraction, TAXII)
 pub mod intel;
+
+// Memory inspection (Cheat Engine-style process memory scanner)
+#[cfg(target_os = "linux")]
+pub mod memory;

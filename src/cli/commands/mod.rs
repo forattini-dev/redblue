@@ -24,6 +24,8 @@ pub mod http_server; // ✅ HTTP server for file serving and payload hosting
 pub mod init; // ✅ Config init command
 pub mod magic;
 pub mod mcp;
+#[cfg(target_os = "linux")]
+pub mod memory; // ✅ Process memory inspection (Cheat Engine-style)
 #[cfg(not(target_os = "windows"))]
 pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception (requires TLS)
               // pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
@@ -130,6 +132,8 @@ impl CommandRegistry {
             Box::new(init::InitCommand),       // ✅ Config init
             Box::new(config::ConfigDatabaseCommand), // ✅ Database password management
             Box::new(search::SearchCommand),   // ✅ Global search across all stored data
+            #[cfg(target_os = "linux")]
+            Box::new(memory::MemoryCommand), // ✅ Process memory inspection
                                                // Box::new(monitor::MonitorCommand),  // Temporarily disabled
         ];
 
