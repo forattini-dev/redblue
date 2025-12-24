@@ -205,7 +205,15 @@ pub fn parse_telnet_data(data: &[u8]) -> Vec<TelnetCommand> {
 
     while i < data.len() {
         if data[i] == IAC && i + 1 < data.len() {
-            // Save any pending data
+            // Check for escaped IAC first (IAC IAC = literal 255)
+            // Don't save pending data for escaped IAC since it's just data
+            if data[i + 1] == IAC {
+                current_data.push(IAC);
+                i += 2;
+                continue;
+            }
+
+            // Save any pending data before processing actual commands
             if !current_data.is_empty() {
                 commands.push(TelnetCommand::Data(current_data.clone()));
                 current_data.clear();
@@ -257,11 +265,7 @@ pub fn parse_telnet_data(data: &[u8]) -> Vec<TelnetCommand> {
                         i += 2;
                     }
                 }
-                IAC => {
-                    // Escaped IAC (IAC IAC = literal 255)
-                    current_data.push(IAC);
-                    i += 2;
-                }
+                // IAC IAC case is handled above before the match
                 _ => {
                     // Unknown command, skip
                     i += 2;

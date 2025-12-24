@@ -314,14 +314,22 @@ impl HTTPFingerprint {
 
     /// Extract version from a string like "nginx/1.18.0"
     fn extract_version(text: &str, prefix: &str) -> Option<String> {
-        if let Some(pos) = text.find(prefix) {
+        // Case-insensitive search
+        let text_lower = text.to_lowercase();
+        let prefix_lower = prefix.to_lowercase();
+        if let Some(pos) = text_lower.find(&prefix_lower) {
             let version_start = pos + prefix.len();
             let version_end = text[version_start..]
                 .find(|c: char| !c.is_numeric() && c != '.')
                 .map(|i| version_start + i)
                 .unwrap_or(text.len());
 
-            Some(text[version_start..version_end].to_string())
+            let version = &text[version_start..version_end];
+            if version.is_empty() {
+                None
+            } else {
+                Some(version.to_string())
+            }
         } else {
             None
         }

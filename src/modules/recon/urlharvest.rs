@@ -258,7 +258,13 @@ impl UrlHarvester {
             if after_colon.starts_with('{') {
                 // Nested object - look for "url" field inside
                 if let Some(url_pos) = after_colon.find("\"url\"") {
-                    return self.extract_string_value(&after_colon[url_pos..]);
+                    // Skip past "url" key to get to the value
+                    let after_url_key = &after_colon[url_pos + 5..]; // Skip "url" (5 chars)
+                    let trimmed_url = after_url_key.trim_start();
+                    if trimmed_url.starts_with(':') {
+                        let after_url_colon = trimmed_url[1..].trim_start();
+                        return self.extract_string_value(after_url_colon);
+                    }
                 }
             } else if after_colon.starts_with('"') {
                 // Direct string value

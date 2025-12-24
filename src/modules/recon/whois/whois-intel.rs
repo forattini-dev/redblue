@@ -177,7 +177,7 @@ impl WhoisIntelligence {
         let entropy_ratio = unique_chars.len() as f32 / domain_name.len() as f32;
 
         // High entropy + long length = possible DGA
-        entropy_ratio > 0.7 && domain_name.len() > 12
+        entropy_ratio > 0.7 && domain_name.len() >= 12
     }
 
     /// Calculate reputation score

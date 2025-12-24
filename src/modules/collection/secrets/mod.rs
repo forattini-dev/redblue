@@ -92,12 +92,34 @@ impl SecretScanner {
             Self::default_rules()
         };
 
+        // Use default excludes if none provided
+        let exclude_patterns = if cfg.exclude_patterns.is_empty() {
+            Self::default_excludes()
+        } else {
+            cfg.exclude_patterns.clone()
+        };
+
+        // Default directories to exclude
+        let exclude_dirs = if cfg.exclude_dirs.is_empty() {
+            vec![
+                "node_modules".to_string(),
+                "vendor".to_string(),
+                ".git".to_string(),
+                "target".to_string(),
+                "__pycache__".to_string(),
+                ".venv".to_string(),
+                "venv".to_string(),
+            ]
+        } else {
+            cfg.exclude_dirs.clone()
+        };
+
         Self {
             rules,
             min_entropy: cfg.min_entropy.unwrap_or(3.5),
             max_file_size: cfg.max_file_size_mb.unwrap_or(10) * 1024 * 1024,
-            exclude_patterns: cfg.exclude_patterns.clone(),
-            exclude_dirs: cfg.exclude_dirs.clone(),
+            exclude_patterns,
+            exclude_dirs,
             allowlist: cfg.allowlist.into_iter().collect(),
         }
     }

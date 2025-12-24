@@ -128,7 +128,7 @@ impl MysqlInfoScript {
     }
 
     fn extract_version(&self, banner: &str) -> Option<String> {
-        // Look for version patterns like 5.7.32, 8.0.23, 10.5.9-MariaDB
+        // Look for version patterns like 5.7.32, 8.0.23, 10.5.9-MariaDB, 5.7.32-0ubuntu0.18.04.1
         let mut version = String::new();
         let mut in_version = false;
 
@@ -136,9 +136,11 @@ impl MysqlInfoScript {
             if c.is_ascii_digit() {
                 in_version = true;
                 version.push(c);
-            } else if in_version && (c == '.' || c == '-') {
+            } else if in_version && (c == '.' || c == '-' || c.is_ascii_lowercase()) {
+                // Allow dots, dashes, and lowercase letters for distribution suffixes
                 version.push(c);
             } else if in_version {
+                // Stop at any other character (whitespace, uppercase, etc.)
                 break;
             }
         }
