@@ -102,12 +102,14 @@ impl Command for IntelMitreCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("matrix", "ATT&CK matrix to query (enterprise, mobile, ics)")
                 .with_short('m')
                 .with_default("enterprise"),
             Flag::new("full", "Show full details including description"),
             Flag::new("limit", "Maximum results to show").with_default("20"),
-            Flag::new("json", "Output in JSON format"),
             Flag::new("ports", "Comma-separated list of ports to map").with_short('p'),
             Flag::new("cves", "Comma-separated list of CVE IDs to map"),
             Flag::new(
@@ -179,15 +181,85 @@ impl IntelMitreCommand {
             .as_ref()
             .ok_or("Missing technique ID (e.g., T1059)")?;
 
-        Output::header(&format!("MITRE ATT&CK Technique: {}", tech_id));
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Fetching ATT&CK data...");
+        if !is_json {
+            Output::header(&format!("MITRE ATT&CK Technique: {}", tech_id));
+            println!();
+            Output::spinner_start("Fetching ATT&CK data...");
+        }
+
         let db = attack_database::db();
         let tech = db
             .get_technique(tech_id)
             .or_else(|| db.get_technique_by_name(tech_id));
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            match tech {
+                Some(t) => {
+                    println!("{{");
+                    println!("  \"found\": true,");
+                    println!("  \"technique_id\": \"{}\",", t.technique_id);
+                    println!(
+                        "  \"name\": \"{}\",",
+                        t.name.replace('\\', "\\\\").replace('"', "\\\"")
+                    );
+                    println!("  \"is_subtechnique\": {},", t.is_subtechnique);
+                    if let Some(ref parent) = t.parent_technique {
+                        println!("  \"parent_technique\": \"{}\",", parent);
+                    }
+                    println!(
+                        "  \"tactics\": [{}],",
+                        t.tactics
+                            .iter()
+                            .map(|s| format!("\"{}\"", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    println!(
+                        "  \"platforms\": [{}],",
+                        t.platforms
+                            .iter()
+                            .map(|s| format!("\"{}\"", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    println!(
+                        "  \"data_sources\": [{}],",
+                        t.data_sources
+                            .iter()
+                            .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    if let Some(ref url) = t.url {
+                        println!("  \"url\": \"{}\",", url);
+                    }
+                    println!("  \"deprecated\": {},", t.deprecated);
+                    println!("  \"revoked\": {},", t.revoked);
+                    println!(
+                        "  \"description\": \"{}\"",
+                        t.description
+                            .replace('\\', "\\\\")
+                            .replace('"', "\\\"")
+                            .replace('\n', "\\n")
+                    );
+                    println!("}}");
+                }
+                None => {
+                    println!("{{");
+                    println!("  \"found\": false,");
+                    println!("  \"query\": \"{}\"", tech_id);
+                    println!("}}");
+                }
+            }
+            return Ok(());
+        }
 
         match tech {
             Some(t) => self.display_technique(t, ctx.has_flag("full")),
@@ -213,15 +285,72 @@ impl IntelMitreCommand {
             .as_ref()
             .ok_or("Missing group ID or name (e.g., G0016 or APT29)")?;
 
-        Output::header(&format!("MITRE ATT&CK Threat Group: {}", group_id));
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Fetching ATT&CK data...");
+        if !is_json {
+            Output::header(&format!("MITRE ATT&CK Threat Group: {}", group_id));
+            println!();
+            Output::spinner_start("Fetching ATT&CK data...");
+        }
+
         let db = attack_database::db();
         let group = db
             .get_group(group_id)
             .or_else(|| db.get_group_by_name(group_id));
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            match group {
+                Some(g) => {
+                    println!("{{");
+                    println!("  \"found\": true,");
+                    println!("  \"group_id\": \"{}\",", g.group_id);
+                    println!(
+                        "  \"name\": \"{}\",",
+                        g.name.replace('\\', "\\\\").replace('"', "\\\"")
+                    );
+                    println!(
+                        "  \"aliases\": [{}],",
+                        g.aliases
+                            .iter()
+                            .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    println!(
+                        "  \"associated_techniques\": [{}],",
+                        g.associated_techniques
+                            .iter()
+                            .map(|s| format!("\"{}\"", s))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    println!(
+                        "  \"url\": \"https://attack.mitre.org/groups/{}/\",",
+                        g.group_id
+                    );
+                    println!(
+                        "  \"description\": \"{}\"",
+                        g.description
+                            .replace('\\', "\\\\")
+                            .replace('"', "\\\"")
+                            .replace('\n', "\\n")
+                    );
+                    println!("}}");
+                }
+                None => {
+                    println!("{{");
+                    println!("  \"found\": false,");
+                    println!("  \"query\": \"{}\"", group_id);
+                    println!("}}");
+                }
+            }
+            return Ok(());
+        }
 
         match group {
             Some(g) => self.display_group(g, ctx.has_flag("full")),
@@ -248,14 +377,70 @@ impl IntelMitreCommand {
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
-        Output::header(&format!("MITRE ATT&CK Search: {}", query));
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Searching ATT&CK data...");
+        if !is_json {
+            Output::header(&format!("MITRE ATT&CK Search: {}", query));
+            println!();
+            Output::spinner_start("Searching ATT&CK data...");
+        }
+
         let db = attack_database::db();
         let techniques = db.search_techniques(query);
         let groups = db.search_groups(query);
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"query\": \"{}\",", query);
+            println!("  \"total_results\": {},", techniques.len() + groups.len());
+            println!("  \"techniques\": [");
+            for (i, t) in techniques.iter().take(limit).enumerate() {
+                let comma = if i < techniques.len().min(limit) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!(
+                    "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactics\": [{}]}}{}",
+                    t.technique_id,
+                    t.name.replace('"', "\\\""),
+                    t.tactics
+                        .iter()
+                        .map(|s| format!("\"{}\"", s))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    comma
+                );
+            }
+            println!("  ],");
+            println!("  \"groups\": [");
+            for (i, g) in groups.iter().take(limit).enumerate() {
+                let comma = if i < groups.len().min(limit) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!(
+                    "    {{\"group_id\": \"{}\", \"name\": \"{}\", \"aliases\": [{}]}}{}",
+                    g.group_id,
+                    g.name.replace('"', "\\\""),
+                    g.aliases
+                        .iter()
+                        .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if techniques.is_empty() && groups.is_empty() {
             Output::info("No results found.");
@@ -305,12 +490,20 @@ impl IntelMitreCommand {
 
     /// Show ATT&CK matrix overview (ASCII representation)
     fn show_matrix(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("MITRE ATT&CK Enterprise Matrix");
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Loading ATT&CK data...");
+        if !is_json {
+            Output::header("MITRE ATT&CK Enterprise Matrix");
+            println!();
+            Output::spinner_start("Loading ATT&CK data...");
+        }
+
         let db = attack_database::db();
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
 
         // Enterprise ATT&CK tactics in kill chain order
         // The tactics field in techniques uses lowercase with hyphens
@@ -362,6 +555,33 @@ impl IntelMitreCommand {
             .filter(|t| !t.deprecated && !t.revoked && !t.is_subtechnique)
             .count();
         let subtechniques = total_techniques - parent_techniques;
+
+        if is_json {
+            println!("{{");
+            println!("  \"summary\": {{");
+            println!("    \"total_techniques\": {},", total_techniques);
+            println!("    \"parent_techniques\": {},", parent_techniques);
+            println!("    \"subtechniques\": {},", subtechniques);
+            println!("    \"threat_groups\": {}", db.groups.len());
+            println!("  }},");
+            println!("  \"tactics\": [");
+            for (i, (tactic_key, tactic_id, display_name)) in tactics_order.iter().enumerate() {
+                let techs = tactic_counts
+                    .get(*tactic_key)
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                let count = techs.len();
+                let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
+                let comma = if i < tactics_order.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"id\": \"{}\", \"name\": \"{}\", \"technique_count\": {}, \"parent_count\": {}}}{}",
+                    tactic_id, display_name, count, parent_count, comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::section("Summary");
         Output::item("Total Techniques", &total_techniques.to_string());
@@ -778,13 +998,30 @@ impl IntelMitreCommand {
     }
 
     /// Show ATT&CK statistics
-    fn show_stats(&self, _ctx: &CliContext) -> Result<(), String> {
-        Output::header("MITRE ATT&CK Statistics");
-        println!();
+    fn show_stats(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Loading ATT&CK data...");
+        if !is_json {
+            Output::header("MITRE ATT&CK Statistics");
+            println!();
+            Output::spinner_start("Loading ATT&CK data...");
+        }
+
         let db = attack_database::db();
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"techniques\": {},", db.techniques.len());
+            println!("  \"groups\": {},", db.groups.len());
+            println!("  \"data_source\": \"Embedded Enterprise ATT&CK Data\"");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::section("Object Counts");
         Output::item("Techniques", &db.techniques.len().to_string());
@@ -923,8 +1160,13 @@ impl IntelMitreCommand {
 
     /// Map findings to MITRE ATT&CK techniques
     fn map_findings(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("MITRE ATT&CK Technique Mapping");
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("MITRE ATT&CK Technique Mapping");
+            println!();
+        }
 
         let mapper = TechniqueMapper::new();
         let mut findings = Findings::default();
@@ -979,6 +1221,10 @@ impl IntelMitreCommand {
             && findings.fingerprints.is_empty()
             && findings.banners.is_empty()
         {
+            if is_json {
+                println!("{{\"error\": \"No findings provided\", \"techniques\": []}}");
+                return Ok(());
+            }
             Output::warning("No findings provided. Use flags to specify what to map:");
             println!();
             Output::info("  ports=22,80,443        Map open ports");
@@ -990,42 +1236,122 @@ impl IntelMitreCommand {
             return Ok(());
         }
 
-        // Show what we're mapping
-        Output::section("Input Findings");
-        if !findings.ports.is_empty() {
-            Output::item(
-                "Ports",
-                &findings
+        if !is_json {
+            // Show what we're mapping
+            Output::section("Input Findings");
+            if !findings.ports.is_empty() {
+                Output::item(
+                    "Ports",
+                    &findings
+                        .ports
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            if !findings.cves.is_empty() {
+                Output::item(
+                    "CVEs",
+                    &findings
+                        .cves
+                        .iter()
+                        .map(|(id, _)| id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            if !findings.fingerprints.is_empty() {
+                Output::item("Technologies", &findings.fingerprints.join(", "));
+            }
+            if !findings.banners.is_empty() {
+                Output::item("Banners", &findings.banners.join(", "));
+            }
+            println!();
+
+            // Perform mapping
+            Output::spinner_start("Mapping to ATT&CK techniques...");
+        }
+
+        let result = mapper.map_findings(&findings);
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"input\": {{");
+            println!(
+                "    \"ports\": [{}],",
+                findings
                     .ports
                     .iter()
                     .map(|p| p.to_string())
                     .collect::<Vec<_>>()
-                    .join(", "),
+                    .join(", ")
             );
-        }
-        if !findings.cves.is_empty() {
-            Output::item(
-                "CVEs",
-                &findings
+            println!(
+                "    \"cves\": [{}],",
+                findings
                     .cves
                     .iter()
-                    .map(|(id, _)| id.as_str())
+                    .map(|(id, _)| format!("\"{}\"", id))
                     .collect::<Vec<_>>()
-                    .join(", "),
+                    .join(", ")
             );
+            println!(
+                "    \"technologies\": [{}],",
+                findings
+                    .fingerprints
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!(
+                "    \"banners\": [{}]",
+                findings
+                    .banners
+                    .iter()
+                    .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!("  }},");
+            println!(
+                "  \"unique_technique_ids\": [{}],",
+                result
+                    .unique_technique_ids()
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!("  \"techniques\": [");
+            let all_techs: Vec<_> = result.techniques.iter().collect();
+            for (i, tech) in all_techs.iter().enumerate() {
+                let conf_str = match tech.confidence {
+                    Confidence::High => "high",
+                    Confidence::Medium => "medium",
+                    Confidence::Low => "low",
+                };
+                let comma = if i < all_techs.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactic\": \"{}\", \"confidence\": \"{}\", \"reason\": \"{}\", \"source\": \"{}\"}}{}",
+                    tech.technique_id,
+                    tech.name.replace('"', "\\\""),
+                    tech.tactic,
+                    conf_str,
+                    tech.reason.replace('"', "\\\""),
+                    tech.original_value.replace('"', "\\\""),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
         }
-        if !findings.fingerprints.is_empty() {
-            Output::item("Technologies", &findings.fingerprints.join(", "));
-        }
-        if !findings.banners.is_empty() {
-            Output::item("Banners", &findings.banners.join(", "));
-        }
-        println!();
-
-        // Perform mapping
-        Output::spinner_start("Mapping to ATT&CK techniques...");
-        let result = mapper.map_findings(&findings);
-        Output::spinner_done();
 
         if result.techniques.is_empty() {
             Output::info("No techniques mapped for these findings.");
@@ -1075,6 +1401,8 @@ impl IntelMitreCommand {
 
     /// Show port-to-technique mapping table
     fn show_port_mappings(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
         let mapper = TechniqueMapper::new();
 
         // Check if a specific port was requested
@@ -1083,10 +1411,37 @@ impl IntelMitreCommand {
                 .parse()
                 .map_err(|_| format!("Invalid port number: {}", port_str))?;
 
+            let techniques = mapper.map_port(port);
+
+            if is_json {
+                println!("{{");
+                println!("  \"port\": {},", port);
+                println!("  \"techniques\": [");
+                for (i, tech) in techniques.iter().enumerate() {
+                    let conf_str = match tech.confidence {
+                        Confidence::High => "high",
+                        Confidence::Medium => "medium",
+                        Confidence::Low => "low",
+                    };
+                    let comma = if i < techniques.len() - 1 { "," } else { "" };
+                    println!(
+                        "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactic\": \"{}\", \"confidence\": \"{}\", \"reason\": \"{}\"}}{}",
+                        tech.technique_id,
+                        tech.name.replace('"', "\\\""),
+                        tech.tactic,
+                        conf_str,
+                        tech.reason.replace('"', "\\\""),
+                        comma
+                    );
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
+
             Output::header(&format!("ATT&CK Mapping for Port {}", port));
             println!();
 
-            let techniques = mapper.map_port(port);
             if techniques.is_empty() {
                 Output::info(&format!("No ATT&CK mapping for port {}", port));
                 return Ok(());
@@ -1112,12 +1467,7 @@ impl IntelMitreCommand {
         }
 
         // Show all mapped ports
-        Output::header("Port-to-ATT&CK Mapping Table");
-        println!();
-
         let ports = mapper.mapped_ports();
-        Output::success(&format!("{} ports have ATT&CK mappings", ports.len()));
-        println!();
 
         // Group by technique for better overview
         let mut by_tactic: std::collections::HashMap<String, Vec<(u16, String, String)>> =
@@ -1133,6 +1483,75 @@ impl IntelMitreCommand {
                 ));
             }
         }
+
+        let techs = mapper.mapped_technologies();
+
+        if is_json {
+            println!("{{");
+            println!("  \"total_ports\": {},", ports.len());
+            println!(
+                "  \"ports\": [{}],",
+                ports
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!(
+                "  \"technologies\": [{}],",
+                techs
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!("  \"by_tactic\": {{");
+            let tactics_order = [
+                "Initial Access",
+                "Execution",
+                "Persistence",
+                "Privilege Escalation",
+                "Defense Evasion",
+                "Credential Access",
+                "Discovery",
+                "Lateral Movement",
+                "Collection",
+                "Command and Control",
+                "Exfiltration",
+                "Impact",
+            ];
+            let mut first_tactic = true;
+            for tactic in tactics_order {
+                if let Some(entries) = by_tactic.get(tactic) {
+                    if !first_tactic {
+                        println!(",");
+                    }
+                    first_tactic = false;
+                    print!("    \"{}\": [", tactic);
+                    for (i, (port, tech_id, name)) in entries.iter().enumerate() {
+                        let comma = if i < entries.len() - 1 { ", " } else { "" };
+                        print!(
+                            "{{\"port\": {}, \"technique_id\": \"{}\", \"name\": \"{}\"}}{}",
+                            port,
+                            tech_id,
+                            name.replace('"', "\\\""),
+                            comma
+                        );
+                    }
+                    print!("]");
+                }
+            }
+            println!();
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Port-to-ATT&CK Mapping Table");
+        println!();
+
+        Output::success(&format!("{} ports have ATT&CK mappings", ports.len()));
+        println!();
 
         // Print organized by tactic
         let tactics_order = [
@@ -1161,7 +1580,6 @@ impl IntelMitreCommand {
         }
 
         // Show mapped technologies too
-        let techs = mapper.mapped_technologies();
         Output::section(&format!("Mapped Technologies ({} total)", techs.len()));
         let mut line = String::new();
         for (i, tech) in techs.iter().enumerate() {

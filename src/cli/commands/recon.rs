@@ -1592,15 +1592,65 @@ impl ReconCommand {
 
         Validator::validate_domain(domain)?;
 
-        Output::header("OSINT Data Harvesting (theHarvester)");
-        Output::item("Target Domain", domain);
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("OSINT Data Harvesting (theHarvester)");
+            Output::item("Target Domain", domain);
+            println!();
+        }
 
         let harvester = Harvester::new();
 
-        Output::spinner_start(&format!("Harvesting OSINT data for {}", domain));
+        if !is_json {
+            Output::spinner_start(&format!("Harvesting OSINT data for {}", domain));
+        }
         let result = harvester.harvest(domain)?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            let total = result.emails.len()
+                + result.subdomains.len()
+                + result.ips.len()
+                + result.urls.len();
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
+            println!("  \"total_items\": {},", total);
+            println!("  \"emails\": [");
+            for (i, email) in result.emails.iter().enumerate() {
+                let comma = if i < result.emails.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", email.replace('"', "\\\""), comma);
+            }
+            println!("  ],");
+            println!("  \"subdomains\": [");
+            for (i, subdomain) in result.subdomains.iter().enumerate() {
+                let comma = if i < result.subdomains.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    \"{}\"{}", subdomain.replace('"', "\\\""), comma);
+            }
+            println!("  ],");
+            println!("  \"ips\": [");
+            for (i, ip) in result.ips.iter().enumerate() {
+                let comma = if i < result.ips.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", ip.replace('"', "\\\""), comma);
+            }
+            println!("  ],");
+            println!("  \"urls\": [");
+            for (i, url) in result.urls.iter().enumerate() {
+                let comma = if i < result.urls.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", url.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         // Display emails
         if !result.emails.is_empty() {
@@ -1657,15 +1707,24 @@ impl ReconCommand {
 
         Validator::validate_domain(domain)?;
 
-        Output::header("URL Harvester (waybackurls/gau)");
-        Output::item("Target Domain", domain);
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("URL Harvester (waybackurls/gau)");
+            Output::item("Target Domain", domain);
+            println!();
+        }
 
         let harvester = UrlHarvester::new();
 
-        Output::spinner_start(&format!("Harvesting historical URLs for {}", domain));
+        if !is_json {
+            Output::spinner_start(&format!("Harvesting historical URLs for {}", domain));
+        }
         let mut urls = harvester.harvest(domain)?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         // Apply filters
         let include_pattern = ctx.get_flag("include").or_else(|| ctx.get_flag("i"));
@@ -1683,6 +1742,14 @@ impl ReconCommand {
         }
 
         if urls.is_empty() {
+            if is_json {
+                println!("{{");
+                println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
+                println!("  \"total\": 0,");
+                println!("  \"urls\": []");
+                println!("}}");
+                return Ok(());
+            }
             Output::warning("No URLs found");
             return Ok(());
         }
@@ -1698,6 +1765,35 @@ impl ReconCommand {
                 .entry(url.source.clone())
                 .or_insert_with(Vec::new)
                 .push(url);
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
+            println!("  \"total\": {},", urls.len());
+            println!("  \"urls\": [");
+            for (i, url_obj) in urls.iter().enumerate() {
+                let comma = if i < urls.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"url\": \"{}\",", url_obj.url.replace('"', "\\\""));
+                println!(
+                    "      \"source\": \"{}\",",
+                    url_obj.source.replace('"', "\\\"")
+                );
+                println!(
+                    "      \"timestamp\": {}",
+                    if let Some(ref t) = url_obj.timestamp {
+                        format!("\"{}\"", t.replace('"', "\\\""))
+                    } else {
+                        "null".to_string()
+                    }
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
         }
 
         // Display results
@@ -2148,17 +2244,34 @@ impl ReconCommand {
             return Err("Invalid URL. Must start with http:// or https://".to_string());
         }
 
-        Output::header("Secrets Scanner");
-        Output::item("Target URL", url);
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("Secrets Scanner");
+            Output::item("Target URL", url);
+            println!();
+        }
 
         let scanner = SecretsScanner::new();
 
-        Output::spinner_start(&format!("Scanning {} for exposed secrets", url));
+        if !is_json {
+            Output::spinner_start(&format!("Scanning {} for exposed secrets", url));
+        }
         let results = scanner.scan_url(url)?; // Corrected: Use scan_url and '?'
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         if results.is_empty() {
+            if is_json {
+                println!("{{");
+                println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
+                println!("  \"total\": 0,");
+                println!("  \"secrets\": []");
+                println!("}}");
+                return Ok(());
+            }
             Output::info("No secrets found.");
             return Ok(());
         }
@@ -2166,6 +2279,49 @@ impl ReconCommand {
         // Sort results by severity
         let mut sorted_results = results;
         sorted_results.sort_by(|a, b| b.severity.cmp(&a.severity));
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
+            println!("  \"total\": {},", sorted_results.len());
+            println!("  \"secrets\": [");
+            for (i, result) in sorted_results.iter().enumerate() {
+                let comma = if i < sorted_results.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                let severity_str = match result.severity {
+                    SecretSeverity::Critical => "critical",
+                    SecretSeverity::High => "high",
+                    SecretSeverity::Medium => "medium",
+                    SecretSeverity::Low => "low",
+                };
+                println!("    {{");
+                println!(
+                    "      \"matched\": \"{}\",",
+                    result.matched.replace('"', "\\\"").replace('\n', " ")
+                );
+                println!(
+                    "      \"secret_type\": \"{}\",",
+                    result.secret_type.replace('"', "\\\"")
+                );
+                println!("      \"severity\": \"{}\",", severity_str);
+                println!(
+                    "      \"line\": {}",
+                    if let Some(line) = result.line {
+                        line.to_string()
+                    } else {
+                        "null".to_string()
+                    }
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         println!();
         Output::subheader(&format!("Found {} potential secrets", sorted_results.len()));

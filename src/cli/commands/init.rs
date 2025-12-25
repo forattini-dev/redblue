@@ -33,6 +33,7 @@ impl Command for InitCommand {
             Flag::new("output", "Output file path")
                 .with_short('o')
                 .with_default(".redblue.yaml"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
         ]
     }
 
@@ -69,6 +70,9 @@ impl Command for InitCommand {
 
 impl InitCommand {
     fn create_config(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let output_path = ctx
             .get_flag("output")
             .unwrap_or_else(|| ".redblue.yaml".to_string());
@@ -78,19 +82,47 @@ impl InitCommand {
 
         // Check if file exists
         if path.exists() && !force {
+            if is_json {
+                println!("{{");
+                println!("  \"success\": false,");
+                println!("  \"error\": \"file_exists\",");
+                println!(
+                    "  \"path\": \"{}\",",
+                    path.display().to_string().replace('"', "\\\"")
+                );
+                println!("  \"message\": \"Use --force to overwrite\"");
+                println!("}}");
+                return Err("Config file already exists".to_string());
+            }
             return Err(format!(
                 "Config file already exists: {}\nUse --force to overwrite",
                 path.display()
             ));
         }
 
-        Output::header("RedBlue Configuration Generator");
-        Output::info(&format!("Creating config file: {}", path.display()));
+        if !is_json {
+            Output::header("RedBlue Configuration Generator");
+            Output::info(&format!("Creating config file: {}", path.display()));
+        }
 
         let config_content = generate_full_config();
 
-        fs::write(&path, config_content)
+        fs::write(&path, &config_content)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"success\": true,");
+            println!("  \"action\": \"create_config\",");
+            println!(
+                "  \"path\": \"{}\",",
+                path.display().to_string().replace('"', "\\\"")
+            );
+            println!("  \"force\": {},", force);
+            println!("  \"size_bytes\": {}", config_content.len());
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("✓ Config file created: {}", path.display()));
         println!();

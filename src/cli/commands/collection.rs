@@ -38,7 +38,9 @@ impl Command for CollectCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![]
+        vec![Flag::new("output", "Output format (text, json, yaml)")
+            .with_short('o')
+            .with_default("text")]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -49,6 +51,9 @@ impl Command for CollectCommand {
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let verb = ctx.verb.as_deref().ok_or("Missing verb")?;
         let collector = BrowserCollector::new();
 
@@ -58,6 +63,32 @@ impl Command for CollectCommand {
             "all" => collector.collect(),
             _ => return Err(format!("Unknown browser type: {}", verb)),
         };
+
+        if is_json {
+            println!("{{");
+            println!("  \"browser\": \"{}\",", verb);
+            println!("  \"total\": {},", creds.len());
+            println!("  \"credentials\": [");
+            for (i, cred) in creds.iter().enumerate() {
+                let comma = if i < creds.len() - 1 { "," } else { "" };
+                let pwd = cred.password.as_deref().unwrap_or("");
+                println!("    {{");
+                println!(
+                    "      \"browser\": \"{}\",",
+                    cred.browser.replace('"', "\\\"")
+                );
+                println!("      \"url\": \"{}\",", cred.url.replace('"', "\\\""));
+                println!(
+                    "      \"username\": \"{}\",",
+                    cred.username.replace('"', "\\\"")
+                );
+                println!("      \"password\": \"{}\"", pwd.replace('"', "\\\""));
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if creds.is_empty() {
             Output::info("No credentials found.");

@@ -63,14 +63,20 @@ impl Command for IntelIocCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("target", "Target domain or host for IOC context").with_short('t'),
             Flag::new("ip", "IP address from scan results"),
             Flag::new("ports", "Comma-separated open ports").with_short('p'),
             Flag::new("dns", "Domain to extract DNS IOCs from"),
-            Flag::new("format", "Export format (json, csv, stix)")
-                .with_short('f')
-                .with_default("json"),
-            Flag::new("output", "Output file path").with_short('o'),
+            Flag::new(
+                "export-format",
+                "Export format for 'export' verb (json, csv, stix)",
+            )
+            .with_short('f')
+            .with_default("json"),
+            Flag::new("file", "Output file path for 'export' verb"),
             Flag::new(
                 "confidence",
                 "Filter by minimum confidence (low, medium, high)",
@@ -86,32 +92,37 @@ impl Command for IntelIocCommand {
                 "Extract from port scan",
                 "rb intel ioc extract target=example.com ip=93.184.216.34 ports=22,80,443",
             ),
+            (
+                "Extract as JSON",
+                "rb intel ioc extract target=example.com ip=93.184.216.34 ports=22,80,443 --output=json",
+            ),
             ("Run demo extraction", "rb intel ioc demo example.com"),
             (
-                "Export to JSON",
-                "rb intel ioc export format=json output=iocs.json",
+                "Export to JSON file",
+                "rb intel ioc export --export-format=json --file=iocs.json",
             ),
             (
-                "Export to CSV",
-                "rb intel ioc export format=csv output=iocs.csv",
+                "Export to CSV file",
+                "rb intel ioc export --export-format=csv --file=iocs.csv",
             ),
             (
-                "Export to STIX",
-                "rb intel ioc export format=stix output=iocs.stix.json",
+                "Export to STIX file",
+                "rb intel ioc export --export-format=stix --file=iocs.stix.json",
             ),
             ("Show IOC types", "rb intel ioc types"),
+            ("Show IOC types as JSON", "rb intel ioc types --output=json"),
             ("Import from JSON file", "rb intel ioc import iocs.json"),
             (
                 "Import from STIX bundle",
-                "rb intel ioc import threat-intel.stix.json format=stix",
+                "rb intel ioc import threat-intel.stix.json --export-format=stix",
             ),
             (
                 "Import from CSV",
-                "rb intel ioc import indicators.csv format=csv",
+                "rb intel ioc import indicators.csv --export-format=csv",
             ),
             ("Search by IP", "rb intel ioc search 192.168.1.1"),
             ("Search by type", "rb intel ioc search 192.168.1 type=ipv4"),
-            ("Search by tag", "rb intel ioc search example tag=malware"),
+            ("Search as JSON", "rb intel ioc search 192.168.1 --output=json"),
         ]
     }
 
@@ -139,8 +150,13 @@ impl Command for IntelIocCommand {
 impl IntelIocCommand {
     /// Extract IOCs from provided data
     fn extract_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("IOC Extraction");
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("IOC Extraction");
+            println!();
+        }
 
         let mut collection = IocCollection::new();
         let mut target = String::from("target");
@@ -266,6 +282,10 @@ impl IntelIocCommand {
         parse_args(&all_args, &mut collection, &mut target);
 
         if collection.is_empty() {
+            if is_json {
+                println!("{{\"error\": \"No IOCs extracted\", \"iocs\": []}}");
+                return Ok(());
+            }
             Output::warning("No IOCs extracted. Provide data using key=value pairs:");
             println!();
             Output::info("  target=example.com     Set target context");
@@ -278,6 +298,42 @@ impl IntelIocCommand {
             Output::info(
                 "Example: rb intel ioc extract target=example.com ip=93.184.216.34 dns=example.com",
             );
+            return Ok(());
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"target\": \"{}\",", target);
+            println!("  \"total\": {},", collection.len());
+            let counts = collection.count_by_type();
+            println!("  \"by_type\": {{");
+            for (i, (ioc_type, count)) in counts.iter().enumerate() {
+                let comma = if i < counts.len() - 1 { "," } else { "" };
+                println!("    \"{}\": {}{}", ioc_type, count, comma);
+            }
+            println!("  }},");
+            println!("  \"iocs\": [");
+            let all_iocs = collection.all();
+            for (i, ioc) in all_iocs.iter().enumerate() {
+                let conf_str = match ioc.confidence {
+                    IocConfidence::High => "high",
+                    IocConfidence::Medium => "medium",
+                    IocConfidence::Low => "low",
+                };
+                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"techniques\": [{}], \"tags\": [{}]}}{}",
+                    ioc.ioc_type,
+                    ioc.value.replace('"', "\\\""),
+                    conf_str,
+                    ioc.source,
+                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
+                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
             return Ok(());
         }
 
@@ -326,18 +382,18 @@ impl IntelIocCommand {
         // For now, generate some sample IOCs to export
         let mut collection = IocCollection::new();
         let mut target = String::from("target");
-        let mut format = String::from("json");
-        let mut output_file: Option<String> = None;
+        let mut export_format = ctx.get_flag_or("export-format", "json");
+        let mut output_file: Option<String> = ctx.get_flag("file");
 
-        // Parse key=value pairs
+        // Parse key=value pairs for backward compatibility
         for arg in ctx.target.iter().chain(ctx.args.iter()) {
             if let Some(eq_pos) = arg.find('=') {
                 let (key, value) = arg.split_at(eq_pos);
                 let value = &value[1..];
 
                 match key {
-                    "format" | "f" => format = value.to_string(),
-                    "output" | "o" | "file" => output_file = Some(value.to_string()),
+                    "export-format" | "format" | "f" => export_format = value.to_string(),
+                    "file" => output_file = Some(value.to_string()),
                     "target" | "t" => target = value.to_string(),
                     _ => {}
                 }
@@ -348,7 +404,7 @@ impl IntelIocCommand {
         let output_path = output_file.clone().unwrap_or_else(|| {
             format!(
                 "iocs.{}",
-                match format.as_str() {
+                match export_format.as_str() {
                     "csv" => "csv",
                     "stix" => "stix.json",
                     _ => "json",
@@ -386,7 +442,7 @@ impl IntelIocCommand {
         }
 
         // Generate export content
-        let content = match format.as_str() {
+        let content = match export_format.as_str() {
             "csv" => collection.to_csv(),
             "stix" => self.to_stix_bundle(&collection, &target),
             _ => collection.to_json(),
@@ -402,7 +458,7 @@ impl IntelIocCommand {
             output_path
         ));
         println!();
-        Output::item("Format", &format);
+        Output::item("Format", &export_format);
         Output::item("File", &output_path);
         Output::item("Size", &format!("{} bytes", content.len()));
 
@@ -410,50 +466,94 @@ impl IntelIocCommand {
     }
 
     /// Show supported IOC types
-    fn show_types(&self, _ctx: &CliContext) -> Result<(), String> {
-        Output::header("Supported IOC Types");
-        println!();
+    fn show_types(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         let types = [
-            ("ipv4", "IPv4 address", "192.168.1.1"),
-            ("ipv6", "IPv6 address", "2001:db8::1"),
-            ("domain", "Domain name", "example.com"),
-            ("url", "Full URL", "https://example.com/path"),
-            ("email", "Email address", "user@example.com"),
-            ("md5", "MD5 hash", "d41d8cd98f00b204..."),
-            ("sha1", "SHA-1 hash", "da39a3ee5e6b4b0d..."),
-            ("sha256", "SHA-256 hash", "e3b0c44298fc1c14..."),
+            ("ipv4", "IPv4 address", "192.168.1.1", "network"),
+            ("ipv6", "IPv6 address", "2001:db8::1", "network"),
+            ("domain", "Domain name", "example.com", "network"),
+            ("url", "Full URL", "https://example.com/path", "network"),
+            ("email", "Email address", "user@example.com", "network"),
+            ("md5", "MD5 hash", "d41d8cd98f00b204...", "network"),
+            ("sha1", "SHA-1 hash", "da39a3ee5e6b4b0d...", "file"),
+            ("sha256", "SHA-256 hash", "e3b0c44298fc1c14...", "file"),
             (
                 "certificate",
                 "TLS certificate fingerprint",
                 "SHA256 fingerprint",
+                "file",
             ),
-            ("ja3", "JA3 client fingerprint", "TLS client fingerprint"),
-            ("ja3s", "JA3S server fingerprint", "TLS server fingerprint"),
-            ("user-agent", "HTTP User-Agent string", "Mozilla/5.0..."),
-            ("asn", "Autonomous System Number", "AS12345"),
-            ("cidr", "CIDR network range", "192.168.0.0/24"),
-            ("filename", "File name", "malware.exe"),
-            ("filepath", "File path", "/tmp/malicious.sh"),
-            ("registry", "Windows registry key", "HKLM\\Software\\..."),
-            ("mutex", "Mutex name", "Global\\SomeMutex"),
-            ("namedpipe", "Named pipe", "\\\\.\\pipe\\evil"),
+            (
+                "ja3",
+                "JA3 client fingerprint",
+                "TLS client fingerprint",
+                "file",
+            ),
+            (
+                "ja3s",
+                "JA3S server fingerprint",
+                "TLS server fingerprint",
+                "file",
+            ),
+            (
+                "user-agent",
+                "HTTP User-Agent string",
+                "Mozilla/5.0...",
+                "file",
+            ),
+            ("asn", "Autonomous System Number", "AS12345", "file"),
+            ("cidr", "CIDR network range", "192.168.0.0/24", "behavioral"),
+            ("filename", "File name", "malware.exe", "behavioral"),
+            ("filepath", "File path", "/tmp/malicious.sh", "behavioral"),
+            (
+                "registry",
+                "Windows registry key",
+                "HKLM\\Software\\...",
+                "behavioral",
+            ),
+            ("mutex", "Mutex name", "Global\\SomeMutex", "behavioral"),
+            ("namedpipe", "Named pipe", "\\\\.\\pipe\\evil", "behavioral"),
         ];
 
+        if is_json {
+            println!("{{");
+            println!("  \"types\": [");
+            for (i, (name, desc, example, category)) in types.iter().enumerate() {
+                let comma = if i < types.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"name\": \"{}\", \"description\": \"{}\", \"example\": \"{}\", \"category\": \"{}\"}}{}",
+                    name,
+                    desc.replace('"', "\\\""),
+                    example.replace('"', "\\\"").replace('\\', "\\\\"),
+                    category,
+                    comma
+                );
+            }
+            println!("  ],");
+            println!("  \"total\": {}", types.len());
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Supported IOC Types");
+        println!();
+
         Output::section("Network IOCs");
-        for (name, desc, example) in types.iter().take(6) {
+        for (name, desc, example, _) in types.iter().take(6) {
             println!("  {:12} {} (e.g., {})", name, desc, example);
         }
         println!();
 
         Output::section("File IOCs");
-        for (name, desc, example) in types.iter().skip(6).take(7) {
+        for (name, desc, example, _) in types.iter().skip(6).take(7) {
             println!("  {:12} {} (e.g., {})", name, desc, example);
         }
         println!();
 
         Output::section("Behavioral IOCs");
-        for (name, desc, example) in types.iter().skip(13) {
+        for (name, desc, example, _) in types.iter().skip(13) {
             println!("  {:12} {} (e.g., {})", name, desc, example);
         }
 
@@ -463,16 +563,114 @@ impl IntelIocCommand {
     /// Run demo extraction
     fn run_demo(&self, ctx: &CliContext) -> Result<(), String> {
         let target = ctx.target.as_deref().unwrap_or("example.com");
-
-        Output::header(&format!("IOC Extraction Demo: {}", target));
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         let mut collection = IocCollection::new();
         let extractor = IocExtractor::new(target);
 
+        // Extract from various sources
+        let port_iocs = extractor.extract_from_port_scan("93.184.216.34", &[22, 80, 443, 8080]);
+        for ioc in &port_iocs {
+            collection.add(ioc.clone());
+        }
+
+        let dns_iocs = extractor.extract_from_dns(
+            target,
+            &[Ipv4Addr::new(93, 184, 216, 34)],
+            &[],
+            &["10 mail.example.com".to_string()],
+            &["ns1.example.com".to_string(), "ns2.example.com".to_string()],
+            &[],
+        );
+        for ioc in &dns_iocs {
+            collection.add(ioc.clone());
+        }
+
+        let tls_iocs = extractor.extract_from_tls(
+            target,
+            &["www.example.com".to_string(), "api.example.com".to_string()],
+            "DigiCert Inc",
+            "abc123def456",
+            "1234567890",
+        );
+        for ioc in &tls_iocs {
+            collection.add(ioc.clone());
+        }
+
+        let subdomain_iocs = extractor.extract_from_subdomains(&[
+            "www.example.com".to_string(),
+            "api.example.com".to_string(),
+            "mail.example.com".to_string(),
+            "dev.example.com".to_string(),
+        ]);
+        for ioc in &subdomain_iocs {
+            collection.add(ioc.clone());
+        }
+
+        if is_json {
+            let counts = collection.count_by_type();
+            let conf_counts = collection.count_by_confidence();
+
+            println!("{{");
+            println!("  \"target\": \"{}\",", target);
+            println!("  \"sources\": {{");
+            println!("    \"port_scan\": {},", port_iocs.len());
+            println!("    \"dns\": {},", dns_iocs.len());
+            println!("    \"tls\": {},", tls_iocs.len());
+            println!("    \"subdomains\": {}", subdomain_iocs.len());
+            println!("  }},");
+            println!("  \"total\": {},", collection.len());
+            println!("  \"by_type\": {{");
+            for (i, (ioc_type, count)) in counts.iter().enumerate() {
+                let comma = if i < counts.len() - 1 { "," } else { "" };
+                println!("    \"{}\": {}{}", ioc_type, count, comma);
+            }
+            println!("  }},");
+            println!("  \"by_confidence\": {{");
+            println!(
+                "    \"high\": {},",
+                conf_counts.get(&IocConfidence::High).unwrap_or(&0)
+            );
+            println!(
+                "    \"medium\": {},",
+                conf_counts.get(&IocConfidence::Medium).unwrap_or(&0)
+            );
+            println!(
+                "    \"low\": {}",
+                conf_counts.get(&IocConfidence::Low).unwrap_or(&0)
+            );
+            println!("  }},");
+            println!("  \"iocs\": [");
+            let all_iocs = collection.all();
+            for (i, ioc) in all_iocs.iter().enumerate() {
+                let conf_str = match ioc.confidence {
+                    IocConfidence::High => "high",
+                    IocConfidence::Medium => "medium",
+                    IocConfidence::Low => "low",
+                };
+                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"techniques\": [{}], \"tags\": [{}]}}{}",
+                    ioc.ioc_type,
+                    ioc.value.replace('"', "\\\""),
+                    conf_str,
+                    ioc.source,
+                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
+                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("IOC Extraction Demo: {}", target));
+        println!();
+
         // Simulate port scan results
         Output::section("1. Port Scan IOCs");
-        let port_iocs = extractor.extract_from_port_scan("93.184.216.34", &[22, 80, 443, 8080]);
         Output::success(&format!(
             "Extracted {} IOCs from port scan",
             port_iocs.len()
@@ -484,20 +682,11 @@ impl IntelIocCommand {
                 ioc.ioc_type,
                 ioc.tags.len()
             );
-            collection.add(ioc.clone());
         }
         println!();
 
         // Simulate DNS results
         Output::section("2. DNS IOCs");
-        let dns_iocs = extractor.extract_from_dns(
-            target,
-            &[Ipv4Addr::new(93, 184, 216, 34)],
-            &[],
-            &["10 mail.example.com".to_string()],
-            &["ns1.example.com".to_string(), "ns2.example.com".to_string()],
-            &[],
-        );
         Output::success(&format!("Extracted {} IOCs from DNS", dns_iocs.len()));
         for ioc in &dns_iocs {
             let tech_str = if ioc.mitre_techniques.is_empty() {
@@ -506,41 +695,25 @@ impl IntelIocCommand {
                 format!(" → {}", ioc.mitre_techniques.join(", "))
             };
             println!("  • {} [{}]{}", ioc.value, ioc.ioc_type, tech_str);
-            collection.add(ioc.clone());
         }
         println!();
 
         // Simulate TLS certificate
         Output::section("3. TLS Certificate IOCs");
-        let tls_iocs = extractor.extract_from_tls(
-            target,
-            &["www.example.com".to_string(), "api.example.com".to_string()],
-            "DigiCert Inc",
-            "abc123def456",
-            "1234567890",
-        );
         Output::success(&format!("Extracted {} IOCs from TLS", tls_iocs.len()));
         for ioc in &tls_iocs {
             println!("  • {} [{}]", ioc.value, ioc.ioc_type);
-            collection.add(ioc.clone());
         }
         println!();
 
         // Simulate subdomain enumeration
         Output::section("4. Subdomain IOCs");
-        let subdomain_iocs = extractor.extract_from_subdomains(&[
-            "www.example.com".to_string(),
-            "api.example.com".to_string(),
-            "mail.example.com".to_string(),
-            "dev.example.com".to_string(),
-        ]);
         Output::success(&format!(
             "Extracted {} IOCs from subdomains",
             subdomain_iocs.len()
         ));
         for ioc in &subdomain_iocs {
             println!("  • {} [{}]", ioc.value, ioc.ioc_type);
-            collection.add(ioc.clone());
         }
         println!();
 
@@ -592,8 +765,8 @@ impl IntelIocCommand {
 
     /// Import IOCs from external file (JSON, CSV, STIX)
     fn import_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("IOC Import");
-        println!();
+        let output_format = ctx.get_output_format();
+        let is_json = output_format == crate::cli::format::OutputFormat::Json;
 
         // Get file path from target or args
         let file_path = ctx
@@ -601,14 +774,18 @@ impl IntelIocCommand {
             .as_ref()
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
-                Output::error("No file specified");
-                println!();
-                Output::info("Usage: rb intel ioc import <file> [format=auto|json|csv|stix]");
+                if is_json {
+                    println!("{{\"error\": \"No file specified\"}}");
+                } else {
+                    Output::error("No file specified");
+                    println!();
+                    Output::info("Usage: rb intel ioc import <file> [format=auto|json|csv|stix]");
+                }
                 "Missing file argument".to_string()
             })?;
 
         // Determine format
-        let mut format = String::from("auto");
+        let mut file_format = String::from("auto");
         for arg in ctx
             .args
             .iter()
@@ -618,14 +795,14 @@ impl IntelIocCommand {
                 let (key, value) = arg.split_at(eq_pos);
                 let value = &value[1..];
                 if key == "format" || key == "f" {
-                    format = value.to_string();
+                    file_format = value.to_string();
                 }
             }
         }
 
         // Auto-detect format from file extension if not specified
-        if format == "auto" {
-            format = if file_path.ends_with(".csv") {
+        if file_format == "auto" {
+            file_format = if file_path.ends_with(".csv") {
                 "csv"
             } else if file_path.ends_with(".stix.json") || file_path.contains("stix") {
                 "stix"
@@ -635,28 +812,81 @@ impl IntelIocCommand {
             .to_string();
         }
 
-        Output::item("File", file_path);
-        Output::item("Format", &format);
-        println!();
+        if !is_json {
+            Output::header("IOC Import");
+            println!();
+            Output::item("File", file_path);
+            Output::item("Format", &file_format);
+            println!();
+        }
 
         // Read file content
         let content = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-        Output::spinner_start("Parsing IOCs");
+        if !is_json {
+            Output::spinner_start("Parsing IOCs");
+        }
 
         let mut collection = IocCollection::new();
-        let import_count = match format.as_str() {
+        let import_count = match file_format.as_str() {
             "csv" => self.parse_csv_iocs(&content, &mut collection)?,
             "stix" => self.parse_stix_iocs(&content, &mut collection)?,
             _ => self.parse_json_iocs(&content, &mut collection)?,
         };
 
-        Output::spinner_done();
-        println!();
+        if !is_json {
+            Output::spinner_done();
+            println!();
+        }
 
         if import_count == 0 {
-            Output::warning("No IOCs found in file");
+            if is_json {
+                println!(
+                    "{{\"file\": \"{}\", \"format\": \"{}\", \"imported\": 0, \"iocs\": []}}",
+                    file_path.replace('"', "\\\""),
+                    file_format
+                );
+            } else {
+                Output::warning("No IOCs found in file");
+            }
+            return Ok(());
+        }
+
+        if is_json {
+            let counts = collection.count_by_type();
+
+            println!("{{");
+            println!("  \"file\": \"{}\",", file_path.replace('"', "\\\""));
+            println!("  \"format\": \"{}\",", file_format);
+            println!("  \"imported\": {},", import_count);
+            println!("  \"by_type\": {{");
+            for (i, (ioc_type, count)) in counts.iter().enumerate() {
+                let comma = if i < counts.len() - 1 { "," } else { "" };
+                println!("    \"{}\": {}{}", ioc_type, count, comma);
+            }
+            println!("  }},");
+            println!("  \"iocs\": [");
+            let all_iocs = collection.all();
+            for (i, ioc) in all_iocs.iter().enumerate() {
+                let conf_str = match ioc.confidence {
+                    IocConfidence::High => "high",
+                    IocConfidence::Medium => "medium",
+                    IocConfidence::Low => "low",
+                };
+                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"tags\": [{}]}}{}",
+                    ioc.ioc_type,
+                    ioc.value.replace('"', "\\\""),
+                    conf_str,
+                    ioc.source,
+                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
             return Ok(());
         }
 
@@ -962,8 +1192,8 @@ impl IntelIocCommand {
 
     /// Search IOCs by value, type, or tag
     fn search_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("IOC Search");
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         // Get search query
         let query = ctx
@@ -971,9 +1201,13 @@ impl IntelIocCommand {
             .as_ref()
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
-                Output::error("No search query specified");
-                println!();
-                Output::info("Usage: rb intel ioc search <query> [type=...] [tag=...]");
+                if is_json {
+                    println!("{{\"error\": \"No search query specified\", \"results\": []}}");
+                } else {
+                    Output::error("No search query specified");
+                    println!();
+                    Output::info("Usage: rb intel ioc search <query> [type=...] [tag=...]");
+                }
                 "Missing search query".to_string()
             })?;
 
@@ -995,15 +1229,6 @@ impl IntelIocCommand {
                 }
             }
         }
-
-        Output::item("Query", query);
-        if let Some(ref t) = type_filter {
-            Output::item("Type filter", t);
-        }
-        if let Some(ref t) = tag_filter {
-            Output::item("Tag filter", t);
-        }
-        println!();
 
         // Generate sample IOC database for demonstration
         // In a real implementation, this would search the persistent storage
@@ -1052,6 +1277,56 @@ impl IntelIocCommand {
 
         // Sort by confidence score descending
         results.sort_by(|a, b| b.confidence_score.cmp(&a.confidence_score));
+
+        if is_json {
+            println!("{{");
+            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
+            if let Some(ref t) = type_filter {
+                println!("  \"type_filter\": \"{}\",", t);
+            }
+            if let Some(ref t) = tag_filter {
+                println!("  \"tag_filter\": \"{}\",", t.replace('"', "\\\""));
+            }
+            if let Some(ref c) = confidence_filter {
+                println!("  \"confidence_filter\": \"{}\",", c);
+            }
+            println!("  \"total\": {},", results.len());
+            println!("  \"results\": [");
+            for (i, ioc) in results.iter().enumerate() {
+                let conf_str = match ioc.confidence {
+                    IocConfidence::High => "high",
+                    IocConfidence::Medium => "medium",
+                    IocConfidence::Low => "low",
+                };
+                let comma = if i < results.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"context\": {}, \"techniques\": [{}], \"tags\": [{}]}}{}",
+                    ioc.ioc_type,
+                    ioc.value.replace('"', "\\\""),
+                    conf_str,
+                    ioc.source,
+                    ioc.context.as_ref().map(|c| format!("\"{}\"", c.replace('"', "\\\""))).unwrap_or_else(|| "null".to_string()),
+                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
+                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("IOC Search");
+        println!();
+
+        Output::item("Query", query);
+        if let Some(ref t) = type_filter {
+            Output::item("Type filter", t);
+        }
+        if let Some(ref t) = tag_filter {
+            Output::item("Tag filter", t);
+        }
+        println!();
 
         if results.is_empty() {
             Output::warning("No matching IOCs found");

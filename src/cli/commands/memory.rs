@@ -106,9 +106,12 @@ impl Command for MemoryCommand {
                 .with_default("100"),
             Flag::new("hex", "Display values in hexadecimal"),
             Flag::new("scannable", "Only scan heap/stack/anonymous regions"),
-            Flag::new("filter", "Filter processes by name").with_short('f'),
+            Flag::new("filter", "Filter processes by name"),
             Flag::new("user", "Show only processes owned by current user"),
             Flag::new("all", "Show all processes (including system)"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -187,11 +190,16 @@ impl MemoryCommand {
     }
 
     fn cmd_list(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let filter = ctx.flags.get("filter");
         let user_only = ctx.flags.contains_key("user") || !ctx.flags.contains_key("all");
         let current_uid = unsafe { libc::getuid() };
 
-        Output::header("Running Processes");
+        if !is_json {
+            Output::header("Running Processes");
+        }
 
         let mut processes = Vec::new();
 
@@ -228,6 +236,54 @@ impl MemoryCommand {
 
         // Sort by PID
         processes.sort_by_key(|p| p.pid);
+
+        let attachable_count = processes
+            .iter()
+            .filter(|p| p.uid == current_uid || current_uid == 0)
+            .count();
+
+        if is_json {
+            println!("{{");
+            println!("  \"current_uid\": {},", current_uid);
+            println!("  \"user_only\": {},", user_only);
+            if let Some(f) = filter {
+                println!("  \"filter\": \"{}\",", f.replace('"', "\\\""));
+            } else {
+                println!("  \"filter\": null,");
+            }
+            println!("  \"total\": {},", processes.len());
+            println!("  \"attachable\": {},", attachable_count);
+            println!("  \"processes\": [");
+            for (i, proc) in processes.iter().enumerate() {
+                let comma = if i < processes.len() - 1 { "," } else { "" };
+                let attachable = proc.uid == current_uid || current_uid == 0;
+                let state_str = match proc.state {
+                    'R' => "Running",
+                    'S' => "Sleeping",
+                    'D' => "Disk",
+                    'Z' => "Zombie",
+                    'T' => "Stopped",
+                    't' => "Traced",
+                    'X' => "Dead",
+                    _ => "Unknown",
+                };
+                println!("    {{");
+                println!("      \"pid\": {},", proc.pid);
+                println!("      \"uid\": {},", proc.uid);
+                println!("      \"name\": \"{}\",", proc.name.replace('"', "\\\""));
+                println!(
+                    "      \"cmdline\": \"{}\",",
+                    proc.cmdline.replace('"', "\\\"").replace('\\', "\\\\")
+                );
+                println!("      \"state\": \"{}\",", state_str);
+                println!("      \"vm_rss_kb\": {},", proc.vm_rss_kb);
+                println!("      \"attachable\": {}", attachable);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::info(&format!("Found {} processes", processes.len()));
         if user_only {
@@ -288,10 +344,6 @@ impl MemoryCommand {
         }
 
         println!();
-        let attachable_count = processes
-            .iter()
-            .filter(|p| p.uid == current_uid || current_uid == 0)
-            .count();
         Output::success(&format!(
             "{} processes attachable (same UID or root)",
             attachable_count
@@ -354,9 +406,14 @@ impl MemoryCommand {
     }
 
     fn cmd_maps(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
-        Output::header(&format!("Memory Regions - PID {}", pid));
+        if !is_json {
+            Output::header(&format!("Memory Regions - PID {}", pid));
+        }
 
         let regions = parse_maps(pid)?;
         let scannable_only = ctx.flags.contains_key("scannable");
@@ -366,6 +423,38 @@ impl MemoryCommand {
         } else {
             regions.iter().collect()
         };
+
+        let total_size: usize = filtered.iter().map(|r| r.size()).sum();
+
+        if is_json {
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"total_regions\": {},", regions.len());
+            println!("  \"filtered_regions\": {},", filtered.len());
+            println!("  \"scannable_only\": {},", scannable_only);
+            println!("  \"total_size_bytes\": {},", total_size);
+            println!("  \"regions\": [");
+            for (i, region) in filtered.iter().enumerate() {
+                let comma = if i < filtered.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"start\": \"0x{:x}\",", region.start);
+                println!("      \"end\": \"0x{:x}\",", region.end);
+                println!("      \"size\": {},", region.size());
+                println!("      \"perms\": \"{}\",", region.perms.to_string());
+                println!(
+                    "      \"name\": \"{}\",",
+                    region.name().replace('"', "\\\"")
+                );
+                println!("      \"readable\": {},", region.is_readable());
+                println!("      \"writable\": {},", region.is_writable());
+                println!("      \"executable\": {},", region.perms.execute);
+                println!("      \"scannable\": {}", region.is_scannable());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::info(&format!("Total regions: {}", regions.len()));
         if scannable_only {
@@ -398,7 +487,6 @@ impl MemoryCommand {
             );
         }
 
-        let total_size: usize = filtered.iter().map(|r| r.size()).sum();
         println!();
         Output::success(&format!(
             "Total: {:.2} MB",
@@ -409,6 +497,9 @@ impl MemoryCommand {
     }
 
     fn cmd_read(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         // Get address from positional args
@@ -421,10 +512,51 @@ impl MemoryCommand {
             .and_then(|s| s.parse().ok())
             .unwrap_or(64);
 
-        Output::header(&format!("Reading {} bytes at 0x{:x}", size, addr));
+        if !is_json {
+            Output::header(&format!("Reading {} bytes at 0x{:x}", size, addr));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
         let data = proc.read_bytes(addr, size)?;
+        proc.detach()?;
+
+        if is_json {
+            let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
+            let ascii_str: String = data
+                .iter()
+                .map(|&b| {
+                    if b.is_ascii_graphic() || b == b' ' {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
+                .collect();
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"address\": \"0x{:x}\",", addr);
+            println!("  \"size\": {},", data.len());
+            println!("  \"hex\": \"{}\",", hex_str);
+            println!(
+                "  \"ascii\": \"{}\",",
+                ascii_str.replace('"', "\\\"").replace('\\', "\\\\")
+            );
+            println!("  \"bytes\": [");
+            for (i, chunk) in data.chunks(16).enumerate() {
+                let offset = i * 16;
+                let hex: Vec<String> = chunk.iter().map(|b| format!("{:02X}", b)).collect();
+                let comma = if offset + 16 < data.len() { "," } else { "" };
+                println!(
+                    "    {{ \"offset\": \"0x{:08x}\", \"hex\": \"{}\" }}{}",
+                    addr + offset,
+                    hex.join(" "),
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         // Hexdump format
         for (i, chunk) in data.chunks(16).enumerate() {
@@ -444,11 +576,13 @@ impl MemoryCommand {
             println!("{:08X}  {:48}  |{}|", addr + offset, hex.join(" "), ascii);
         }
 
-        proc.detach()?;
         Ok(())
     }
 
     fn cmd_write(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         let addr_str = ctx.args.get(0).ok_or("Missing address argument")?;
@@ -459,12 +593,36 @@ impl MemoryCommand {
         // Parse hex string to bytes
         let bytes = Self::parse_hex_string(hex_bytes)?;
 
-        Output::header(&format!("Writing {} bytes at 0x{:x}", bytes.len(), addr));
+        if !is_json {
+            Output::header(&format!("Writing {} bytes at 0x{:x}", bytes.len(), addr));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
 
         // Show before
         let before = proc.read_bytes(addr, bytes.len())?;
+
+        // Write
+        proc.write_bytes(addr, &bytes)?;
+
+        // Show after
+        let after = proc.read_bytes(addr, bytes.len())?;
+        proc.detach()?;
+
+        if is_json {
+            let before_hex: String = before.iter().map(|b| format!("{:02X}", b)).collect();
+            let after_hex: String = after.iter().map(|b| format!("{:02X}", b)).collect();
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"address\": \"0x{:x}\",", addr);
+            println!("  \"size\": {},", bytes.len());
+            println!("  \"before\": \"{}\",", before_hex);
+            println!("  \"after\": \"{}\",", after_hex);
+            println!("  \"success\": true");
+            println!("}}");
+            return Ok(());
+        }
+
         Output::info(&format!(
             "Before: {}",
             before
@@ -474,11 +632,6 @@ impl MemoryCommand {
                 .join(" ")
         ));
 
-        // Write
-        proc.write_bytes(addr, &bytes)?;
-
-        // Show after
-        let after = proc.read_bytes(addr, bytes.len())?;
         Output::success(&format!(
             "After:  {}",
             after
@@ -488,11 +641,13 @@ impl MemoryCommand {
                 .join(" ")
         ));
 
-        proc.detach()?;
         Ok(())
     }
 
     fn cmd_scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         let value_str = ctx.flags.get("value").ok_or("Missing --value flag")?;
@@ -519,12 +674,14 @@ impl MemoryCommand {
             ScanType::Exact(val)
         };
 
-        Output::header(&format!(
-            "Scanning PID {} for {} = {}",
-            pid,
-            value_type.name(),
-            value_str
-        ));
+        if !is_json {
+            Output::header(&format!(
+                "Scanning PID {} for {} = {}",
+                pid,
+                value_type.name(),
+                value_str
+            ));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
         let regions = parse_maps(pid)?;
@@ -534,22 +691,52 @@ impl MemoryCommand {
             .cloned()
             .collect();
 
-        Output::info(&format!(
-            "Scanning {} regions ({:.2} MB)",
-            scannable.len(),
-            scannable.iter().map(|r| r.size()).sum::<usize>() as f64 / 1024.0 / 1024.0
-        ));
+        let total_size: usize = scannable.iter().map(|r| r.size()).sum();
 
-        Output::spinner_start("Scanning memory");
+        if !is_json {
+            Output::info(&format!(
+                "Scanning {} regions ({:.2} MB)",
+                scannable.len(),
+                total_size as f64 / 1024.0 / 1024.0
+            ));
+            Output::spinner_start("Scanning memory");
+        }
+
         let mut scanner = Scanner::new(value_type);
         let count = scanner.first_scan(&mut proc, &scannable, scan_type)?;
-        Output::spinner_done();
 
-        Output::success(&format!("Found {} results", count));
+        if !is_json {
+            Output::spinner_done();
+            Output::success(&format!("Found {} results", count));
+        }
 
         // Show results
         let results = scanner.results();
         let show_count = results.len().min(max_results);
+
+        if is_json {
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"search_value\": \"{}\",", value_str);
+            println!("  \"value_type\": \"{}\",", value_type.name());
+            println!("  \"regions_scanned\": {},", scannable.len());
+            println!("  \"total_size_bytes\": {},", total_size);
+            println!("  \"total_results\": {},", count);
+            println!("  \"max_results\": {},", max_results);
+            println!("  \"results\": [");
+            for (i, result) in results.iter().take(show_count).enumerate() {
+                let comma = if i < show_count - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"address\": \"0x{:x}\",", result.address);
+                println!("      \"value\": {},", result.value.to_string());
+                println!("      \"hex\": \"0x{:X}\"", result.value.as_i64());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            proc.detach()?;
+            return Ok(());
+        }
 
         if show_count > 0 {
             println!();
@@ -575,6 +762,9 @@ impl MemoryCommand {
     }
 
     fn cmd_aob(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         let pattern_str = ctx.args.get(0).ok_or("Missing pattern argument")?;
@@ -586,7 +776,9 @@ impl MemoryCommand {
 
         let pattern = Pattern::parse(pattern_str)?;
 
-        Output::header(&format!("AOB Scan PID {} for: {}", pid, pattern_str));
+        if !is_json {
+            Output::header(&format!("AOB Scan PID {} for: {}", pid, pattern_str));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
         let regions = parse_maps(pid)?;
@@ -598,17 +790,49 @@ impl MemoryCommand {
             .cloned()
             .collect();
 
-        Output::info(&format!(
-            "Scanning {} regions ({:.2} MB)",
-            readable.len(),
-            readable.iter().map(|r| r.size()).sum::<usize>() as f64 / 1024.0 / 1024.0
-        ));
+        let total_size: usize = readable.iter().map(|r| r.size()).sum();
 
-        Output::spinner_start("Pattern scanning");
+        if !is_json {
+            Output::info(&format!(
+                "Scanning {} regions ({:.2} MB)",
+                readable.len(),
+                total_size as f64 / 1024.0 / 1024.0
+            ));
+            Output::spinner_start("Pattern scanning");
+        }
+
         let results = PatternScanner::scan(&mut proc, &readable, &pattern, Some(max_results))?;
-        Output::spinner_done();
 
-        Output::success(&format!("Found {} matches", results.len()));
+        if !is_json {
+            Output::spinner_done();
+            Output::success(&format!("Found {} matches", results.len()));
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"pattern\": \"{}\",", pattern_str.replace('"', "\\\""));
+            println!("  \"regions_scanned\": {},", readable.len());
+            println!("  \"total_size_bytes\": {},", total_size);
+            println!("  \"max_results\": {},", max_results);
+            println!("  \"total_matches\": {},", results.len());
+            println!("  \"matches\": [");
+            for (i, result) in results.iter().enumerate() {
+                let comma = if i < results.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"address\": \"0x{:x}\",", result.address);
+                println!("      \"bytes\": \"{}\",", result.bytes_hex());
+                println!(
+                    "      \"region\": \"{}\"",
+                    result.region_name.replace('"', "\\\"")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            proc.detach()?;
+            return Ok(());
+        }
 
         if !results.is_empty() {
             println!();
@@ -630,6 +854,9 @@ impl MemoryCommand {
     }
 
     fn cmd_string(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         let search_str = ctx.args.get(0).ok_or("Missing search string argument")?;
@@ -639,7 +866,9 @@ impl MemoryCommand {
             .and_then(|s| s.parse().ok())
             .unwrap_or(100);
 
-        Output::header(&format!("String Scan PID {} for: \"{}\"", pid, search_str));
+        if !is_json {
+            Output::header(&format!("String Scan PID {} for: \"{}\"", pid, search_str));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
         let regions = parse_maps(pid)?;
@@ -649,13 +878,47 @@ impl MemoryCommand {
             .cloned()
             .collect();
 
+        let total_size: usize = readable.iter().map(|r| r.size()).sum();
         let pattern = crate::modules::memory::pattern::string_pattern(search_str);
 
-        Output::spinner_start("Scanning for string");
-        let results = PatternScanner::scan(&mut proc, &readable, &pattern, Some(max_results))?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_start("Scanning for string");
+        }
 
-        Output::success(&format!("Found {} matches", results.len()));
+        let results = PatternScanner::scan(&mut proc, &readable, &pattern, Some(max_results))?;
+
+        if !is_json {
+            Output::spinner_done();
+            Output::success(&format!("Found {} matches", results.len()));
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!(
+                "  \"search_string\": \"{}\",",
+                search_str.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            println!("  \"regions_scanned\": {},", readable.len());
+            println!("  \"total_size_bytes\": {},", total_size);
+            println!("  \"max_results\": {},", max_results);
+            println!("  \"total_matches\": {},", results.len());
+            println!("  \"matches\": [");
+            for (i, result) in results.iter().enumerate() {
+                let comma = if i < results.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"address\": \"0x{:x}\",", result.address);
+                println!(
+                    "      \"region\": \"{}\"",
+                    result.region_name.replace('"', "\\\"")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            proc.detach()?;
+            return Ok(());
+        }
 
         if !results.is_empty() {
             println!();
@@ -676,6 +939,9 @@ impl MemoryCommand {
     }
 
     fn cmd_dump(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let pid = Self::parse_pid(ctx)?;
 
         let addr_str = ctx.args.get(0).ok_or("Missing address argument")?;
@@ -688,18 +954,42 @@ impl MemoryCommand {
 
         let output_file = ctx.flags.get("output").ok_or("Missing --output flag")?;
 
-        Output::header(&format!(
-            "Dumping {} bytes from 0x{:x} to {}",
-            size, addr, output_file
-        ));
+        if !is_json {
+            Output::header(&format!(
+                "Dumping {} bytes from 0x{:x} to {}",
+                size, addr, output_file
+            ));
+        }
 
         let mut proc = ProcessMemory::attach(pid)?;
 
-        Output::spinner_start("Reading memory");
+        if !is_json {
+            Output::spinner_start("Reading memory");
+        }
+
         let data = proc.read_bytes(addr, size)?;
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
 
         std::fs::write(output_file, &data).map_err(|e| format!("Failed to write file: {}", e))?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"pid\": {},", pid);
+            println!("  \"address\": \"0x{:x}\",", addr);
+            println!("  \"requested_size\": {},", size);
+            println!("  \"actual_size\": {},", data.len());
+            println!(
+                "  \"output_file\": \"{}\",",
+                output_file.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            println!("  \"success\": true");
+            println!("}}");
+            proc.detach()?;
+            return Ok(());
+        }
 
         Output::success(&format!("Wrote {} bytes to {}", data.len(), output_file));
 

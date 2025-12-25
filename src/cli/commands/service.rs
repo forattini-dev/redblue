@@ -76,6 +76,9 @@ impl Command for ServiceCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("port", "Port number for the service")
                 .with_short('p')
                 .with_arg("PORT"),
@@ -109,8 +112,16 @@ impl Command for ServiceCommand {
             ),
             ("List all services", "rb service manage list"),
             (
+                "List services as JSON",
+                "rb service manage list --output=json",
+            ),
+            (
                 "Check service status",
                 "rb service manage status rb-mitm-8080",
+            ),
+            (
+                "Check status as JSON",
+                "rb service manage status rb-mitm-8080 --output=json",
             ),
             (
                 "Uninstall a service",
@@ -147,6 +158,9 @@ impl Command for ServiceCommand {
 
 impl ServiceCommand {
     fn install(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let service_type_name = ctx.target.as_deref().ok_or_else(|| {
             "Missing service type. Available: mitm-proxy, http-server, dns-server, listener"
                 .to_string()
@@ -221,16 +235,39 @@ impl ServiceCommand {
             config = config.with_restart(false);
         }
 
-        Output::header("Service Installation");
-        Output::item("Type", service_type_name);
-        Output::item("Name", &config.name);
-        Output::item("Port", &port.to_string());
-        Output::item("Auto-start", if config.auto_start { "yes" } else { "no" });
-
-        Output::spinner_start("Installing service");
+        if !is_json {
+            Output::header("Service Installation");
+            Output::item("Type", service_type_name);
+            Output::item("Name", &config.name);
+            Output::item("Port", &port.to_string());
+            Output::item("Auto-start", if config.auto_start { "yes" } else { "no" });
+            Output::spinner_start("Installing service");
+        }
 
         let manager = get_service_manager();
         let installed = manager.install(&config)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"install\",");
+            println!("  \"success\": true,");
+            println!("  \"service\": {{");
+            println!("    \"name\": \"{}\",", installed.name.replace('"', "\\\""));
+            println!("    \"type\": \"{}\",", service_type_name);
+            println!("    \"port\": {},", port);
+            println!("    \"auto_start\": {},", config.auto_start);
+            println!(
+                "    \"config_path\": \"{}\"",
+                installed
+                    .config_path
+                    .display()
+                    .to_string()
+                    .replace('"', "\\\"")
+            );
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::spinner_done();
 
@@ -247,15 +284,28 @@ impl ServiceCommand {
     }
 
     fn uninstall(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let name = ctx.target.as_deref().ok_or("Missing service name")?;
 
-        Output::header("Service Removal");
-        Output::item("Name", name);
-
-        Output::spinner_start("Removing service");
+        if !is_json {
+            Output::header("Service Removal");
+            Output::item("Name", name);
+            Output::spinner_start("Removing service");
+        }
 
         let manager = get_service_manager();
         manager.uninstall(name)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"uninstall\",");
+            println!("  \"success\": true,");
+            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
+            println!("}}");
+            return Ok(());
+        }
 
         Output::spinner_done();
         Output::success(&format!("Service '{}' removed successfully", name));
@@ -264,47 +314,101 @@ impl ServiceCommand {
     }
 
     fn start(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let name = ctx.target.as_deref().ok_or("Missing service name")?;
 
-        Output::item("Starting", name);
+        if !is_json {
+            Output::item("Starting", name);
+        }
 
         let manager = get_service_manager();
         manager.start(name)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"start\",");
+            println!("  \"success\": true,");
+            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("Service '{}' started", name));
         Ok(())
     }
 
     fn stop(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let name = ctx.target.as_deref().ok_or("Missing service name")?;
 
-        Output::item("Stopping", name);
+        if !is_json {
+            Output::item("Stopping", name);
+        }
 
         let manager = get_service_manager();
         manager.stop(name)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"stop\",");
+            println!("  \"success\": true,");
+            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("Service '{}' stopped", name));
         Ok(())
     }
 
     fn restart(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let name = ctx.target.as_deref().ok_or("Missing service name")?;
 
-        Output::item("Restarting", name);
+        if !is_json {
+            Output::item("Restarting", name);
+        }
 
         let manager = get_service_manager();
         manager.restart(name)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"restart\",");
+            println!("  \"success\": true,");
+            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("Service '{}' restarted", name));
         Ok(())
     }
 
     fn status(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let manager = get_service_manager();
 
         if let Some(name) = ctx.target.as_deref() {
             // Status for specific service
             let status = manager.status(name)?;
+
+            if is_json {
+                println!("{{");
+                println!("  \"name\": \"{}\",", name.replace('"', "\\\""));
+                println!("  \"status\": \"{}\"", status.as_str());
+                println!("}}");
+                return Ok(());
+            }
+
             Output::header(&format!("Service: {}", name));
 
             let (color, icon) = match status {
@@ -324,9 +428,37 @@ impl ServiceCommand {
         Ok(())
     }
 
-    fn list(&self, _ctx: &CliContext) -> Result<(), String> {
+    fn list(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let manager = get_service_manager();
         let services = manager.list()?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"total\": {},", services.len());
+            println!("  \"services\": [");
+
+            for (i, service) in services.iter().enumerate() {
+                let comma = if i < services.len() - 1 { "," } else { "" };
+                let desc = service
+                    .description
+                    .as_ref()
+                    .map(|d| format!("\"{}\"", d.replace('"', "\\\"")))
+                    .unwrap_or_else(|| "null".to_string());
+
+                println!("    {{");
+                println!("      \"name\": \"{}\",", service.name.replace('"', "\\\""));
+                println!("      \"status\": \"{}\",", service.status.as_str());
+                println!("      \"description\": {}", desc);
+                println!("    }}{}", comma);
+            }
+
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::header("Installed redblue Services");
 

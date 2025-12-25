@@ -68,6 +68,9 @@ impl Command for AssessCommand {
                 .with_short('r')
                 .with_default("high"),
             Flag::new("nvd-api-key", "NVD API key for higher rate limits"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -121,6 +124,9 @@ impl Command for AssessCommand {
 impl AssessCommand {
     /// Run the full assessment workflow
     fn run_assessment(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let target = ctx.target.as_ref().ok_or(
             "Missing target.\nUsage: rb assess target run <target>\nExample: rb assess target run example.com"
         )?;
@@ -136,6 +142,11 @@ impl AssessCommand {
         let engine = AssessmentEngine::new(target, &db_path_str);
         let result = engine.run(opts.clone())?;
 
+        if is_json {
+            self.print_json(&result, target);
+            return Ok(());
+        }
+
         // Print results
         AssessmentOutput::print(&result);
 
@@ -149,6 +160,9 @@ impl AssessCommand {
 
     /// Show cached assessment results
     fn show_cached(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let target = ctx.target.as_ref().ok_or(
             "Missing target.\nUsage: rb assess target show <target>\nExample: rb assess target show example.com"
         )?;
@@ -168,9 +182,93 @@ impl AssessCommand {
         let engine = AssessmentEngine::new(target, &db_path_str);
         let result = engine.run(opts)?;
 
+        if is_json {
+            self.print_json(&result, target);
+            return Ok(());
+        }
+
         AssessmentOutput::print(&result);
 
         Ok(())
+    }
+
+    /// Print assessment result as JSON
+    fn print_json(&self, result: &crate::assess::AssessmentResult, target: &str) {
+        println!("{{");
+        println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+        println!("  \"risk_score\": {},", result.risk_score);
+        println!("  \"technologies\": [");
+        for (i, tech) in result.technologies.iter().enumerate() {
+            let comma = if i < result.technologies.len() - 1 {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!("      \"name\": \"{}\",", tech.name.replace('"', "\\\""));
+            if let Some(ref v) = tech.version {
+                println!("      \"version\": \"{}\",", v.replace('"', "\\\""));
+            } else {
+                println!("      \"version\": null,");
+            }
+            println!("      \"category\": \"{:?}\",", tech.category);
+            println!("      \"confidence\": \"{:?}\"", tech.confidence);
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+        println!("  \"vulnerabilities\": [");
+        for (i, vuln) in result.vuln_records.iter().enumerate() {
+            let comma = if i < result.vuln_records.len() - 1 {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!(
+                "      \"cve_id\": \"{}\",",
+                vuln.cve_id.replace('"', "\\\"")
+            );
+            println!(
+                "      \"technology\": \"{}\",",
+                vuln.technology.replace('"', "\\\"")
+            );
+            println!("      \"cvss\": {},", vuln.cvss);
+            println!("      \"risk_score\": {},", vuln.risk_score);
+            println!("      \"severity\": \"{:?}\",", vuln.severity);
+            println!("      \"exploit_available\": {},", vuln.exploit_available);
+            println!("      \"in_kev\": {},", vuln.in_kev);
+            println!("      \"source\": \"{}\"", vuln.source.replace('"', "\\\""));
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+        println!("  \"recommendations\": [");
+        for (i, rec) in result.recommendations.recommendations.iter().enumerate() {
+            let comma = if i < result.recommendations.recommendations.len() - 1 {
+                ","
+            } else {
+                ""
+            };
+            println!("    {{");
+            println!(
+                "      \"playbook_id\": \"{}\",",
+                rec.playbook_id.replace('"', "\\\"")
+            );
+            println!(
+                "      \"playbook_name\": \"{}\",",
+                rec.playbook_name.replace('"', "\\\"")
+            );
+            println!("      \"score\": {},", rec.score);
+            println!("      \"risk_level\": \"{:?}\",", rec.risk_level);
+            println!("      \"reasons\": [");
+            for (j, reason) in rec.reasons.iter().enumerate() {
+                let comma2 = if j < rec.reasons.len() - 1 { "," } else { "" };
+                println!("        \"{}\"{}", reason.replace('"', "\\\""), comma2);
+            }
+            println!("      ]");
+            println!("    }}{}", comma);
+        }
+        println!("  ]");
+        println!("}}");
     }
 
     /// Parse command options from context

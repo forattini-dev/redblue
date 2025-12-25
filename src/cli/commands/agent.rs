@@ -38,6 +38,9 @@ impl Command for AgentCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("host", "Bind host address").with_default("0.0.0.0"),
             Flag::new("port", "Bind port").with_default("4444"),
             Flag::new("interval", "Beacon interval in seconds").with_default("60"),
@@ -78,12 +81,25 @@ impl AgentCommand {
         let port = ctx.get_flag_or("port", "4444");
         let addr_str = format!("{}:{}", host, port);
 
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let addr: SocketAddr = addr_str
             .parse()
             .map_err(|e| format!("Invalid address {}: {}", addr_str, e))?;
 
-        Output::header("Starting C2 Server");
-        Output::item("Address", &addr_str);
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"start_server\",");
+            println!("  \"status\": \"starting\",");
+            println!("  \"address\": \"{}\",", addr_str);
+            println!("  \"use_tls\": false,");
+            println!("  \"db_path\": \"redblue.rdb\"");
+            println!("}}");
+        } else {
+            Output::header("Starting C2 Server");
+            Output::item("Address", &addr_str);
+        }
 
         let config = AgentServerConfig {
             bind_addr: addr,
@@ -113,9 +129,22 @@ impl AgentCommand {
             .parse::<f32>()
             .unwrap_or(0.1);
 
-        Output::header("Starting Agent");
-        Output::item("C2 Server", url);
-        Output::item("Interval", &format!("{}s", interval_secs));
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if is_json {
+            println!("{{");
+            println!("  \"action\": \"connect\",");
+            println!("  \"status\": \"starting\",");
+            println!("  \"server_url\": \"{}\",", url.replace('"', "\\\""));
+            println!("  \"interval_secs\": {},", interval_secs);
+            println!("  \"jitter\": {}", jitter);
+            println!("}}");
+        } else {
+            Output::header("Starting Agent");
+            Output::item("C2 Server", url);
+            Output::item("Interval", &format!("{}s", interval_secs));
+        }
 
         let config = AgentConfig {
             server_url: url.clone(),

@@ -446,8 +446,13 @@ impl ReconIdentityCommand {
             return Err(format!("Invalid email format: {}", email));
         }
 
-        Output::header(&format!("Email Intelligence: {}", email));
-        Output::spinner_start(&format!("Investigating {}", email));
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header(&format!("Email Intelligence: {}", email));
+            Output::spinner_start(&format!("Investigating {}", email));
+        }
 
         let config = crate::modules::recon::osint::OsintConfig {
             timeout: Duration::from_secs(10),
@@ -463,7 +468,69 @@ impl ReconIdentityCommand {
         let intel = EmailIntel::new(config);
         let result = intel.investigate(email);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"email\": \"{}\",", email.replace('"', "\\\""));
+            println!(
+                "  \"provider\": {},",
+                if let Some(ref p) = result.provider {
+                    format!("\"{}\"", p.replace('"', "\\\""))
+                } else {
+                    "null".to_string()
+                }
+            );
+            println!("  \"valid\": {},", result.valid);
+            println!("  \"services\": [");
+            for (i, service) in result.services.iter().enumerate() {
+                let comma = if i < result.services.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    \"{}\"{}", service.replace('"', "\\\""), comma);
+            }
+            println!("  ],");
+            println!("  \"social_profiles\": [");
+            for (i, profile) in result.social_profiles.iter().enumerate() {
+                let comma = if i < result.social_profiles.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!(
+                    "      \"platform\": \"{}\",",
+                    profile.platform.replace('"', "\\\"")
+                );
+                println!(
+                    "      \"url\": {}",
+                    if let Some(ref u) = profile.url {
+                        format!("\"{}\"", u.replace('"', "\\\""))
+                    } else {
+                        "null".to_string()
+                    }
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"breaches\": [");
+            for (i, breach) in result.breaches.iter().enumerate() {
+                let comma = if i < result.breaches.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    \"{}\"{}", breach.name.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         // Display results
         println!();
@@ -528,22 +595,59 @@ impl ReconIdentityCommand {
             .unwrap_or_else(|| "password".to_string());
         let hibp_key = ctx.get_flag("hibp-key");
 
-        Output::header("Breach Check (HIBP)");
-        Output::item("Target", &format!("{}****", &target[..target.len().min(4)]));
-        Output::item("Type", &check_type);
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Checking breach databases");
+        if !is_json {
+            Output::header("Breach Check (HIBP)");
+            Output::item("Target", &format!("{}****", &target[..target.len().min(4)]));
+            Output::item("Type", &check_type);
+            Output::spinner_start("Checking breach databases");
+        }
 
         let mut client = BreachClient::new();
         if let Some(key) = hibp_key {
             client.set_api_key(&key);
         }
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         match check_type.as_str() {
             "email" => {
                 let result = client.check_email(target)?;
+
+                if is_json {
+                    println!("{{");
+                    println!("  \"type\": \"email\",");
+                    println!(
+                        "  \"target_masked\": \"{}****\",",
+                        &target[..target.len().min(4)]
+                    );
+                    println!("  \"pwned\": {},", result.pwned);
+                    println!("  \"breach_count\": {},", result.breach_count);
+                    println!("  \"breaches\": [");
+                    for (i, breach) in result.breaches.iter().enumerate() {
+                        let comma = if i < result.breaches.len() - 1 {
+                            ","
+                        } else {
+                            ""
+                        };
+                        println!("    {{");
+                        println!("      \"name\": \"{}\",", breach.name.replace('"', "\\\""));
+                        println!(
+                            "      \"breach_date\": \"{}\",",
+                            breach.breach_date.replace('"', "\\\"")
+                        );
+                        println!("      \"pwn_count\": {}", breach.pwn_count);
+                        println!("    }}{}", comma);
+                    }
+                    println!("  ]");
+                    println!("}}");
+                    return Ok(());
+                }
+
                 if result.pwned {
                     Output::warning(&format!("PWNED! Found in {} breaches", result.breach_count));
 
@@ -566,6 +670,16 @@ impl ReconIdentityCommand {
             }
             _ => {
                 let result = client.check_password(target)?;
+
+                if is_json {
+                    println!("{{");
+                    println!("  \"type\": \"password\",");
+                    println!("  \"pwned\": {},", result.pwned);
+                    println!("  \"count\": {}", result.count);
+                    println!("}}");
+                    return Ok(());
+                }
+
                 if result.pwned {
                     Output::warning(&format!(
                         "PWNED! Password found {} times in breaches",

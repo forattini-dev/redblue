@@ -46,6 +46,9 @@ impl Command for TakeoverCommand {
             Flag::new("confidence", "Minimum confidence level (high|medium|low)")
                 .with_short('c')
                 .with_arg("LEVEL"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -84,33 +87,70 @@ impl Command for TakeoverCommand {
 impl TakeoverCommand {
     /// Check a single domain for takeover vulnerability
     fn check_single(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let domain = ctx.target.as_ref().ok_or(
             "Missing domain. Usage: rb cloud asset takeover <domain> Example: rb cloud asset takeover subdomain.example.com"
         )?;
 
-        Output::header("Subdomain Takeover Checker");
-        Output::item("Domain", domain);
-        println!();
-
         let checker = TakeoverChecker::new();
 
-        Output::spinner_start(&format!("Checking {}", domain));
+        if !is_json {
+            Output::header("Subdomain Takeover Checker");
+            Output::item("Domain", domain);
+            println!();
+            Output::spinner_start(&format!("Checking {}", domain));
+        }
+
         let result = checker.check(domain)?;
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            self.print_result_json(&result);
+            return Ok(());
+        }
 
         self.display_result(&result);
 
         Ok(())
     }
 
+    /// Print single result as JSON
+    fn print_result_json(&self, result: &TakeoverResult) {
+        let confidence_str = match result.confidence {
+            Confidence::High => "high",
+            Confidence::Medium => "medium",
+            Confidence::Low => "low",
+            Confidence::None => "none",
+        };
+        println!("{{");
+        println!("  \"domain\": \"{}\",", result.domain.replace('"', "\\\""));
+        println!("  \"vulnerable\": {},", result.vulnerable);
+        println!("  \"confidence\": \"{}\",", confidence_str);
+        if let Some(ref cname) = result.cname {
+            println!("  \"cname\": \"{}\",", cname.replace('"', "\\\""));
+        } else {
+            println!("  \"cname\": null,");
+        }
+        if let Some(ref service) = result.service {
+            println!("  \"service\": \"{}\",", service.replace('"', "\\\""));
+        } else {
+            println!("  \"service\": null,");
+        }
+        println!("  \"message\": \"{}\"", result.message.replace('"', "\\\""));
+        println!("}}");
+    }
+
     /// Scan multiple domains from a wordlist
     fn scan_bulk(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let wordlist_path = ctx
             .get_flag("wordlist")
             .ok_or("Missing wordlist. Usage: rb cloud asset takeover-scan --wordlist subs.txt")?;
-
-        Output::header("Bulk Subdomain Takeover Scan");
-        Output::item("Wordlist", &wordlist_path);
 
         // Read wordlist
         use std::fs;
@@ -123,27 +163,129 @@ impl TakeoverCommand {
             .map(|line| line.trim().to_string())
             .collect();
 
-        Output::item("Total domains", &domains.len().to_string());
-        println!();
-
         let checker = TakeoverChecker::new();
 
-        Output::spinner_start(&format!("Scanning {} domains", domains.len()));
+        if !is_json {
+            Output::header("Bulk Subdomain Takeover Scan");
+            Output::item("Wordlist", &wordlist_path);
+            Output::item("Total domains", &domains.len().to_string());
+            println!();
+            Output::spinner_start(&format!("Scanning {} domains", domains.len()));
+        }
+
         let results = checker.check_bulk(&domains);
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            self.print_bulk_results_json(&results, ctx);
+            return Ok(());
+        }
 
         self.display_bulk_results(&results, ctx);
 
         Ok(())
     }
 
+    /// Print bulk results as JSON
+    fn print_bulk_results_json(&self, results: &[TakeoverResult], ctx: &CliContext) {
+        let stats = TakeoverChecker::get_stats(results);
+
+        // Filter by confidence level if specified
+        let min_confidence = ctx
+            .get_flag("confidence")
+            .unwrap_or_else(|| "low".to_string());
+
+        let filtered: Vec<_> = results
+            .iter()
+            .filter(|r| r.vulnerable)
+            .filter(|r| match min_confidence.as_str() {
+                "high" => r.confidence == Confidence::High,
+                "medium" => r.confidence == Confidence::High || r.confidence == Confidence::Medium,
+                _ => true,
+            })
+            .collect();
+
+        println!("{{");
+        println!("  \"total\": {},", stats.get("total").unwrap_or(&0));
+        println!(
+            "  \"vulnerable\": {},",
+            stats.get("vulnerable").unwrap_or(&0)
+        );
+        println!(
+            "  \"high_confidence\": {},",
+            stats.get("high_confidence").unwrap_or(&0)
+        );
+        println!(
+            "  \"medium_confidence\": {},",
+            stats.get("medium_confidence").unwrap_or(&0)
+        );
+        println!(
+            "  \"low_confidence\": {},",
+            stats.get("low_confidence").unwrap_or(&0)
+        );
+        println!("  \"min_confidence_filter\": \"{}\",", min_confidence);
+        println!("  \"results\": [");
+        for (i, result) in filtered.iter().enumerate() {
+            let confidence_str = match result.confidence {
+                Confidence::High => "high",
+                Confidence::Medium => "medium",
+                Confidence::Low => "low",
+                Confidence::None => "none",
+            };
+            let comma = if i < filtered.len() - 1 { "," } else { "" };
+            println!("    {{");
+            println!(
+                "      \"domain\": \"{}\",",
+                result.domain.replace('"', "\\\"")
+            );
+            println!("      \"vulnerable\": {},", result.vulnerable);
+            println!("      \"confidence\": \"{}\",", confidence_str);
+            if let Some(ref cname) = result.cname {
+                println!("      \"cname\": \"{}\",", cname.replace('"', "\\\""));
+            } else {
+                println!("      \"cname\": null,");
+            }
+            if let Some(ref service) = result.service {
+                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
+            } else {
+                println!("      \"service\": null,");
+            }
+            println!(
+                "      \"message\": \"{}\"",
+                result.message.replace('"', "\\\"")
+            );
+            println!("    }}{}", comma);
+        }
+        println!("  ]");
+        println!("}}");
+    }
+
     /// List all supported vulnerable services
-    fn list_services(&self, _ctx: &CliContext) -> Result<(), String> {
-        Output::header("Supported Vulnerable Services");
-        println!();
+    fn list_services(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
 
         let checker = TakeoverChecker::new();
         let services = checker.list_services();
+
+        if is_json {
+            println!("{{");
+            println!("  \"total\": {},", services.len());
+            println!("  \"services\": [");
+            for (i, service) in services.iter().enumerate() {
+                let comma = if i < services.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", service.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Supported Vulnerable Services");
+        println!();
 
         Output::subheader(&format!("Total Services: {}", services.len()));
         println!();

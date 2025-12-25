@@ -75,6 +75,9 @@ impl Command for WordlistCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("embedded", "Show only embedded wordlists"),
             Flag::new("cached", "Show only cached wordlists"),
             Flag::new(
@@ -140,19 +143,14 @@ impl Command for WordlistCommand {
 
 impl WordlistCommand {
     fn list(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let manager = WordlistManager::new()?;
         let wordlists = manager.list();
 
         let show_embedded = ctx.has_flag("embedded");
         let show_cached = ctx.has_flag("cached");
-
-        Output::header("Available Wordlists");
-
-        if wordlists.is_empty() {
-            Output::warning("No wordlists found");
-            println!("\nRun `rb wordlist collection init` to initialize cache directory");
-            return Ok(());
-        }
 
         // Filter by flags
         let filtered: Vec<_> = wordlists
@@ -169,6 +167,32 @@ impl WordlistCommand {
                 }
             })
             .collect();
+
+        if is_json {
+            println!("{{");
+            println!("  \"total\": {},", filtered.len());
+            println!("  \"wordlists\": [");
+            for (i, w) in filtered.iter().enumerate() {
+                let comma = if i < filtered.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"name\": \"{}\",", w.name.replace('"', "\\\""));
+                println!("      \"source\": \"{}\",", w.source);
+                println!("      \"line_count\": {},", w.line_count);
+                println!("      \"size_kb\": {}", w.size_kb);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Available Wordlists");
+
+        if wordlists.is_empty() {
+            Output::warning("No wordlists found");
+            println!("\nRun `rb wordlist collection init` to initialize cache directory");
+            return Ok(());
+        }
 
         if filtered.is_empty() {
             Output::warning("No wordlists match the filter");
@@ -247,6 +271,9 @@ impl WordlistCommand {
     }
 
     fn info(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let name = ctx.target.as_ref().ok_or(
             "Missing wordlist name.\nUsage: rb wordlist collection info <name>\nExample: rb wordlist collection info subdomains-top100",
         )?;
@@ -256,22 +283,44 @@ impl WordlistCommand {
         // Try to get the wordlist
         match manager.get(name) {
             Ok(wordlist) => {
+                let size_bytes: usize = wordlist.iter().map(|s| s.len()).sum();
+                let size_kb = size_bytes / 1024;
+                let source = if crate::wordlists::is_embedded(name) {
+                    "embedded"
+                } else {
+                    "cached"
+                };
+
+                if is_json {
+                    println!("{{");
+                    println!("  \"name\": \"{}\",", name.replace('"', "\\\""));
+                    println!("  \"lines\": {},", wordlist.len());
+                    println!("  \"size_bytes\": {},", size_bytes);
+                    println!("  \"size_kb\": {},", size_kb);
+                    println!("  \"source\": \"{}\",", source);
+                    println!("  \"preview\": [");
+                    let preview: Vec<_> = wordlist.iter().take(10).collect();
+                    for (i, entry) in preview.iter().enumerate() {
+                        let comma = if i < preview.len() - 1 { "," } else { "" };
+                        println!("    \"{}\"{}", entry.replace('"', "\\\""), comma);
+                    }
+                    println!("  ]");
+                    println!("}}");
+                    return Ok(());
+                }
+
                 Output::header(&format!("Wordlist: {}", name));
 
                 Output::item("Name", name);
                 Output::item("Lines", &wordlist.len().to_string());
-
-                let size_bytes = wordlist.iter().map(|s| s.len()).sum::<usize>();
-                let size_kb = size_bytes / 1024;
                 Output::item("Size", &format!("~{}KB", size_kb));
 
-                // Determine source
-                let source = if crate::wordlists::is_embedded(name) {
+                let source_display = if source == "embedded" {
                     "Embedded (built-in)"
                 } else {
                     "Cached or external file"
                 };
-                Output::item("Source", source);
+                Output::item("Source", source_display);
 
                 // Show first 10 entries as preview
                 Output::section("Preview (first 10 entries)");
@@ -286,32 +335,64 @@ impl WordlistCommand {
                 Ok(())
             }
             Err(e) => {
-                Output::error(&format!("Failed to load wordlist: {}", e));
+                if is_json {
+                    println!("{{");
+                    println!("  \"success\": false,");
+                    println!("  \"error\": \"{}\",", e.replace('"', "\\\""));
+                    println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
+                    println!("}}");
+                } else {
+                    Output::error(&format!("Failed to load wordlist: {}", e));
+                }
                 Err(e)
             }
         }
     }
 
-    fn status(&self, _ctx: &CliContext) -> Result<(), String> {
+    fn status(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let manager = WordlistManager::new()?;
+        let cache_dir = manager.cache_dir();
+        let dir_exists = cache_dir.exists();
+
+        let cache_size = if dir_exists {
+            self.calculate_dir_size(cache_dir).unwrap_or(0)
+        } else {
+            0
+        };
+        let size_mb = cache_size / 1024 / 1024;
+
+        let wordlists = manager.list();
+        let embedded_count = wordlists.iter().filter(|w| w.source == "embedded").count();
+        let cached_count = wordlists.iter().filter(|w| w.source == "cached").count();
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"cache_directory\": \"{}\",",
+                cache_dir.display().to_string().replace('"', "\\\"")
+            );
+            println!("  \"directory_exists\": {},", dir_exists);
+            println!("  \"cache_size_bytes\": {},", cache_size);
+            println!("  \"cache_size_mb\": {},", size_mb);
+            println!("  \"counts\": {{");
+            println!("    \"embedded\": {},", embedded_count);
+            println!("    \"cached\": {},", cached_count);
+            println!("    \"total\": {}", embedded_count + cached_count);
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::header("Wordlist Cache Status");
 
-        let cache_dir = manager.cache_dir();
         Output::item("Cache Directory", &cache_dir.display().to_string());
 
-        if cache_dir.exists() {
+        if dir_exists {
             Output::success("  ✓ Directory exists");
-
-            // Calculate cache size
-            let cache_size = self.calculate_dir_size(cache_dir)?;
-            let size_mb = cache_size / 1024 / 1024;
             Output::item("Cache Size", &format!("{}MB", size_mb));
-
-            // Count wordlists
-            let wordlists = manager.list();
-            let embedded_count = wordlists.iter().filter(|w| w.source == "embedded").count();
-            let cached_count = wordlists.iter().filter(|w| w.source == "cached").count();
 
             Output::section("Wordlist Count");
             println!("  Embedded: {}", embedded_count);
@@ -370,12 +451,13 @@ impl WordlistCommand {
     }
 
     fn sources(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let sources = get_wordlist_sources();
 
         // Check for category filter
         let category_filter = ctx.get_flag("category");
-
-        Output::header("Downloadable Wordlist Sources");
 
         let filtered: Vec<_> = if let Some(cat) = category_filter {
             let cat_enum = match cat.to_lowercase().as_str() {
@@ -389,13 +471,51 @@ impl WordlistCommand {
             if let Some(c) = cat_enum {
                 sources.into_iter().filter(|s| s.category == c).collect()
             } else {
-                Output::warning(&format!("Unknown category: {}", cat));
-                println!("Available: passwords, subdomains, dirs, usernames");
+                if is_json {
+                    println!("{{");
+                    println!("  \"success\": false,");
+                    println!("  \"error\": \"unknown_category\",");
+                    println!("  \"category\": \"{}\"", cat.replace('"', "\\\""));
+                    println!("}}");
+                } else {
+                    Output::warning(&format!("Unknown category: {}", cat));
+                    println!("Available: passwords, subdomains, dirs, usernames");
+                }
                 return Ok(());
             }
         } else {
             sources
         };
+
+        if is_json {
+            println!("{{");
+            println!("  \"total\": {},", filtered.len());
+            println!("  \"sources\": [");
+            for (i, s) in filtered.iter().enumerate() {
+                let comma = if i < filtered.len() - 1 { "," } else { "" };
+                let cat = match s.category {
+                    WordlistCategory::Passwords => "passwords",
+                    WordlistCategory::Subdomains => "subdomains",
+                    WordlistCategory::Directories => "directories",
+                    WordlistCategory::Usernames => "usernames",
+                    WordlistCategory::Mixed => "mixed",
+                };
+                println!("    {{");
+                println!("      \"name\": \"{}\",", s.name.replace('"', "\\\""));
+                println!("      \"category\": \"{}\",", cat);
+                println!("      \"size_hint\": \"{}\",", s.size_hint);
+                println!(
+                    "      \"description\": \"{}\"",
+                    s.description.replace('"', "\\\"")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Downloadable Wordlist Sources");
 
         if filtered.is_empty() {
             Output::warning("No wordlists found for this category");
@@ -444,6 +564,9 @@ impl WordlistCommand {
     }
 
     fn search(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let query = ctx.target.as_ref().ok_or(
             "Missing search query.\nUsage: rb wordlist collection search <query>\nExample: rb wordlist collection search rock",
         )?;
@@ -451,6 +574,35 @@ impl WordlistCommand {
         let manager = WordlistManager::new()?;
         let downloader = Downloader::new(manager.cache_dir().to_path_buf());
         let results = downloader.search_sources(query);
+
+        if is_json {
+            println!("{{");
+            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
+            println!("  \"total\": {},", results.len());
+            println!("  \"results\": [");
+            for (i, s) in results.iter().enumerate() {
+                let comma = if i < results.len() - 1 { "," } else { "" };
+                let cat = match s.category {
+                    WordlistCategory::Passwords => "passwords",
+                    WordlistCategory::Subdomains => "subdomains",
+                    WordlistCategory::Directories => "directories",
+                    WordlistCategory::Usernames => "usernames",
+                    WordlistCategory::Mixed => "mixed",
+                };
+                println!("    {{");
+                println!("      \"name\": \"{}\",", s.name.replace('"', "\\\""));
+                println!("      \"category\": \"{}\",", cat);
+                println!("      \"size_hint\": \"{}\",", s.size_hint);
+                println!(
+                    "      \"description\": \"{}\"",
+                    s.description.replace('"', "\\\"")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::header(&format!("Search Results for '{}'", query));
 
@@ -597,6 +749,9 @@ impl Command for WordlistFileCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("pattern", "Filter by pattern (substring)").with_arg("str"),
             Flag::new("min", "Minimum length").with_arg("n"),
             Flag::new("max", "Maximum length").with_arg("n"),
@@ -640,6 +795,9 @@ impl Command for WordlistFileCommand {
 
 impl WordlistFileCommand {
     fn info(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let path_str = ctx
             .target
             .as_ref()
@@ -647,6 +805,13 @@ impl WordlistFileCommand {
         let path = std::path::Path::new(path_str);
 
         if !path.exists() {
+            if is_json {
+                println!("{{");
+                println!("  \"success\": false,");
+                println!("  \"error\": \"File not found\",");
+                println!("  \"path\": \"{}\"", path_str.replace('"', "\\\""));
+                println!("}}");
+            }
             return Err(format!("File not found: {}", path_str));
         }
 
@@ -654,25 +819,35 @@ impl WordlistFileCommand {
         use crate::modules::wordlist::loader::Loader;
         use std::io::{BufRead, BufReader};
 
-        Output::header(&format!("Wordlist Analysis: {}", path_str));
-
         let reader = Loader::open(path).map_err(|e| e.to_string())?;
         let buf_reader = BufReader::new(reader);
 
-        // Load into memory for analysis?
-        // Analyzer::analyze takes &[String].
-        // For huge files this is bad.
-        // But our Analyzer implementation handles &[String].
-        // Ideally we should stream.
-        // For now, let's load line by line and accumulate stats manually or collect if small enough?
-        // Let's implement a streaming analysis in WordlistFileCommand for now,
-        // or update Analyzer to accept iterator.
-
-        // Simpler: Read lines and analyze.
         let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
         let lines = lines.map_err(|e| e.to_string())?;
 
         let stats = Analyzer::analyze(&lines);
+
+        if is_json {
+            println!("{{");
+            println!("  \"path\": \"{}\",", path_str.replace('"', "\\\""));
+            println!("  \"line_count\": {},", stats.line_count);
+            println!("  \"unique_count\": {},", stats.unique_count);
+            println!("  \"avg_length\": {:.1},", stats.avg_length);
+            println!("  \"min_length\": {},", stats.min_length);
+            println!("  \"max_length\": {},", stats.max_length);
+            println!("  \"charset\": \"{}\",", stats.charset);
+            println!("  \"preview\": [");
+            let preview: Vec<_> = lines.iter().take(10).collect();
+            for (i, line) in preview.iter().enumerate() {
+                let comma = if i < preview.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", line.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("Wordlist Analysis: {}", path_str));
 
         Output::item("Lines", &stats.line_count.to_string());
         Output::item("Unique", &stats.unique_count.to_string());

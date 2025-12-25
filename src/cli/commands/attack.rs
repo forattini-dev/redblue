@@ -75,6 +75,9 @@ impl Command for AttackCommand {
             Flag::new("limit", "Maximum recommendations to show").with_default("10"),
             Flag::new("apt", "Show only APT playbooks"),
             Flag::new("dry-run", "Show what would be executed without running"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -125,13 +128,20 @@ impl AttackCommand {
             "Missing target.\nUsage: rb attack target plan <target>\nExample: rb attack target plan example.com"
         )?;
 
-        Output::header(&format!("Attack Planning: {}", target));
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header(&format!("Attack Planning: {}", target));
+        }
 
         // Load findings from storage
         let db_path = StorageService::db_path(target);
         let findings = match RedDb::open(&db_path) {
             Ok(mut store) => {
-                Output::spinner_start("Loading reconnaissance data...");
+                if !is_json {
+                    Output::spinner_start("Loading reconnaissance data...");
+                }
 
                 // Get target IP for port lookup
                 let target_ip: Option<std::net::IpAddr> =
@@ -160,7 +170,9 @@ impl AttackCommand {
                 };
                 let vulns = store.vulns().all().unwrap_or_default();
 
-                Output::spinner_done();
+                if !is_json {
+                    Output::spinner_done();
+                }
 
                 // Convert to ReconFindings
                 let detected_os = self.detect_os_from_ports(&ports);
@@ -189,6 +201,14 @@ impl AttackCommand {
                 }
             }
             Err(_) => {
+                if is_json {
+                    println!("{{");
+                    println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+                    println!("  \"error\": \"no_recon_data\",");
+                    println!("  \"message\": \"No reconnaissance data found for target\"");
+                    println!("}}");
+                    return Ok(());
+                }
                 println!();
                 Output::warning(&format!("No reconnaissance data found for '{}'", target));
                 println!();
@@ -201,9 +221,6 @@ impl AttackCommand {
                 return Ok(());
             }
         };
-
-        // Display findings summary
-        self.display_findings_summary(&findings);
 
         // Get recommendations
         let max_risk = ctx
@@ -221,7 +238,9 @@ impl AttackCommand {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
-        Output::spinner_start("Analyzing attack surface...");
+        if !is_json {
+            Output::spinner_start("Analyzing attack surface...");
+        }
 
         let recommender = PlaybookRecommender::new()
             .with_max_risk(max_risk)
@@ -230,7 +249,64 @@ impl AttackCommand {
 
         let result = recommender.recommend(&findings);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+            println!("  \"findings\": {{");
+            println!(
+                "    \"open_ports\": {},",
+                findings
+                    .ports
+                    .iter()
+                    .filter(|p| p.status == PortStatus::Open)
+                    .count()
+            );
+            println!("    \"vulnerabilities\": {},", findings.vulns.len());
+            println!("    \"fingerprints\": {},", findings.fingerprints.len());
+            if let Some(ref os) = findings.detected_os {
+                println!("    \"detected_os\": \"{:?}\"", os);
+            } else {
+                println!("    \"detected_os\": null");
+            }
+            println!("  }},");
+            println!("  \"recommendations\": [");
+            for (i, rec) in result.recommendations.iter().enumerate() {
+                let comma = if i < result.recommendations.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!(
+                    "      \"playbook_id\": \"{}\",",
+                    rec.playbook_id.replace('"', "\\\"")
+                );
+                println!(
+                    "      \"playbook_name\": \"{}\",",
+                    rec.playbook_name.replace('"', "\\\"")
+                );
+                println!("      \"score\": {},", rec.score);
+                println!("      \"risk_level\": \"{:?}\",", rec.risk_level);
+                println!("      \"reasons\": [");
+                for (j, reason) in rec.reasons.iter().enumerate() {
+                    let rcomma = if j < rec.reasons.len() - 1 { "," } else { "" };
+                    println!("        \"{}\"{}", reason.replace('"', "\\\""), rcomma);
+                }
+                println!("      ]");
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // Display findings summary
+        self.display_findings_summary(&findings);
 
         // Display recommendations
         self.display_recommendations(&result, target);
@@ -250,6 +326,9 @@ impl AttackCommand {
             .get(0)
             .ok_or("Missing target.\nUsage: rb attack target run <playbook-id> <target>")?;
 
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         // Find playbook (standard or APT)
         let playbook = get_playbook(playbook_id)
             .or_else(|| get_apt_playbook(playbook_id))
@@ -261,32 +340,69 @@ impl AttackCommand {
             })?;
 
         let is_apt = get_apt_playbook(playbook_id).is_some();
-        let apt_badge = if is_apt {
-            " \x1b[1;35m[APT]\x1b[0m"
-        } else {
-            ""
-        };
 
-        Output::header(&format!(
-            "Executing: {}{}",
-            playbook.metadata.name, apt_badge
-        ));
-        println!();
+        if !is_json {
+            let apt_badge = if is_apt {
+                " \x1b[1;35m[APT]\x1b[0m"
+            } else {
+                ""
+            };
 
-        Output::item("Target", target);
-        Output::item("Playbook", &playbook.metadata.id);
-        Output::item("Objective", &playbook.metadata.objective);
-        Output::item("Risk Level", playbook.metadata.risk_level.as_str());
-        Output::item("Steps", &playbook.steps.len().to_string());
-
-        // Risk warning
-        if playbook.metadata.risk_level.requires_consent() {
+            Output::header(&format!(
+                "Executing: {}{}",
+                playbook.metadata.name, apt_badge
+            ));
             println!();
-            Output::warning("⚠️  HIGH RISK playbook - ensure you have authorization!");
+
+            Output::item("Target", target);
+            Output::item("Playbook", &playbook.metadata.id);
+            Output::item("Objective", &playbook.metadata.objective);
+            Output::item("Risk Level", playbook.metadata.risk_level.as_str());
+            Output::item("Steps", &playbook.steps.len().to_string());
+
+            // Risk warning
+            if playbook.metadata.risk_level.requires_consent() {
+                println!();
+                Output::warning("⚠️  HIGH RISK playbook - ensure you have authorization!");
+            }
         }
 
         // Dry run check
         if ctx.has_flag("dry-run") {
+            if is_json {
+                println!("{{");
+                println!(
+                    "  \"playbook_id\": \"{}\",",
+                    playbook.metadata.id.replace('"', "\\\"")
+                );
+                println!(
+                    "  \"playbook_name\": \"{}\",",
+                    playbook.metadata.name.replace('"', "\\\"")
+                );
+                println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+                println!("  \"dry_run\": true,");
+                println!("  \"is_apt\": {},", is_apt);
+                println!("  \"steps\": [");
+                for (i, step) in playbook.steps.iter().enumerate() {
+                    let comma = if i < playbook.steps.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
+                    println!("    {{");
+                    println!("      \"number\": {},", step.number);
+                    println!("      \"name\": \"{}\",", step.name.replace('"', "\\\""));
+                    println!("      \"phase\": \"{}\",", step.phase.as_str());
+                    println!(
+                        "      \"description\": \"{}\"",
+                        step.description.replace('"', "\\\"").replace('\n', " ")
+                    );
+                    println!("    }}{}", comma);
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
             println!();
             Output::info("DRY RUN - showing steps without execution:");
             println!();
@@ -307,8 +423,10 @@ impl AttackCommand {
         }
 
         // Execute
-        println!();
-        Output::spinner_start("Executing playbook...");
+        if !is_json {
+            println!();
+            Output::spinner_start("Executing playbook...");
+        }
 
         let mut context = PlaybookContext::new(target);
         for (k, v) in &ctx.flags {
@@ -318,7 +436,63 @@ impl AttackCommand {
         let executor = PlaybookExecutor::new();
         let result = executor.execute(&playbook, &mut context);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"playbook_id\": \"{}\",",
+                playbook.metadata.id.replace('"', "\\\"")
+            );
+            println!(
+                "  \"playbook_name\": \"{}\",",
+                playbook.metadata.name.replace('"', "\\\"")
+            );
+            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+            println!("  \"is_apt\": {},", is_apt);
+            println!("  \"success\": {},", result.success);
+            println!(
+                "  \"summary\": \"{}\",",
+                result.summary.replace('"', "\\\"")
+            );
+            println!("  \"steps_completed\": {},", result.steps_completed);
+            println!("  \"steps_skipped\": {},", result.steps_skipped);
+            println!("  \"steps_failed\": {},", result.steps_failed);
+            println!("  \"duration_secs\": {:.2},", result.duration.as_secs_f64());
+            println!("  \"step_results\": [");
+            for (i, step) in result.step_results.iter().enumerate() {
+                let comma = if i < result.step_results.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!("      \"step_number\": {},", step.step_number);
+                println!(
+                    "      \"step_name\": \"{}\",",
+                    step.step_name.replace('"', "\\\"")
+                );
+                println!(
+                    "      \"status\": \"{}\",",
+                    step.status.replace('"', "\\\"")
+                );
+                if let Some(ref err) = step.error {
+                    println!(
+                        "      \"error\": \"{}\"",
+                        err.replace('"', "\\\"").replace('\n', " ")
+                    );
+                } else {
+                    println!("      \"error\": null");
+                }
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         // Display results
         println!();
@@ -374,6 +548,42 @@ impl AttackCommand {
             return self.list_apt(ctx);
         }
 
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        // JSON output
+        if is_json {
+            let playbooks = all_playbooks();
+            let apt_groups = list_apt_groups();
+
+            println!("{{");
+            println!("  \"playbooks\": [");
+            for (i, pb) in playbooks.iter().enumerate() {
+                let comma = if i < playbooks.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"id\": \"{}\",", pb.metadata.id.replace('"', "\\\""));
+                println!(
+                    "      \"name\": \"{}\",",
+                    pb.metadata.name.replace('"', "\\\"")
+                );
+                println!("      \"risk_level\": \"{:?}\",", pb.metadata.risk_level);
+                println!("      \"steps\": {}", pb.steps.len());
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"apt_groups\": [");
+            for (i, (id, name)) in apt_groups.iter().enumerate() {
+                let comma = if i < apt_groups.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"id\": \"{}\",", id.replace('"', "\\\""));
+                println!("      \"name\": \"{}\"", name.replace('"', "\\\""));
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         Output::header("Available Playbooks");
 
         // Standard playbooks
@@ -415,6 +625,8 @@ impl AttackCommand {
     /// List APT playbooks
     fn list_apt(&self, ctx: &CliContext) -> Result<(), String> {
         let group_id = ctx.target.as_ref();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         if let Some(id) = group_id {
             // Show specific APT playbook
@@ -424,6 +636,88 @@ impl AttackCommand {
                     id
                 )
             })?;
+
+            // JSON output for specific playbook
+            if is_json {
+                println!("{{");
+                println!(
+                    "  \"id\": \"{}\",",
+                    playbook.metadata.id.replace('"', "\\\"")
+                );
+                println!(
+                    "  \"name\": \"{}\",",
+                    playbook.metadata.name.replace('"', "\\\"")
+                );
+                println!(
+                    "  \"objective\": \"{}\",",
+                    playbook.metadata.objective.replace('"', "\\\"")
+                );
+                println!(
+                    "  \"risk_level\": \"{}\",",
+                    playbook.metadata.risk_level.as_str()
+                );
+                println!("  \"preconditions\": [");
+                for (i, cond) in playbook.preconditions.iter().enumerate() {
+                    let comma = if i < playbook.preconditions.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
+                    println!("    \"{}\"{}", cond.description.replace('"', "\\\""), comma);
+                }
+                println!("  ],");
+                println!("  \"steps\": [");
+                for (i, step) in playbook.steps.iter().enumerate() {
+                    let comma = if i < playbook.steps.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
+                    println!("    {{");
+                    println!("      \"number\": {},", step.number);
+                    println!("      \"name\": \"{}\",", step.name.replace('"', "\\\""));
+                    println!("      \"phase\": \"{}\",", step.phase.as_str());
+                    println!(
+                        "      \"description\": \"{}\",",
+                        step.description.replace('"', "\\\"").replace('\n', " ")
+                    );
+                    if let Some(ref tech) = step.mitre_technique {
+                        println!(
+                            "      \"mitre_technique\": \"{}\"",
+                            tech.replace('"', "\\\"")
+                        );
+                    } else {
+                        println!("      \"mitre_technique\": null");
+                    }
+                    println!("    }}{}", comma);
+                }
+                println!("  ],");
+                println!("  \"evidence\": [");
+                for (i, ev) in playbook.evidence.iter().enumerate() {
+                    let comma = if i < playbook.evidence.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
+                    println!("    \"{}\"{}", ev.description.replace('"', "\\\""), comma);
+                }
+                println!("  ],");
+                println!("  \"failed_controls\": [");
+                for (i, ctrl) in playbook.failed_controls.iter().enumerate() {
+                    let comma = if i < playbook.failed_controls.len() - 1 {
+                        ","
+                    } else {
+                        ""
+                    };
+                    println!("    {{");
+                    println!("      \"name\": \"{}\",", ctrl.name.replace('"', "\\\""));
+                    println!("      \"reason\": \"{}\"", ctrl.reason.replace('"', "\\\""));
+                    println!("    }}{}", comma);
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
 
             Output::header(&format!("APT Playbook: {}", playbook.metadata.name));
             println!();
@@ -484,6 +778,23 @@ impl AttackCommand {
             println!();
             Output::info(&format!("Run: rb attack target run {} <target>", id));
         } else {
+            // JSON output for listing all APT groups
+            if is_json {
+                let apt_groups = list_apt_groups();
+                println!("{{");
+                println!("  \"apt_groups\": [");
+                for (i, (id, name)) in apt_groups.iter().enumerate() {
+                    let comma = if i < apt_groups.len() - 1 { "," } else { "" };
+                    println!("    {{");
+                    println!("      \"id\": \"{}\",", id.replace('"', "\\\""));
+                    println!("      \"name\": \"{}\"", name.replace('"', "\\\""));
+                    println!("    }}{}", comma);
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
+
             // List all APT groups
             Output::header("APT Adversary Emulation Playbooks");
             println!();

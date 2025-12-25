@@ -72,6 +72,7 @@ impl Command for CryptoCommand {
             Flag::new("output", "Output file path")
                 .with_short('o')
                 .with_arg("FILE"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
             Flag::new("password", "Password (omit for secure prompt)")
                 .with_short('p')
                 .with_arg("PASS"),
@@ -322,6 +323,9 @@ impl CryptoCommand {
     }
 
     fn show_info(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let input_path = ctx
             .target
             .as_ref()
@@ -331,12 +335,35 @@ impl CryptoCommand {
         let vault_data =
             fs::read(input_path).map_err(|e| format!("Failed to read '{}': {}", input_path, e))?;
 
+        // Validate minimum size
+        let min_size = VAULT_MAGIC.len() + 1 + SALT_SIZE + NONCE_SIZE + TAG_SIZE;
+        let is_valid = vault_data.len() >= min_size && &vault_data[0..4] == VAULT_MAGIC;
+
+        if is_json {
+            println!("{{");
+            println!("  \"file\": \"{}\",", input_path.replace('"', "\\\""));
+            println!("  \"total_size\": {},", vault_data.len());
+            println!("  \"valid\": {},", is_valid);
+            if is_valid {
+                let version = vault_data[4];
+                let ciphertext_size = vault_data.len() - min_size;
+                println!("  \"version\": {},", version);
+                println!("  \"salt_size\": {},", SALT_SIZE);
+                println!("  \"nonce_size\": {},", NONCE_SIZE);
+                println!("  \"ciphertext_size\": {},", ciphertext_size);
+                println!("  \"tag_size\": {},", TAG_SIZE);
+                println!("  \"encryption\": \"AES-256-GCM\",");
+                println!("  \"key_derivation\": \"PBKDF2-HMAC-SHA256\",");
+                println!("  \"iterations\": {}", PBKDF2_ITERATIONS);
+            }
+            println!("}}");
+            return Ok(());
+        }
+
         Output::header("Vault File Info");
         Output::item("File", input_path);
         Output::item("Total size", &format!("{} bytes", vault_data.len()));
 
-        // Validate minimum size
-        let min_size = VAULT_MAGIC.len() + 1 + SALT_SIZE + NONCE_SIZE + TAG_SIZE;
         if vault_data.len() < min_size {
             Output::error("Invalid vault file: too small");
             return Ok(());

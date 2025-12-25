@@ -84,6 +84,11 @@ impl Command for FuzzCommand {
         vec![
             Flag::new("wordlist", "Path to wordlist file").with_short('w'),
             Flag::new("output", "Output format (json, csv, plain)").with_short('o'),
+            Flag::new(
+                "format",
+                "Output format (json, csv, plain) - alias for --output",
+            )
+            .with_short('f'),
             // Add other fuzzing flags here
         ]
     }
@@ -115,8 +120,10 @@ impl FuzzCommand {
     fn run(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or("Missing target URL")?;
         let wordlist_path_str = ctx.get_flag("wordlist").ok_or("Missing --wordlist")?;
+        // Check both --format and --output flags for consistency
         let output_format = ctx
-            .get_flag("output")
+            .get_flag("format")
+            .or_else(|| ctx.get_flag("output"))
             .unwrap_or_else(|| "plain".to_string())
             .to_lowercase();
 

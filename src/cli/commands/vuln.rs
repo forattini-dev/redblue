@@ -153,13 +153,17 @@ impl VulnCommand {
         let limit: usize = ctx.get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
+        let format = ctx.get_flag_or("format", "text");
+        let is_json = format == "json" || ctx.has_flag("json");
 
-        Output::header(&format!("Vulnerability Search: {}", tech));
-        if let Some(ref ver) = version {
-            Output::item("Version", ver);
+        if !is_json {
+            Output::header(&format!("Vulnerability Search: {}", tech));
+            if let Some(ref ver) = version {
+                Output::item("Version", ver);
+            }
+            Output::item("Source", &source);
+            println!();
         }
-        Output::item("Source", &source);
-        println!();
 
         let mut collection = VulnCollection::new();
 
@@ -273,12 +277,54 @@ impl VulnCommand {
         });
 
         // Display results
-        println!();
         if vulns.is_empty() {
-            Output::info("No vulnerabilities found.");
+            if is_json {
+                println!("{{\"technology\": \"{}\", \"version\": {}, \"source\": \"{}\", \"total\": 0, \"vulnerabilities\": []}}",
+                    tech.replace('"', "\\\""),
+                    version.as_ref().map(|v| format!("\"{}\"", v.replace('"', "\\\""))).unwrap_or_else(|| "null".to_string()),
+                    source
+                );
+            } else {
+                println!();
+                Output::info("No vulnerabilities found.");
+            }
             return Ok(());
         }
 
+        if is_json {
+            println!("{{");
+            println!("  \"technology\": \"{}\",", tech.replace('"', "\\\""));
+            if let Some(ref ver) = version {
+                println!("  \"version\": \"{}\",", ver.replace('"', "\\\""));
+            } else {
+                println!("  \"version\": null,");
+            }
+            println!("  \"source\": \"{}\",", source);
+            println!("  \"total\": {},", vulns.len());
+            println!("  \"showing\": {},", limit.min(vulns.len()));
+            println!("  \"vulnerabilities\": [");
+            for (i, vuln) in vulns.iter().take(limit).enumerate() {
+                let comma = if i < limit.min(vulns.len()) - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"id\": \"{}\",", vuln.id.replace('"', "\\\""));
+                println!("      \"title\": \"{}\",", vuln.title.replace('"', "\\\"").replace('\n', " "));
+                println!("      \"severity\": \"{:?}\",", vuln.severity);
+                println!("      \"risk_score\": {},", vuln.risk_score.unwrap_or(0));
+                if let Some(cvss) = vuln.cvss_v3 {
+                    println!("      \"cvss_v3\": {:.1},", cvss);
+                } else {
+                    println!("      \"cvss_v3\": null,");
+                }
+                println!("      \"cisa_kev\": {},", vuln.cisa_kev);
+                println!("      \"has_exploit\": {}", vuln.has_exploit());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        println!();
         Output::header(&format!("Results ({} total, showing top {})", vulns.len(), limit.min(vulns.len())));
         println!();
 
@@ -292,17 +338,21 @@ impl VulnCommand {
     /// Get detailed CVE information
     fn get_cve(&self, ctx: &CliContext) -> Result<(), String> {
         let cve_id = ctx.target.as_ref().ok_or("Missing CVE ID")?;
+        let format = ctx.get_flag_or("format", "text");
+        let is_json = format == "json" || ctx.has_flag("json");
 
         // Validate CVE format
         if !cve_id.to_uppercase().starts_with("CVE-") {
             return Err(format!("Invalid CVE ID format: {}. Expected: CVE-YYYY-NNNNN", cve_id));
         }
 
-        Output::header(&format!("CVE Details: {}", cve_id));
-        println!();
+        if !is_json {
+            Output::header(&format!("CVE Details: {}", cve_id));
+            println!();
+            Output::spinner_start("Querying NVD...");
+        }
 
         // Query NVD
-        Output::spinner_start("Querying NVD...");
         let mut nvd = NvdClient::new();
         if let Some(api_key) = ctx.get_flag_with_config("api-key") {
             nvd = nvd.with_api_key(&api_key);
@@ -311,12 +361,19 @@ impl VulnCommand {
         let vuln = match nvd.query_by_cve(cve_id)? {
             Some(v) => v,
             None => {
-                Output::spinner_done();
-                Output::warning(&format!("CVE {} not found in NVD", cve_id));
+                if !is_json {
+                    Output::spinner_done();
+                    Output::warning(&format!("CVE {} not found in NVD", cve_id));
+                } else {
+                    println!("{{\"error\": \"CVE not found\", \"cve_id\": \"{}\"}}",
+                        cve_id.replace('"', "\\\""));
+                }
                 return Ok(());
             }
         };
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         // Enrich with KEV
         let mut vuln = vuln;
@@ -324,13 +381,53 @@ impl VulnCommand {
         let _ = kev.enrich_vulnerability(&mut vuln);
 
         // Enrich with Exploit-DB
-        Output::spinner_start("Checking Exploit-DB...");
+        if !is_json {
+            Output::spinner_start("Checking Exploit-DB...");
+        }
         let exploitdb = ExploitDbClient::new();
         let _ = exploitdb.enrich_vulnerability(&mut vuln);
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         // Calculate risk score
         vuln.risk_score = Some(calculate_risk_score(&vuln));
+
+        // Output
+        if is_json {
+            println!("{{");
+            println!("  \"id\": \"{}\",", vuln.id.replace('"', "\\\""));
+            println!("  \"title\": \"{}\",", vuln.title.replace('"', "\\\"").replace('\n', " "));
+            println!("  \"description\": \"{}\",", vuln.description.replace('"', "\\\"").replace('\n', " "));
+            println!("  \"severity\": \"{:?}\",", vuln.severity);
+            println!("  \"risk_score\": {},", vuln.risk_score.unwrap_or(0));
+            if let Some(cvss) = vuln.cvss_v3 {
+                println!("  \"cvss_v3\": {:.1},", cvss);
+            } else {
+                println!("  \"cvss_v3\": null,");
+            }
+            if let Some(cvss) = vuln.cvss_v2 {
+                println!("  \"cvss_v2\": {:.1},", cvss);
+            } else {
+                println!("  \"cvss_v2\": null,");
+            }
+            println!("  \"cisa_kev\": {},", vuln.cisa_kev);
+            if let Some(ref due) = vuln.kev_due_date {
+                println!("  \"kev_due_date\": \"{}\",", due.replace('"', "\\\""));
+            } else {
+                println!("  \"kev_due_date\": null,");
+            }
+            println!("  \"has_exploit\": {},", vuln.has_exploit());
+            println!("  \"exploit_count\": {},", vuln.exploits.len());
+            println!("  \"cwes\": [{}],", vuln.cwes.iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\\\"")))
+                .collect::<Vec<_>>().join(", "));
+            println!("  \"references\": [{}]", vuln.references.iter().take(5)
+                .map(|r| format!("\"{}\"", r.replace('"', "\\\"")))
+                .collect::<Vec<_>>().join(", "));
+            println!("}}");
+            return Ok(());
+        }
 
         // Display detailed info
         self.display_vuln_detail(&vuln);
@@ -340,6 +437,9 @@ impl VulnCommand {
 
     /// Check CISA KEV catalog
     fn check_kev(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json" || ctx.has_flag("json");
+
         let vendor = ctx.get_flag_with_config("vendor");
         let product = ctx.get_flag_with_config("product");
         let show_stats = ctx.has_flag("stats");
@@ -347,17 +447,39 @@ impl VulnCommand {
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
-        Output::header("CISA Known Exploited Vulnerabilities");
-        println!();
+        if !is_json {
+            Output::header("CISA Known Exploited Vulnerabilities");
+            println!();
+        }
 
         let mut kev = KevClient::new();
 
-        Output::spinner_start("Fetching KEV catalog...");
+        if !is_json {
+            Output::spinner_start("Fetching KEV catalog...");
+        }
         kev.fetch_catalog()?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         if show_stats {
             let stats = kev.stats()?;
+
+            if is_json {
+                println!("{{");
+                println!("  \"type\": \"kev_stats\",");
+                println!("  \"total\": {},", stats.total);
+                println!("  \"ransomware_count\": {},", stats.ransomware_count);
+                println!("  \"top_vendors\": [");
+                for (i, (vendor, count)) in stats.top_vendors.iter().take(10).enumerate() {
+                    let comma = if i < stats.top_vendors.len().min(10) - 1 { "," } else { "" };
+                    println!("    {{ \"vendor\": \"{}\", \"count\": {} }}{}", vendor.replace('"', "\\\""), count, comma);
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
+
             Output::section("Catalog Statistics");
             Output::item("Total CVEs", &stats.total.to_string());
             Output::item("Used in Ransomware", &stats.ransomware_count.to_string());
@@ -378,6 +500,35 @@ impl VulnCommand {
         } else {
             kev.get_all()?
         };
+
+        if is_json {
+            println!("{{");
+            println!("  \"type\": \"kev_entries\",");
+            if let Some(ref v) = vendor {
+                println!("  \"filter_vendor\": \"{}\",", v.replace('"', "\\\""));
+            }
+            if let Some(ref p) = product {
+                println!("  \"filter_product\": \"{}\",", p.replace('"', "\\\""));
+            }
+            println!("  \"total\": {},", entries.len());
+            println!("  \"showing\": {},", limit.min(entries.len()));
+            println!("  \"entries\": [");
+            for (i, entry) in entries.iter().take(limit).enumerate() {
+                let comma = if i < limit.min(entries.len()) - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"cve_id\": \"{}\",", entry.cve_id.replace('"', "\\\""));
+                println!("      \"vulnerability_name\": \"{}\",", entry.vulnerability_name.replace('"', "\\\"").replace('\n', " "));
+                println!("      \"vendor\": \"{}\",", entry.vendor_project.replace('"', "\\\""));
+                println!("      \"product\": \"{}\",", entry.product.replace('"', "\\\""));
+                println!("      \"date_added\": \"{}\",", entry.date_added.replace('"', "\\\""));
+                println!("      \"due_date\": \"{}\",", entry.due_date.replace('"', "\\\""));
+                println!("      \"known_ransomware_use\": {}", entry.known_ransomware_use);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("Found {} KEV entries", entries.len()));
         println!();
@@ -400,21 +551,77 @@ impl VulnCommand {
 
     /// Search Exploit-DB
     fn search_exploits(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json" || ctx.has_flag("json");
+
         let query = ctx.target.as_ref().ok_or("Missing search query")?;
         let limit: usize = ctx.get_flag_with_config("limit")
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
 
-        Output::header(&format!("Exploit-DB Search: {}", query));
-        println!();
+        if !is_json {
+            Output::header(&format!("Exploit-DB Search: {}", query));
+            println!();
+            Output::spinner_start("Searching Exploit-DB...");
+        }
 
-        Output::spinner_start("Searching Exploit-DB...");
         let client = ExploitDbClient::new();
         let results = client.search(query)?;
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
 
         if results.is_empty() {
+            if is_json {
+                println!("{{");
+                println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
+                println!("  \"total\": 0,");
+                println!("  \"exploits\": []");
+                println!("}}");
+                return Ok(());
+            }
             Output::info("No exploits found.");
+            return Ok(());
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
+            println!("  \"total\": {},", results.len());
+            println!("  \"showing\": {},", limit.min(results.len()));
+            println!("  \"exploits\": [");
+            for (i, entry) in results.iter().take(limit).enumerate() {
+                let comma = if i < limit.min(results.len()) - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"id\": \"{}\",", entry.id.replace('"', "\\\""));
+                println!("      \"title\": \"{}\",", entry.title.replace('"', "\\\"").replace('\n', " "));
+                if let Some(ref platform) = entry.platform {
+                    println!("      \"platform\": \"{}\",", platform.replace('"', "\\\""));
+                } else {
+                    println!("      \"platform\": null,");
+                }
+                if let Some(ref etype) = entry.exploit_type {
+                    println!("      \"type\": \"{}\",", etype.replace('"', "\\\""));
+                } else {
+                    println!("      \"type\": null,");
+                }
+                if let Some(ref date) = entry.date {
+                    println!("      \"date\": \"{}\",", date.replace('"', "\\\""));
+                } else {
+                    println!("      \"date\": null,");
+                }
+                println!("      \"cve_ids\": [");
+                for (j, cve) in entry.cve_ids.iter().enumerate() {
+                    let cve_comma = if j < entry.cve_ids.len() - 1 { "," } else { "" };
+                    println!("        \"{}\"{}", cve.replace('"', "\\\""), cve_comma);
+                }
+                println!("      ],");
+                println!("      \"verified\": {}", entry.verified);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
             return Ok(());
         }
 
@@ -447,11 +654,16 @@ impl VulnCommand {
 
     /// List CPE mappings
     fn list_cpe(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json" || ctx.has_flag("json");
+
         let category = ctx.get_flag_with_config("category");
         let search = ctx.get_flag_with_config("search");
 
-        Output::header("CPE Technology Mappings");
-        println!();
+        if !is_json {
+            Output::header("CPE Technology Mappings");
+            println!();
+        }
 
         let all_cpes = get_all_cpe_mappings();
 
@@ -490,6 +702,44 @@ impl VulnCommand {
                 true
             })
             .collect();
+
+        if is_json {
+            // Group by category for JSON output
+            let mut by_category: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+            for cpe in &filtered {
+                let cat_name = format!("{:?}", cpe.category);
+                by_category.entry(cat_name).or_default().push(*cpe);
+            }
+
+            println!("{{");
+            if let Some(ref cat) = category {
+                println!("  \"filter_category\": \"{}\",", cat.replace('"', "\\\""));
+            }
+            if let Some(ref s) = search {
+                println!("  \"filter_search\": \"{}\",", s.replace('"', "\\\""));
+            }
+            println!("  \"total\": {},", filtered.len());
+            println!("  \"categories\": {{");
+            let cat_count = by_category.len();
+            for (i, (cat, cpes)) in by_category.iter().enumerate() {
+                let cat_comma = if i < cat_count - 1 { "," } else { "" };
+                println!("    \"{}\": [", cat);
+                for (j, cpe) in cpes.iter().enumerate() {
+                    let cpe_comma = if j < cpes.len() - 1 { "," } else { "" };
+                    let example_cpe = generate_cpe(cpe.tech_name, Some("1.0")).unwrap_or_default();
+                    println!("      {{");
+                    println!("        \"tech_name\": \"{}\",", cpe.tech_name.replace('"', "\\\""));
+                    println!("        \"vendor\": \"{}\",", cpe.vendor.replace('"', "\\\""));
+                    println!("        \"product\": \"{}\",", cpe.product.replace('"', "\\\""));
+                    println!("        \"example_cpe\": \"{}\"", example_cpe.replace('"', "\\\""));
+                    println!("      }}{}", cpe_comma);
+                }
+                println!("    ]{}", cat_comma);
+            }
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::info(&format!("Showing {} CPE mappings", filtered.len()));
         println!();

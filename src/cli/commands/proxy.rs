@@ -539,6 +539,9 @@ impl Command for ProxyDataCommand {
             Flag::new("limit", "Maximum number of results")
                 .with_short('l')
                 .with_default("50"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -613,15 +616,13 @@ impl ProxyDataCommand {
     }
 
     fn list_connections(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let db_path = self.resolve_db_path(ctx)?;
         let limit: usize = ctx
             .get_flag_or("limit", "50")
             .parse()
             .map_err(|_| "Invalid limit")?;
-
-        Output::header("Proxy Connections");
-        Output::item("Database", &db_path);
-        println!();
 
         let qm =
             QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -629,6 +630,53 @@ impl ProxyDataCommand {
         let connections = qm
             .list_proxy_connections()
             .map_err(|e| format!("Failed to list connections: {}", e))?;
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"database\": \"{}\",",
+                db_path.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            println!("  \"total\": {},", connections.len());
+            println!("  \"limit\": {},", limit);
+            println!("  \"connections\": [");
+            for (i, conn) in connections.iter().take(limit).enumerate() {
+                let proto = match conn.protocol {
+                    0 => "TCP",
+                    1 => "UDP",
+                    2 => "TLS",
+                    _ => "UNKNOWN",
+                };
+                let comma = if i < connections.len().min(limit) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!("      \"connection_id\": {},", conn.connection_id);
+                println!("      \"src_ip\": \"{}\",", conn.src_ip);
+                println!("      \"src_port\": {},", conn.src_port);
+                println!(
+                    "      \"dst_host\": \"{}\",",
+                    conn.dst_host.replace('"', "\\\"")
+                );
+                println!("      \"dst_port\": {},", conn.dst_port);
+                println!("      \"protocol\": \"{}\",", proto);
+                println!("      \"bytes_sent\": {},", conn.bytes_sent);
+                println!("      \"bytes_received\": {},", conn.bytes_received);
+                println!("      \"tls_intercepted\": {},", conn.tls_intercepted);
+                println!("      \"started_at\": {},", conn.started_at);
+                println!("      \"ended_at\": {}", conn.ended_at);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Proxy Connections");
+        Output::item("Database", &db_path);
+        println!();
 
         if connections.is_empty() {
             Output::info("No proxy connections found in database");
@@ -678,19 +726,14 @@ impl ProxyDataCommand {
     }
 
     fn list_requests(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let db_path = self.resolve_db_path(ctx)?;
         let limit: usize = ctx
             .get_flag_or("limit", "50")
             .parse()
             .map_err(|_| "Invalid limit")?;
         let host_filter = ctx.get_flag("host");
-
-        Output::header("Proxy HTTP Requests");
-        Output::item("Database", &db_path);
-        if let Some(h) = &host_filter {
-            Output::item("Host Filter", h);
-        }
-        println!();
 
         let qm =
             QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -700,14 +743,56 @@ impl ProxyDataCommand {
             .map_err(|e| format!("Failed to list requests: {}", e))?;
 
         // Filter by host if specified
-        let filtered: Vec<_> = if let Some(host) = host_filter {
+        let filtered: Vec<_> = if let Some(ref host) = host_filter {
             requests
                 .into_iter()
-                .filter(|r| r.host.contains(&host))
+                .filter(|r| r.host.contains(host))
                 .collect()
         } else {
             requests
         };
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"database\": \"{}\",",
+                db_path.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            if let Some(ref h) = host_filter {
+                println!("  \"host_filter\": \"{}\",", h.replace('"', "\\\""));
+            }
+            println!("  \"total\": {},", filtered.len());
+            println!("  \"limit\": {},", limit);
+            println!("  \"requests\": [");
+            for (i, req) in filtered.iter().take(limit).enumerate() {
+                let comma = if i < filtered.len().min(limit) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!("      \"connection_id\": {},", req.connection_id);
+                println!("      \"request_seq\": {},", req.request_seq);
+                println!("      \"method\": \"{}\",", req.method);
+                println!(
+                    "      \"path\": \"{}\",",
+                    req.path.replace('\\', "\\\\").replace('"', "\\\"")
+                );
+                println!("      \"host\": \"{}\",", req.host.replace('"', "\\\""));
+                println!("      \"http_version\": \"{}\"", req.http_version);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Proxy HTTP Requests");
+        Output::item("Database", &db_path);
+        if let Some(h) = &host_filter {
+            Output::item("Host Filter", h);
+        }
+        println!();
 
         if filtered.is_empty() {
             Output::info("No proxy requests found");
@@ -745,19 +830,14 @@ impl ProxyDataCommand {
     }
 
     fn list_responses(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let db_path = self.resolve_db_path(ctx)?;
         let limit: usize = ctx
             .get_flag_or("limit", "50")
             .parse()
             .map_err(|_| "Invalid limit")?;
         let status_filter: Option<u16> = ctx.get_flag("status").and_then(|s| s.parse().ok());
-
-        Output::header("Proxy HTTP Responses");
-        Output::item("Database", &db_path);
-        if let Some(s) = status_filter {
-            Output::item("Status Filter", &s.to_string());
-        }
-        println!();
 
         let qm =
             QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -775,6 +855,52 @@ impl ProxyDataCommand {
         } else {
             responses
         };
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"database\": \"{}\",",
+                db_path.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            if let Some(s) = status_filter {
+                println!("  \"status_filter\": {},", s);
+            }
+            println!("  \"total\": {},", filtered.len());
+            println!("  \"limit\": {},", limit);
+            println!("  \"responses\": [");
+            for (i, resp) in filtered.iter().take(limit).enumerate() {
+                let comma = if i < filtered.len().min(limit) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!("      \"connection_id\": {},", resp.connection_id);
+                println!("      \"request_seq\": {},", resp.request_seq);
+                println!("      \"status_code\": {},", resp.status_code);
+                println!(
+                    "      \"status_text\": \"{}\",",
+                    resp.status_text.replace('"', "\\\"")
+                );
+                if let Some(ref ct) = resp.content_type {
+                    println!("      \"content_type\": \"{}\",", ct.replace('"', "\\\""));
+                } else {
+                    println!("      \"content_type\": null,");
+                }
+                println!("      \"body_size\": {}", resp.body.len());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Proxy HTTP Responses");
+        Output::item("Database", &db_path);
+        if let Some(s) = status_filter {
+            Output::item("Status Filter", &s.to_string());
+        }
+        println!();
 
         if filtered.is_empty() {
             Output::info("No proxy responses found");
@@ -832,6 +958,8 @@ impl ProxyDataCommand {
     }
 
     fn show_connection(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let db_path = self.resolve_db_path(ctx)?;
         let conn_id: u64 = ctx
             .target
@@ -847,6 +975,85 @@ impl ProxyDataCommand {
             .get_proxy_connection(conn_id)
             .map_err(|e| format!("Failed to get connection: {}", e))?
             .ok_or_else(|| format!("Connection {} not found", conn_id))?;
+
+        // Get requests and responses for this connection
+        let requests = qm
+            .list_proxy_requests()
+            .map_err(|e| format!("Failed to list requests: {}", e))?;
+        let conn_requests: Vec<_> = requests
+            .iter()
+            .filter(|r| r.connection_id == conn_id)
+            .collect();
+
+        let responses = qm
+            .list_proxy_responses()
+            .map_err(|e| format!("Failed to list responses: {}", e))?;
+        let conn_responses: Vec<_> = responses
+            .iter()
+            .filter(|r| r.connection_id == conn_id)
+            .collect();
+
+        if is_json {
+            let proto = match conn.protocol {
+                0 => "TCP",
+                1 => "UDP",
+                2 => "TLS",
+                _ => "UNKNOWN",
+            };
+            println!("{{");
+            println!("  \"connection_id\": {},", conn.connection_id);
+            println!("  \"src_ip\": \"{}\",", conn.src_ip);
+            println!("  \"src_port\": {},", conn.src_port);
+            println!(
+                "  \"dst_host\": \"{}\",",
+                conn.dst_host.replace('"', "\\\"")
+            );
+            println!("  \"dst_port\": {},", conn.dst_port);
+            println!("  \"protocol\": \"{}\",", proto);
+            println!("  \"tls_intercepted\": {},", conn.tls_intercepted);
+            println!("  \"started_at\": {},", conn.started_at);
+            println!("  \"ended_at\": {},", conn.ended_at);
+            println!(
+                "  \"duration_seconds\": {},",
+                conn.ended_at.saturating_sub(conn.started_at)
+            );
+            println!("  \"bytes_sent\": {},", conn.bytes_sent);
+            println!("  \"bytes_received\": {},", conn.bytes_received);
+            println!("  \"requests\": [");
+            for (i, req) in conn_requests.iter().enumerate() {
+                let comma = if i < conn_requests.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"request_seq\": {},", req.request_seq);
+                println!("      \"method\": \"{}\",", req.method);
+                println!(
+                    "      \"path\": \"{}\",",
+                    req.path.replace('\\', "\\\\").replace('"', "\\\"")
+                );
+                println!("      \"http_version\": \"{}\"", req.http_version);
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"responses\": [");
+            for (i, resp) in conn_responses.iter().enumerate() {
+                let comma = if i < conn_responses.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!("      \"request_seq\": {},", resp.request_seq);
+                println!("      \"status_code\": {},", resp.status_code);
+                println!(
+                    "      \"status_text\": \"{}\",",
+                    resp.status_text.replace('"', "\\\"")
+                );
+                println!("      \"body_size\": {}", resp.body.len());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::header(&format!("Proxy Connection #{}", conn_id));
         println!();
@@ -877,15 +1084,6 @@ impl ProxyDataCommand {
             &format!("{} seconds", conn.ended_at.saturating_sub(conn.started_at)),
         );
 
-        // Show requests for this connection
-        let requests = qm
-            .list_proxy_requests()
-            .map_err(|e| format!("Failed to list requests: {}", e))?;
-        let conn_requests: Vec<_> = requests
-            .iter()
-            .filter(|r| r.connection_id == conn_id)
-            .collect();
-
         if !conn_requests.is_empty() {
             println!();
             Output::subheader(&format!("HTTP Requests ({})", conn_requests.len()));
@@ -896,15 +1094,6 @@ impl ProxyDataCommand {
                 );
             }
         }
-
-        // Show responses for this connection
-        let responses = qm
-            .list_proxy_responses()
-            .map_err(|e| format!("Failed to list responses: {}", e))?;
-        let conn_responses: Vec<_> = responses
-            .iter()
-            .filter(|r| r.connection_id == conn_id)
-            .collect();
 
         if !conn_responses.is_empty() {
             println!();
@@ -924,14 +1113,12 @@ impl ProxyDataCommand {
     }
 
     fn show_stats(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
         let db_path = self.resolve_db_path(ctx)?;
 
         let qm =
             QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
-
-        Output::header("Proxy Data Statistics");
-        Output::item("Database", &db_path);
-        println!();
 
         let connections = qm
             .list_proxy_connections()
@@ -947,6 +1134,68 @@ impl ProxyDataCommand {
         let total_bytes_sent: u64 = connections.iter().map(|c| c.bytes_sent).sum();
         let total_bytes_recv: u64 = connections.iter().map(|c| c.bytes_received).sum();
         let tls_count = connections.iter().filter(|c| c.tls_intercepted).count();
+
+        // Host counts
+        let mut host_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        for req in &requests {
+            *host_counts.entry(&req.host).or_insert(0) += 1;
+        }
+        let mut sorted_hosts: Vec<_> = host_counts.into_iter().collect();
+        sorted_hosts.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Status code counts
+        let mut status_counts: std::collections::HashMap<u16, usize> =
+            std::collections::HashMap::new();
+        for resp in &responses {
+            *status_counts.entry(resp.status_code).or_insert(0) += 1;
+        }
+        let mut sorted_status: Vec<_> = status_counts.into_iter().collect();
+        sorted_status.sort_by_key(|(code, _)| *code);
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"database\": \"{}\",",
+                db_path.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            println!("  \"connections\": {},", connections.len());
+            println!("  \"tls_intercepted\": {},", tls_count);
+            println!("  \"http_requests\": {},", requests.len());
+            println!("  \"http_responses\": {},", responses.len());
+            println!("  \"total_bytes_sent\": {},", total_bytes_sent);
+            println!("  \"total_bytes_received\": {},", total_bytes_recv);
+            println!("  \"top_hosts\": [");
+            for (i, (host, count)) in sorted_hosts.iter().take(10).enumerate() {
+                let comma = if i < sorted_hosts.len().min(10) - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!(
+                    "    {{ \"host\": \"{}\", \"count\": {} }}{}",
+                    host.replace('"', "\\\""),
+                    count,
+                    comma
+                );
+            }
+            println!("  ],");
+            println!("  \"status_distribution\": [");
+            for (i, (code, count)) in sorted_status.iter().enumerate() {
+                let comma = if i < sorted_status.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{ \"status_code\": {}, \"count\": {} }}{}",
+                    code, count, comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Proxy Data Statistics");
+        Output::item("Database", &db_path);
+        println!();
 
         println!("SEGMENT                   COUNT");
         println!("────────────────────────────────");
@@ -971,15 +1220,7 @@ impl ProxyDataCommand {
             println!();
             Output::subheader("Top Hosts");
 
-            let mut host_counts: std::collections::HashMap<&str, usize> =
-                std::collections::HashMap::new();
-            for req in &requests {
-                *host_counts.entry(&req.host).or_insert(0) += 1;
-            }
-            let mut sorted: Vec<_> = host_counts.into_iter().collect();
-            sorted.sort_by(|a, b| b.1.cmp(&a.1));
-
-            for (host, count) in sorted.iter().take(10) {
+            for (host, count) in sorted_hosts.iter().take(10) {
                 println!("  {:<40} {:>6}", host, count);
             }
         }
@@ -989,15 +1230,7 @@ impl ProxyDataCommand {
             println!();
             Output::subheader("Status Code Distribution");
 
-            let mut status_counts: std::collections::HashMap<u16, usize> =
-                std::collections::HashMap::new();
-            for resp in &responses {
-                *status_counts.entry(resp.status_code).or_insert(0) += 1;
-            }
-            let mut sorted: Vec<_> = status_counts.into_iter().collect();
-            sorted.sort_by_key(|(code, _)| *code);
-
-            for (code, count) in sorted {
+            for (code, count) in sorted_status {
                 let color = if (200..300).contains(&code) {
                     "\x1b[32m"
                 } else if code >= 400 {

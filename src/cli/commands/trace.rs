@@ -35,6 +35,9 @@ impl Command for TraceCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("max-hops", "Maximum number of hops")
                 .with_short('m')
                 .with_default("30"),
@@ -59,11 +62,16 @@ impl Command for TraceCommand {
                 "Fast traceroute without DNS",
                 "rb network trace run 1.1.1.1 --no-dns --timeout 1000",
             ),
+            (
+                "Traceroute as JSON",
+                "rb network trace run 8.8.8.8 --output=json",
+            ),
             ("MTR monitoring", "rb network trace mtr 8.8.8.8"),
             (
                 "MTR with custom iterations",
                 "rb network trace mtr google.com --iterations 20",
             ),
+            ("MTR as JSON", "rb network trace mtr 8.8.8.8 --output=json"),
         ]
     }
 
@@ -91,6 +99,9 @@ impl TraceCommand {
             "Missing target.\nUsage: rb network trace run <TARGET>\nExample: rb network trace run 8.8.8.8",
         )?;
 
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         // Parse flags
         let max_hops = ctx
             .get_flag_or("max-hops", "30")
@@ -104,12 +115,14 @@ impl TraceCommand {
 
         let dns_resolve = !ctx.has_flag("no-dns");
 
-        Output::header("Traceroute");
-        Output::item("Target", target);
-        Output::item("Max Hops", &max_hops.to_string());
-        Output::item("Timeout", &format!("{}ms", timeout_ms));
-        Output::item("DNS Resolve", if dns_resolve { "Yes" } else { "No" });
-        println!();
+        if !is_json {
+            Output::header("Traceroute");
+            Output::item("Target", target);
+            Output::item("Max Hops", &max_hops.to_string());
+            Output::item("Timeout", &format!("{}ms", timeout_ms));
+            Output::item("DNS Resolve", if dns_resolve { "Yes" } else { "No" });
+            println!();
+        }
 
         // Create traceroute instance
         let traceroute = Traceroute::new(target)
@@ -118,9 +131,52 @@ impl TraceCommand {
             .with_dns_resolve(dns_resolve);
 
         // Run traceroute
-        Output::spinner_start(&format!("Tracing route to {}", target));
+        if !is_json {
+            Output::spinner_start(&format!("Tracing route to {}", target));
+        }
         let hops = traceroute.run()?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+            println!("  \"config\": {{");
+            println!("    \"max_hops\": {},", max_hops);
+            println!("    \"timeout_ms\": {},", timeout_ms);
+            println!("    \"dns_resolve\": {}", dns_resolve);
+            println!("  }},");
+            println!("  \"total_hops\": {},", hops.len());
+            println!("  \"hops\": [");
+
+            for (i, hop) in hops.iter().enumerate() {
+                let comma = if i < hops.len() - 1 { "," } else { "" };
+                let hostname = hop
+                    .hostname
+                    .as_ref()
+                    .map(|h| format!("\"{}\"", h.replace('"', "\\\"")))
+                    .unwrap_or_else(|| "null".to_string());
+                let ip = hop
+                    .ip
+                    .map(|addr| format!("\"{}\"", addr))
+                    .unwrap_or_else(|| "null".to_string());
+                let latency = hop
+                    .latency_ms
+                    .map(|ms| format!("{:.3}", ms))
+                    .unwrap_or_else(|| "null".to_string());
+
+                println!(
+                    "    {{\"ttl\": {}, \"hostname\": {}, \"ip\": {}, \"latency_ms\": {}}}{}",
+                    hop.ttl, hostname, ip, latency, comma
+                );
+            }
+
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if hops.is_empty() {
             Output::warning("No hops found");
@@ -171,6 +227,9 @@ impl TraceCommand {
             "Missing target.\nUsage: rb network trace mtr <TARGET>\nExample: rb network trace mtr 8.8.8.8",
         )?;
 
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         // Parse flags
         let max_hops = ctx
             .get_flag_or("max-hops", "30")
@@ -189,28 +248,73 @@ impl TraceCommand {
 
         let dns_resolve = !ctx.has_flag("no-dns");
 
-        Output::header("MTR - Network Path Monitor");
-        Output::item("Target", target);
-        Output::item("Max Hops", &max_hops.to_string());
-        Output::item("Iterations", &iterations.to_string());
-        Output::item("Timeout", &format!("{}ms", timeout_ms));
-        Output::item("DNS Resolve", if dns_resolve { "Yes" } else { "No" });
-        println!();
+        if !is_json {
+            Output::header("MTR - Network Path Monitor");
+            Output::item("Target", target);
+            Output::item("Max Hops", &max_hops.to_string());
+            Output::item("Iterations", &iterations.to_string());
+            Output::item("Timeout", &format!("{}ms", timeout_ms));
+            Output::item("DNS Resolve", if dns_resolve { "Yes" } else { "No" });
+            println!();
+        }
 
         // Create MTR instance
         let mtr = Mtr::new(target).with_iterations(iterations);
 
-        // Configure underlying traceroute settings (if API allowed)
-        // Note: Current MTR implementation doesn't expose traceroute config setters
-        // This would require updating the traceroute.rs module to add builder methods
-
         // Run MTR
-        Output::spinner_start(&format!(
-            "Running MTR to {} ({} iterations)",
-            target, iterations
-        ));
+        if !is_json {
+            Output::spinner_start(&format!(
+                "Running MTR to {} ({} iterations)",
+                target, iterations
+            ));
+        }
         let stats = mtr.run()?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
+            println!("  \"config\": {{");
+            println!("    \"max_hops\": {},", max_hops);
+            println!("    \"timeout_ms\": {},", timeout_ms);
+            println!("    \"iterations\": {},", iterations);
+            println!("    \"dns_resolve\": {}", dns_resolve);
+            println!("  }},");
+            println!("  \"total_hops\": {},", stats.len());
+            println!("  \"hops\": [");
+
+            for (i, hop_stat) in stats.iter().enumerate() {
+                let comma = if i < stats.len() - 1 { "," } else { "" };
+                let hostname = hop_stat
+                    .hostname
+                    .as_ref()
+                    .map(|h| format!("\"{}\"", h.replace('"', "\\\"")))
+                    .unwrap_or_else(|| "null".to_string());
+                let ip = hop_stat
+                    .ip
+                    .map(|addr| format!("\"{}\"", addr))
+                    .unwrap_or_else(|| "null".to_string());
+
+                println!("    {{");
+                println!("      \"ttl\": {},", hop_stat.ttl);
+                println!("      \"hostname\": {},", hostname);
+                println!("      \"ip\": {},", ip);
+                println!("      \"sent\": {},", hop_stat.sent);
+                println!("      \"received\": {},", hop_stat.received);
+                println!("      \"loss_percent\": {:.2},", hop_stat.loss_percent());
+                println!("      \"min_latency_ms\": {:.3},", hop_stat.min_latency());
+                println!("      \"avg_latency_ms\": {:.3},", hop_stat.avg_latency());
+                println!("      \"max_latency_ms\": {:.3}", hop_stat.max_latency());
+                println!("    }}{}", comma);
+            }
+
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if stats.is_empty() {
             Output::warning("No statistics collected");

@@ -306,14 +306,19 @@ impl ReconUsernameCommand {
 
         let platform_names: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
 
-        Output::header(&format!("Username Check: {}", username));
-        Output::item("Platforms", &platform_names.join(", "));
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start(&format!(
-            "Checking {} on {} platforms",
-            username,
-            platform_names.len()
-        ));
+        if !is_json {
+            Output::header(&format!("Username Check: {}", username));
+            Output::item("Platforms", &platform_names.join(", "));
+
+            Output::spinner_start(&format!(
+                "Checking {} on {} platforms",
+                username,
+                platform_names.len()
+            ));
+        }
 
         // Filter platforms by name from the full list
         let all_platforms = get_all_platforms();
@@ -359,42 +364,99 @@ impl ReconUsernameCommand {
         let enumerator = UsernameEnumerator::new(config);
         let result = enumerator.enumerate(username);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
-        // Display results
-        println!();
-        Output::subheader("Results");
-
-        let mut found_count = 0;
+        // Collect results matching the requested platforms
+        let mut matched_profiles: Vec<_> = Vec::new();
         for profiles in result.by_category.values() {
             for profile in profiles {
-                // Only show if it matches one of the requested platforms
-                if !platform_names.iter().any(|name| {
+                if platform_names.iter().any(|name| {
                     profile.platform.eq_ignore_ascii_case(name)
                         || profile
                             .platform
                             .to_lowercase()
                             .contains(&name.to_lowercase())
                 }) {
-                    continue;
+                    matched_profiles.push(profile);
                 }
+            }
+        }
 
-                if profile.exists {
-                    found_count += 1;
-                    let url = profile.url.as_deref().unwrap_or("N/A");
-                    println!(
-                        "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
-                        profile.platform, url
-                    );
-                } else if profile.error.is_some() {
-                    println!(
-                        "  \x1b[33m?\x1b[0m {} - error: {}",
-                        profile.platform,
-                        profile.error.as_ref().unwrap()
-                    );
+        // JSON output
+        if is_json {
+            let found_count = matched_profiles.iter().filter(|p| p.exists).count();
+            println!("{{");
+            println!("  \"username\": \"{}\",", username.replace('"', "\\\""));
+            println!("  \"platforms_requested\": [");
+            for (i, name) in platform_names.iter().enumerate() {
+                let comma = if i < platform_names.len() - 1 {
+                    ","
                 } else {
-                    println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
-                }
+                    ""
+                };
+                println!("    \"{}\"{}", name.replace('"', "\\\""), comma);
+            }
+            println!("  ],");
+            println!("  \"found_count\": {},", found_count);
+            println!("  \"profiles\": [");
+            for (i, profile) in matched_profiles.iter().enumerate() {
+                let comma = if i < matched_profiles.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    {{");
+                println!(
+                    "      \"platform\": \"{}\",",
+                    profile.platform.replace('"', "\\\"")
+                );
+                println!("      \"exists\": {},", profile.exists);
+                println!(
+                    "      \"url\": {},",
+                    if let Some(ref u) = profile.url {
+                        format!("\"{}\"", u.replace('"', "\\\""))
+                    } else {
+                        "null".to_string()
+                    }
+                );
+                println!(
+                    "      \"error\": {}",
+                    if let Some(ref e) = profile.error {
+                        format!("\"{}\"", e.replace('"', "\\\"").replace('\n', " "))
+                    } else {
+                        "null".to_string()
+                    }
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        // Display results
+        println!();
+        Output::subheader("Results");
+
+        let mut found_count = 0;
+        for profile in &matched_profiles {
+            if profile.exists {
+                found_count += 1;
+                let url = profile.url.as_deref().unwrap_or("N/A");
+                println!(
+                    "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+                    profile.platform, url
+                );
+            } else if profile.error.is_some() {
+                println!(
+                    "  \x1b[33m?\x1b[0m {} - error: {}",
+                    profile.platform,
+                    profile.error.as_ref().unwrap()
+                );
+            } else {
+                println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
             }
         }
 

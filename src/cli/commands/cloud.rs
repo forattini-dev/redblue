@@ -35,11 +35,14 @@ impl Command for CloudCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("generate", "Generate bucket name variations from base name").with_short('g'),
             Flag::new("wordlist", "Use custom wordlist file for bucket names")
                 .with_short('w')
                 .with_arg("FILE"),
-            Flag::new("check-path-style", "Also check path-style URLs").with_short('p'),
+            Flag::new("check-path-style", "Also check path-style URLs"),
         ]
     }
 
@@ -77,31 +80,38 @@ impl Command for CloudCommand {
 impl CloudCommand {
     /// Scan a single bucket or list of buckets
     fn scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
         let target = ctx.target.as_ref().ok_or(
             "Missing bucket name.\nUsage: rb cloud storage scan <bucket-name> [--generate]",
         )?;
-
-        Output::header("S3 Bucket Scanner");
-        Output::item("Target", target);
 
         let scanner = S3Scanner::new();
 
         // Check if we should generate variations
         if ctx.has_flag("generate") {
-            Output::info(&format!(
-                "Generating bucket name variations for: {}",
-                target
-            ));
             let bucket_names = scanner.generate_bucket_names(target);
 
-            Output::item("Total variations", &bucket_names.len().to_string());
-            println!();
+            if !is_json {
+                Output::header("S3 Bucket Scanner");
+                Output::item("Target", target);
+                Output::info(&format!(
+                    "Generating bucket name variations for: {}",
+                    target
+                ));
+                Output::item("Total variations", &bucket_names.len().to_string());
+                println!();
+                Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
+            }
 
-            Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
             let result = scanner.scan_buckets(&bucket_names);
-            Output::spinner_done();
 
-            self.display_scan_results(&result);
+            if !is_json {
+                Output::spinner_done();
+            }
+
+            self.display_scan_results(ctx, &result);
         } else if let Some(wordlist_path) = ctx.get_flag("wordlist") {
             // Read wordlist from file
             use std::fs;
@@ -114,20 +124,52 @@ impl CloudCommand {
                 .map(|line| line.trim().to_string())
                 .collect();
 
-            Output::item("Wordlist", &wordlist_path);
-            Output::item("Total buckets", &bucket_names.len().to_string());
-            println!();
+            if !is_json {
+                Output::header("S3 Bucket Scanner");
+                Output::item("Target", target);
+                Output::item("Wordlist", &wordlist_path);
+                Output::item("Total buckets", &bucket_names.len().to_string());
+                println!();
+                Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
+            }
 
-            Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
             let result = scanner.scan_buckets(&bucket_names);
-            Output::spinner_done();
 
-            self.display_scan_results(&result);
+            if !is_json {
+                Output::spinner_done();
+            }
+
+            self.display_scan_results(ctx, &result);
         } else {
             // Single bucket check
-            Output::spinner_start(&format!("Checking bucket: {}", target));
+            if !is_json {
+                Output::header("S3 Bucket Scanner");
+                Output::item("Target", target);
+                Output::spinner_start(&format!("Checking bucket: {}", target));
+            }
+
             let bucket = scanner.check_bucket(target)?;
-            Output::spinner_done();
+
+            if !is_json {
+                Output::spinner_done();
+            }
+
+            if is_json {
+                println!("{{");
+                println!("  \"bucket\": \"{}\",", bucket.name.replace('"', "\\\""));
+                println!("  \"exists\": {},", bucket.exists);
+                println!("  \"accessible\": {},", bucket.accessible);
+                println!("  \"public_list\": {},", bucket.public_list);
+                println!("  \"public_read\": {},", bucket.public_read);
+                if let Some(region) = &bucket.region {
+                    println!("  \"region\": \"{}\",", region);
+                } else {
+                    println!("  \"region\": null,");
+                }
+                println!("  \"message\": \"{}\"", bucket.message.replace('"', "\\\""));
+                println!("}}");
+                return Ok(());
+            }
 
             self.display_single_bucket(&bucket);
 
@@ -173,7 +215,7 @@ impl CloudCommand {
         let result = scanner.scan_buckets(&bucket_names);
         Output::spinner_done();
 
-        self.display_scan_results(&result);
+        self.display_scan_results(ctx, &result);
 
         Ok(())
     }
@@ -209,7 +251,45 @@ impl CloudCommand {
     }
 
     /// Display scan results for multiple buckets
-    fn display_scan_results(&self, result: &crate::modules::cloud::s3_scanner::S3ScanResult) {
+    fn display_scan_results(
+        &self,
+        ctx: &CliContext,
+        result: &crate::modules::cloud::s3_scanner::S3ScanResult,
+    ) {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        if is_json {
+            println!("{{");
+            println!("  \"total_scanned\": {},", result.total_scanned);
+            println!("  \"total_exists\": {},", result.total_exists);
+            println!("  \"total_public\": {},", result.total_public);
+            println!("  \"buckets\": [");
+            let existing: Vec<_> = result.buckets.iter().filter(|b| b.exists).collect();
+            for (i, bucket) in existing.iter().enumerate() {
+                let comma = if i < existing.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"name\": \"{}\",", bucket.name.replace('"', "\\\""));
+                println!("      \"exists\": {},", bucket.exists);
+                println!("      \"accessible\": {},", bucket.accessible);
+                println!("      \"public_list\": {},", bucket.public_list);
+                println!("      \"public_read\": {},", bucket.public_read);
+                if let Some(region) = &bucket.region {
+                    println!("      \"region\": \"{}\",", region);
+                } else {
+                    println!("      \"region\": null,");
+                }
+                println!(
+                    "      \"message\": \"{}\"",
+                    bucket.message.replace('"', "\\\"")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return;
+        }
+
         println!();
         Output::subheader("Scan Summary");
         Output::item("Total scanned", &result.total_scanned.to_string());

@@ -143,8 +143,10 @@ impl Command for DatabaseCommand {
 
     fn flags(&self) -> Vec<Flag> {
         match self.mode {
-            DatabaseMode::Data => vec![Flag::new("output", "Output file path for export")
-                .with_short('o')],
+            DatabaseMode::Data => vec![
+                Flag::new("output", "Output file path for export").with_short('o'),
+                Flag::new("format", "Output format (text, json)").with_default("text"),
+            ],
             DatabaseMode::Query => vec![
                 Flag::new("db", "Path to the RedDb file to query"),
                 Flag::new("database", "Alias for --db"),
@@ -168,6 +170,7 @@ impl Command for DatabaseCommand {
                     "attr",
                     "Filter partition listings by attribute key=value (e.g., category=target)",
                 ),
+                Flag::new("format", "Output format (text, json)").with_default("text"),
             ],
         }
     }
@@ -258,19 +261,70 @@ impl DatabaseCommand {
             return Err(format!("Database file not found: {}", file_path));
         }
 
-        Output::spinner_start("Reading database");
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
+        if !is_json {
+            Output::spinner_start("Reading database");
+        }
         let mut db = Self::open_db(path)?;
         let port_scans = Self::read_port_scans(&mut db)?;
         let dns_records = Self::read_dns_records(&mut db)?;
         let subdomains = Self::read_subdomains(&mut db)?;
-        Output::spinner_done();
-
-        Output::header(&format!("Database: {}", file_path));
+        if !is_json {
+            Output::spinner_done();
+        }
 
         let metadata =
             fs::metadata(path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
         let file_size_kb = metadata.len() / 1024;
         let total_records = port_scans.len() + dns_records.len() + subdomains.len();
+
+        if is_json {
+            println!("{{");
+            println!("  \"file\": \"{}\",", file_path.replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"size_kb\": {},", file_size_kb);
+            println!("  \"format\": \"REDBLUE v1\",");
+            println!("  \"total_records\": {},", total_records);
+            println!("  \"statistics\": {{");
+            println!("    \"port_scans\": {},", port_scans.len());
+            println!("    \"dns_records\": {},", dns_records.len());
+            println!("    \"subdomains\": {}", subdomains.len());
+            println!("  }},");
+            println!("  \"port_scans\": [");
+            for (i, record) in port_scans.iter().enumerate() {
+                let comma = if i < port_scans.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"ip\": \"{}\",", record.ip);
+                println!("      \"port\": {},", record.port);
+                println!("      \"status\": \"{}\",", Self::port_status_label(record.status));
+                println!("      \"timestamp\": {}", record.timestamp);
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"dns_records\": [");
+            for (i, record) in dns_records.iter().enumerate() {
+                let comma = if i < dns_records.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"domain\": \"{}\",", record.domain.replace('"', "\\\""));
+                println!("      \"type\": \"{}\",", Self::dns_type_label(record.record_type));
+                println!("      \"value\": \"{}\",", record.value.replace('"', "\\\""));
+                println!("      \"ttl\": {},", record.ttl);
+                println!("      \"timestamp\": {}", record.timestamp);
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"subdomains\": [");
+            for (i, record) in subdomains.iter().enumerate() {
+                let comma = if i < subdomains.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", record.subdomain.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("Database: {}", file_path));
 
         Output::summary_line(&[
             ("Size", &format!("{} KB", file_size_kb)),
@@ -323,17 +377,24 @@ impl DatabaseCommand {
             return Err(format!("Database file not found: {}", file_path));
         }
 
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let output_path = if let Some(output) = ctx.get_flag("output") {
             output.to_string()
         } else {
             format!("{}.csv", file_path.trim_end_matches(".rdb"))
         };
 
-        Output::spinner_start("Exporting database");
+        if !is_json {
+            Output::spinner_start("Exporting database");
+        }
         let mut db = Self::open_db(path)?;
         let port_scans = Self::read_port_scans(&mut db)?;
         let dns_records = Self::read_dns_records(&mut db)?;
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         let mut csv_content = String::new();
 
@@ -367,8 +428,20 @@ impl DatabaseCommand {
             csv_content.push('\n');
         }
 
-        fs::write(&output_path, csv_content)
+        fs::write(&output_path, &csv_content)
             .map_err(|e| format!("Failed to write CSV file {}: {}", output_path, e))?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"source\": \"{}\",", file_path.replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"output\": \"{}\",", output_path.replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"port_scans_exported\": {},", port_scans.len());
+            println!("  \"dns_records_exported\": {},", dns_records.len());
+            println!("  \"bytes_written\": {},", csv_content.len());
+            println!("  \"success\": true");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success(&format!("Exported database to {}", output_path));
         Ok(())
@@ -383,6 +456,9 @@ impl DatabaseCommand {
         if !path.exists() {
             return Err(format!("Database file not found: {}", file_path));
         }
+
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
 
         let bytes = fs::read(path)
             .map_err(|e| format!("Failed to read {}: {}", file_path, e))?;
@@ -404,6 +480,85 @@ impl DatabaseCommand {
             header.version,
         )
         .map_err(|e| format!("Failed to parse directory: {}", e.0))?;
+
+        let mut db = RedDb::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
+
+        let ports = {
+            let mut table = db.ports();
+            table
+                .count()
+                .map_err(|e| format!("Failed to read ports: {}", e))?
+        };
+
+        let subdomains = {
+            let mut table = db.subdomains();
+            table
+                .get_all()
+                .map_err(|e| format!("Failed to read subdomains: {}", e))?
+                .len()
+        };
+
+        let dns = {
+            let mut table = db.dns();
+            table.iter().count()
+        };
+
+        let http = {
+            let mut table = db.http();
+            table.iter().count()
+        };
+
+        let tls = {
+            let table = db.tls();
+            table.iter().count()
+        };
+
+        let whois = {
+            let table = db.whois();
+            table.iter().count()
+        };
+
+        let hosts = {
+            let mut table = db.hosts();
+            table
+                .all()
+                .map_err(|e| format!("Failed to read host intel: {}", e))?
+                .len()
+        };
+
+        if is_json {
+            println!("{{");
+            println!("  \"file\": \"{}\",", file_path.replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"size_bytes\": {},", bytes.len());
+            println!("  \"version\": {},", header.version);
+            println!("  \"segment_count\": {},", header.section_count);
+            println!("  \"segments\": [");
+            for (i, entry) in directory.iter().enumerate() {
+                let label = Self::segment_label(entry.kind);
+                let end = entry.offset.checked_add(entry.length).unwrap_or(u64::MAX);
+                let valid = end as usize <= bytes.len();
+                let comma = if i < directory.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"name\": \"{}\",", label);
+                println!("      \"offset\": {},", entry.offset);
+                println!("      \"length\": {},", entry.length);
+                println!("      \"valid\": {}", valid);
+                println!("    }}{}", comma);
+            }
+            println!("  ],");
+            println!("  \"record_counts\": {{");
+            println!("    \"ports\": {},", ports);
+            println!("    \"subdomains\": {},", subdomains);
+            println!("    \"dns\": {},", dns);
+            println!("    \"http\": {},", http);
+            println!("    \"tls\": {},", tls);
+            println!("    \"whois\": {},", whois);
+            println!("    \"hosts\": {}", hosts);
+            println!("  }},");
+            println!("  \"valid\": true");
+            println!("}}");
+            return Ok(());
+        }
 
         Output::header(&format!("Database Doctor: {}", file_path));
         let size_str = format!("{} bytes", bytes.len());
@@ -450,56 +605,12 @@ impl DatabaseCommand {
 
         println!();
         Output::subheader("Record Counts");
-        let mut db = RedDb::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
-
-        let ports = {
-            let mut table = db.ports();
-            table
-                .count()
-                .map_err(|e| format!("Failed to read ports: {}", e))?
-        };
         println!("  Ports ............ {}", ports);
-
-        let subdomains = {
-            let mut table = db.subdomains();
-            table
-                .get_all()
-                .map_err(|e| format!("Failed to read subdomains: {}", e))?
-                .len()
-        };
         println!("  Subdomains ....... {}", subdomains);
-
-        let dns = {
-            let mut table = db.dns();
-            table.iter().count()
-        };
         println!("  DNS Records ...... {}", dns);
-
-        let http = {
-            let mut table = db.http();
-            table.iter().count()
-        };
         println!("  HTTP Captures .... {}", http);
-
-        let tls = {
-            let table = db.tls();
-            table.iter().count()
-        };
         println!("  TLS Scans ........ {}", tls);
-
-        let whois = {
-            let table = db.whois();
-            table.iter().count()
-        };
         println!("  WHOIS Records .... {}", whois);
-
-        let hosts = {
-            let mut table = db.hosts();
-            table
-                .all()
-                .map_err(|e| format!("Failed to read host intel: {}", e))?
-                .len()
-        };
         println!("  Host Fingerprints  {}", hosts);
 
         println!();
@@ -520,12 +631,30 @@ impl DatabaseCommand {
     }
 
     fn list(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let current_dir = std::env::current_dir()
             .map_err(|e| format!("Failed to get current directory: {}", e))?;
 
+        let rdb_files = Self::collect_rdb_files(&current_dir)?;
+
+        if is_json {
+            println!("{{");
+            println!("  \"directory\": \"{}\",", current_dir.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"count\": {},", rdb_files.len());
+            println!("  \"files\": [");
+            for (i, file) in rdb_files.iter().enumerate() {
+                let comma = if i < rdb_files.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", file.display().to_string().replace('\\', "\\\\").replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         Output::header("Available Database Files");
 
-        let rdb_files = Self::collect_rdb_files(&current_dir)?;
         if rdb_files.is_empty() {
             Output::warning("No .rdb files found in current directory");
             return Ok(());
@@ -539,23 +668,20 @@ impl DatabaseCommand {
         Ok(())
     }
 
-    fn list_subnets(&self, _ctx: &CliContext) -> Result<(), String> {
+    fn list_subnets(&self, ctx: &CliContext) -> Result<(), String> {
         use std::collections::HashMap;
         use std::net::Ipv4Addr;
+
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
 
         let current_dir = std::env::current_dir()
             .map_err(|e| format!("Failed to get current directory: {}", e))?;
 
-        Output::header("Discovered Subnets");
-
         let rdb_files = Self::collect_rdb_files(&current_dir)?;
-        if rdb_files.is_empty() {
-            Output::warning("No .rdb files found in current directory");
-            return Ok(());
-        }
 
         let mut subnets: HashMap<String, Vec<String>> = HashMap::new();
-        let mut summaries = HashMap::new();
+        let mut summaries: HashMap<String, DbSummary> = HashMap::new();
 
         for path in &rdb_files {
             let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
@@ -573,6 +699,54 @@ impl DatabaseCommand {
                     summaries.insert(file_name, summary);
                 }
             }
+        }
+
+        if is_json {
+            let mut sorted_subnets: Vec<_> = subnets.iter().collect();
+            sorted_subnets.sort_by_key(|(k, _)| *k);
+
+            println!("{{");
+            println!("  \"total_subnets\": {},", subnets.len());
+            println!("  \"total_hosts\": {},", rdb_files.len());
+            println!("  \"subnets\": [");
+            for (si, (subnet, hosts)) in sorted_subnets.iter().enumerate() {
+                let subnet_comma = if si < sorted_subnets.len() - 1 { "," } else { "" };
+                let mut sorted_hosts = hosts.clone();
+                sorted_hosts.sort_by_key(|ip_str| {
+                    ip_str.parse::<Ipv4Addr>().map(|ip| ip.octets()[3]).unwrap_or(0)
+                });
+                println!("    {{");
+                println!("      \"subnet\": \"{}\",", subnet);
+                println!("      \"host_count\": {},", hosts.len());
+                println!("      \"hosts\": [");
+                for (hi, host) in sorted_hosts.iter().enumerate() {
+                    let host_comma = if hi < sorted_hosts.len() - 1 { "," } else { "" };
+                    if let Some(summary) = summaries.get(host) {
+                        println!("        {{");
+                        println!("          \"ip\": \"{}\",", host);
+                        println!("          \"port_scans\": {},", summary.port_scans);
+                        println!("          \"dns_records\": {},", summary.dns_records);
+                        println!("          \"subdomains\": {}", summary.subdomains);
+                        println!("        }}{}", host_comma);
+                    } else {
+                        println!("        {{");
+                        println!("          \"ip\": \"{}\"", host);
+                        println!("        }}{}", host_comma);
+                    }
+                }
+                println!("      ]");
+                println!("    }}{}", subnet_comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Discovered Subnets");
+
+        if rdb_files.is_empty() {
+            Output::warning("No .rdb files found in current directory");
+            return Ok(());
         }
 
         if subnets.is_empty() {
@@ -663,6 +837,9 @@ impl DatabaseCommand {
     }
 
     fn query_partitions(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let service = StorageService::global();
 
         let mut partitions = service.partitions();
@@ -681,12 +858,48 @@ impl DatabaseCommand {
                 .unwrap_or(false));
         }
 
+        partitions.sort_by(|a, b| a.label.cmp(&b.label));
+
+        if is_json {
+            println!("{{");
+            println!("  \"count\": {},", partitions.len());
+            println!("  \"segment_filter\": {},", ctx.get_flag("segment").map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "null".to_string()));
+            println!("  \"attr_filter\": {},", ctx.get_flag("attr").map(|s| format!("\"{}\"", s)).unwrap_or_else(|| "null".to_string()));
+            println!("  \"partitions\": [");
+            for (i, meta) in partitions.iter().enumerate() {
+                let comma = if i < partitions.len() - 1 { "," } else { "" };
+                let segments: Vec<_> = meta.segments.iter().map(|k| Self::segment_label(*k)).collect();
+                let last_refreshed = meta.last_refreshed.map(|ts| {
+                    ts.duration_since(UNIX_EPOCH).unwrap_or_else(|_| std::time::Duration::from_secs(0)).as_secs()
+                });
+                println!("    {{");
+                println!("      \"label\": \"{}\",", meta.label.replace('"', "\\\""));
+                println!("      \"key\": \"{}\",", Self::describe_partition_key(&meta.key));
+                println!("      \"path\": \"{}\",", meta.storage_path.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+                println!("      \"segments\": [{}],", segments.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "));
+                if let Some(epoch) = last_refreshed {
+                    println!("      \"last_refreshed\": {},", epoch);
+                } else {
+                    println!("      \"last_refreshed\": null,");
+                }
+                println!("      \"attributes\": {{");
+                let attr_items: Vec<_> = meta.attributes.iter().collect();
+                for (ai, (key, value)) in attr_items.iter().enumerate() {
+                    let attr_comma = if ai < attr_items.len() - 1 { "," } else { "" };
+                    println!("        \"{}\": \"{}\"{}", key, value.replace('"', "\\\""), attr_comma);
+                }
+                println!("      }}");
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if partitions.is_empty() {
             Output::warning("No partitions matched the requested filters");
             return Ok(());
         }
-
-        partitions.sort_by(|a, b| a.label.cmp(&b.label));
 
         Output::header("Known Storage Partitions");
         Output::info(&format!(
@@ -798,6 +1011,9 @@ impl DatabaseCommand {
     }
 
     fn query_summary(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let service = StorageService::global();
         let label = format!("custom:{}", db_path.display());
         let _ = service.refresh_partition(
@@ -815,18 +1031,33 @@ impl DatabaseCommand {
                 ("query_mode", self.mode_label()),
             ],
         );
-        Output::spinner_start("Reading database");
+        if !is_json {
+            Output::spinner_start("Reading database");
+        }
         let mut db = Self::open_db(db_path)?;
         let port_scans = Self::read_port_scans(&mut db)?;
         let dns_records = Self::read_dns_records(&mut db)?;
         let subdomains = Self::read_subdomains(&mut db)?;
-        Output::spinner_done();
-
-        Output::header(&format!("Summary: {}", db_path.display()));
+        if !is_json {
+            Output::spinner_done();
+        }
 
         let metadata = fs::metadata(db_path)
             .map_err(|e| format!("Failed to read file metadata: {}", e))?;
         let file_size_kb = metadata.len() / 1024;
+
+        if is_json {
+            println!("{{");
+            println!("  \"file\": \"{}\",", db_path.display().to_string().replace('\\', "\\\\").replace('"', "\\\""));
+            println!("  \"size_kb\": {},", file_size_kb);
+            println!("  \"ports\": {},", port_scans.len());
+            println!("  \"dns\": {},", dns_records.len());
+            println!("  \"subdomains\": {}", subdomains.len());
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("Summary: {}", db_path.display()));
 
         Output::summary_line(&[
             ("Size", &format!("{} KB", file_size_kb)),
@@ -839,6 +1070,9 @@ impl DatabaseCommand {
     }
 
     fn query_ports(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let range = ctx
             .get_flag_with_config("ip-range")
             .map(|value| Self::parse_ip_range(&value))
@@ -870,6 +1104,24 @@ impl DatabaseCommand {
                 .map_err(|e| format!("Failed to read ports: {}", e))?
         };
 
+        if is_json {
+            println!("{{");
+            println!("  \"count\": {},", records.len());
+            println!("  \"ports\": [");
+            for (i, record) in records.iter().enumerate() {
+                let comma = if i < records.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"ip\": \"{}\",", record.ip);
+                println!("      \"port\": {},", record.port);
+                println!("      \"status\": \"{}\",", Self::port_status_label(record.status));
+                println!("      \"timestamp\": {}", record.timestamp);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if records.is_empty() {
             Output::warning("No ports matched the requested filters");
             return Ok(());
@@ -887,6 +1139,9 @@ impl DatabaseCommand {
     }
 
     fn query_dns(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let prefix = ctx.get_flag_with_config("dns-prefix");
         let mut manager = StorageService::global()
             .open_query_manager(db_path)
@@ -912,6 +1167,25 @@ impl DatabaseCommand {
             table.iter().collect()
         };
 
+        if is_json {
+            println!("{{");
+            println!("  \"count\": {},", records.len());
+            println!("  \"records\": [");
+            for (i, record) in records.iter().enumerate() {
+                let comma = if i < records.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"domain\": \"{}\",", record.domain.replace('"', "\\\""));
+                println!("      \"type\": \"{}\",", Self::dns_type_label(record.record_type));
+                println!("      \"value\": \"{}\",", record.value.replace('"', "\\\""));
+                println!("      \"ttl\": {},", record.ttl);
+                println!("      \"timestamp\": {}", record.timestamp);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if records.is_empty() {
             Output::warning("No DNS records matched the requested filters");
             return Ok(());
@@ -934,6 +1208,9 @@ impl DatabaseCommand {
     }
 
     fn query_subdomains(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let prefix = ctx.get_flag_with_config("subdomain-prefix");
         let mut manager = StorageService::global()
             .open_query_manager(db_path)
@@ -961,6 +1238,19 @@ impl DatabaseCommand {
                 .map_err(|e| format!("Failed to read subdomains: {}", e))?
         };
 
+        if is_json {
+            println!("{{");
+            println!("  \"count\": {},", records.len());
+            println!("  \"subdomains\": [");
+            for (i, record) in records.iter().enumerate() {
+                let comma = if i < records.len() - 1 { "," } else { "" };
+                println!("    \"{}\"{}", record.subdomain.replace('"', "\\\""), comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if records.is_empty() {
             Output::warning("No subdomains matched the requested filters");
             return Ok(());
@@ -977,6 +1267,9 @@ impl DatabaseCommand {
     }
 
     fn query_http(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let host_filter = ctx.get_flag_with_config("host");
         let mut manager = StorageService::global()
             .open_query_manager(db_path)
@@ -1000,6 +1293,31 @@ impl DatabaseCommand {
             .list_http_records(&host)
             .map_err(|e| format!("HTTP query failed: {}", e))?;
 
+        if is_json {
+            println!("{{");
+            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+            println!("  \"count\": {},", records.len());
+            println!("  \"records\": [");
+            for (i, record) in records.iter().enumerate() {
+                let comma = if i < records.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"method\": \"{}\",", record.method.replace('"', "\\\""));
+                println!("      \"url\": \"{}\",", record.url.replace('"', "\\\""));
+                println!("      \"http_version\": \"{}\",", record.http_version.replace('"', "\\\""));
+                println!("      \"status_code\": {},", record.status_code);
+                println!("      \"status_text\": \"{}\",", record.status_text.replace('"', "\\\""));
+                if let Some(server) = &record.server {
+                    println!("      \"server\": \"{}\"", server.replace('"', "\\\""));
+                } else {
+                    println!("      \"server\": null");
+                }
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if records.is_empty() {
             Output::warning("No HTTP captures stored for this host");
             return Ok(());
@@ -1022,6 +1340,9 @@ impl DatabaseCommand {
     }
 
     fn query_tls(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let host = ctx
             .get_flag_with_config("host")
             .or_else(|| ctx.target.clone())
@@ -1046,7 +1367,36 @@ impl DatabaseCommand {
             .map_err(|e| format!("TLS query failed: {}", e))?;
 
         if scans.is_empty() {
+            if is_json {
+                println!("{{");
+                println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+                println!("  \"count\": 0,");
+                println!("  \"scans\": []");
+                println!("}}");
+                return Ok(());
+            }
             Output::warning("No TLS scans stored for this host");
+            return Ok(());
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+            println!("  \"count\": {},", scans.len());
+            println!("  \"scans\": [");
+            for (i, scan) in scans.iter().enumerate() {
+                let comma = if i < scans.len() - 1 { "," } else { "" };
+                let cipher = scan.negotiated_cipher.as_deref().unwrap_or("");
+                let version = scan.negotiated_version.as_deref().unwrap_or("");
+                println!("    {{");
+                println!("      \"port\": {},", scan.port);
+                println!("      \"protocol\": \"{}\",", version.replace('"', "\\\""));
+                println!("      \"cipher\": \"{}\",", cipher.replace('"', "\\\""));
+                println!("      \"certificate_valid\": {}", scan.certificate_valid);
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
             return Ok(());
         }
 
@@ -1072,6 +1422,9 @@ impl DatabaseCommand {
     }
 
     fn query_whois(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let domain = ctx
             .get_flag_with_config("domain")
             .or_else(|| ctx.target.clone())
@@ -1096,6 +1449,22 @@ impl DatabaseCommand {
             .map_err(|e| format!("WHOIS query failed: {}", e))?
         {
             Some(record) => {
+                if is_json {
+                    println!("{{");
+                    println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
+                    println!("  \"registrar\": \"{}\",", record.registrar.replace('"', "\\\""));
+                    println!("  \"created_date\": \"{}\",", record.created_date.replace('"', "\\\""));
+                    println!("  \"expires_date\": \"{}\",", record.expires_date.replace('"', "\\\""));
+                    println!("  \"nameservers\": [");
+                    for (i, ns) in record.nameservers.iter().enumerate() {
+                        let comma = if i < record.nameservers.len() - 1 { "," } else { "" };
+                        println!("    \"{}\"{}", ns.replace('"', "\\\""), comma);
+                    }
+                    println!("  ]");
+                    println!("}}");
+                    return Ok(());
+                }
+
                 Output::header(&format!("WHOIS for {}", domain));
                 println!("  Registrar: {}", record.registrar);
                 println!("  Created:   {}", record.created_date);
@@ -1105,12 +1474,24 @@ impl DatabaseCommand {
                     println!("    - {}", ns);
                 }
             }
-            None => Output::warning("No WHOIS record stored for this domain"),
+            None => {
+                if is_json {
+                    println!("{{");
+                    println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
+                    println!("  \"found\": false");
+                    println!("}}");
+                    return Ok(());
+                }
+                Output::warning("No WHOIS record stored for this domain");
+            }
         }
         Ok(())
     }
 
     fn query_hosts(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
+
         let ip_filter = ctx
             .get_flag_with_config("ip")
             .or_else(|| ctx.target.clone());
@@ -1138,18 +1519,52 @@ impl DatabaseCommand {
                 .map_err(|e| format!("Host query failed: {}", e))?
             {
                 Some(record) => {
+                    if is_json {
+                        self.output_host_json(&record);
+                        return Ok(());
+                    }
                     let formatted = query_format::format_host(&record);
                     println!("{}", formatted);
                 }
-                None => Output::warning("No fingerprint stored for target"),
+                None => {
+                    if is_json {
+                        println!("{{");
+                        println!("  \"ip\": \"{}\",", ip);
+                        println!("  \"found\": false");
+                        println!("}}");
+                        return Ok(());
+                    }
+                    Output::warning("No fingerprint stored for target");
+                }
             }
         } else {
             let records = manager
                 .list_hosts()
                 .map_err(|e| format!("Host query failed: {}", e))?;
             if records.is_empty() {
+                if is_json {
+                    println!("{{");
+                    println!("  \"count\": 0,");
+                    println!("  \"hosts\": []");
+                    println!("}}");
+                    return Ok(());
+                }
                 Output::warning("No host fingerprints stored in this database");
             } else {
+                if is_json {
+                    println!("{{");
+                    println!("  \"count\": {},", records.len());
+                    println!("  \"hosts\": [");
+                    for (i, record) in records.iter().enumerate() {
+                        let comma = if i < records.len() - 1 { "," } else { "" };
+                        print!("    ");
+                        self.output_host_json_inline(record);
+                        println!("{}", comma);
+                    }
+                    println!("  ]");
+                    println!("}}");
+                    return Ok(());
+                }
                 Output::header(&format!(
                     "Stored Host Fingerprints ({}) - {}",
                     records.len(),
@@ -1161,6 +1576,53 @@ impl DatabaseCommand {
             }
         }
         Ok(())
+    }
+
+    fn output_host_json(&self, record: &crate::storage::records::HostIntelRecord) {
+        let os = record.os_family.as_deref().unwrap_or("");
+        println!("{{");
+        println!("  \"ip\": \"{}\",", record.ip);
+        println!("  \"os_family\": \"{}\",", os.replace('"', "\\\""));
+        println!("  \"confidence\": {},", record.confidence);
+        println!("  \"last_seen\": {},", record.last_seen);
+        println!("  \"services\": [");
+        for (i, svc) in record.services.iter().enumerate() {
+            let comma = if i < record.services.len() - 1 { "," } else { "" };
+            let svc_name = svc.service_name.as_deref().unwrap_or("");
+            let banner = svc.banner.as_deref().unwrap_or("");
+            println!("    {{");
+            println!("      \"port\": {},", svc.port);
+            println!("      \"service_name\": \"{}\",", svc_name.replace('"', "\\\""));
+            println!("      \"banner\": \"{}\",", banner.replace('"', "\\\"").replace('\n', "\\n"));
+            println!("      \"os_hints\": [");
+            for (j, hint) in svc.os_hints.iter().enumerate() {
+                let hint_comma = if j < svc.os_hints.len() - 1 { "," } else { "" };
+                println!("        \"{}\"{}", hint.replace('"', "\\\""), hint_comma);
+            }
+            println!("      ]");
+            println!("    }}{}", comma);
+        }
+        println!("  ]");
+        println!("}}");
+    }
+
+    fn output_host_json_inline(&self, record: &crate::storage::records::HostIntelRecord) {
+        let os = record.os_family.as_deref().unwrap_or("");
+        print!("{{\"ip\":\"{}\",\"os_family\":\"{}\",\"confidence\":{},\"last_seen\":{},\"services\":[",
+            record.ip, os.replace('"', "\\\""), record.confidence, record.last_seen);
+        for (i, svc) in record.services.iter().enumerate() {
+            let comma = if i < record.services.len() - 1 { "," } else { "" };
+            let svc_name = svc.service_name.as_deref().unwrap_or("");
+            let banner = svc.banner.as_deref().unwrap_or("");
+            print!("{{\"port\":{},\"service_name\":\"{}\",\"banner\":\"{}\",\"os_hints\":[",
+                svc.port, svc_name.replace('"', "\\\""), banner.replace('"', "\\\"").replace('\n', "\\n"));
+            for (j, hint) in svc.os_hints.iter().enumerate() {
+                let hint_comma = if j < svc.os_hints.len() - 1 { "," } else { "" };
+                print!("\"{}\"{}",  hint.replace('"', "\\\""), hint_comma);
+            }
+            print!("]}}{}", comma);
+        }
+        print!("]}}");
     }
 }
 

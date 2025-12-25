@@ -30,6 +30,9 @@ impl Command for PingCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("count", "Number of ping packets to send")
                 .with_short('c')
                 .with_default("4"),
@@ -60,6 +63,10 @@ impl Command for PingCommand {
                 "Large packet size (jumbo frames test)",
                 "rb network host ping 10.0.0.1 --size 1400",
             ),
+            (
+                "Ping with JSON output",
+                "rb network host ping 8.8.8.8 --output=json",
+            ),
         ]
     }
 
@@ -86,6 +93,9 @@ impl PingCommand {
             .target
             .as_ref()
             .ok_or("Missing target. Usage: rb network host ping <host>")?;
+
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         // Parse flags
         let count = ctx
@@ -121,20 +131,66 @@ impl PingCommand {
             packet_size,
         };
 
-        // Display header
-        Output::header(&format!("Ping {}", host));
-        Output::item("Packets", &count.to_string());
-        Output::item("Packet size", &format!("{} bytes", packet_size));
-        Output::item("Timeout", &format!("{}ms", timeout.as_millis()));
-        println!();
-
-        Output::spinner_start("Pinging");
+        if !is_json {
+            // Display header
+            Output::header(&format!("Ping {}", host));
+            Output::item("Packets", &count.to_string());
+            Output::item("Packet size", &format!("{} bytes", packet_size));
+            Output::item("Timeout", &format!("{}ms", timeout.as_millis()));
+            println!();
+            Output::spinner_start("Pinging");
+        }
 
         // Execute ping
         let result = ping_system(host, &config)?;
 
-        Output::spinner_done();
-        println!();
+        if !is_json {
+            Output::spinner_done();
+            println!();
+        }
+
+        // JSON output
+        if is_json {
+            // Quality assessment
+            let quality = if result.packets_received == 0 {
+                "unreachable"
+            } else if result.avg_rtt_ms < 50.0 {
+                "excellent"
+            } else if result.avg_rtt_ms < 100.0 {
+                "good"
+            } else if result.avg_rtt_ms < 200.0 {
+                "acceptable"
+            } else if result.avg_rtt_ms < 500.0 {
+                "poor"
+            } else {
+                "very_poor"
+            };
+
+            println!("{{");
+            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+            println!("  \"config\": {{");
+            println!("    \"count\": {},", count);
+            println!("    \"interval_ms\": {},", interval.as_millis());
+            println!("    \"timeout_ms\": {},", timeout.as_millis());
+            println!("    \"packet_size\": {}", packet_size);
+            println!("  }},");
+            println!("  \"statistics\": {{");
+            println!("    \"packets_sent\": {},", result.packets_sent);
+            println!("    \"packets_received\": {},", result.packets_received);
+            println!(
+                "    \"packet_loss_percent\": {:.2}",
+                result.packet_loss_percent
+            );
+            println!("  }},");
+            println!("  \"rtt\": {{");
+            println!("    \"min_ms\": {:.3},", result.min_rtt_ms);
+            println!("    \"avg_ms\": {:.3},", result.avg_rtt_ms);
+            println!("    \"max_ms\": {:.3}", result.max_rtt_ms);
+            println!("  }},");
+            println!("  \"quality\": \"{}\"", quality);
+            println!("}}");
+            return Ok(());
+        }
 
         // Display results
         Output::section("Ping Statistics");

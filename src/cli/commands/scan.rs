@@ -620,21 +620,23 @@ impl ScanCommand {
             (threads, timeout)
         };
 
-        Output::header("Port Range Scan");
-        Output::item("Target", &target.to_string());
-        Output::item("Range", &format!("{}-{}", start, end));
-        if ctx.has_flag("fast") {
-            Output::item("Mode", "FAST (masscan-style)");
+        let format = ctx.get_output_format();
+
+        if format == OutputFormat::Human {
+            Output::header("Port Range Scan");
+            Output::item("Target", &target.to_string());
+            Output::item("Range", &format!("{}-{}", start, end));
+            if ctx.has_flag("fast") {
+                Output::item("Mode", "FAST (masscan-style)");
+            }
+            Output::item("Threads", &threads.to_string());
+            Output::item("Timeout", &format!("{}ms", timeout));
+            println!();
         }
-        Output::item("Threads", &threads.to_string());
-        Output::item("Timeout", &format!("{}ms", timeout));
-        println!();
 
         let scanner = PortScanner::new(target)
             .with_threads(threads)
             .with_timeout(timeout);
-
-        let format = ctx.get_output_format();
         let total_ports = (end - start + 1) as u64;
         let progress_label = format!("Scanning {}", target_str);
         let progress = if format == OutputFormat::Human {
@@ -659,6 +661,39 @@ impl ScanCommand {
         }
 
         let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
+
+        // JSON output
+        if format == OutputFormat::Json {
+            println!("{{");
+            println!(
+                "  \"target\": \"{}\",",
+                target.to_string().replace('"', "\\\"")
+            );
+            println!("  \"range_start\": {},", start);
+            println!("  \"range_end\": {},", end);
+            println!("  \"threads\": {},", threads);
+            println!("  \"timeout_ms\": {},", timeout);
+            println!("  \"total_scanned\": {},", end - start + 1);
+            println!("  \"open_count\": {},", open_ports.len());
+            println!("  \"ports\": [");
+            for (i, result) in open_ports.iter().enumerate() {
+                let comma = if i < open_ports.len() - 1 { "," } else { "" };
+                let service = result.service.as_deref().unwrap_or("unknown");
+                let banner = result.banner.as_deref().unwrap_or("");
+                println!("    {{");
+                println!("      \"port\": {},", result.port);
+                println!("      \"state\": \"open\",");
+                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
+                println!(
+                    "      \"banner\": \"{}\"",
+                    banner.replace('"', "\\\"").replace('\n', " ")
+                );
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if open_ports.is_empty() {
             Output::warning("No open ports found");
@@ -957,6 +992,8 @@ impl ScanCommand {
 
     /// Advanced scan (SYN or UDP) using raw sockets
     fn advanced_scan(&self, ctx: &CliContext, scan_type: ScanType) -> Result<(), String> {
+        let format = ctx.get_output_format();
+
         let target_str = ctx.target.as_ref().ok_or_else(|| {
             format!(
                 "Missing target.\nUsage: rb network ports {} <HOST>\nExample: rb network ports {} 192.168.1.1",
@@ -999,20 +1036,22 @@ impl ScanCommand {
             _ => "Advanced Scan",
         };
 
-        Output::header(scan_name);
-        Output::item("Target", &target.to_string());
-        if let Some(ref tmpl) = timing {
-            Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
-        }
-        Output::item("Preset", preset);
-        Output::item("Threads", &threads.to_string());
-        Output::item("Timeout", &format!("{}ms", timeout));
+        if format == OutputFormat::Human {
+            Output::header(scan_name);
+            Output::item("Target", &target.to_string());
+            if let Some(ref tmpl) = timing {
+                Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
+            }
+            Output::item("Preset", preset);
+            Output::item("Threads", &threads.to_string());
+            Output::item("Timeout", &format!("{}ms", timeout));
 
-        if scan_type == ScanType::Syn {
-            Output::warning("⚠ SYN scan requires root/CAP_NET_RAW privileges");
-        }
+            if scan_type == ScanType::Syn {
+                Output::warning("⚠ SYN scan requires root/CAP_NET_RAW privileges");
+            }
 
-        println!();
+            println!();
+        }
 
         // Get ports based on preset
         let ports: Vec<u16> = match preset {
@@ -1043,11 +1082,15 @@ impl ScanCommand {
             scanner = scanner.with_timing(tmpl);
         }
 
-        Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+        if format == OutputFormat::Human {
+            Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+        }
 
         let results = scanner.scan_ports(&ports);
 
-        Output::spinner_done();
+        if format == OutputFormat::Human {
+            Output::spinner_done();
+        }
 
         // Filter interesting results (open, open|filtered for stealth, or closed for UDP)
         use crate::protocols::raw::PortState;
@@ -1060,6 +1103,50 @@ impl ScanCommand {
                 ) || (scan_type == ScanType::Udp && r.state == PortState::Closed)
             })
             .collect();
+
+        // JSON output
+        if format == OutputFormat::Json {
+            let scan_type_str = match scan_type {
+                ScanType::Syn => "syn",
+                ScanType::Udp => "udp",
+                _ => "advanced",
+            };
+            println!("{{");
+            println!("  \"scan_type\": \"{}\",", scan_type_str);
+            println!(
+                "  \"target\": \"{}\",",
+                target.to_string().replace('"', "\\\"")
+            );
+            println!("  \"preset\": \"{}\",", preset);
+            println!("  \"threads\": {},", threads);
+            println!("  \"timeout_ms\": {},", timeout);
+            println!("  \"total_scanned\": {},", ports.len());
+            println!("  \"interesting_count\": {},", interesting.len());
+            println!("  \"ports\": [");
+            for (i, result) in interesting.iter().enumerate() {
+                let comma = if i < interesting.len() - 1 { "," } else { "" };
+                let service = result.service.as_deref().unwrap_or("");
+                let state_str = format!("{}", result.state);
+                println!("    {{");
+                println!("      \"port\": {},", result.port);
+                println!("      \"state\": \"{}\",", state_str);
+                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
+                if let Some(rtt) = result.rtt_ms {
+                    println!("      \"rtt_ms\": {:.2},", rtt);
+                } else {
+                    println!("      \"rtt_ms\": null,");
+                }
+                if let Some(ttl) = result.ttl {
+                    println!("      \"ttl\": {}", ttl);
+                } else {
+                    println!("      \"ttl\": null");
+                }
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if interesting.is_empty() {
             Output::warning("No interesting ports found");
@@ -1120,6 +1207,8 @@ impl ScanCommand {
 
     /// Stealth scan (FIN/NULL/XMAS) using raw sockets
     fn stealth_scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+
         let target_str = ctx.target.as_ref().ok_or(
             "Missing target.\nUsage: rb network ports stealth <HOST> --type fin|null|xmas\nExample: rb network ports stealth 192.168.1.1 --type xmas",
         )?;
@@ -1176,33 +1265,37 @@ impl ScanCommand {
             _ => "Stealth Scan",
         };
 
-        Output::header(scan_name);
-        Output::item("Target", &target.to_string());
-        if let Some(ref tmpl) = timing {
-            Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
+        if format == OutputFormat::Human {
+            Output::header(scan_name);
+            Output::item("Target", &target.to_string());
+            if let Some(ref tmpl) = timing {
+                Output::item("Timing", &format!("{:?} - {}", tmpl, tmpl.description()));
+            }
+            Output::item("Type", &format!("{}", scan_type));
+            Output::item("Preset", preset);
+            Output::item("Timeout", &format!("{}ms", timeout));
+            Output::warning("⚠ Stealth scans require root/CAP_NET_RAW privileges");
+
+            println!();
+
+            // Explanation of stealth scan behavior
+            match scan_type {
+                ScanType::Fin => {
+                    Output::info("FIN scan: No response = open|filtered, RST = closed");
+                }
+                ScanType::Null => {
+                    Output::info("NULL scan: No response = open|filtered, RST = closed");
+                }
+                ScanType::Xmas => {
+                    Output::info(
+                        "XMAS scan (FIN+PSH+URG): No response = open|filtered, RST = closed",
+                    );
+                }
+                _ => {}
+            }
+
+            println!();
         }
-        Output::item("Type", &format!("{}", scan_type));
-        Output::item("Preset", preset);
-        Output::item("Timeout", &format!("{}ms", timeout));
-        Output::warning("⚠ Stealth scans require root/CAP_NET_RAW privileges");
-
-        println!();
-
-        // Explanation of stealth scan behavior
-        match scan_type {
-            ScanType::Fin => {
-                Output::info("FIN scan: No response = open|filtered, RST = closed");
-            }
-            ScanType::Null => {
-                Output::info("NULL scan: No response = open|filtered, RST = closed");
-            }
-            ScanType::Xmas => {
-                Output::info("XMAS scan (FIN+PSH+URG): No response = open|filtered, RST = closed");
-            }
-            _ => {}
-        }
-
-        println!();
 
         // Get ports based on preset
         let ports: Vec<u16> = match preset {
@@ -1227,11 +1320,15 @@ impl ScanCommand {
             scanner = scanner.with_timing(tmpl);
         }
 
-        Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+        if format == OutputFormat::Human {
+            Output::spinner_start(&format!("Scanning {} ports", ports.len()));
+        }
 
         let results = scanner.scan_ports(&ports);
 
-        Output::spinner_done();
+        if format == OutputFormat::Human {
+            Output::spinner_done();
+        }
 
         // For stealth scans, we're interested in:
         // - OpenFiltered (no response = potentially open)
@@ -1246,6 +1343,51 @@ impl ScanCommand {
             .iter()
             .filter(|r| r.state == PortState::Closed)
             .collect();
+
+        // JSON output
+        if format == OutputFormat::Json {
+            let scan_type_str = match scan_type {
+                ScanType::Fin => "fin",
+                ScanType::Null => "null",
+                ScanType::Xmas => "xmas",
+                _ => "stealth",
+            };
+            println!("{{");
+            println!("  \"scan_type\": \"{}\",", scan_type_str);
+            println!(
+                "  \"target\": \"{}\",",
+                target.to_string().replace('"', "\\\"")
+            );
+            println!("  \"preset\": \"{}\",", preset);
+            println!("  \"threads\": {},", threads);
+            println!("  \"timeout_ms\": {},", timeout);
+            println!("  \"total_scanned\": {},", ports.len());
+            println!("  \"open_filtered_count\": {},", open_filtered.len());
+            println!("  \"closed_count\": {},", closed.len());
+            println!("  \"open_filtered_ports\": [");
+            for (i, result) in open_filtered.iter().enumerate() {
+                let comma = if i < open_filtered.len() - 1 { "," } else { "" };
+                let service = result.service.as_deref().unwrap_or("");
+                println!("    {{");
+                println!("      \"port\": {},", result.port);
+                println!("      \"state\": \"open|filtered\",");
+                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
+                if let Some(rtt) = result.rtt_ms {
+                    println!("      \"rtt_ms\": {:.2},", rtt);
+                } else {
+                    println!("      \"rtt_ms\": null,");
+                }
+                if let Some(ttl) = result.ttl {
+                    println!("      \"ttl\": {}", ttl);
+                } else {
+                    println!("      \"ttl\": null");
+                }
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         println!();
         Output::subheader(&format!(

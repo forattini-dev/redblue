@@ -70,7 +70,9 @@ impl Command for EvasionSandboxCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![]
+        vec![Flag::new("format", "Output format (text, json)")
+            .with_short('f')
+            .with_default("text")]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -88,21 +90,48 @@ impl Command for EvasionSandboxCommand {
         let verb = ctx.verb.as_deref().unwrap_or("check");
 
         match verb {
-            "check" => execute_sandbox_check(),
-            "score" => execute_sandbox_score(),
+            "check" => execute_sandbox_check(ctx),
+            "score" => execute_sandbox_score(ctx),
             "delay" => execute_sandbox_delay(ctx),
             _ => Err(format!("Unknown verb: {}", verb)),
         }
     }
 }
 
-fn execute_sandbox_check() -> Result<(), String> {
-    Output::header("Sandbox Detection");
-    println!();
+fn execute_sandbox_check(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
 
-    Output::spinner_start("Running sandbox checks");
+    if !is_json {
+        Output::header("Sandbox Detection");
+        println!();
+        Output::spinner_start("Running sandbox checks");
+    }
 
     let is_sandbox = sandbox::detect_sandbox();
+
+    let checks = [
+        ("VM Files", sandbox::check_vm_files()),
+        ("Sandbox Processes", sandbox::check_sandbox_processes()),
+        ("Timing Anomaly", sandbox::check_timing_anomaly()),
+        ("Low Resources", sandbox::check_low_resources()),
+        ("Suspicious Username", sandbox::check_suspicious_username()),
+        ("Debugger Present", sandbox::check_debugger()),
+    ];
+
+    if is_json {
+        println!("{{");
+        println!("  \"sandbox_detected\": {},", is_sandbox);
+        println!("  \"checks\": {{");
+        for (i, (name, detected)) in checks.iter().enumerate() {
+            let comma = if i < checks.len() - 1 { "," } else { "" };
+            let key = name.to_lowercase().replace(' ', "_");
+            println!("    \"{}\": {}{}", key, detected, comma);
+        }
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
 
     Output::spinner_done();
     println!();
@@ -121,15 +150,6 @@ fn execute_sandbox_check() -> Result<(), String> {
     println!();
     Output::info("Individual Checks:");
 
-    let checks = [
-        ("VM Files", sandbox::check_vm_files()),
-        ("Sandbox Processes", sandbox::check_sandbox_processes()),
-        ("Timing Anomaly", sandbox::check_timing_anomaly()),
-        ("Low Resources", sandbox::check_low_resources()),
-        ("Suspicious Username", sandbox::check_suspicious_username()),
-        ("Debugger Present", sandbox::check_debugger()),
-    ];
-
     for (name, detected) in &checks {
         if *detected {
             println!("    {} {}", colored("[DETECTED]", RED), name);
@@ -141,13 +161,71 @@ fn execute_sandbox_check() -> Result<(), String> {
     Ok(())
 }
 
-fn execute_sandbox_score() -> Result<(), String> {
-    Output::header("Sandbox Detection Score");
-    println!();
+fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
 
-    Output::spinner_start("Calculating score");
+    if !is_json {
+        Output::header("Sandbox Detection Score");
+        println!();
+        Output::spinner_start("Calculating score");
+    }
 
     let score = sandbox::sandbox_score();
+
+    let vm_files = sandbox::check_vm_files();
+    let sandbox_procs = sandbox::check_sandbox_processes();
+    let timing = sandbox::check_timing_anomaly();
+    let low_res = sandbox::check_low_resources();
+    let susp_user = sandbox::check_suspicious_username();
+    let debugger = sandbox::check_debugger();
+
+    if is_json {
+        let risk = if score >= 50 {
+            "high"
+        } else if score >= 25 {
+            "medium"
+        } else {
+            "low"
+        };
+        println!("{{");
+        println!("  \"score\": {},", score);
+        println!("  \"risk\": \"{}\",", risk);
+        println!("  \"breakdown\": {{");
+        println!(
+            "    \"vm_files\": {{ \"detected\": {}, \"points\": {} }},",
+            vm_files,
+            if vm_files { 20 } else { 0 }
+        );
+        println!(
+            "    \"sandbox_processes\": {{ \"detected\": {}, \"points\": {} }},",
+            sandbox_procs,
+            if sandbox_procs { 20 } else { 0 }
+        );
+        println!(
+            "    \"timing_anomaly\": {{ \"detected\": {}, \"points\": {} }},",
+            timing,
+            if timing { 25 } else { 0 }
+        );
+        println!(
+            "    \"low_resources\": {{ \"detected\": {}, \"points\": {} }},",
+            low_res,
+            if low_res { 15 } else { 0 }
+        );
+        println!(
+            "    \"suspicious_user\": {{ \"detected\": {}, \"points\": {} }},",
+            susp_user,
+            if susp_user { 10 } else { 0 }
+        );
+        println!(
+            "    \"debugger_present\": {{ \"detected\": {}, \"points\": {} }}",
+            debugger,
+            if debugger { 10 } else { 0 }
+        );
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
 
     Output::spinner_done();
     println!();
@@ -181,51 +259,27 @@ fn execute_sandbox_score() -> Result<(), String> {
     Output::info("Score Breakdown:");
     println!(
         "    VM Files:           {} pts",
-        if sandbox::check_vm_files() {
-            "+20"
-        } else {
-            "  0"
-        }
+        if vm_files { "+20" } else { "  0" }
     );
     println!(
         "    Sandbox Processes:  {} pts",
-        if sandbox::check_sandbox_processes() {
-            "+20"
-        } else {
-            "  0"
-        }
+        if sandbox_procs { "+20" } else { "  0" }
     );
     println!(
         "    Timing Anomaly:     {} pts",
-        if sandbox::check_timing_anomaly() {
-            "+25"
-        } else {
-            "  0"
-        }
+        if timing { "+25" } else { "  0" }
     );
     println!(
         "    Low Resources:      {} pts",
-        if sandbox::check_low_resources() {
-            "+15"
-        } else {
-            "  0"
-        }
+        if low_res { "+15" } else { "  0" }
     );
     println!(
         "    Suspicious User:    {} pts",
-        if sandbox::check_suspicious_username() {
-            "+10"
-        } else {
-            "  0"
-        }
+        if susp_user { "+10" } else { "  0" }
     );
     println!(
         "    Debugger Present:   {} pts",
-        if sandbox::check_debugger() {
-            "+10"
-        } else {
-            "  0"
-        }
+        if debugger { "+10" } else { "  0" }
     );
 
     Ok(())
@@ -311,6 +365,9 @@ impl Command for EvasionObfuscateCommand {
                 .with_short('s')
                 .with_default("13"),
             Flag::new("hex", "Output as hex string"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -350,6 +407,9 @@ impl Command for EvasionObfuscateCommand {
 }
 
 fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let data = ctx.target.as_ref().ok_or("Missing string to obfuscate")?;
 
     let key: u8 = ctx
@@ -370,24 +430,37 @@ fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
         });
 
     let show_hex = ctx.flags.contains_key("hex");
+    let obfuscated = obfuscate::xor_obfuscate(data, key);
+    let hex: String = obfuscated.iter().map(|b| format!("{:02x}", b)).collect();
+
+    if is_json {
+        println!("{{");
+        println!("  \"original\": \"{}\",", data.replace('"', "\\\""));
+        println!("  \"key\": {},", key);
+        println!("  \"key_hex\": \"0x{:02X}\",", key);
+        println!("  \"obfuscated_hex\": \"{}\",", hex);
+        println!("  \"obfuscated_bytes\": {:?},", obfuscated);
+        println!(
+            "  \"deobfuscate_command\": \"rb evasion obfuscate deobfuscate {} --key {}\"",
+            hex, key
+        );
+        println!("}}");
+        return Ok(());
+    }
 
     Output::header("XOR Obfuscation");
     println!();
-
-    let obfuscated = obfuscate::xor_obfuscate(data, key);
 
     Output::item("Original", data);
     Output::item("Key", &format!("0x{:02X} ({})", key, key));
 
     if show_hex {
-        let hex: String = obfuscated.iter().map(|b| format!("{:02x}", b)).collect();
         Output::item("Obfuscated (hex)", &hex);
     } else {
         Output::item("Obfuscated (bytes)", &format!("{:?}", obfuscated));
     }
 
     // Show deobfuscation command
-    let hex: String = obfuscated.iter().map(|b| format!("{:02x}", b)).collect();
     println!();
     Output::info("To deobfuscate:");
     println!("    rb evasion obfuscate deobfuscate {} --key {}", hex, key);
@@ -396,12 +469,22 @@ fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_obfuscate_base64(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let data = ctx.target.as_ref().ok_or("Missing data to encode")?;
+    let encoded = obfuscate::base64_encode(data.as_bytes());
+
+    if is_json {
+        println!("{{");
+        println!("  \"original\": \"{}\",", data.replace('"', "\\\""));
+        println!("  \"encoded\": \"{}\"", encoded);
+        println!("}}");
+        return Ok(());
+    }
 
     Output::header("Base64 Encoding");
     println!();
-
-    let encoded = obfuscate::base64_encode(data.as_bytes());
 
     Output::item("Original", data);
     Output::item("Encoded", &encoded);
@@ -517,6 +600,7 @@ impl Command for EvasionNetworkCommand {
             Flag::new("count", "Number of samples to show")
                 .with_short('c')
                 .with_default("5"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
         ]
     }
 
@@ -544,6 +628,9 @@ impl Command for EvasionNetworkCommand {
 }
 
 fn execute_network_jitter(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let base_ms: u64 = ctx
         .target
         .as_ref()
@@ -562,24 +649,39 @@ fn execute_network_jitter(ctx: &CliContext) -> Result<(), String> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(5);
 
+    let min = base_ms.saturating_sub((base_ms * jitter_percent as u64) / 100);
+    let max = base_ms + (base_ms * jitter_percent as u64) / 100;
+
+    let mut samples = Vec::with_capacity(count);
+    for _ in 0..count {
+        let delay = network::jittered_duration(base_ms, jitter_percent);
+        samples.push(delay.as_millis() as u64);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    if is_json {
+        println!("{{");
+        println!("  \"base_ms\": {},", base_ms);
+        println!("  \"jitter_percent\": {},", jitter_percent);
+        println!("  \"min_ms\": {},", min);
+        println!("  \"max_ms\": {},", max);
+        println!("  \"samples\": {:?}", samples);
+        println!("}}");
+        return Ok(());
+    }
+
     Output::header("Jittered Delay Calculator");
     println!();
 
     Output::item("Base Delay", &format!("{} ms", base_ms));
     Output::item("Jitter", &format!("{}%", jitter_percent));
-
-    let min = base_ms.saturating_sub((base_ms * jitter_percent as u64) / 100);
-    let max = base_ms + (base_ms * jitter_percent as u64) / 100;
     Output::item("Range", &format!("{} - {} ms", min, max));
 
     println!();
     Output::info(&format!("Sample delays ({} iterations):", count));
 
-    for i in 1..=count {
-        let delay = network::jittered_duration(base_ms, jitter_percent);
-        println!("    #{}: {} ms", i, delay.as_millis());
-        // Small sleep to get different random values
-        std::thread::sleep(std::time::Duration::from_millis(1));
+    for (i, sample) in samples.iter().enumerate() {
+        println!("    #{}: {} ms", i + 1, sample);
     }
 
     Ok(())
@@ -718,7 +820,7 @@ impl Command for EvasionConfigCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![]
+        vec![Flag::new("format", "Output format (text, json)").with_default("text")]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -827,7 +929,10 @@ impl Command for EvasionBuildCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![Flag::new("hex", "Output as hex string")]
+        vec![
+            Flag::new("hex", "Output as hex string"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
+        ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -1026,6 +1131,7 @@ impl Command for EvasionAntidebugCommand {
                 .with_short('s')
                 .with_default("50"),
             Flag::new("aggressive", "Use aggressive response techniques"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
         ]
     }
 
@@ -1054,6 +1160,9 @@ impl Command for EvasionAntidebugCommand {
 }
 
 fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let sensitivity: u32 = ctx
         .flags
         .get("sensitivity")
@@ -1061,13 +1170,33 @@ fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
         .unwrap_or(50);
     let aggressive = ctx.flags.contains_key("aggressive");
 
-    Output::header("Anti-Debugging Checks");
-    println!();
-
-    Output::spinner_start("Running detection checks");
+    if !is_json {
+        Output::header("Anti-Debugging Checks");
+        println!();
+        Output::spinner_start("Running detection checks");
+    }
 
     let ad = antidebug::AntiDebug::new(sensitivity, aggressive);
     let result = ad.check_all();
+
+    if is_json {
+        println!("{{");
+        println!("  \"debugger_detected\": {},", result.debugger_detected);
+        println!("  \"score\": {},", result.score);
+        println!("  \"sensitivity\": {},", sensitivity);
+        println!("  \"aggressive\": {},", aggressive);
+        println!("  \"action\": \"{:?}\",", result.action);
+        println!("  \"checks\": {{");
+        let checks_vec: Vec<_> = result.checks.iter().collect();
+        for (i, (name, detected)) in checks_vec.iter().enumerate() {
+            let comma = if i < checks_vec.len() - 1 { "," } else { "" };
+            let key = name.to_lowercase().replace(' ', "_");
+            println!("    \"{}\": {}{}", key, detected, comma);
+        }
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
 
     Output::spinner_done();
     println!();
@@ -1190,7 +1319,9 @@ impl Command for EvasionMemoryCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![]
+        vec![Flag::new("format", "Output format (text, json)")
+            .with_short('f')
+            .with_default("text")]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -1218,33 +1349,41 @@ impl Command for EvasionMemoryCommand {
 }
 
 fn execute_memory_encrypt(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let data = ctx.target.as_ref().ok_or("Missing string to encrypt")?;
 
-    Output::header("Memory Encryption");
-    println!();
-
     let buf = memory::SecureBuffer::from_data(data.as_bytes());
-
-    Output::item("Original", data);
-    Output::item("Size", &format!("{} bytes", buf.len()));
-    Output::item(
-        "Integrity",
-        if buf.verify_integrity() {
-            "OK"
-        } else {
-            "CORRUPT"
-        },
-    );
-
+    let integrity = buf.verify_integrity();
     let encrypted_hex: String = buf
         .encrypted_data()
         .iter()
         .map(|b| format!("{:02x}", b))
         .collect();
+    let recovered = buf.read_string();
+
+    if is_json {
+        println!("{{");
+        println!("  \"original\": \"{}\",", data.replace('"', "\\\""));
+        println!("  \"size\": {},", buf.len());
+        println!("  \"integrity\": {},", integrity);
+        println!("  \"encrypted_hex\": \"{}\",", encrypted_hex);
+        println!("  \"recovered\": \"{}\"", recovered.replace('"', "\\\""));
+        println!("}}");
+        return Ok(());
+    }
+
+    Output::header("Memory Encryption");
+    println!();
+
+    Output::item("Original", data);
+    Output::item("Size", &format!("{} bytes", buf.len()));
+    Output::item("Integrity", if integrity { "OK" } else { "CORRUPT" });
+
     Output::item("Encrypted (hex)", &encrypted_hex);
 
     // Demonstrate roundtrip
-    let recovered = buf.read_string();
     Output::item("Recovered", &recovered);
 
     println!();
@@ -1439,6 +1578,9 @@ impl Command for EvasionApihashCommand {
                 .with_short('a')
                 .with_default("ror13"),
             Flag::new("dll", "Filter by DLL name").with_short('d'),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -1470,14 +1612,11 @@ impl Command for EvasionApihashCommand {
 }
 
 fn execute_apihash_hash(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let name = ctx.target.as_ref().ok_or("Missing function name to hash")?;
     let algo = ctx.flags.get("algo").map(|s| s.as_str()).unwrap_or("ror13");
-
-    Output::header("API Hash");
-    println!();
-
-    Output::item("Function", name);
-    Output::item("Algorithm", algo);
 
     let hash = match algo {
         "ror13" => api_hash::ror13_hash(name),
@@ -1486,6 +1625,28 @@ fn execute_apihash_hash(ctx: &CliContext) -> Result<(), String> {
         "crc32" => api_hash::crc32_hash(name),
         _ => return Err(format!("Unknown algorithm: {}", algo)),
     };
+
+    if is_json {
+        println!("{{");
+        println!("  \"function\": \"{}\",", name.replace('"', "\\\""));
+        println!("  \"algorithm\": \"{}\",", algo);
+        println!("  \"hash\": {},", hash);
+        println!("  \"hash_hex\": \"0x{:08X}\",", hash);
+        println!("  \"all_algorithms\": {{");
+        println!("    \"ror13\": \"0x{:08X}\",", api_hash::ror13_hash(name));
+        println!("    \"djb2\": \"0x{:08X}\",", api_hash::djb2_hash(name));
+        println!("    \"fnv1a\": \"0x{:08X}\",", api_hash::fnv1a_hash(name));
+        println!("    \"crc32\": \"0x{:08X}\"", api_hash::crc32_hash(name));
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
+
+    Output::header("API Hash");
+    println!();
+
+    Output::item("Function", name);
+    Output::item("Algorithm", algo);
 
     Output::item("Hash", &format!("0x{:08X}", hash));
 
@@ -1653,7 +1814,9 @@ impl Command for EvasionControlflowCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![]
+        vec![Flag::new("format", "Output format (text, json)")
+            .with_short('f')
+            .with_default("text")]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -1914,7 +2077,8 @@ impl Command for EvasionInjectCommand {
             Flag::new("key", "XOR encoding key")
                 .with_short('k')
                 .with_default("0x41"),
-            Flag::new("filter", "Filter processes by name").with_short('f'),
+            Flag::new("filter", "Filter processes by name"),
+            Flag::new("format", "Output format (text, json)").with_default("text"),
         ]
     }
 
@@ -1950,6 +2114,9 @@ impl Command for EvasionInjectCommand {
 }
 
 fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let shellcode_type = ctx.target.as_deref().unwrap_or("shell");
 
     let ip_str = ctx
@@ -1963,14 +2130,11 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(4444);
 
-    Output::header("Shellcode Generator");
-    println!();
-
-    let shellcode = match shellcode_type {
-        "shell" | "exec" => {
-            Output::info("Linux x64 execve(/bin/sh)");
-            inject::Shellcode::linux_x64_shell()
-        }
+    let (shellcode, description) = match shellcode_type {
+        "shell" | "exec" => (
+            inject::Shellcode::linux_x64_shell(),
+            "Linux x64 execve(/bin/sh)",
+        ),
         "reverse" | "rev" => {
             // Parse IP address to [u8; 4]
             let parts: Vec<u8> = ip_str.split('.').filter_map(|s| s.parse().ok()).collect();
@@ -1978,12 +2142,18 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
                 return Err(format!("Invalid IP address: {}", ip_str));
             }
             let ip: [u8; 4] = [parts[0], parts[1], parts[2], parts[3]];
-            Output::info(&format!("Linux x64 Reverse Shell to {}:{}", ip_str, port));
-            inject::Shellcode::linux_x64_reverse_shell(ip, port)
+            let desc = format!("Linux x64 Reverse Shell to {}:{}", ip_str, port);
+            (
+                inject::Shellcode::linux_x64_reverse_shell(ip, port),
+                desc.leak() as &str,
+            )
         }
         "bind" => {
-            Output::info(&format!("Linux x64 Bind Shell on port {}", port));
-            inject::Shellcode::linux_x64_bind_shell(port)
+            let desc = format!("Linux x64 Bind Shell on port {}", port);
+            (
+                inject::Shellcode::linux_x64_bind_shell(port),
+                desc.leak() as &str,
+            )
         }
         _ => {
             return Err(format!(
@@ -1993,17 +2163,35 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
         }
     };
 
-    println!();
-    Output::item("Size", &format!("{} bytes", shellcode.len()));
-    Output::item("Null-free", &format!("{}", !shellcode.bytes().contains(&0)));
-
-    println!();
-    Output::info("Hex:");
     let hex: String = shellcode
         .bytes()
         .iter()
         .map(|b| format!("{:02x}", b))
         .collect();
+    let null_free = !shellcode.bytes().contains(&0);
+
+    if is_json {
+        println!("{{");
+        println!("  \"type\": \"{}\",", shellcode_type);
+        println!("  \"description\": \"{}\",", description);
+        println!("  \"size\": {},", shellcode.len());
+        println!("  \"null_free\": {},", null_free);
+        println!("  \"hex\": \"{}\",", hex);
+        println!("  \"bytes\": {:?}", shellcode.bytes());
+        println!("}}");
+        return Ok(());
+    }
+
+    Output::header("Shellcode Generator");
+    println!();
+    Output::info(description);
+
+    println!();
+    Output::item("Size", &format!("{} bytes", shellcode.len()));
+    Output::item("Null-free", &format!("{}", null_free));
+
+    println!();
+    Output::info("Hex:");
     // Print in chunks of 32 chars (16 bytes)
     for chunk in hex.as_bytes().chunks(64) {
         println!("    {}", std::str::from_utf8(chunk).unwrap_or(""));
@@ -2170,6 +2358,9 @@ impl Command for EvasionAmsiCommand {
             Flag::new("method", "Bypass method (patch, initfailed, context)")
                 .with_short('m')
                 .with_default("patch"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -2315,9 +2506,14 @@ impl Command for EvasionStringsCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![Flag::new("key", "Encryption key (0-255)")
-            .with_short('k')
-            .with_default("0x5A")]
+        vec![
+            Flag::new("key", "Encryption key (0-255)")
+                .with_short('k')
+                .with_default("0x5A"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
+        ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -2519,6 +2715,9 @@ impl Command for EvasionTracksCommand {
             Flag::new("shell", "Target specific shell (bash, zsh, fish)")
                 .with_short('s')
                 .with_arg("NAME"),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
         ]
     }
 
@@ -2540,28 +2739,113 @@ impl Command for EvasionTracksCommand {
         let verb = ctx.verb.as_deref().unwrap_or("scan");
 
         match verb {
-            "scan" => execute_tracks_scan(),
+            "scan" => execute_tracks_scan(ctx),
             "clear" => execute_tracks_clear(ctx),
-            "sessions" => execute_tracks_sessions(),
+            "sessions" => execute_tracks_sessions(ctx),
             "command" | "cmd" => execute_tracks_command(ctx),
             _ => Err(format!("Unknown verb: {}", verb)),
         }
     }
 }
 
-fn execute_tracks_scan() -> Result<(), String> {
-    Output::header("Track Scanner");
-    println!();
+fn execute_tracks_scan(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
 
-    Output::spinner_start("Scanning for history files");
+    if !is_json {
+        Output::header("Track Scanner");
+        println!();
+        Output::spinner_start("Scanning for history files");
+    }
 
     let stats = tracks::ClearStats::gather();
+    let files = tracks::HistoryFiles::detect();
+
+    // Helper to collect file info
+    fn collect_files(paths: &[std::path::PathBuf]) -> Vec<(String, u64)> {
+        paths
+            .iter()
+            .map(|f| {
+                let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
+                (f.display().to_string(), size)
+            })
+            .collect()
+    }
+
+    if is_json {
+        println!("{{");
+        println!("  \"summary\": {{");
+        println!("    \"total_history_files\": {},", stats.history_files);
+        println!("    \"total_history_bytes\": {},", stats.history_bytes);
+        println!("    \"session_files\": {}", stats.session_files);
+        println!("  }},");
+        println!("  \"files\": {{");
+
+        // Bash
+        let bash_files = collect_files(&files.bash);
+        println!("    \"bash\": [");
+        for (i, (path, size)) in bash_files.iter().enumerate() {
+            let comma = if i < bash_files.len() - 1 { "," } else { "" };
+            println!(
+                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
+                path.replace('"', "\\\""),
+                size,
+                comma
+            );
+        }
+        println!("    ],");
+
+        // Zsh
+        let zsh_files = collect_files(&files.zsh);
+        println!("    \"zsh\": [");
+        for (i, (path, size)) in zsh_files.iter().enumerate() {
+            let comma = if i < zsh_files.len() - 1 { "," } else { "" };
+            println!(
+                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
+                path.replace('"', "\\\""),
+                size,
+                comma
+            );
+        }
+        println!("    ],");
+
+        // Fish
+        let fish_files = collect_files(&files.fish);
+        println!("    \"fish\": [");
+        for (i, (path, size)) in fish_files.iter().enumerate() {
+            let comma = if i < fish_files.len() - 1 { "," } else { "" };
+            println!(
+                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
+                path.replace('"', "\\\""),
+                size,
+                comma
+            );
+        }
+        println!("    ],");
+
+        // Other
+        let other_files = collect_files(&files.other);
+        println!("    \"other\": [");
+        for (i, (path, size)) in other_files.iter().enumerate() {
+            let comma = if i < other_files.len() - 1 { "," } else { "" };
+            println!(
+                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
+                path.replace('"', "\\\""),
+                size,
+                comma
+            );
+        }
+        println!("    ]");
+
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
 
     Output::spinner_done();
     println!();
 
     Output::info("History Files Found:");
-    let files = tracks::HistoryFiles::detect();
 
     if !files.bash.is_empty() {
         println!(
@@ -2622,29 +2906,35 @@ fn execute_tracks_scan() -> Result<(), String> {
 }
 
 fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let secure = ctx.flags.contains_key("secure");
     let shell_filter = ctx.flags.get("shell");
 
-    Output::header("Track Clearer");
-    println!();
+    let mode = if secure { "secure" } else { "quick" };
 
-    Output::warning("This will PERMANENTLY clear shell history files!");
-    Output::warning("For authorized penetration testing only.");
-    println!();
+    if !is_json {
+        Output::header("Track Clearer");
+        println!();
+        Output::warning("This will PERMANENTLY clear shell history files!");
+        Output::warning("For authorized penetration testing only.");
+        println!();
 
-    let mode = if secure {
-        "Secure wipe (overwrite + truncate)"
-    } else {
-        "Quick clear (truncate only)"
-    };
-    Output::item("Mode", mode);
+        let mode_desc = if secure {
+            "Secure wipe (overwrite + truncate)"
+        } else {
+            "Quick clear (truncate only)"
+        };
+        Output::item("Mode", mode_desc);
 
-    if let Some(shell) = shell_filter {
-        Output::item("Shell filter", shell);
+        if let Some(shell) = shell_filter {
+            Output::item("Shell filter", shell);
+        }
+
+        println!();
+        Output::spinner_start("Clearing history");
     }
-
-    println!();
-    Output::spinner_start("Clearing history");
 
     let results = if let Some(shell) = shell_filter {
         tracks::clear_shell_history(shell, secure)
@@ -2652,8 +2942,10 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
         tracks::clear_all_history(secure)
     };
 
-    Output::spinner_done();
-    println!();
+    if !is_json {
+        Output::spinner_done();
+        println!();
+    }
 
     let mut success_count = 0;
     let mut failed_count = 0;
@@ -2663,6 +2955,56 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
         if result.success {
             success_count += 1;
             total_bytes += result.bytes_cleared;
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    if is_json {
+        println!("{{");
+        println!("  \"mode\": \"{}\",", mode);
+        println!("  \"secure\": {},", secure);
+        if let Some(shell) = shell_filter {
+            println!("  \"shell_filter\": \"{}\",", shell);
+        } else {
+            println!("  \"shell_filter\": null,");
+        }
+        println!("  \"success_count\": {},", success_count);
+        println!("  \"failed_count\": {},", failed_count);
+        println!("  \"total_bytes\": {},", total_bytes);
+        println!("  \"files\": [");
+        for (i, result) in results.iter().enumerate() {
+            let comma = if i < results.len() - 1 { "," } else { "" };
+            let path = result
+                .file
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            println!("    {{");
+            println!("      \"path\": \"{}\",", path);
+            println!("      \"success\": {},", result.success);
+            println!("      \"bytes_cleared\": {},", result.bytes_cleared);
+            if let Some(err) = &result.error {
+                println!("      \"error\": \"{}\"", err.replace('"', "\\\""));
+            } else {
+                println!("      \"error\": null");
+            }
+            println!("    }}{}", comma);
+        }
+        println!("  ],");
+        let shell = tracks::detect_shell();
+        println!("  \"detected_shell\": \"{}\",", shell);
+        println!(
+            "  \"clear_session_command\": \"{}\"",
+            tracks::get_clear_session_command(&shell).replace('"', "\\\"")
+        );
+        println!("}}");
+        return Ok(());
+    }
+
+    for result in &results {
+        if result.success {
             println!(
                 "    {} {} ({} bytes)",
                 colored("[CLEARED]", GREEN),
@@ -2670,7 +3012,6 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
                 result.bytes_cleared
             );
         } else {
-            failed_count += 1;
             let err = result.error.as_deref().unwrap_or("unknown");
             println!(
                 "    {} {} ({})",
@@ -2697,21 +3038,35 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
     Ok(())
 }
 
-fn execute_tracks_sessions() -> Result<(), String> {
-    Output::header("Session File Cleaner");
-    println!();
+fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
 
-    Output::warning("This will clear redblue session files!");
-    println!();
-
-    Output::spinner_start("Clearing session files");
+    if !is_json {
+        Output::header("Session File Cleaner");
+        println!();
+        Output::warning("This will clear redblue session files!");
+        println!();
+        Output::spinner_start("Clearing session files");
+    }
 
     let results = tracks::clear_redblue_sessions();
 
-    Output::spinner_done();
-    println!();
+    if !is_json {
+        Output::spinner_done();
+        println!();
+    }
 
     if results.is_empty() {
+        if is_json {
+            println!("{{");
+            println!("  \"success\": true,");
+            println!("  \"total_cleared\": 0,");
+            println!("  \"total_bytes\": 0,");
+            println!("  \"files\": []");
+            println!("}}");
+            return Ok(());
+        }
         Output::info("No session files found");
         return Ok(());
     }
@@ -2723,6 +3078,41 @@ fn execute_tracks_sessions() -> Result<(), String> {
         if result.success {
             success_count += 1;
             total_bytes += result.bytes_cleared;
+        }
+    }
+
+    if is_json {
+        println!("{{");
+        println!("  \"success\": true,");
+        println!("  \"total_cleared\": {},", success_count);
+        println!("  \"total_bytes\": {},", total_bytes);
+        println!("  \"files\": [");
+        for (i, result) in results.iter().enumerate() {
+            let comma = if i < results.len() - 1 { "," } else { "" };
+            let path = result
+                .file
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            println!("    {{");
+            println!("      \"path\": \"{}\",", path);
+            println!("      \"success\": {},", result.success);
+            println!("      \"bytes_cleared\": {},", result.bytes_cleared);
+            if let Some(err) = &result.error {
+                println!("      \"error\": \"{}\"", err.replace('"', "\\\""));
+            } else {
+                println!("      \"error\": null");
+            }
+            println!("    }}{}", comma);
+        }
+        println!("  ]");
+        println!("}}");
+        return Ok(());
+    }
+
+    for result in &results {
+        if result.success {
             println!(
                 "    {} {} ({} bytes)",
                 colored("[CLEARED]", GREEN),
@@ -2750,25 +3140,46 @@ fn execute_tracks_sessions() -> Result<(), String> {
 }
 
 fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
+
     let shell = ctx
         .flags
         .get("shell")
         .map(|s| s.to_string())
         .unwrap_or_else(tracks::detect_shell);
 
+    let detected_shell = tracks::detect_shell();
+    let clear_command = tracks::get_clear_session_command(&shell);
+
+    if is_json {
+        println!("{{");
+        println!("  \"detected_shell\": \"{}\",", detected_shell);
+        println!("  \"target_shell\": \"{}\",", shell);
+        println!(
+            "  \"clear_command\": \"{}\",",
+            clear_command.replace('"', "\\\"")
+        );
+        println!("  \"all_commands\": {{");
+        println!("    \"bash\": \"history -c && history -w\",");
+        println!("    \"zsh\": \"fc -p && history -p\",");
+        println!("    \"fish\": \"history clear\",");
+        println!("    \"sh\": \"unset HISTFILE\"");
+        println!("  }}");
+        println!("}}");
+        return Ok(());
+    }
+
     Output::header("Session Clear Command");
     println!();
 
-    Output::item("Detected shell", &tracks::detect_shell());
+    Output::item("Detected shell", &detected_shell);
     Output::item("Target shell", &shell);
     println!();
 
     Output::info("Run this command to clear current session history:");
     println!();
-    println!(
-        "    {}",
-        colored(&tracks::get_clear_session_command(&shell), GREEN)
-    );
+    println!("    {}", colored(&clear_command, GREEN));
     println!();
 
     Output::info("All shells:");

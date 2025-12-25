@@ -45,7 +45,12 @@ impl Command for ConfigDatabaseCommand {
     }
 
     fn flags(&self) -> Vec<Flag> {
-        vec![Flag::new("force", "Skip confirmation prompts").with_short('f')]
+        vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
+            Flag::new("force", "Skip confirmation prompts").with_short('f'),
+        ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
@@ -165,11 +170,37 @@ impl ConfigDatabaseCommand {
         Ok(())
     }
 
-    fn show(&self, _ctx: &CliContext) -> Result<(), String> {
-        Output::header("Database Configuration");
-        println!();
+    fn show(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         let config = crate::config::get();
+        let has_keyring = has_keyring_password();
+        let has_env = std::env::var("REDBLUE_DB_KEY").is_ok();
+
+        let db_dir = config
+            .database
+            .db_dir
+            .as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "./".to_string());
+
+        // JSON output
+        if is_json {
+            println!("{{");
+            println!("  \"auto_persist\": {},", config.database.auto_persist);
+            println!("  \"auto_name\": {},", config.database.auto_name);
+            println!("  \"db_dir\": \"{}\",", db_dir.replace('"', "\\\""));
+            println!("  \"password_status\": {{");
+            println!("    \"keyring\": {},", has_keyring);
+            println!("    \"environment\": {}", has_env);
+            println!("  }}");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Database Configuration");
+        println!();
 
         // Auto-persist setting
         let auto_persist = if config.database.auto_persist {
@@ -188,18 +219,11 @@ impl ConfigDatabaseCommand {
         println!("  Auto-name:          {}", auto_name);
 
         // Database directory
-        let db_dir = config
-            .database
-            .db_dir
-            .as_ref()
-            .map(|d| d.to_string())
-            .unwrap_or_else(|| "./ (current directory)".to_string());
         println!("  Database directory: {}", db_dir);
 
         println!();
 
         // Keyring status
-        let has_keyring = has_keyring_password();
         let keyring_status = if has_keyring {
             "\x1b[32mstored\x1b[0m (keyring)"
         } else {
@@ -208,7 +232,7 @@ impl ConfigDatabaseCommand {
         println!("  Password status:    {}", keyring_status);
 
         // Check environment variable
-        if std::env::var("REDBLUE_DB_KEY").is_ok() {
+        if has_env {
             println!("  Environment:        \x1b[36mREDBLUE_DB_KEY is set\x1b[0m");
         }
 

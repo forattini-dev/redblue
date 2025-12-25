@@ -461,7 +461,8 @@ impl MitmCommand {
 
     /// Generate CA certificate
     fn generate_ca(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("Generate MITM CA Certificate");
+        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = format == "json";
 
         let output_dir = ctx.get_flag_or("output", ".");
         let output_path = Path::new(&output_dir);
@@ -471,7 +472,10 @@ impl MitmCommand {
                 .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
 
-        Output::spinner_start("Generating CA certificate...");
+        if !is_json {
+            Output::header("Generate MITM CA Certificate");
+            Output::spinner_start("Generating CA certificate...");
+        }
 
         let ca = CertificateAuthority::new(
             "CN=redblue MITM CA, O=redblue Security, C=XX",
@@ -480,7 +484,9 @@ impl MitmCommand {
         )
         .map_err(|e| format!("Failed to generate CA: {}", e))?;
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         // Save CA certificate
         let cert_path = output_path.join("mitm-ca.pem");
@@ -491,6 +497,30 @@ impl MitmCommand {
         let key_path = output_path.join("mitm-ca-key.pem");
         std::fs::write(&key_path, ca.export_key_pem())
             .map_err(|e| format!("Failed to write key: {}", e))?;
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"certificate_path\": \"{}\",",
+                cert_path
+                    .display()
+                    .to_string()
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+            );
+            println!(
+                "  \"key_path\": \"{}\",",
+                key_path
+                    .display()
+                    .to_string()
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+            );
+            println!("  \"subject\": \"{}\",", ca.subject().replace('"', "\\\""));
+            println!("  \"fingerprint\": \"{}\"", ca.fingerprint());
+            println!("}}");
+            return Ok(());
+        }
 
         Output::success("CA certificate generated!");
         println!();
@@ -507,13 +537,20 @@ impl MitmCommand {
 
     /// Export CA certificate for target installation
     fn export_ca(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("Export CA Certificate");
+        let output_format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let is_json = output_format == "json";
 
         let ca_cert_path = ctx
             .get_flag("ca-cert")
             .ok_or("Missing --ca-cert flag (path to CA certificate)")?;
 
-        let format = ctx.get_flag_or("format", "pem").to_lowercase();
+        // format flag is overloaded - use pem/der for export format, json for output format
+        // If format is "json", default to pem export; otherwise use the specified format
+        let export_format = if is_json {
+            "pem".to_string()
+        } else {
+            output_format.clone()
+        };
 
         // Read the CA certificate
         let cert_pem = std::fs::read_to_string(&ca_cert_path)
@@ -524,29 +561,64 @@ impl MitmCommand {
         let cert = Certificate::from_pem(&cert_pem)
             .map_err(|e| format!("Failed to parse certificate: {}", e))?;
 
-        Output::item("Source", &ca_cert_path);
-        Output::item("Subject", cert.subject_cn().unwrap_or("Unknown"));
-        Output::item("Fingerprint", &cert.fingerprint_sha256());
-        println!();
+        let subject = cert.subject_cn().unwrap_or("Unknown");
+        let fingerprint = cert.fingerprint_sha256();
 
-        match format.as_str() {
+        let output_path = match export_format.as_str() {
             "pem" => {
                 let output_path = ctx.get_flag_or("output", "mitm-ca-export.pem");
                 std::fs::write(&output_path, &cert_pem)
                     .map_err(|e| format!("Failed to write: {}", e))?;
-                Output::success(&format!("Exported PEM to: {}", output_path));
+                output_path
             }
             "der" => {
                 let output_path = ctx.get_flag_or("output", "mitm-ca-export.der");
                 let der_bytes = cert.to_der();
                 std::fs::write(&output_path, &der_bytes)
                     .map_err(|e| format!("Failed to write: {}", e))?;
-                Output::success(&format!("Exported DER to: {}", output_path));
+                output_path
             }
             _ => {
-                return Err(format!("Unknown format: {}. Use 'pem' or 'der'", format));
+                // For json format, skip write and just output info
+                if !is_json {
+                    return Err(format!(
+                        "Unknown format: {}. Use 'pem', 'der', or 'json'",
+                        export_format
+                    ));
+                }
+                String::new()
             }
+        };
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"source\": \"{}\",",
+                ca_cert_path.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            println!("  \"subject\": \"{}\",", subject.replace('"', "\\\""));
+            println!("  \"fingerprint\": \"{}\",", fingerprint);
+            if !output_path.is_empty() {
+                println!(
+                    "  \"exported_to\": \"{}\",",
+                    output_path.replace('\\', "\\\\").replace('"', "\\\"")
+                );
+            }
+            println!("  \"export_format\": \"{}\"", export_format);
+            println!("}}");
+            return Ok(());
         }
+
+        Output::header("Export CA Certificate");
+        Output::item("Source", &ca_cert_path);
+        Output::item("Subject", subject);
+        Output::item("Fingerprint", &fingerprint);
+        println!();
+        Output::success(&format!(
+            "Exported {} to: {}",
+            export_format.to_uppercase(),
+            output_path
+        ));
 
         println!();
         Output::info("Installation instructions:");

@@ -40,6 +40,9 @@ impl Command for IntelTaxiiCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("url", "TAXII discovery URL")
                 .with_default("https://cti-taxii.mitre.org/taxii/"),
             Flag::new("root", "API Root").with_default("enterprise-attack"),
@@ -62,6 +65,10 @@ impl Command for IntelTaxiiCommand {
                 "rb intel taxii collections",
             ),
             (
+                "List collections as JSON",
+                "rb intel taxii collections --output=json",
+            ),
+            (
                 "List from custom server",
                 "rb intel taxii collections --url=https://limo.anomali.com/taxii/",
             ),
@@ -69,6 +76,10 @@ impl Command for IntelTaxiiCommand {
             (
                 "Sync techniques only",
                 "rb intel taxii sync --collection=<ID> --type=attack-pattern",
+            ),
+            (
+                "Sync as JSON",
+                "rb intel taxii sync --collection=<ID> --output=json",
             ),
             (
                 "Sync groups from MITRE",
@@ -102,17 +113,50 @@ impl IntelTaxiiCommand {
     }
 
     fn list_collections(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("TAXII Collections");
-        let client = self.create_client(ctx);
-        println!(
-            "URL: {}",
-            ctx.get_flag_or("url", "https://cti-taxii.mitre.org/taxii/")
-        );
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
-        Output::spinner_start("Fetching collections...");
+        let client = self.create_client(ctx);
+        let url = ctx.get_flag_or("url", "https://cti-taxii.mitre.org/taxii/");
+
+        if !is_json {
+            Output::header("TAXII Collections");
+            println!("URL: {}", url);
+            println!();
+            Output::spinner_start("Fetching collections...");
+        }
+
         let collections = client.list_collections()?;
-        Output::spinner_done();
+
+        if !is_json {
+            Output::spinner_done();
+        }
+
+        if is_json {
+            println!("{{");
+            println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
+            println!("  \"total\": {},", collections.len());
+            println!("  \"collections\": [");
+            for (i, col) in collections.iter().enumerate() {
+                let comma = if i < collections.len() - 1 { "," } else { "" };
+                let desc = col
+                    .description
+                    .as_ref()
+                    .map(|d| format!("\"{}\"", d.replace('"', "\\\"")))
+                    .unwrap_or_else(|| "null".to_string());
+                println!(
+                    "    {{\"id\": \"{}\", \"title\": \"{}\", \"description\": {}, \"can_read\": {}}}{}",
+                    col.id.replace('"', "\\\""),
+                    col.title.replace('"', "\\\""),
+                    desc,
+                    col.can_read,
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
 
         if collections.is_empty() {
             Output::info("No collections found.");
@@ -136,20 +180,41 @@ impl IntelTaxiiCommand {
     }
 
     fn sync_objects(&self, ctx: &CliContext) -> Result<(), String> {
-        Output::header("TAXII Sync");
-        println!();
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
 
         let client = self.create_client(ctx);
         let collection_id = ctx.get_flag_or("collection", "");
 
         // If no collection specified, show available ones
         if collection_id.is_empty() {
+            let collections = client.list_collections()?;
+
+            if is_json {
+                println!("{{");
+                println!("  \"error\": \"No collection specified\",");
+                println!("  \"available_collections\": [");
+                for (i, col) in collections.iter().enumerate() {
+                    let comma = if i < collections.len() - 1 { "," } else { "" };
+                    println!(
+                        "    {{\"id\": \"{}\", \"title\": \"{}\"}}{}",
+                        col.id.replace('"', "\\\""),
+                        col.title.replace('"', "\\\""),
+                        comma
+                    );
+                }
+                println!("  ]");
+                println!("}}");
+                return Ok(());
+            }
+
+            Output::header("TAXII Sync");
+            println!();
             Output::warning("No collection specified. Use --collection=<ID>");
             println!();
             Output::info("Fetching available collections...");
             println!();
 
-            let collections = client.list_collections()?;
             if collections.is_empty() {
                 Output::info("No collections available.");
                 return Ok(());
@@ -168,18 +233,89 @@ impl IntelTaxiiCommand {
         let obj_type = ctx.get_flag("type");
         let added_after = ctx.get_flag("after");
 
-        Output::spinner_start(&format!(
-            "Syncing objects from collection: {}",
-            collection_id
-        ));
+        if !is_json {
+            Output::header("TAXII Sync");
+            println!();
+            Output::spinner_start(&format!(
+                "Syncing objects from collection: {}",
+                collection_id
+            ));
+        }
 
         let envelope =
             client.get_objects(&collection_id, obj_type.as_deref(), added_after.as_deref())?;
 
-        Output::spinner_done();
-        println!();
+        if !is_json {
+            Output::spinner_done();
+            println!();
+        }
 
         let objects = envelope.objects.unwrap_or_default();
+
+        // Count object types
+        let mut type_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for obj in &objects {
+            if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
+                *type_counts.entry(t.to_string()).or_insert(0) += 1;
+            }
+        }
+
+        if is_json {
+            println!("{{");
+            println!(
+                "  \"collection_id\": \"{}\",",
+                collection_id.replace('"', "\\\"")
+            );
+            if let Some(ref t) = obj_type {
+                println!("  \"type_filter\": \"{}\",", t);
+            }
+            if let Some(ref a) = added_after {
+                println!("  \"added_after\": \"{}\",", a);
+            }
+            println!("  \"total\": {},", objects.len());
+            println!("  \"more\": {},", envelope.more.unwrap_or(false));
+            println!("  \"by_type\": {{");
+            let sorted_types: Vec<_> = type_counts.iter().collect();
+            for (i, (obj_type, count)) in sorted_types.iter().enumerate() {
+                let comma = if i < sorted_types.len() - 1 { "," } else { "" };
+                println!("    \"{}\": {}{}", obj_type, count, comma);
+            }
+            println!("  }},");
+            println!("  \"objects\": [");
+            for (i, obj) in objects.iter().enumerate() {
+                let comma = if i < objects.len() - 1 { "," } else { "" };
+                let obj_type = obj
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let ext_id = obj
+                    .get("external_references")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| {
+                        arr.iter().find(|r| {
+                            r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")
+                        })
+                    })
+                    .and_then(|r| r.get("external_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                println!(
+                    "    {{\"type\": \"{}\", \"id\": \"{}\", \"name\": \"{}\", \"external_id\": \"{}\"}}{}",
+                    obj_type,
+                    id.replace('"', "\\\""),
+                    name.replace('"', "\\\""),
+                    ext_id,
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
         if objects.is_empty() {
             Output::warning("No objects returned from collection.");
             if let Some(m) = envelope.more {
@@ -192,15 +328,6 @@ impl IntelTaxiiCommand {
 
         Output::success(&format!("Fetched {} objects", objects.len()));
         println!();
-
-        // Count object types
-        let mut type_counts: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for obj in &objects {
-            if let Some(t) = obj.get("type").and_then(|v| v.as_str()) {
-                *type_counts.entry(t.to_string()).or_insert(0) += 1;
-            }
-        }
 
         Output::section("Object Types");
         let mut sorted_types: Vec<_> = type_counts.iter().collect();

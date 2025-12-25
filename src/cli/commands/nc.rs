@@ -62,6 +62,9 @@ impl Command for NetcatCommand {
 
     fn flags(&self) -> Vec<Flag> {
         vec![
+            Flag::new("output", "Output format (text, json, yaml)")
+                .with_short('o')
+                .with_default("text"),
             Flag::new("udp", "Use UDP instead of TCP")
                 .with_short('u')
                 .with_default("false"),
@@ -158,6 +161,10 @@ impl Command for NetcatCommand {
             (
                 "Scan with custom timeout",
                 "rb network nc scan 192.168.1.1 22 --timeout 2",
+            ),
+            (
+                "Port scan as JSON",
+                "rb network nc scan example.com 443 --output=json",
             ),
             // Real-world use cases
             ("🎯 Reverse shell listener", "rb network nc listen 4444"),
@@ -408,6 +415,72 @@ impl NetcatCommand {
             .get_flag("timeout")
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(2);
+
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        // For JSON output, do a direct connection test and output result
+        if is_json {
+            use std::net::{TcpStream, ToSocketAddrs};
+            let timeout = Duration::from_secs(timeout_secs);
+            let start = std::time::Instant::now();
+
+            // Resolve host
+            let addr_str = format!("{}:{}", host, port);
+            let addrs: Vec<_> = match addr_str.to_socket_addrs() {
+                Ok(a) => a.collect(),
+                Err(e) => {
+                    println!("{{");
+                    println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+                    println!("  \"port\": {},", port);
+                    println!("  \"status\": \"error\",");
+                    println!(
+                        "  \"error\": \"DNS resolution failed: {}\"",
+                        e.to_string().replace('"', "\\\"")
+                    );
+                    println!("}}");
+                    return Ok(());
+                }
+            };
+
+            if addrs.is_empty() {
+                println!("{{");
+                println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+                println!("  \"port\": {},", port);
+                println!("  \"status\": \"error\",");
+                println!("  \"error\": \"No addresses found\"");
+                println!("}}");
+                return Ok(());
+            }
+
+            // Try to connect
+            let result = TcpStream::connect_timeout(&addrs[0], timeout);
+            let elapsed_ms = start.elapsed().as_millis();
+
+            println!("{{");
+            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
+            println!("  \"port\": {},", port);
+            println!("  \"ip\": \"{}\",", addrs[0].ip());
+            println!("  \"timeout_secs\": {},", timeout_secs);
+            println!("  \"response_time_ms\": {},", elapsed_ms);
+
+            match result {
+                Ok(_) => {
+                    println!("  \"status\": \"open\"");
+                }
+                Err(e) => {
+                    let status = if e.kind() == std::io::ErrorKind::TimedOut {
+                        "filtered"
+                    } else {
+                        "closed"
+                    };
+                    println!("  \"status\": \"{}\",", status);
+                    println!("  \"error\": \"{}\"", e.to_string().replace('"', "\\\""));
+                }
+            }
+            println!("}}");
+            return Ok(());
+        }
 
         // Build configuration with zero I/O mode
         let config = NetcatConfig::client(host, port)

@@ -70,6 +70,9 @@ impl Command for TlsIntelCommand {
             Flag::new("port", "Target port").with_default("443"),
             Flag::new("persist", "Save intelligence to database"),
             Flag::new("json", "Output in JSON format").with_short('j'),
+            Flag::new("format", "Output format (text, json)")
+                .with_short('f')
+                .with_default("text"),
             Flag::new("verbose", "Show detailed timing for each sample").with_short('v'),
         ]
     }
