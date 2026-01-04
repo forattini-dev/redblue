@@ -591,7 +591,10 @@ rb <domain> <resource> <verb> [target] [flags]
 
 | Command | Description |
 |---------|-------------|
-| `rb mcp server start` | Start MCP server |
+| `rb mcp server start` | Start MCP server (all tools) |
+| `rb mcp server start --categories=network,dns` | Enable specific categories only |
+| `rb mcp server start --preset=blue-team` | Use preset (all/core/blue-team/red-team/web-security/minimal) |
+| `rb mcp server start --http-addr 127.0.0.1:8787` | Enable HTTP transport |
 
 ---
 

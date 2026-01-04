@@ -418,6 +418,214 @@ Security
 
 ---
 
+## RedDB: Unified Storage Engine
+
+redblue includes **RedDB**, a multi-modal storage engine that unifies relational tables, property graphs, and vector embeddings in a single queryable system. Inspired by Neo4j, Turso, Milvus, and Apache Jena.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Query Layer                            │
+│  SQL │ Gremlin │ Cypher │ SPARQL │ Natural Language        │
+├─────────────────────────────────────────────────────────────┤
+│  Security Queries  │  Multi-Mode Executor  │  RAG Engine   │
+├─────────────────────────────────────────────────────────────┤
+│  Result Cache  │  Materialized Views  │  Query Plan Cache  │
+├─────────────────────────────────────────────────────────────┤
+│              Aggregation Cache (COUNT/SUM/AVG)              │
+├─────────────────────────────────────────────────────────────┤
+│                    SIEVE Page Cache                         │
+├─────────────────────────────────────────────────────────────┤
+│   Tables (B-Tree)  │  Graphs (Adjacency)  │  Vectors (HNSW) │
+├─────────────────────────────────────────────────────────────┤
+│              Page-Based Storage (4KB aligned)               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Storage Modalities
+
+| Modality | Engine | Use Case |
+|----------|--------|----------|
+| **Tables** | B-Tree with WAL | Hosts, ports, credentials, scan results |
+| **Graphs** | Adjacency lists + algorithms | Attack paths, lateral movement, dependencies |
+| **Vectors** | HNSW + IVF + PQ | CVE similarity, semantic search, embeddings |
+
+### Query Languages
+
+RedDB supports multiple query languages with automatic detection:
+
+```bash
+# SQL
+SELECT * FROM hosts WHERE status = 'active' ORDER BY criticality DESC
+
+# Gremlin (TinkerPop-style)
+g.V().hasLabel('host').has('status', 'active').out('connects_to').values('ip')
+
+# SPARQL
+SELECT ?host ?port WHERE { ?host :hasService ?svc . ?svc :port ?port }
+
+# Natural Language (experimental)
+find all hosts with ssh open connected to database servers
+```
+
+### Graph Algorithms
+
+Built-in algorithms for security analysis:
+
+| Algorithm | Purpose |
+|-----------|---------|
+| **PageRank** | Identify critical assets by connectivity importance |
+| **Betweenness Centrality** | Find network choke points |
+| **Dijkstra/A*** | Shortest attack paths |
+| **Connected Components** | Network segmentation analysis |
+| **Label Propagation** | Community/cluster detection |
+| **Louvain** | Advanced community detection |
+| **Cycle Detection** | Find circular dependencies |
+
+### Security Intelligence Queries
+
+Pre-built cross-modal query templates for penetration testing:
+
+```rust
+// Attack path analysis
+queries.attack_paths(AttackPathQuery::new("external", "database")
+    .max_hops(5)
+    .via(vec![GraphEdgeType::AuthAccess, GraphEdgeType::ConnectsTo]))
+
+// Lateral movement from compromised host
+queries.lateral_movement(LateralMovementQuery::new("compromised_host")
+    .max_depth(3)
+    .admin_only())
+
+// Blast radius calculation
+queries.blast_radius(BlastRadiusQuery::new("web_server").depth(4))
+
+// Critical assets (PageRank)
+queries.critical_assets(10)  // Top 10 by importance
+
+// Network choke points (Betweenness)
+queries.choke_points(5)  // Top 5 bottlenecks
+```
+
+### Vector Search
+
+Support for semantic similarity search:
+
+| Index Type | Description |
+|------------|-------------|
+| **HNSW** | Hierarchical Navigable Small World graphs for fast ANN |
+| **IVF** | Inverted File Index with k-means clustering |
+| **PQ** | Product Quantization for 32-64x compression |
+| **Hybrid** | Dense + Sparse (BM25) fusion with RRF/DBSF |
+
+```rust
+// Semantic CVE search
+let similar = vector_store.search(&cve_embedding, 10);
+
+// Hybrid search (vector + keyword)
+let results = HybridQueryBuilder::new()
+    .dense_query(&query_embedding)
+    .sparse_query("buffer overflow nginx")
+    .fusion(FusionMethod::RRF { k: 60 })
+    .search(&index, 20);
+```
+
+### Caching Layers
+
+Enterprise-grade caching for performance:
+
+| Cache | Algorithm | Purpose |
+|-------|-----------|---------|
+| **Page Cache** | SIEVE | Database pages with O(1) eviction |
+| **Plan Cache** | LRU + TTL | Compiled query plans |
+| **Result Cache** | LFU+LRU hybrid | Query results with dependency invalidation |
+| **Aggregation Cache** | Incremental | Precomputed COUNT/SUM/AVG/MIN/MAX |
+| **Materialized Views** | On-change/Periodic | Common security queries |
+
+### Performance Optimizations
+
+RedDB includes several performance optimizations:
+
+| Feature | Description |
+|---------|-------------|
+| **SIMD Distance** | Runtime-detected SSE/AVX/FMA for vector operations (26M+ ops/sec) |
+| **Batch Operations** | Transactional batch upsert/delete with streaming insert |
+| **Query Optimizer** | Cost-based with cardinality estimation and predicate pushdown |
+| **MVCC** | Multi-version concurrency control with snapshot isolation |
+
+### Data Import
+
+Import data from external formats:
+
+```rust
+use redblue::storage::import::{JsonlImporter, JsonlConfig, ParquetReader};
+
+// JSONL streaming import
+let importer = JsonlImporter::new(JsonlConfig {
+    embedding_field: Some("vector".to_string()),
+    collection: "documents".to_string(),
+    ..Default::default()
+});
+importer.import_file("data.jsonl", &mut store)?;
+
+// Parquet columnar import
+let reader = ParquetReader::new(ParquetConfig::default());
+reader.import_file("embeddings.parquet", &mut store)?;
+```
+
+### Cross-Modal Queries
+
+The unique power of RedDB is joining all three modalities:
+
+```sql
+-- Find hosts affected by critical CVEs with similar attack patterns
+SELECT h.hostname, c.cve_id, v.similarity_score
+FROM hosts h
+JOIN vulnerabilities v ON h.id = v.host_id
+JOIN cve_embeddings e ON v.cve_id = e.cve_id
+WHERE h.criticality > 8
+  AND VECTOR_SIMILARITY(e.embedding, $query_embedding) > 0.85
+  AND EXISTS (
+    SELECT 1 FROM attack_paths p
+    WHERE p.target = h.id AND p.hops <= 3
+  )
+ORDER BY v.cvss_score DESC
+```
+
+### Benchmarks
+
+Run the built-in benchmark suite:
+
+```bash
+cargo bench --bench storage_bench
+```
+
+Recent results on a modern CPU:
+
+| Operation | Performance |
+|-----------|-------------|
+| L2 distance (384-dim) | 26M ops/sec |
+| Point lookup (indexed) | 17M ops/sec |
+| Neighbor lookup | 17M ops/sec |
+| BFS shortest path (1000 nodes) | 23K ops/sec |
+| Full scan filter (10K rows) | 107K ops/sec |
+
+### Learn More
+
+For comprehensive RedDB documentation including architecture deep dives, implementation details, and advanced usage:
+
+📚 **[Full RedDB Documentation](https://forattini-dev.github.io/redblue/#/domains/database/00-overview)**
+
+- [Storage Modalities](https://forattini-dev.github.io/redblue/#/domains/database/01-storage) - Tables, Graphs, Vectors
+- [Query Languages](https://forattini-dev.github.io/redblue/#/domains/database/02-query-languages) - SQL, Gremlin, Cypher, SPARQL
+- [Graph Algorithms](https://forattini-dev.github.io/redblue/#/domains/database/03-graph-algorithms) - PageRank, Betweenness, Dijkstra
+- [Vector Search](https://forattini-dev.github.io/redblue/#/domains/database/04-vector-search) - HNSW, IVF, PQ, Hybrid
+- [Caching](https://forattini-dev.github.io/redblue/#/domains/database/05-caching) - SIEVE, Result Cache, Aggregations
+- [Security Queries](https://forattini-dev.github.io/redblue/#/domains/database/06-security-queries) - Attack paths, Blast radius
+
+---
+
 <div align="center">
 
 **[Documentation](https://forattini-dev.github.io/redblue/)** |

@@ -36,6 +36,16 @@ rb access shell kill 2
 - **Interactive Shells**: Drop into a TUI-based interactive session
 - **Background Management**: List, kill, and monitor background sessions
 
+## Tool Equivalents
+
+| Traditional Tool | redblue Command |
+|------------------|-----------------|
+| `nc -lvnp 4444` | `rb access shell create 4444` |
+| `socat TCP-L:4444` | `rb access shell create 4444 --protocol tcp` |
+| `msfconsole -x "use exploit/multi/handler"` | `rb access shell listen` |
+| Cobalt Strike handlers | `rb access shell create --protocol http` |
+| Empire listener | `rb access shell listen --protocol http` |
+
 ## See Also
 
 - [shell resource](./01-shell.md) - Session and listener management

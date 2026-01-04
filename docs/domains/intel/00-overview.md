@@ -40,6 +40,17 @@ rb intel mitre technique T1059
 | **Exploit-DB** | Public exploits and PoCs |
 | **MITRE ATT&CK** | Adversary tactics and techniques |
 
+## Tool Equivalents
+
+| Traditional Tool | redblue Command |
+|------------------|-----------------|
+| `searchsploit` | `rb intel vuln exploit` |
+| `nmap --script vulners` | `rb intel vuln search` |
+| `cve-search` | `rb intel vuln cve` |
+| `nuclei -tags cve` | `rb intel vuln search` |
+| MITRE ATT&CK Navigator | `rb intel mitre technique` |
+| AttackCTI | `rb intel mitre tactic` |
+
 ## See Also
 
 - [vuln resource](./01-vuln.md) - Vulnerability search and CVE lookup

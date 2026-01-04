@@ -68,6 +68,18 @@ rb evasion tracks clear --secure
 3. **CTF Competitions** - Bypass security challenges
 4. **Security Research** - Understand detection mechanisms
 
+## Tool Equivalents
+
+| Traditional Tool | redblue Command |
+|------------------|-----------------|
+| Al-Khaser | `rb evasion sandbox check` |
+| pafish | `rb evasion sandbox score` |
+| ScareCrow | `rb evasion inject shellcode` |
+| Donut | `rb evasion inject encode` |
+| AMSI.fail | `rb evasion amsi powershell` |
+| xortool | `rb evasion obfuscate xor` |
+| timestomp | `rb evasion tracks command stomp` |
+
 ## Related Domains
 
 - [exploit](/domains/exploit/00-overview.md) - Exploitation techniques

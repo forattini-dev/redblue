@@ -51,11 +51,12 @@ rb mcp server start [FLAGS]
 ```
 
 **Flags:**
-- `--stdio` - Use standard input/output (default). Best for local integration with Claude Desktop.
 - `--http-addr <addr>` - Bind address for HTTP/SSE server (e.g., `127.0.0.1:8787`).
 - `--no-http` - Disable HTTP server (stdio only).
 - `--no-sse` - Disable Server-Sent Events endpoint.
 - `--no-stream` - Disable chunked HTTP stream endpoint.
+- `--categories <list>` - Comma-separated list of tool categories to enable (default: all).
+- `--preset <name>` - Use a category preset: `all`, `core`, `blue-team`, `red-team`, `web-security`, `minimal`.
 
 **Examples:**
 
@@ -65,6 +66,12 @@ rb mcp server start
 
 # Start HTTP server on custom port
 rb mcp server start --http-addr 127.0.0.1:9090
+
+# Enable only network and recon tools
+rb mcp server start --categories=network,recon,dns
+
+# Use blue-team preset (defensive tools)
+rb mcp server start --preset=blue-team
 ```
 
 ---

@@ -3,6 +3,13 @@
   - [Installation](/getting-started/installation.md)
   - [Quick Start](/getting-started/quickstart.md)
 
+- **Architecture**
+  - [Overview](/architecture/00-overview.md)
+  - [Protocols](/architecture/01-protocols.md)
+  - [Storage (RedDB)](/architecture/02-storage.md)
+  - [Module System](/architecture/03-modules.md)
+  - [MCP Integration](/architecture/04-mcp.md)
+
 - **CLI Reference**
   - [Command Map](/cli-commands.md)
   - [Command Structure](/cli-semantics.md)
@@ -86,24 +93,45 @@
   - [Attack Scenarios](/domains/mitm/05-scenarios.md)
 
 - **code**
-  - [Overview](/domains/code.md)
+  - [Overview](/domains/code/00-overview.md)
+  - [Secrets Detection](/domains/code/01-secrets.md)
+  - [Dependency Audit](/domains/code/02-deps.md)
 
 - **collection**
-  - [Overview](/domains/collection.md)
+  - [Overview](/domains/collection/00-overview.md)
+  - [Screenshots](/domains/collection/01-screenshots.md)
+  - [Batch Ops](/domains/collection/02-batch.md)
+
+- **database (RedDB)**
+  - [Overview](/domains/database/00-overview.md)
+  - [Storage Modalities](/domains/database/01-storage.md)
+  - [Query Languages](/domains/database/02-query-languages.md)
+  - [Graph Algorithms](/domains/database/03-graph-algorithms.md)
+  - [Vector Search](/domains/database/04-vector-search.md)
+  - [Caching](/domains/database/05-caching.md)
+  - [Security Queries](/domains/database/06-security-queries.md)
+
+- **mcp**
+  - [Overview](/domains/mcp/00-overview.md)
+  - [Tools Reference](/domains/mcp/01-tools.md)
+  - [Prompts Reference](/domains/mcp/02-prompts.md)
+  - [Resources Reference](/domains/mcp/03-resources.md)
+  - [Autonomous Operations](/domains/mcp/04-sampling.md)
+  - [Integration Guide](/domains/mcp/05-integration.md)
 
 - **Utilities**
   - [nc (Netcat)](/domains/nc.md)
   - [crypto (Vault)](/domains/crypto.md)
   - [wordlist](/domains/wordlist.md)
   - [bench](/domains/bench.md)
-  - [mcp](/domains/mcp.md)
-  - [database](/domains/database.md)
 
 - **Guides**
   - [Overview](/guides/index.md)
   - [Netcat Ultimate](/guides/netcat-ultimate.md)
   - [Passive Fingerprinting](/guides/passive-fingerprinting.md)
   - [UI Graphs](/guides/ui-graphs-integration.md)
+  - [Troubleshooting](/guides/troubleshooting.md)
+  - [vs Traditional Tools](/guides/vs-traditional-tools.md)
 
 - **Resources**
   - [Contributing](https://github.com/forattini-dev/redblue/blob/main/CONTRIBUTING.md)
