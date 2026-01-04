@@ -32,10 +32,11 @@
 ///
 /// **Educational value:**
 /// See how a complete TLS security audit works end-to-end!
+use crate::modules::common::Severity;
 use crate::modules::tls::{
     heartbleed::{HeartbleedResult, HeartbleedTester},
     ocsp::OcspStatus,
-    scanner::{SecurityIssue, Severity, TlsScanner},
+    scanner::{SecurityIssue, TlsScanner},
 };
 use crate::protocols::tls_cert::{CertificateInfo, TlsClient};
 use std::time::Duration;
@@ -345,6 +346,7 @@ impl ComprehensiveTlsAuditor {
         let mut high = 0;
         let mut medium = 0;
         let mut low = 0;
+        let mut info = 0;
 
         for issue in issues {
             match issue.severity {
@@ -352,9 +354,12 @@ impl ComprehensiveTlsAuditor {
                 Severity::High => high += 1,
                 Severity::Medium => medium += 1,
                 Severity::Low => low += 1,
+                Severity::Info => info += 1,
             }
         }
 
+        // Note: info count not returned but tracked for completeness
+        let _ = info;
         (critical, high, medium, low)
     }
 

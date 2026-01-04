@@ -30,6 +30,7 @@ pub mod osv;
 pub mod risk;
 pub mod types;
 
+pub use crate::modules::common::Severity;
 pub use correlator::{
     correlate_techs, CorrelationReport, CorrelatorConfig, TechCorrelation, VulnCorrelator,
 };
@@ -39,4 +40,4 @@ pub use kev::KevClient;
 pub use nvd::NvdClient;
 pub use osv::OsvClient;
 pub use risk::{calculate_risk_score, RiskLevel};
-pub use types::{DetectedTech, ExploitRef, Severity, VulnCollection, VulnSource, Vulnerability};
+pub use types::{DetectedTech, ExploitRef, VulnCollection, VulnSource, Vulnerability};

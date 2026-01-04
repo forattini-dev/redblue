@@ -84,27 +84,124 @@ impl<'a> MiddlewareContext<'a> {
     }
 }
 
+/// URL scheme (HTTP or HTTPS)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Scheme {
+pub enum Scheme {
     Http,
     Https,
 }
 
 impl Scheme {
-    fn default_port(self) -> u16 {
+    /// Get the default port for this scheme
+    pub fn default_port(self) -> u16 {
         match self {
             Scheme::Http => 80,
             Scheme::Https => 443,
         }
     }
+
+    /// Check if this scheme uses TLS
+    pub fn is_tls(self) -> bool {
+        matches!(self, Scheme::Https)
+    }
 }
 
+/// Parsed URL components
+///
+/// Use `parse_url()` function or `ParsedUrl::parse()` to create instances.
+/// This is the canonical URL parser - other modules should use this instead
+/// of implementing their own parsing logic.
 #[derive(Debug, Clone)]
-struct ParsedUrl {
-    scheme: Scheme,
-    host: String,
-    port: u16,
-    path: String,
+pub struct ParsedUrl {
+    pub scheme: Scheme,
+    pub host: String,
+    pub port: u16,
+    pub path: String,
+}
+
+impl ParsedUrl {
+    /// Parse a URL string into components
+    ///
+    /// Supports both http:// and https:// schemes.
+    /// Handles IPv6 addresses in brackets, custom ports, and paths.
+    ///
+    /// # Examples
+    /// ```
+    /// let url = ParsedUrl::parse("https://example.com:8443/api/v1");
+    /// assert_eq!(url.host, "example.com");
+    /// assert_eq!(url.port, 8443);
+    /// assert!(url.scheme.is_tls());
+    /// ```
+    pub fn parse(url: &str) -> Self {
+        let (scheme, remainder) = if let Some(rest) = url.strip_prefix("http://") {
+            (Scheme::Http, rest)
+        } else if let Some(rest) = url.strip_prefix("https://") {
+            (Scheme::Https, rest)
+        } else {
+            (Scheme::Http, url)
+        };
+
+        let (host_port, path) = match remainder.find('/') {
+            Some(idx) => (&remainder[..idx], &remainder[idx..]),
+            None => (remainder, "/"),
+        };
+
+        let (host, port) = if host_port.starts_with('[') {
+            // IPv6 address in brackets
+            if let Some(end_bracket) = host_port.find(']') {
+                let host = host_port[1..end_bracket].to_string();
+                let port = host_port[end_bracket + 1..]
+                    .strip_prefix(':')
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or_else(|| scheme.default_port());
+                (host, port)
+            } else {
+                (host_port.to_string(), scheme.default_port())
+            }
+        } else if let Some(colon) = host_port.rfind(':') {
+            let host = host_port[..colon].to_string();
+            let port = host_port[colon + 1..]
+                .parse::<u16>()
+                .unwrap_or_else(|_| scheme.default_port());
+            (host, port)
+        } else {
+            (host_port.to_string(), scheme.default_port())
+        };
+
+        let path = if path.is_empty() { "/" } else { path }.to_string();
+
+        ParsedUrl {
+            scheme,
+            host,
+            port,
+            path,
+        }
+    }
+
+    /// Returns (host, port, path, use_tls) tuple for compatibility
+    ///
+    /// Many modules use this tuple format. This method provides easy migration.
+    pub fn as_tuple(&self) -> (String, u16, String, bool) {
+        (
+            self.host.clone(),
+            self.port,
+            self.path.clone(),
+            self.scheme.is_tls(),
+        )
+    }
+
+    /// Check if the URL uses TLS (HTTPS)
+    pub fn is_tls(&self) -> bool {
+        self.scheme.is_tls()
+    }
+}
+
+/// Parse a URL string into components (convenience function)
+///
+/// This is the canonical URL parser for the codebase.
+/// Returns (host, port, path, use_tls) tuple.
+pub fn parse_url(url: &str) -> (String, u16, String, bool) {
+    ParsedUrl::parse(url).as_tuple()
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +211,8 @@ pub struct HttpRequest {
     pub version: String,
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
+    pub tls_verify: bool,
+    pub tls_pins: Vec<[u8; 32]>,
     host: String,
     port: u16,
     scheme: Scheme,
@@ -122,7 +221,7 @@ pub struct HttpRequest {
 
 impl HttpRequest {
     pub fn new(method: &str, url: &str) -> Self {
-        let parsed = Self::parse_url(url);
+        let parsed = ParsedUrl::parse(url);
 
         let mut headers = HashMap::new();
         let host_header = if parsed.port != parsed.scheme.default_port() {
@@ -141,6 +240,8 @@ impl HttpRequest {
             version: "HTTP/1.1".to_string(),
             headers,
             body: Vec::new(),
+            tls_verify: true,
+            tls_pins: Vec::new(),
             host: parsed.host,
             port: parsed.port,
             scheme: parsed.scheme,
@@ -178,6 +279,21 @@ impl HttpRequest {
         self
     }
 
+    pub fn with_tls_verify(mut self, verify: bool) -> Self {
+        self.tls_verify = verify;
+        self
+    }
+
+    pub fn with_cert_pin(mut self, pin: [u8; 32]) -> Self {
+        self.tls_pins.push(pin);
+        self
+    }
+
+    pub fn with_cert_pins(mut self, pins: Vec<[u8; 32]>) -> Self {
+        self.tls_pins = pins;
+        self
+    }
+
     pub fn with_body(mut self, body: Vec<u8>) -> Self {
         self.headers
             .insert("Content-Length".to_string(), body.len().to_string());
@@ -212,51 +328,6 @@ impl HttpRequest {
 
     pub fn to_string(&self) -> String {
         String::from_utf8_lossy(&self.to_bytes()).to_string()
-    }
-
-    fn parse_url(url: &str) -> ParsedUrl {
-        let (scheme, remainder) = if let Some(rest) = url.strip_prefix("http://") {
-            (Scheme::Http, rest)
-        } else if let Some(rest) = url.strip_prefix("https://") {
-            (Scheme::Https, rest)
-        } else {
-            (Scheme::Http, url)
-        };
-
-        let (host_port, path) = match remainder.find('/') {
-            Some(idx) => (&remainder[..idx], &remainder[idx..]),
-            None => (remainder, "/"),
-        };
-
-        let (host, port) = if host_port.starts_with('[') {
-            if let Some(end_bracket) = host_port.find(']') {
-                let host = host_port[1..end_bracket].to_string();
-                let port = host_port[end_bracket + 1..]
-                    .strip_prefix(':')
-                    .and_then(|p| p.parse::<u16>().ok())
-                    .unwrap_or_else(|| scheme.default_port());
-                (host, port)
-            } else {
-                (host_port.to_string(), scheme.default_port())
-            }
-        } else if let Some(colon) = host_port.rfind(':') {
-            let host = host_port[..colon].to_string();
-            let port = host_port[colon + 1..]
-                .parse::<u16>()
-                .unwrap_or_else(|_| scheme.default_port());
-            (host, port)
-        } else {
-            (host_port.to_string(), scheme.default_port())
-        };
-
-        let path = if path.is_empty() { "/" } else { path }.to_string();
-
-        ParsedUrl {
-            scheme,
-            host,
-            port,
-            path,
-        }
     }
 
     pub fn host(&self) -> &str {
@@ -340,6 +411,8 @@ impl HttpRequest {
             version,
             headers,
             body,
+            tls_verify: true,
+            tls_pins: Vec::new(),
             host,
             port,
             scheme: Scheme::Http,
@@ -828,7 +901,7 @@ impl HttpDispatcher {
 
         let mut stream = self
             .pool
-            .get_connection(&host, port, use_tls)
+            .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins)
             .map_err(HttpSendError::from)?;
         stream
             .set_write_timeout(Some(self.connect_timeout))
@@ -858,7 +931,14 @@ impl HttpDispatcher {
             })?;
 
         if keep_alive_requested && read_outcome.reusable && response.status_code < 400 {
-            self.pool.return_connection(stream, &host, port, use_tls);
+            self.pool.return_connection(
+                stream,
+                &host,
+                port,
+                use_tls,
+                request.tls_verify,
+                &request.tls_pins,
+            );
         }
 
         Ok(HttpDispatchResult {
@@ -885,7 +965,7 @@ impl HttpDispatcher {
 
         let mut stream = self
             .pool
-            .get_connection(&host, port, use_tls)
+            .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins)
             .map_err(HttpSendError::from)?;
         stream
             .set_write_timeout(Some(self.connect_timeout))
@@ -909,7 +989,14 @@ impl HttpDispatcher {
         )?;
 
         if keep_alive_requested && allow_reuse && head.status_code < 400 {
-            self.pool.return_connection(stream, &host, port, use_tls);
+            self.pool.return_connection(
+                stream,
+                &host,
+                port,
+                use_tls,
+                request.tls_verify,
+                &request.tls_pins,
+            );
         }
 
         Ok((head, metrics))
@@ -1492,12 +1579,15 @@ pub(crate) fn build_default_ssl_connector() -> Result<SslConnector, String> {
     let mut builder = SslConnector::builder(SslMethod::tls())
         .map_err(|e| format!("Failed to create TLS connector: {}", e))?;
     builder
-        .set_min_proto_version(Some(SslVersion::TLS1))
+        .set_min_proto_version(Some(SslVersion::TLS1_2))
         .map_err(|e| format!("Failed to set min TLS version: {}", e))?;
     builder
         .set_max_proto_version(Some(SslVersion::TLS1_3))
         .map_err(|e| format!("Failed to set max TLS version: {}", e))?;
-    builder.set_verify(SslVerifyMode::NONE);
+    builder.set_verify(SslVerifyMode::PEER);
+    builder
+        .set_default_verify_paths()
+        .map_err(|e| format!("Failed to set TLS verify paths: {}", e))?;
     Ok(builder.build())
 }
 
@@ -1510,7 +1600,7 @@ mod tests {
 
     #[test]
     fn test_parse_url() {
-        let parsed = HttpRequest::parse_url("http://example.com/path");
+        let parsed = ParsedUrl::parse("http://example.com/path");
         assert_eq!(parsed.host, "example.com");
         assert_eq!(parsed.path, "/path");
         assert_eq!(parsed.port, 80);
@@ -1528,6 +1618,31 @@ mod tests {
     }
 
     #[test]
+    fn test_request_tls_verify_defaults() {
+        let req = HttpRequest::get("https://example.com");
+        assert!(req.tls_verify);
+
+        let req = HttpRequest::get("https://example.com").with_tls_verify(false);
+        assert!(!req.tls_verify);
+
+        let pin = [7u8; 32];
+        let req = HttpRequest::get("https://example.com").with_cert_pin(pin);
+        assert_eq!(req.tls_pins.len(), 1);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_tls_default_min_version() {
+        let connector = build_default_ssl_connector().expect("ssl connector");
+        let mut ssl = connector
+            .configure()
+            .expect("ssl config")
+            .into_ssl("example.com")
+            .expect("ssl init");
+        assert_eq!(ssl.min_proto_version(), Some(SslVersion::TLS1_2));
+    }
+
+    #[test]
     fn test_request_to_bytes() {
         let req = HttpRequest::get("http://example.com");
         let bytes = req.to_bytes();
@@ -1537,7 +1652,7 @@ mod tests {
 
     #[test]
     fn test_https_parse_url() {
-        let parsed = HttpRequest::parse_url("https://example.com/login");
+        let parsed = ParsedUrl::parse("https://example.com/login");
         assert_eq!(parsed.scheme, Scheme::Https);
         assert_eq!(parsed.port, 443);
         assert_eq!(parsed.path, "/login");
@@ -1545,7 +1660,7 @@ mod tests {
 
     #[test]
     fn test_parse_url_with_port() {
-        let parsed = HttpRequest::parse_url("http://example.com:8080/api");
+        let parsed = ParsedUrl::parse("http://example.com:8080/api");
         assert_eq!(parsed.host, "example.com");
         assert_eq!(parsed.port, 8080);
         assert_eq!(parsed.path, "/api");

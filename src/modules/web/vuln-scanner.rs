@@ -11,8 +11,11 @@
 /// - Default credentials testing
 ///
 /// NO external dependencies - pure Rust implementation
+use crate::modules::common::Severity;
 use crate::modules::network::scanner::ScanProgress;
 use crate::protocols::http::HttpClient;
+use crate::storage::engine::emitter::GraphEmitter;
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -32,26 +35,7 @@ pub struct Finding {
     pub evidence: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Severity {
-    Critical,
-    High,
-    Medium,
-    Low,
-    Info,
-}
-
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Severity::Critical => write!(f, "CRITICAL"),
-            Severity::High => write!(f, "HIGH"),
-            Severity::Medium => write!(f, "MEDIUM"),
-            Severity::Low => write!(f, "LOW"),
-            Severity::Info => write!(f, "INFO"),
-        }
-    }
-}
+// Severity imported from crate::modules::common
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
@@ -115,11 +99,37 @@ impl WebScanner {
             order_a.cmp(&order_b)
         });
 
+        // Emit events for each finding (synergy integration)
+        Self::emit_finding_events(&base_url, &findings);
+
         Ok(ScanResult {
             url: base_url,
             findings,
             scan_duration_ms: start.elapsed().as_millis(),
         })
+    }
+
+    /// Emit synergy events for discovered vulnerabilities
+    fn emit_finding_events(target_url: &str, findings: &[Finding]) {
+        for finding in findings {
+            let severity_str = match finding.severity {
+                Severity::Critical => "critical",
+                Severity::High => "high",
+                Severity::Medium => "medium",
+                Severity::Low => "low",
+                Severity::Info => "info",
+            };
+
+            let category_str = format!("{:?}", finding.category);
+            let event = Event::new(EventType::VulnFound, "web::vuln-scanner")
+                .with_entity(EntityRef::vulnerability(&finding.title))
+                .with_data("category", &category_str)
+                .with_data("severity", severity_str)
+                .with_data("title", &finding.title)
+                .with_data("target", target_url);
+
+            emit(event);
+        }
     }
 
     pub fn scan_active_with_progress(
@@ -703,6 +713,205 @@ impl WebScanner {
 
         findings
     }
+
+    // ========================================================================
+    // Graph Integration
+    // ========================================================================
+
+    /// Emit scan results to the graph database
+    ///
+    /// Creates:
+    /// - Host node for the target
+    /// - Vulnerability nodes for each finding
+    /// - Endpoint nodes for vulnerable paths
+    /// - Technology nodes from X-Powered-By headers
+    pub fn emit_to_graph(&self, result: &ScanResult, emitter: Option<&GraphEmitter>) {
+        // Use provided emitter or global singleton
+        let global_emitter;
+        let emitter = match emitter {
+            Some(e) => e,
+            None => {
+                global_emitter = GraphEmitter::global();
+                &*global_emitter
+            }
+        };
+
+        // Extract host from URL
+        let host = Self::extract_host_from_url(&result.url);
+        if host.is_empty() {
+            return;
+        }
+
+        // Emit host node
+        emitter.emit_host(&host, None, None);
+
+        // Emit each finding as a vulnerability
+        for finding in &result.findings {
+            // Generate a pseudo-CVE identifier for internal tracking
+            let vuln_id = Self::generate_finding_id(&host, finding);
+
+            // Convert severity to CVSS-like score
+            let cvss = Self::severity_to_cvss(&finding.severity);
+
+            // Emit vulnerability node
+            emitter.emit_vulnerability(&vuln_id, cvss, Some(&finding.title));
+
+            // Link vulnerability to host
+            emitter.emit_host_vuln(&host, &vuln_id);
+
+            // Emit endpoint if path is significant
+            if finding.path != "/" && !finding.path.is_empty() {
+                let method = match finding.category {
+                    Category::XSS
+                    | Category::SQLInjection
+                    | Category::SSRF
+                    | Category::PathTraversal
+                    | Category::CommandInjection => "GET",
+                    _ => "GET",
+                };
+
+                // Parse status from evidence if available
+                let status = finding.evidence.as_ref().and_then(|e| {
+                    if e.starts_with("Status:") || e.starts_with("HTTP ") {
+                        e.split_whitespace()
+                            .find_map(|w| w.trim_end_matches(',').parse::<u16>().ok())
+                    } else {
+                        None
+                    }
+                });
+
+                emitter.emit_endpoint(&host, method, &finding.path, status);
+            }
+
+            // Emit technology info if detected in evidence
+            if let Some(evidence) = &finding.evidence {
+                if let Some(tech) = Self::extract_tech_from_evidence(evidence) {
+                    emitter.emit_technology(
+                        &host,
+                        &tech.name,
+                        tech.version.as_deref(),
+                        Some(&tech.category),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Scan and emit results to graph in one call
+    pub fn scan_with_graph(&self, url: &str) -> Result<ScanResult, String> {
+        let result = self.scan(url)?;
+        self.emit_to_graph(&result, None);
+        Ok(result)
+    }
+
+    /// Active scan and emit results to graph
+    pub fn scan_active_with_graph(&self, url: &str) -> Result<ScanResult, String> {
+        let result = self.scan_active(url)?;
+        self.emit_to_graph(&result, None);
+        Ok(result)
+    }
+
+    /// Extract host/IP from URL
+    fn extract_host_from_url(url: &str) -> String {
+        // Remove scheme
+        let without_scheme = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .unwrap_or(url);
+
+        // Extract host (before any path or port)
+        without_scheme
+            .split('/')
+            .next()
+            .unwrap_or(without_scheme)
+            .split(':')
+            .next()
+            .unwrap_or(without_scheme)
+            .to_string()
+    }
+
+    /// Generate a finding identifier for graph storage
+    fn generate_finding_id(host: &str, finding: &Finding) -> String {
+        // Create a pseudo-ID: CATEGORY-HOST-PATH-HASH
+        let category_code = match finding.category {
+            Category::SensitiveFileExposure => "SFE",
+            Category::SecurityMisconfiguration => "SMC",
+            Category::DirectoryListing => "DRL",
+            Category::OutdatedSoftware => "ODS",
+            Category::DefaultCredentials => "DFC",
+            Category::InformationDisclosure => "IND",
+            Category::XSS => "XSS",
+            Category::SQLInjection => "SQL",
+            Category::SSRF => "SSR",
+            Category::CommandInjection => "CMI",
+            Category::PathTraversal => "PTR",
+            Category::Other => "OTH",
+        };
+
+        // Simple hash of path for uniqueness
+        let path_hash: u32 = finding
+            .path
+            .bytes()
+            .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+
+        format!(
+            "REDBLUE-{}-{}-{:08X}",
+            category_code,
+            host.replace('.', "_"),
+            path_hash
+        )
+    }
+
+    /// Convert severity enum to CVSS-like score
+    fn severity_to_cvss(severity: &Severity) -> f64 {
+        match severity {
+            Severity::Critical => 9.5,
+            Severity::High => 7.5,
+            Severity::Medium => 5.5,
+            Severity::Low => 3.0,
+            Severity::Info => 0.0,
+        }
+    }
+
+    /// Extract technology info from evidence string
+    fn extract_tech_from_evidence(evidence: &str) -> Option<TechInfo> {
+        // X-Powered-By: PHP/7.4.3
+        if evidence.contains("X-Powered-By:") {
+            let tech_part = evidence.split(':').nth(1)?.trim();
+            let parts: Vec<&str> = tech_part.split('/').collect();
+            let name = parts.first()?.trim().to_string();
+            let version = parts.get(1).map(|v| v.trim().to_string());
+            return Some(TechInfo {
+                name,
+                version,
+                category: "runtime".to_string(),
+            });
+        }
+
+        // Server: nginx/1.18.0
+        if evidence.contains("Server:") {
+            let tech_part = evidence.split(':').nth(1)?.trim();
+            let parts: Vec<&str> = tech_part.split('/').collect();
+            let name = parts.first()?.trim().to_string();
+            let version = parts
+                .get(1)
+                .map(|v| v.split_whitespace().next().unwrap_or(v).to_string());
+            return Some(TechInfo {
+                name,
+                version,
+                category: "server".to_string(),
+            });
+        }
+
+        None
+    }
+}
+
+/// Technology information extracted from evidence
+struct TechInfo {
+    name: String,
+    version: Option<String>,
+    category: String,
 }
 
 impl Default for WebScanner {

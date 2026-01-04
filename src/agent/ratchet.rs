@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use crate::crypto::chacha20::{chacha20poly1305_decrypt, chacha20poly1305_encrypt, generate_nonce};
 use crate::crypto::hkdf::hkdf;
 use crate::crypto::hmac::hmac_sha256;
+use crate::crypto::os_random;
 use crate::crypto::x25519::{x25519, x25519_public_key};
 
 /// Maximum number of skipped message keys to store
@@ -595,50 +596,10 @@ fn decrypt_aead(key: &[u8; 32], ciphertext: &[u8], ad: &[u8]) -> Result<Vec<u8>,
     chacha20poly1305_decrypt(key, &nonce, ad, ciphertext_and_tag)
 }
 
-/// Collect entropy for key generation
-///
-/// Combines multiple entropy sources:
-/// - /dev/urandom
-/// - High-resolution timing
-/// - Process/thread IDs
+/// Collect entropy for key generation using OS CSPRNG.
 fn collect_entropy_32() -> [u8; 32] {
-    use std::io::Read;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let mut entropy = [0u8; 64];
-    let mut pos = 0;
-
-    // Try /dev/urandom first (primary source on Unix)
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        let _ = file.read(&mut entropy[..32]);
-        pos = 32;
-    }
-
-    // Add timing entropy
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let nanos = now.as_nanos();
-    entropy[pos..pos + 16].copy_from_slice(&nanos.to_le_bytes());
-    pos += 16;
-
-    // Add process ID
-    let pid = std::process::id();
-    entropy[pos..pos + 4].copy_from_slice(&pid.to_le_bytes());
-    pos += 4;
-
-    // Add thread ID (hashed)
-    let thread_id = std::thread::current().id();
-    let thread_hash = format!("{:?}", thread_id);
-    for (i, b) in thread_hash.bytes().take(8).enumerate() {
-        entropy[pos + i] ^= b;
-    }
-
-    // Final mixing with HKDF
-    let output = hkdf(None, &entropy[..pos.max(32)], b"redblue-entropy-v1", 32);
-
     let mut result = [0u8; 32];
-    result.copy_from_slice(&output);
+    os_random::fill_bytes(&mut result).expect("OS CSPRNG unavailable");
     result
 }
 

@@ -4,7 +4,8 @@
 //!
 //! API Docs: https://osv.dev/docs/
 
-use super::types::{Severity, VersionRange, VulnSource, Vulnerability};
+use super::types::{VersionRange, VulnSource, Vulnerability};
+use crate::modules::common::Severity;
 use crate::protocols::http::HttpClient;
 use crate::utils::json::{parse_json, JsonValue};
 
@@ -197,7 +198,7 @@ impl OsvClient {
                         "HIGH" => Severity::High,
                         "MODERATE" | "MEDIUM" => Severity::Medium,
                         "LOW" => Severity::Low,
-                        _ => Severity::None,
+                        _ => Severity::Info,
                     };
                 }
             }

@@ -28,6 +28,10 @@ pub enum SegmentKind {
     Vuln = 11,
     Sessions = 12,
     Playbooks = 13,
+    Actions = 14,
+    Traces = 15,
+    /// Loot segment for pentest findings, credentials, and artifacts
+    Loot = 16,
 }
 
 impl SegmentKind {
@@ -46,6 +50,9 @@ impl SegmentKind {
             11 => Ok(SegmentKind::Vuln),
             12 => Ok(SegmentKind::Sessions),
             13 => Ok(SegmentKind::Playbooks),
+            14 => Ok(SegmentKind::Actions),
+            15 => Ok(SegmentKind::Traces),
+            16 => Ok(SegmentKind::Loot),
             _ => Err(DecodeError("unknown segment kind")),
         }
     }
@@ -421,8 +428,13 @@ mod tests {
     #[test]
     fn test_segment_kind_invalid() {
         assert!(SegmentKind::from_u8(0).is_err());
-        assert!(SegmentKind::from_u8(14).is_err()); // 1-13 are valid (Ports through Playbooks)
+        assert!(SegmentKind::from_u8(17).is_err()); // 1-16 are valid (Ports through Loot)
         assert!(SegmentKind::from_u8(255).is_err());
+    }
+
+    #[test]
+    fn test_segment_kind_loot() {
+        assert_eq!(SegmentKind::from_u8(16).unwrap(), SegmentKind::Loot);
     }
 
     // ==================== SegmentFlags Tests ====================

@@ -23,6 +23,7 @@
 /// - MD5 signatures (collision attacks)
 /// - SSLv2/SSLv3 (DROWN/POODLE)
 /// - Weak key sizes (<2048-bit RSA)
+use crate::synergy::events::{emit, EntityRef, Event, EventType, MitreAttack};
 use std::time::Duration;
 
 /// TLS protocol version
@@ -135,6 +136,37 @@ impl TlsScanner {
         for version in TlsVersion::all_versions() {
             let result = self.scan_protocol(host, port, version)?;
             results.push(result);
+        }
+
+        // Emit synergy events for findings
+        let target = format!("{}:{}", host, port);
+        for result in &results {
+            if result.supported {
+                // Emit discovery for supported protocols
+                let event = Event::new(EventType::Discovery, "tls::scanner")
+                    .with_entity(EntityRef::host(host.to_string()))
+                    .with_data("protocol", result.version.as_str())
+                    .with_data("port", port.to_string());
+                emit(event);
+
+                // Check for weak ciphers and emit vulnerability events
+                for cipher in &result.supported_ciphers {
+                    if matches!(
+                        cipher.strength,
+                        CipherStrength::Weak
+                            | CipherStrength::Insecure
+                            | CipherStrength::NullCipher
+                    ) {
+                        let vuln_event = Event::new(EventType::VulnFound, "tls::scanner")
+                            .with_entity(EntityRef::host(host.to_string()))
+                            .with_data("protocol", result.version.as_str())
+                            .with_data("cipher", cipher.name.clone())
+                            .with_data("strength", cipher.strength.as_str())
+                            .with_mitre(MitreAttack::from_id("T1557")); // Adversary-in-the-Middle
+                        emit(vuln_event);
+                    }
+                }
+            }
         }
 
         Ok(results)
@@ -463,34 +495,7 @@ pub struct SecurityIssue {
     pub cve: Option<String>,
 }
 
-/// Issue severity
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl Severity {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Severity::Low => "LOW",
-            Severity::Medium => "MEDIUM",
-            Severity::High => "HIGH",
-            Severity::Critical => "CRITICAL",
-        }
-    }
-
-    pub fn color(&self) -> &str {
-        match self {
-            Severity::Low => "blue",
-            Severity::Medium => "yellow",
-            Severity::High => "orange",
-            Severity::Critical => "red",
-        }
-    }
-}
+use crate::modules::common::Severity;
 
 #[cfg(test)]
 mod tests {

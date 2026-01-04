@@ -138,9 +138,7 @@ impl ConnectionLogger {
 
     /// Get current timestamp
     fn timestamp() -> String {
-        use chrono::Utc;
-        let now = Utc::now();
-        now.format("%Y-%m-%d %H:%M:%S.%3f").to_string()
+        crate::utils::timing::utc_timestamp_millis()
     }
 }
 

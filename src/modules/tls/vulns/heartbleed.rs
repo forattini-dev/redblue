@@ -5,15 +5,15 @@
 ///
 /// This is a CRITICAL vulnerability that can leak private keys and user data.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct HeartbleedChecker {
+pub struct HeartbleedScanner {
     timeout: Duration,
 }
 
-impl HeartbleedChecker {
+impl HeartbleedScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -68,13 +68,13 @@ impl HeartbleedChecker {
     }
 }
 
-impl Default for HeartbleedChecker {
+impl Default for HeartbleedScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for HeartbleedChecker {
+impl VulnScanner for HeartbleedScanner {
     fn name(&self) -> &str {
         "Heartbleed"
     }
@@ -87,7 +87,7 @@ impl VulnChecker for HeartbleedChecker {
         "OpenSSL TLS heartbeat memory disclosure vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         // Establish connection
         let mut stream = match connect_tcp(host, port, self.timeout) {
             Ok(s) => s,
@@ -168,7 +168,7 @@ impl VulnChecker for HeartbleedChecker {
     }
 }
 
-impl HeartbleedChecker {
+impl HeartbleedScanner {
     fn contains_server_hello_done(&self, data: &[u8]) -> bool {
         // Look for ServerHelloDone (type 14) in the handshake
         let mut pos = 0;

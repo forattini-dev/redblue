@@ -7,6 +7,13 @@ pub mod git_scanner;
 pub mod verifiers;
 
 use config::SecretsConfig;
+
+// Use canonical Severity from common module
+use crate::modules::common::Severity;
+
+/// Type alias for backward compatibility with existing code.
+/// New code should use `common::Severity` directly.
+pub type SecretSeverity = Severity;
 /// Secret detection module (Gitleaks replacement)
 ///
 /// Detects secrets, API keys, tokens, and credentials in code using:
@@ -50,20 +57,6 @@ pub struct SecretFinding {
     pub matched: String,
     pub line_content: String,
     pub secret_type: String, // For compatibility with existing code
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SecretSeverity {
-    Critical,
-    High,
-    Medium,
-    Low,
-}
-
-impl std::fmt::Display for SecretSeverity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 pub struct SecretScanner {

@@ -1,6 +1,7 @@
 // use rusqlite::{Connection, OpenFlags, Result as SqlResult};
+use crate::crypto::uuid::Uuid;
+use crate::serde_json::Value;
 use crate::storage::import::sqlite::SqliteReader;
-use serde_json::Value;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -61,7 +62,7 @@ impl BrowserCollector {
             if path.exists() {
                 // Copy the database file to a temporary location because it might be locked
                 let temp_path =
-                    env::temp_dir().join(format!("login_data_temp_{}.db", uuid::Uuid::new_v4()));
+                    env::temp_dir().join(format!("login_data_temp_{}.db", Uuid::new_v4()));
                 if let Err(e) = fs::copy(&path, &temp_path) {
                     eprintln!(
                         "Failed to copy Chrome Login Data from {:?} to {:?}: {}",
@@ -151,7 +152,7 @@ impl BrowserCollector {
 
         for path in paths {
             if let Ok(content) = fs::read_to_string(&path) {
-                match serde_json::from_str::<Value>(&content) {
+                match crate::serde_json::from_str::<Value>(&content) {
                     Ok(json_value) => {
                         if let Some(logins_array) = json_value["logins"].as_array() {
                             for login in logins_array {

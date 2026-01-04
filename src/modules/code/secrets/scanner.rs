@@ -2,18 +2,18 @@
 ///
 /// Main scanner that coordinates pattern matching, entropy analysis,
 /// and git history scanning.
-
 use super::{
-    SecretFinding, SecretSeverity, ScannerConfig, ScanSummary,
-    patterns::{SecretPattern, PatternCategory, get_all_patterns},
     entropy::EntropyAnalyzer,
+    patterns::{get_all_patterns, PatternCategory, SecretPattern},
+    ScanSummary, ScannerConfig, SecretFinding, SecretSeverity,
 };
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
-use std::collections::VecDeque;
 
 /// Main secrets scanner
 pub struct SecretsScanner {
@@ -59,7 +59,10 @@ impl SecretsScanner {
 
         // Spawn worker threads
         let mut handles = Vec::new();
-        let num_threads = self.config.threads.min(work_queue.lock().unwrap().len().max(1));
+        let num_threads = self
+            .config
+            .threads
+            .min(work_queue.lock().unwrap().len().max(1));
 
         for _ in 0..num_threads {
             let queue = Arc::clone(&work_queue);
@@ -69,34 +72,32 @@ impl SecretsScanner {
             let config = self.config.clone();
             let entropy_analyzer = EntropyAnalyzer::new(config.entropy_threshold);
 
-            let handle = thread::spawn(move || {
-                loop {
-                    let file = {
-                        let mut q = queue.lock().unwrap();
-                        q.pop_front()
-                    };
+            let handle = thread::spawn(move || loop {
+                let file = {
+                    let mut q = queue.lock().unwrap();
+                    q.pop_front()
+                };
 
-                    match file {
-                        Some(file_path) => {
-                            let file_findings = Self::scan_file_inner(
-                                &file_path,
-                                &patterns,
-                                &entropy_analyzer,
-                                &config,
-                            );
+                match file {
+                    Some(file_path) => {
+                        let file_findings = Self::scan_file_inner(
+                            &file_path,
+                            &patterns,
+                            &entropy_analyzer,
+                            &config,
+                        );
 
-                            if !file_findings.is_empty() {
-                                let mut f = findings.lock().unwrap();
-                                let mut s = summary.lock().unwrap();
+                        if !file_findings.is_empty() {
+                            let mut f = findings.lock().unwrap();
+                            let mut s = summary.lock().unwrap();
 
-                                for finding in file_findings {
-                                    s.add_finding(&finding);
-                                    f.push(finding);
-                                }
+                            for finding in file_findings {
+                                s.add_finding(&finding);
+                                f.push(finding);
                             }
                         }
-                        None => break,
                     }
+                    None => break,
                 }
             });
 
@@ -123,6 +124,9 @@ impl SecretsScanner {
             .unwrap_or_else(|_| panic!("Failed to unwrap summary"))
             .into_inner()
             .unwrap();
+
+        // Emit synergy events for discovered secrets
+        emit_secret_events(path, &findings);
 
         (findings, summary)
     }
@@ -183,7 +187,10 @@ impl SecretsScanner {
             let high_entropy_strings = entropy_analyzer.find_high_entropy_strings(line);
             for entropy_result in high_entropy_strings {
                 // Only report if not already found by a pattern
-                if !findings.iter().any(|f| f.match_text.contains(&entropy_result.value)) {
+                if !findings
+                    .iter()
+                    .any(|f| f.match_text.contains(&entropy_result.value))
+                {
                     let finding = SecretFinding {
                         secret_type: "High Entropy String".to_string(),
                         category: PatternCategory::GenericSecret,
@@ -223,9 +230,10 @@ impl SecretsScanner {
     ) -> Option<SecretFinding> {
         // First check if any keywords are present
         let has_keyword = pattern.keywords.is_empty()
-            || pattern.keywords.iter().any(|kw| {
-                line.to_lowercase().contains(&kw.to_lowercase())
-            });
+            || pattern
+                .keywords
+                .iter()
+                .any(|kw| line.to_lowercase().contains(&kw.to_lowercase()));
 
         if !has_keyword {
             return None;
@@ -404,7 +412,9 @@ fn extract_potential_secrets(line: &str) -> Vec<String> {
     let mut secrets = Vec::new();
 
     // Split on common delimiters
-    let delimiters = [' ', '\t', '"', '\'', '`', '=', ':', ';', ',', '(', ')', '[', ']', '{', '}', '<', '>'];
+    let delimiters = [
+        ' ', '\t', '"', '\'', '`', '=', ':', ';', ',', '(', ')', '[', ']', '{', '}', '<', '>',
+    ];
 
     for word in line.split(|c| delimiters.contains(&c)) {
         let trimmed = word.trim();
@@ -450,6 +460,30 @@ fn redact_secret(secret: &str) -> String {
         &secret[..prefix_len],
         &secret[secret.len() - suffix_len..]
     )
+}
+
+/// Emit synergy events for discovered secrets
+///
+/// This enables cross-module integration:
+/// - Alert generation for high-severity findings
+/// - Correlation with other security events
+/// - Automated response workflows
+fn emit_secret_events(scan_path: &Path, findings: &[SecretFinding]) {
+    for finding in findings {
+        let severity_str = finding.severity.as_str();
+
+        let event = Event::new(EventType::VulnFound, "code::secrets")
+            .with_entity(EntityRef::vulnerability(&finding.secret_type))
+            .with_data("severity", severity_str)
+            .with_data("category", finding.category.to_string())
+            .with_data("secret_type", &finding.secret_type)
+            .with_data("file", finding.file_path.to_string_lossy())
+            .with_data("line", finding.line_number.to_string())
+            .with_data("confidence", format!("{:.2}", finding.confidence))
+            .with_data("scan_path", scan_path.to_string_lossy());
+
+        emit(event);
+    }
 }
 
 #[cfg(test)]

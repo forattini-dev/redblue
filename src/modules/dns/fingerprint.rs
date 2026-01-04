@@ -10,6 +10,7 @@
 /// Full fingerprinting (server software detection, censorship detection) will
 /// require parsing raw DNS packets to access flags, TTL, and other metadata.
 use crate::protocols::dns::{DnsClient, DnsRecordType};
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -49,7 +50,19 @@ impl DNSIntelligence {
 
         // Try to resolve a well-known external domain
         match client.query("google.com", DnsRecordType::A) {
-            Ok(answers) => !answers.is_empty(),
+            Ok(answers) => {
+                let is_open = !answers.is_empty();
+                if is_open {
+                    // Emit discovery event for open resolver (security concern)
+                    let event = Event::new(EventType::Discovery, "dns::fingerprint")
+                        .with_entity(EntityRef::service(server))
+                        .with_data("finding", "open_resolver")
+                        .with_data("server", server)
+                        .with_data("risk", "medium");
+                    emit(event);
+                }
+                is_open
+            }
             Err(_) => false,
         }
     }

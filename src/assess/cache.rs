@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::modules::web::fingerprinter::Technology;
 use crate::storage::records::VulnerabilityRecord;
-use crate::storage::RedDb;
+use crate::storage::QueryManager;
 
 /// Default cache TTL: 24 hours
 pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -135,9 +135,13 @@ impl CacheManager {
     /// Get cached technology fingerprints for a target
     ///
     /// Returns None if no data exists, otherwise returns data with cache status
-    pub fn get_technologies(&self, target: &str, db: &mut RedDb) -> Option<CachedTechnologies> {
+    pub fn get_technologies(
+        &self,
+        target: &str,
+        db: &mut QueryManager,
+    ) -> Option<CachedTechnologies> {
         // Try to get HTTP records for this host (contains fingerprint data)
-        let records = db.get_http_by_host(target).ok()?;
+        let records = db.list_http_records(target).ok()?;
         if records.is_empty() {
             return None;
         }
@@ -178,9 +182,9 @@ impl CacheManager {
     pub fn get_vulnerabilities(
         &self,
         _target: &str,
-        db: &mut RedDb,
+        db: &mut QueryManager,
     ) -> Option<CachedVulnerabilities> {
-        let vulns = db.vulns().all().ok()?;
+        let vulns = db.list_vulnerabilities().ok()?;
         if vulns.is_empty() {
             return None;
         }
@@ -198,21 +202,21 @@ impl CacheManager {
     }
 
     /// Check if fingerprint cache is valid (fresh)
-    pub fn has_fresh_fingerprints(&self, target: &str, db: &mut RedDb) -> bool {
+    pub fn has_fresh_fingerprints(&self, target: &str, db: &mut QueryManager) -> bool {
         self.get_technologies(target, db)
             .map(|c| c.status.is_fresh())
             .unwrap_or(false)
     }
 
     /// Check if vulnerability cache is valid (fresh)
-    pub fn has_fresh_vulnerabilities(&self, target: &str, db: &mut RedDb) -> bool {
+    pub fn has_fresh_vulnerabilities(&self, target: &str, db: &mut QueryManager) -> bool {
         self.get_vulnerabilities(target, db)
             .map(|c| c.status.is_fresh())
             .unwrap_or(false)
     }
 
     /// Invalidate cache for a target (by updating timestamps)
-    pub fn invalidate(&self, _target: &str, _db: &mut RedDb) {
+    pub fn invalidate(&self, _target: &str, _db: &mut QueryManager) {
         // Cache invalidation is handled by storing new data
         // Old data naturally becomes stale
     }

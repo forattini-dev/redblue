@@ -1,17 +1,17 @@
-/// Ticketbleed Vulnerability Checker (CVE-2016-9244)
+/// Ticketbleed Vulnerability Scanner (CVE-2016-9244)
 ///
 /// Tests for F5 BIG-IP session ticket memory disclosure vulnerability.
 /// Allows attackers to extract 31 bytes of uninitialized memory per request.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct TicketbleedChecker {
+pub struct TicketbleedScanner {
     timeout: Duration,
 }
 
-impl TicketbleedChecker {
+impl TicketbleedScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -294,13 +294,13 @@ impl TicketbleedChecker {
     }
 }
 
-impl Default for TicketbleedChecker {
+impl Default for TicketbleedScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for TicketbleedChecker {
+impl VulnScanner for TicketbleedScanner {
     fn name(&self) -> &str {
         "Ticketbleed"
     }
@@ -313,7 +313,7 @@ impl VulnChecker for TicketbleedChecker {
         "F5 BIG-IP session ticket memory disclosure vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         match self.check_ticketbleed(host, port) {
             Ok((true, evidence)) => {
                 VulnCheckResult::vulnerable(

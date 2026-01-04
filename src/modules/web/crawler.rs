@@ -18,6 +18,8 @@ use crate::modules::web::dom::Document;
 use crate::modules::web::extractors;
 use crate::protocols::har::HarRecorder;
 use crate::protocols::http::{HttpClient, HttpRequest, HttpResponseHandler, HttpResponseHead};
+use crate::storage::engine::emitter::GraphEmitter;
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -293,6 +295,9 @@ impl WebCrawler {
                 }
             }
         }
+
+        // Emit synergy events for crawl results
+        emit_crawl_events(&base_url, &pages);
 
         Ok(CrawlResult {
             total_urls: pages.len(),
@@ -846,6 +851,100 @@ impl WebCrawler {
 
         Ok(parts[2].to_string())
     }
+
+    // ========================================================================
+    // Graph Integration
+    // ========================================================================
+
+    /// Emit crawl results to the graph database
+    ///
+    /// Creates:
+    /// - Host node for the target domain
+    /// - Endpoint nodes for each crawled page
+    /// - Form endpoints for discovered forms
+    pub fn emit_to_graph(&self, result: &CrawlResult, emitter: Option<&GraphEmitter>) {
+        // Use provided emitter or global singleton
+        let global_emitter;
+        let emitter = match emitter {
+            Some(e) => e,
+            None => {
+                global_emitter = GraphEmitter::global();
+                &*global_emitter
+            }
+        };
+
+        // Track unique hosts
+        let mut hosts_emitted = HashSet::new();
+
+        for page in &result.pages {
+            // Extract host from URL
+            let host = Self::extract_host_from_url(&page.url);
+            if host.is_empty() {
+                continue;
+            }
+
+            // Emit host node once per host
+            if !hosts_emitted.contains(&host) {
+                emitter.emit_host(&host, None, None);
+                hosts_emitted.insert(host.clone());
+            }
+
+            // Extract path from URL
+            let path = Self::extract_path_from_url(&page.url);
+
+            // Emit endpoint for this page
+            emitter.emit_endpoint(&host, "GET", &path, Some(page.status_code));
+
+            // Emit form endpoints
+            for form in &page.forms {
+                let form_method = form.method.to_uppercase();
+                let form_path = Self::extract_path_from_url(&form.action);
+                emitter.emit_endpoint(&host, &form_method, &form_path, None);
+            }
+        }
+    }
+
+    /// Crawl and emit results to graph in one call
+    pub fn crawl_with_graph(&mut self, start_url: &str) -> Result<CrawlResult, String> {
+        let result = self.crawl(start_url)?;
+        self.emit_to_graph(&result, None);
+        Ok(result)
+    }
+
+    /// Extract host/IP from URL
+    fn extract_host_from_url(url: &str) -> String {
+        // Remove scheme
+        let without_scheme = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .unwrap_or(url);
+
+        // Extract host (before any path or port)
+        without_scheme
+            .split('/')
+            .next()
+            .unwrap_or(without_scheme)
+            .split(':')
+            .next()
+            .unwrap_or(without_scheme)
+            .to_string()
+    }
+
+    /// Extract path from URL
+    fn extract_path_from_url(url: &str) -> String {
+        // Remove scheme
+        let without_scheme = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .unwrap_or(url);
+
+        // Find path (after host)
+        if let Some(slash_pos) = without_scheme.find('/') {
+            without_scheme[slash_pos..].to_string()
+        } else {
+            "/".to_string()
+        }
+    }
 }
 
 /// Check if content type indicates text content (for HAR recording)
@@ -882,6 +981,38 @@ impl HttpResponseHandler for CollectingHandler {
 impl Default for WebCrawler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Emit synergy events for crawled pages
+///
+/// This enables cross-module integration:
+/// - Triggering vulnerability scanning on discovered endpoints
+/// - Form input extraction for automated testing
+/// - Asset cataloging for JavaScript analysis
+fn emit_crawl_events(base_url: &str, pages: &[CrawledPage]) {
+    for page in pages {
+        // Emit discovery event for each crawled page (using service for web endpoints)
+        let event = Event::new(EventType::Discovery, "web::crawler")
+            .with_entity(EntityRef::service(&page.url).with_label("webpage"))
+            .with_data("base_url", base_url)
+            .with_data("status_code", page.status_code.to_string())
+            .with_data("depth", page.depth.to_string())
+            .with_data("link_count", page.links.len().to_string());
+
+        emit(event);
+
+        // Emit discovery event for forms (high-value attack surface)
+        for form in &page.forms {
+            let form_event = Event::new(EventType::Discovery, "web::crawler")
+                .with_entity(EntityRef::service(&form.action).with_label("form"))
+                .with_data("type", "form")
+                .with_data("method", &form.method)
+                .with_data("input_count", form.inputs.len().to_string())
+                .with_data("source_page", &page.url);
+
+            emit(form_event);
+        }
     }
 }
 

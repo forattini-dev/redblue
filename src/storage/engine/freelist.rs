@@ -196,6 +196,8 @@ impl FreeList {
             )));
         }
 
+        self.free_pages.push(trunk.page_id());
+
         // Read page IDs
         for i in 0..count {
             let offset = PAGE_IDS_OFFSET + i * 4;
@@ -207,6 +209,8 @@ impl FreeList {
             ]);
             self.free_pages.push(page_id);
         }
+        self.total_free = self.total_free.saturating_add(count as u32 + 1);
+        self.dirty = true;
 
         // Update trunk head to next trunk
         self.trunk_head = next_trunk;
@@ -391,6 +395,27 @@ mod tests {
         fl.load_from_trunk(&trunk).unwrap();
 
         assert_eq!(fl.in_memory_count(), pages_in_trunk);
+    }
+
+    #[test]
+    fn test_trunk_page_reuse() {
+        let mut original = FreeList::new();
+
+        for i in 0..8 {
+            original.free(i);
+        }
+
+        let trunk = original.create_trunk(999, 0);
+
+        let mut fl = FreeList::new();
+        fl.load_from_trunk(&trunk).unwrap();
+
+        let mut ids = Vec::new();
+        while let Some(id) = fl.allocate() {
+            ids.push(id);
+        }
+
+        assert!(ids.contains(&999));
     }
 
     #[test]

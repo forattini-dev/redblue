@@ -10,6 +10,7 @@ pub mod dns;
 pub mod http;
 pub mod websocket;
 
+use crate::crypto::os_random;
 use std::time::Duration;
 
 /// Transport result type
@@ -34,6 +35,17 @@ pub enum TransportError {
     RateLimited,
     /// Generic transport error
     Other(String),
+}
+
+pub(crate) fn fill_csprng(buf: &mut [u8]) -> TransportResult<()> {
+    os_random::fill_bytes(buf)
+        .map_err(|e| TransportError::Other(format!("CSPRNG unavailable: {}", e)))
+}
+
+pub(crate) fn csprng_u64() -> TransportResult<u64> {
+    let mut bytes = [0u8; 8];
+    fill_csprng(&mut bytes)?;
+    Ok(u64::from_le_bytes(bytes))
 }
 
 impl std::fmt::Display for TransportError {
@@ -64,6 +76,8 @@ pub struct TransportConfig {
     pub retry_delay: Duration,
     /// Enable TLS
     pub use_tls: bool,
+    /// Verify TLS certificates and hostnames
+    pub tls_verify: bool,
     /// TLS certificate pinning (SHA256 fingerprints)
     pub cert_pins: Vec<[u8; 32]>,
     /// Custom headers for HTTP
@@ -78,6 +92,7 @@ impl Default for TransportConfig {
             retry_count: 3,
             retry_delay: Duration::from_secs(1),
             use_tls: false,
+            tls_verify: true,
             cert_pins: Vec::new(),
             custom_headers: Vec::new(),
         }
@@ -378,6 +393,12 @@ mod tests {
         let result2 = chain.send(b"test");
         assert!(result2.is_ok());
         assert_eq!(chain.active_index, 1); // Now on dns
+    }
+
+    #[test]
+    fn test_transport_config_defaults() {
+        let config = TransportConfig::default();
+        assert!(config.tls_verify);
     }
 
     #[test]

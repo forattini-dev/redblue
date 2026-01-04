@@ -12,16 +12,31 @@
 ///
 /// NO external dependencies - pure Rust implementation
 use crate::protocols::http::HttpClient;
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 pub mod filters;
 pub mod modes;
+pub mod ratelimit;
+pub mod resume;
+pub mod simhash;
+pub mod similarity;
 pub mod wordlist;
 
 pub use filters::{FilterAction, ResponseFilter};
 pub use modes::{AttackMode, FuzzPosition};
+pub use ratelimit::{
+    AdaptiveRateLimiter, RateLimitConfig, RateLimitResult, RateLimitStats, RateLimiterBuilder,
+    TargetRateLimiter,
+};
+pub use resume::{
+    Checkpoint, CheckpointInfo, CheckpointStats, ResumeConfig, ResumeManager, ResumeManagerBuilder,
+    ScanId,
+};
+pub use simhash::{Simhash, SimhashCalculator, SimhashConfig, SimhashIndex};
+pub use similarity::{SimilarityConfig, SimilarityFilter, SimilarityResult, Soft404Detector};
 pub use wordlist::WordlistManager;
 
 /// The FUZZ keyword used as placeholder in URLs, headers, body, etc.
@@ -702,6 +717,17 @@ impl DirectoryFuzzer {
 
         let final_results = results.lock().unwrap().clone();
         stats.found = final_results.len();
+
+        // Emit synergy events for discovered paths
+        for result in &final_results {
+            let full_url = format!("{}{}", self.base_url.trim_end_matches('/'), result.path);
+            let event = Event::new(EventType::Discovery, "web::fuzzer")
+                .with_entity(EntityRef::url(full_url))
+                .with_data("status_code", result.status_code.to_string())
+                .with_data("size", result.size.to_string())
+                .with_data("interesting", result.interesting.to_string());
+            emit(event);
+        }
 
         Ok((final_results, stats))
     }

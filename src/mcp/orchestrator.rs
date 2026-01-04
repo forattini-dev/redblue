@@ -5,8 +5,9 @@
 
 use crate::mcp::sampling::{
     Finding, FindingType, OperationType, SamplingContent, SamplingContext, SamplingRequest,
-    SamplingResponse, SamplingScenarios, Severity,
+    SamplingResponse, SamplingScenarios,
 };
+use crate::modules::common::Severity;
 use crate::modules::network::scanner::PortScanner;
 use crate::protocols::dns::{DnsClient, DnsRdata, DnsRecordType};
 use std::collections::HashMap;
@@ -306,6 +307,120 @@ impl Orchestrator {
 
         op.state = OperationState::Completed;
         Ok(())
+    }
+
+    /// Run operation to completion with sampling loop
+    ///
+    /// This is the main entry point for autonomous operations. It:
+    /// 1. Runs steps until guidance is needed
+    /// 2. Sends sampling request via channel
+    /// 3. Waits for LLM response
+    /// 4. Provides guidance and continues
+    /// 5. Repeats until completed or paused
+    pub fn run_with_sampling(&mut self, op_id: &str) -> Result<OperationResult, String> {
+        let mut result_messages = Vec::new();
+
+        loop {
+            let step_result = self.step(op_id)?;
+
+            match step_result {
+                StepResult::Progress { message, findings } => {
+                    result_messages.push(format!("[Progress] {} ({} findings)", message, findings));
+                }
+                StepResult::NeedsGuidance { request } => {
+                    // Send sampling request if we have a channel
+                    if let (Some(tx), Some(rx)) = (&self.sampling_tx, &self.sampling_rx) {
+                        if let Some(req) = request {
+                            // Send request to LLM
+                            tx.send(req.clone())
+                                .map_err(|e| format!("Failed to send sampling request: {}", e))?;
+
+                            result_messages.push("[Sampling] Awaiting LLM guidance...".to_string());
+
+                            // Wait for response (blocking)
+                            match rx.recv() {
+                                Ok(response) => {
+                                    result_messages.push(format!(
+                                        "[Guidance] Received: {}...",
+                                        &response.content[..response.content.len().min(100)]
+                                    ));
+                                    self.provide_guidance(op_id, response)?;
+                                }
+                                Err(e) => {
+                                    return Err(format!("Failed to receive guidance: {}", e));
+                                }
+                            }
+                        }
+                    } else {
+                        // No sampling channel - return for external handling
+                        return Ok(OperationResult {
+                            status: "awaiting_guidance".to_string(),
+                            messages: result_messages,
+                            pending_request: request,
+                        });
+                    }
+                }
+                StepResult::PausedForReview { reason } => {
+                    result_messages.push(format!("[Paused] {}", reason));
+                    return Ok(OperationResult {
+                        status: "paused".to_string(),
+                        messages: result_messages,
+                        pending_request: None,
+                    });
+                }
+                StepResult::Paused => {
+                    return Ok(OperationResult {
+                        status: "paused".to_string(),
+                        messages: result_messages,
+                        pending_request: None,
+                    });
+                }
+                StepResult::Completed { findings, actions } => {
+                    result_messages.push(format!(
+                        "[Completed] {} findings, {} actions taken",
+                        findings, actions
+                    ));
+                    return Ok(OperationResult {
+                        status: "completed".to_string(),
+                        messages: result_messages,
+                        pending_request: None,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Run a single iteration without blocking (for async/polling usage)
+    pub fn run_step(&mut self, op_id: &str) -> Result<StepOutput, String> {
+        let step_result = self.step(op_id)?;
+
+        match step_result {
+            StepResult::Progress { message, findings } => {
+                Ok(StepOutput::Progress { message, findings })
+            }
+            StepResult::NeedsGuidance { request } => Ok(StepOutput::NeedsGuidance { request }),
+            StepResult::PausedForReview { reason } => Ok(StepOutput::Paused { reason }),
+            StepResult::Paused => Ok(StepOutput::Paused {
+                reason: "Manual pause".to_string(),
+            }),
+            StepResult::Completed { findings, actions } => {
+                Ok(StepOutput::Completed { findings, actions })
+            }
+        }
+    }
+
+    /// Get the findings for an operation
+    pub fn get_findings(&self, op_id: &str) -> Option<Vec<Finding>> {
+        self.operations
+            .get(op_id)
+            .map(|op| op.context.findings.clone())
+    }
+
+    /// Get the action history for an operation
+    pub fn get_action_history(&self, op_id: &str) -> Option<Vec<ActionRecord>> {
+        self.operations
+            .get(op_id)
+            .map(|op| op.action_history.clone())
     }
 
     // Private helper methods
@@ -626,6 +741,30 @@ pub struct OperationStatus {
     pub actions: usize,
     pub iteration: u32,
     pub max_iterations: u32,
+}
+
+/// Result of running an operation
+#[derive(Debug)]
+pub struct OperationResult {
+    /// Final status
+    pub status: String,
+    /// Log messages
+    pub messages: Vec<String>,
+    /// Pending sampling request (if awaiting guidance)
+    pub pending_request: Option<SamplingRequest>,
+}
+
+/// Output from a single step (for non-blocking usage)
+#[derive(Debug)]
+pub enum StepOutput {
+    /// Made progress
+    Progress { message: String, findings: usize },
+    /// Needs LLM guidance
+    NeedsGuidance { request: Option<SamplingRequest> },
+    /// Paused
+    Paused { reason: String },
+    /// Completed
+    Completed { findings: usize, actions: usize },
 }
 
 /// Recommended action from LLM

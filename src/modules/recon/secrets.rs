@@ -4,27 +4,12 @@
 //! Adds URL scanning capability for web reconnaissance.
 
 pub use crate::modules::collection::secrets::{SecretFinding, SecretRule, SecretScanner};
+use crate::modules::common::Severity;
 use crate::protocols::http::HttpClient;
 
-/// Secret severity levels for classification
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SecretSeverity {
-    Critical,
-    High,
-    Medium,
-    Low,
-}
-
-impl std::fmt::Display for SecretSeverity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SecretSeverity::Critical => write!(f, "CRITICAL"),
-            SecretSeverity::High => write!(f, "HIGH"),
-            SecretSeverity::Medium => write!(f, "MEDIUM"),
-            SecretSeverity::Low => write!(f, "LOW"),
-        }
-    }
-}
+/// Type alias for backward compatibility with existing code.
+/// New code should use `common::Severity` directly.
+pub type SecretSeverity = Severity;
 
 /// Web-focused secret finding with severity
 #[derive(Debug, Clone)]
@@ -106,18 +91,14 @@ impl SecretsScanner {
         Ok(findings)
     }
 
-    fn classify_severity(rule_id: &str) -> SecretSeverity {
+    fn classify_severity(rule_id: &str) -> Severity {
         match rule_id {
-            "private-key" | "aws-secret-access-key" | "database-connection" => {
-                SecretSeverity::Critical
-            }
-            "aws-access-key-id" | "github-token" | "slack-token" | "jwt-token" => {
-                SecretSeverity::High
-            }
+            "private-key" | "aws-secret-access-key" | "database-connection" => Severity::Critical,
+            "aws-access-key-id" | "github-token" | "slack-token" | "jwt-token" => Severity::High,
             "generic-api-key" | "generic-secret" | "bearer-token" | "oauth-token" => {
-                SecretSeverity::Medium
+                Severity::Medium
             }
-            "password" | _ => SecretSeverity::Low,
+            "password" | _ => Severity::Low,
         }
     }
 

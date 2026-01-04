@@ -10,6 +10,9 @@ use crate::config;
 use crate::intelligence::{
     banner_analysis, os_probes, os_signatures, service_detection, timing_analysis,
 };
+use crate::modules::network::highspeed::{
+    DeduplicationCache, RandomScanIterator, ScanRange, SynCookie, TokenBucket,
+};
 use crate::modules::network::scanner::{AdvancedScanner, PortScanner, ScanType, TimingTemplate};
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
@@ -62,6 +65,11 @@ impl Command for ScanCommand {
                 summary: "Discover and scan all hosts in a subnet (CIDR notation)",
                 usage: "rb network ports subnet <cidr> [--preset common]",
             },
+            Route {
+                verb: "mass-scan",
+                summary: "High-speed masscan-style scan with BlackRock IP randomization",
+                usage: "rb network ports mass-scan <cidr> [--rate 1000] [--ports 1-1000]",
+            },
         ]
     }
 
@@ -108,6 +116,13 @@ impl Command for ScanCommand {
                 "Enable OS fingerprinting (TCP/IP stack analysis, requires open port)",
             )
             .with_short('O'),
+            // High-speed scanning flags
+            Flag::new("rate", "Packets per second for mass-scan (default: 1000)")
+                .with_short('r'),
+            Flag::new("ports", "Port specification for mass-scan (e.g., 1-1000,8080,8443)"),
+            Flag::new("resume", "Resume mass-scan from index"),
+            Flag::new("shard", "Distributed shard: N/M (e.g., 1/4 for first of 4 shards)"),
+            Flag::new("seed", "Random seed for reproducible IP ordering"),
         ]
     }
 
@@ -190,6 +205,18 @@ impl Command for ScanCommand {
                 "Full scan with OS detection",
                 "rb network ports scan 192.168.1.1 -O --intel",
             ),
+            (
+                "Mass scan subnet (BlackRock randomization)",
+                "rb network ports mass-scan 192.168.1.0/24 --rate 1000 --ports 1-1000",
+            ),
+            (
+                "Mass scan with resume capability",
+                "rb network ports mass-scan 10.0.0.0/8 --rate 10000 --resume 1000000",
+            ),
+            (
+                "Distributed shard scan (1st of 4 workers)",
+                "rb network ports mass-scan 10.0.0.0/8 --shard 1/4",
+            ),
         ]
     }
 
@@ -206,6 +233,7 @@ impl Command for ScanCommand {
             "udp-scan" => self.advanced_scan(ctx, ScanType::Udp),
             "stealth" => self.stealth_scan(ctx),
             "subnet" => self.scan_subnet(ctx),
+            "mass-scan" => self.mass_scan(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 println!(
@@ -1438,6 +1466,200 @@ impl ScanCommand {
 
         Ok(())
     }
+
+    /// High-speed mass scan using BlackRock cipher for IP randomization
+    fn mass_scan(&self, ctx: &CliContext) -> Result<(), String> {
+        let target = ctx.target.as_ref().ok_or_else(|| {
+            "Missing target CIDR. Usage: rb network ports mass-scan <cidr> [--rate 1000]"
+                .to_string()
+        })?;
+
+        // Parse rate (packets per second)
+        let rate: f64 = ctx
+            .flags
+            .get("rate")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1000.0);
+
+        // Parse port specification (default: common ports)
+        let ports: Vec<u16> = if let Some(port_spec) = ctx.flags.get("ports") {
+            parse_port_spec(port_spec)?
+        } else {
+            vec![
+                21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995, 3306, 3389, 5432, 8080, 8443,
+            ]
+        };
+
+        // Parse resume index
+        let resume_idx: u64 = ctx
+            .flags
+            .get("resume")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        // Parse shard (e.g., "1/4" for first of 4 shards)
+        let (shard_num, shard_total) = if let Some(shard_spec) = ctx.flags.get("shard") {
+            let parts: Vec<&str> = shard_spec.split('/').collect();
+            if parts.len() == 2 {
+                let n = parts[0].parse().unwrap_or(1);
+                let total = parts[1].parse().unwrap_or(1);
+                (n.max(1), total.max(1))
+            } else {
+                (1, 1)
+            }
+        } else {
+            (1, 1)
+        };
+
+        // Parse seed for reproducible randomization
+        let seed: u64 = ctx
+            .flags
+            .get("seed")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64
+            });
+
+        Output::header("High-Speed Mass Scan (BlackRock)");
+        Output::item("Target", target);
+        Output::item("Rate", &format!("{} pps", rate));
+        Output::item("Ports", &format!("{} ports", ports.len()));
+        if resume_idx > 0 {
+            Output::item("Resume from", &resume_idx.to_string());
+        }
+        if shard_total > 1 {
+            Output::item("Shard", &format!("{}/{}", shard_num, shard_total));
+        }
+        Output::item("Seed", &seed.to_string());
+        println!();
+
+        // Parse CIDR into IP range
+        let scan_range =
+            ScanRange::from_cidr(target, ports).map_err(|e| format!("Invalid CIDR: {}", e))?;
+
+        let total_targets = scan_range.total_targets();
+        Output::item("Total targets", &format!("{}", total_targets));
+
+        // Calculate shard range
+        let shard_size = total_targets / shard_total as u64;
+        let shard_start = (shard_num - 1) as u64 * shard_size;
+        let shard_end = if shard_num as u64 == shard_total as u64 {
+            total_targets
+        } else {
+            shard_start + shard_size
+        };
+
+        // Create scanner components
+        let mut rate_limiter = TokenBucket::new(rate);
+        let syn_cookie = SynCookie::new();
+        let mut dedup = DeduplicationCache::new();
+
+        // Create randomized iterator with BlackRock cipher
+        let mut iterator = RandomScanIterator::new(scan_range, seed);
+
+        // Skip to resume position
+        if resume_idx > 0 {
+            for _ in 0..resume_idx {
+                let _ = iterator.next();
+            }
+        }
+
+        // Progress tracking
+        let mut scanned = resume_idx;
+        let mut open_ports = 0_u64;
+        let start_time = std::time::Instant::now();
+
+        Output::info(&format!("Scanning {} targets...", shard_end - shard_start));
+
+        // Scan loop
+        for (ip, port, _seq) in iterator {
+            if scanned >= shard_end {
+                break;
+            }
+
+            // Rate limiting
+            while rate_limiter.acquire(1) == 0 {
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+
+            // Generate SYN cookie for stateless tracking
+            let ip_u32 = u32::from(ip);
+            let _cookie = syn_cookie.generate(ip_u32, port, ip_u32, port);
+
+            // Quick TCP connect check (simplified - full implementation would use raw sockets)
+            let addr_str = format!("{}:{}", ip, port);
+            if let Ok(addr) = addr_str.parse::<std::net::SocketAddr>() {
+                if let Ok(_) = std::net::TcpStream::connect_timeout(
+                    &addr,
+                    std::time::Duration::from_millis(100),
+                ) {
+                    // Deduplicate - insert() returns true if NEW (not seen before)
+                    if dedup.insert(ip_u32, port) {
+                        open_ports += 1;
+                        println!("\x1b[32mOPEN\x1b[0m {}:{}", ip, port);
+                    }
+                }
+            }
+
+            scanned += 1;
+
+            // Progress every 10000 targets
+            if scanned % 10000 == 0 {
+                let elapsed = start_time.elapsed().as_secs_f64();
+                let actual_rate = scanned as f64 / elapsed;
+                eprint!(
+                    "\r  Progress: {} / {} ({:.0} pps)",
+                    scanned, shard_end, actual_rate
+                );
+            }
+        }
+
+        let elapsed = start_time.elapsed();
+        println!();
+        println!();
+        Output::success(&format!(
+            "Scan complete: {} open ports found in {:.2}s",
+            open_ports,
+            elapsed.as_secs_f64()
+        ));
+        Output::item(
+            "Average rate",
+            &format!("{:.0} pps", scanned as f64 / elapsed.as_secs_f64()),
+        );
+
+        Ok(())
+    }
+}
+
+/// Parse port specification like "1-1000,8080,8443"
+fn parse_port_spec(spec: &str) -> Result<Vec<u16>, String> {
+    let mut ports = Vec::new();
+    for part in spec.split(',') {
+        let part = part.trim();
+        if part.contains('-') {
+            let range: Vec<&str> = part.split('-').collect();
+            if range.len() == 2 {
+                let start: u16 = range[0]
+                    .parse()
+                    .map_err(|_| format!("Invalid port: {}", range[0]))?;
+                let end: u16 = range[1]
+                    .parse()
+                    .map_err(|_| format!("Invalid port: {}", range[1]))?;
+                for p in start..=end {
+                    ports.push(p);
+                }
+            }
+        } else {
+            let p: u16 = part
+                .parse()
+                .map_err(|_| format!("Invalid port: {}", part))?;
+            ports.push(p);
+        }
+    }
+    Ok(ports)
 }
 
 fn truncate_banner(input: &str, max_len: usize) -> String {

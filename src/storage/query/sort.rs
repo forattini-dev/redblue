@@ -108,6 +108,10 @@ fn value_type_tag(v: &Value) -> u8 {
         Value::Vector(_) => 11,
         Value::Json(_) => 12,
         Value::Uuid(_) => 13,
+        Value::NodeRef(_) => 14,
+        Value::EdgeRef(_) => 15,
+        Value::VectorRef(_, _) => 16,
+        Value::RowRef(_, _) => 17,
     }
 }
 

@@ -13,6 +13,8 @@
 /// service implementations and detect security misconfigurations.
 use std::collections::HashMap;
 
+use crate::modules::common::Severity;
+
 /// Behavioral fingerprint result
 #[derive(Debug, Clone)]
 pub struct BehaviorFingerprint {
@@ -71,15 +73,7 @@ pub enum IndicatorType {
     DebugModeEnabled,
 }
 
-/// Severity level
-#[derive(Debug, Clone, PartialEq)]
-pub enum Severity {
-    Critical,
-    High,
-    Medium,
-    Low,
-    Info,
-}
+// Severity imported from crate::modules::common
 
 /// Analyze SSH error message patterns
 ///

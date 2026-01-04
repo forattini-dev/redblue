@@ -1,10 +1,12 @@
 /// High-performance TCP port scanner implemented with the standard library only.
 /// Provides a worker-pool based TCP connect scanner with lightweight banner capture.
 use crate::config;
+use crate::storage::engine::emitter::GraphEmitter;
 use std::collections::VecDeque;
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr, TcpStream};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -399,6 +401,234 @@ impl PortScanner {
             10000, 10250, 11211, 15672, 27017, 50000, 50051, 50070, 61616,
         ]
     }
+
+    /// Emit scan results to the intelligence graph
+    ///
+    /// This method automatically populates the graph with:
+    /// - Host node for the target
+    /// - Service nodes for each open port
+    /// - Technology nodes extracted from banners
+    ///
+    /// # Arguments
+    /// * `results` - Scan results to emit
+    /// * `emitter` - Optional emitter (uses global if None)
+    pub fn emit_to_graph(&self, results: &[PortScanResult], emitter: Option<&GraphEmitter>) {
+        let global_emitter;
+        let emitter = match emitter {
+            Some(e) => e,
+            None => {
+                global_emitter = GraphEmitter::global();
+                &*global_emitter
+            }
+        };
+
+        let target_ip = self.target.to_string();
+
+        // Emit host node
+        emitter.emit_host(&target_ip, None, None);
+
+        // Emit open services
+        for result in results.iter().filter(|r| r.is_open) {
+            let service_name = result.service.as_deref().unwrap_or("unknown");
+            let version = Self::extract_version_from_banner(result.banner.as_deref());
+
+            emitter.emit_service(&target_ip, result.port, service_name, version.as_deref());
+
+            // If we have a banner, store it as a property
+            if let Some(banner) = &result.banner {
+                emitter.emit_service_with_banner(
+                    &target_ip,
+                    result.port,
+                    service_name,
+                    version.as_deref(),
+                    banner,
+                );
+
+                // Try to extract technology from banner
+                if let Some(tech) = Self::extract_tech_from_banner(banner) {
+                    emitter.emit_technology(
+                        &target_ip,
+                        &tech.name,
+                        tech.version.as_deref(),
+                        Some(&tech.category),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Extract version string from banner
+    fn extract_version_from_banner(banner: Option<&str>) -> Option<String> {
+        let banner = banner?;
+
+        // Common version patterns
+        let patterns = [
+            // SSH: "SSH-2.0-OpenSSH_8.9p1"
+            (r"SSH-[\d.]+-(\S+)", 1),
+            // nginx: "nginx/1.18.0"
+            (r"nginx/([\d.]+)", 1),
+            // Apache: "Apache/2.4.41"
+            (r"Apache/([\d.]+)", 1),
+            // MySQL: "5.7.32-MySQL"
+            (r"(\d+\.\d+\.\d+)-MySQL", 1),
+            // PostgreSQL: "PostgreSQL 13.2"
+            (r"PostgreSQL\s+([\d.]+)", 1),
+            // Generic version pattern: "Name/X.Y.Z"
+            (r"/(\d+\.\d+(?:\.\d+)?)", 1),
+        ];
+
+        for (pattern, _) in patterns {
+            // Simple pattern matching without regex
+            if pattern.contains("SSH") && banner.contains("SSH-") {
+                let parts: Vec<&str> = banner.split('-').collect();
+                if parts.len() >= 3 {
+                    return Some(parts[2].split_whitespace().next()?.to_string());
+                }
+            }
+            if pattern.contains("nginx") && banner.contains("nginx/") {
+                let after = banner.split("nginx/").nth(1)?;
+                return Some(after.split_whitespace().next()?.to_string());
+            }
+            if pattern.contains("Apache") && banner.contains("Apache/") {
+                let after = banner.split("Apache/").nth(1)?;
+                return Some(format!("Apache {}", after.split_whitespace().next()?));
+            }
+        }
+
+        None
+    }
+
+    /// Extract technology info from banner
+    fn extract_tech_from_banner(banner: &str) -> Option<TechInfo> {
+        let banner_lower = banner.to_lowercase();
+
+        // Web servers
+        if banner_lower.contains("nginx") {
+            let version = banner
+                .split("nginx/")
+                .nth(1)
+                .and_then(|s| s.split_whitespace().next())
+                .map(|s| s.to_string());
+            return Some(TechInfo {
+                name: "nginx".to_string(),
+                version,
+                category: "WebServer".to_string(),
+            });
+        }
+        if banner_lower.contains("apache") {
+            let version = banner
+                .split("Apache/")
+                .nth(1)
+                .and_then(|s| s.split_whitespace().next())
+                .map(|s| s.to_string());
+            return Some(TechInfo {
+                name: "Apache".to_string(),
+                version,
+                category: "WebServer".to_string(),
+            });
+        }
+
+        // SSH servers
+        if banner.starts_with("SSH-") {
+            let parts: Vec<&str> = banner.split('-').collect();
+            if parts.len() >= 3 {
+                let server = parts[2].split_whitespace().next().unwrap_or("SSH");
+                return Some(TechInfo {
+                    name: server.to_string(),
+                    version: None,
+                    category: "SSH".to_string(),
+                });
+            }
+        }
+
+        // Databases
+        if banner_lower.contains("mysql") {
+            return Some(TechInfo {
+                name: "MySQL".to_string(),
+                version: None,
+                category: "Database".to_string(),
+            });
+        }
+        if banner_lower.contains("postgresql") {
+            return Some(TechInfo {
+                name: "PostgreSQL".to_string(),
+                version: None,
+                category: "Database".to_string(),
+            });
+        }
+        if banner_lower.contains("redis") {
+            return Some(TechInfo {
+                name: "Redis".to_string(),
+                version: None,
+                category: "Cache".to_string(),
+            });
+        }
+
+        // Mail servers
+        if banner_lower.contains("smtp") || banner_lower.contains("postfix") {
+            return Some(TechInfo {
+                name: "SMTP".to_string(),
+                version: None,
+                category: "Mail".to_string(),
+            });
+        }
+
+        None
+    }
+
+    /// Emit scan results as synergy events for correlation engine
+    ///
+    /// This enables the correlation engine to:
+    /// - Track discovered hosts and services
+    /// - Correlate port scans with vulnerability findings
+    /// - Build an attack graph
+    /// - Auto-tag with MITRE ATT&CK techniques
+    pub fn emit_synergy_events(&self, results: &[PortScanResult]) {
+        use crate::synergy::events::{emit, EntityRef, Event, EventType, MitreAttack};
+
+        let target_ip = self.target.to_string();
+        let open_count = results.iter().filter(|r| r.is_open).count();
+
+        // Emit host discovery event
+        let host_event = Event::new(EventType::Discovery, "network::scanner")
+            .with_entity(EntityRef::host(&target_ip).with_label("Scanned host"))
+            .with_data("ip", &target_ip)
+            .with_data("open_ports", &open_count.to_string())
+            .with_mitre(MitreAttack::port_scan())
+            .with_confidence(1.0);
+        emit(host_event);
+
+        // Emit events for each open port/service
+        for result in results.iter().filter(|r| r.is_open) {
+            let service_id = format!("{}:{}", target_ip, result.port);
+            let service_name = result.service.as_deref().unwrap_or("unknown");
+
+            let mut event = Event::new(EventType::Discovery, "network::scanner")
+                .with_entity(EntityRef::service(&service_id).with_label(service_name))
+                .with_related(EntityRef::host(&target_ip))
+                .with_data("port", &result.port.to_string())
+                .with_data("service", service_name)
+                .with_mitre(MitreAttack::port_scan());
+
+            if let Some(banner) = &result.banner {
+                event = event.with_data("banner", banner);
+
+                // If we identified a version, add enrichment severity
+                if let Some(version) = Self::extract_version_from_banner(Some(banner)) {
+                    event = event.with_data("version", &version);
+                }
+            }
+
+            emit(event);
+        }
+    }
+}
+
+/// Technology information extracted from banners
+struct TechInfo {
+    name: String,
+    version: Option<String>,
+    category: String,
 }
 
 /// Scan type for raw socket scanning
@@ -867,7 +1097,8 @@ impl AdvancedScanner {
 
     #[cfg(target_family = "unix")]
     fn raw_ack_scan(&self, ports: &[u16]) -> Vec<AdvancedScanResult> {
-        use crate::protocols::raw::PortState;
+        use crate::protocols::raw::{get_source_ip, AckScanner, PortState};
+        use std::net::Ipv4Addr;
 
         // ACK scan sends ACK packets - if RST comes back, port is unfiltered
         // If nothing comes back, port is filtered (firewall dropping)
@@ -875,18 +1106,70 @@ impl AdvancedScanner {
 
         let mut results = Vec::with_capacity(ports.len());
 
+        // Get target as Ipv4
+        let dst_ip = match self.target {
+            std::net::IpAddr::V4(ip) => ip,
+            std::net::IpAddr::V6(_) => {
+                // IPv6 ACK scan not yet supported, return filtered
+                for &port in ports {
+                    results.push(AdvancedScanResult {
+                        port,
+                        state: PortState::Filtered,
+                        service: None,
+                        banner: None,
+                        rtt_ms: None,
+                        ttl: None,
+                        scan_type: ScanType::Ack,
+                    });
+                }
+                return results;
+            }
+        };
+
+        // Get source IP
+        let src_ip = match get_source_ip(dst_ip) {
+            Ok(ip) => ip,
+            Err(_) => Ipv4Addr::new(0, 0, 0, 0),
+        };
+
+        // Create ACK scanner with timing-based timeout
+        let timeout_ms = self.timing.timeout_ms().max(500);
+        let scanner = AckScanner::new(src_ip, dst_ip)
+            .with_timeout(std::time::Duration::from_millis(timeout_ms as u64));
+
         for &port in ports {
-            // For now, fallback to filtered - full implementation requires
-            // similar raw socket logic to SYN scan
-            results.push(AdvancedScanResult {
-                port,
-                state: PortState::Filtered, // TODO: implement ACK scan
-                service: None,
-                banner: None,
-                rtt_ms: None,
-                ttl: None,
-                scan_type: ScanType::Ack,
-            });
+            match scanner.scan_port(port) {
+                Ok(result) => {
+                    results.push(AdvancedScanResult {
+                        port,
+                        state: result.state,
+                        service: None, // ACK scan doesn't detect services
+                        banner: None,
+                        rtt_ms: result.rtt.map(|d| d.as_millis() as f64),
+                        ttl: result.ttl,
+                        scan_type: ScanType::Ack,
+                    });
+                }
+                Err(_) => {
+                    // On error, mark as filtered
+                    results.push(AdvancedScanResult {
+                        port,
+                        state: PortState::Filtered,
+                        service: None,
+                        banner: None,
+                        rtt_ms: None,
+                        ttl: None,
+                        scan_type: ScanType::Ack,
+                    });
+                }
+            }
+
+            // Apply timing delay between probes
+            if self.timing.delay_ms() > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(
+                    self.timing.delay_ms() as u64
+                ));
+            }
         }
 
         results

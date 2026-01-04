@@ -1,17 +1,17 @@
-/// TLS Renegotiation Vulnerability Checker (CVE-2009-3555)
+/// TLS Renegotiation Vulnerability Scanner (CVE-2009-3555)
 ///
 /// Tests for insecure TLS renegotiation which allows man-in-the-middle
 /// attackers to inject data into TLS sessions.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct RenegotiationChecker {
+pub struct RenegotiationScanner {
     timeout: Duration,
 }
 
-impl RenegotiationChecker {
+impl RenegotiationScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -256,13 +256,13 @@ impl RenegotiationChecker {
     }
 }
 
-impl Default for RenegotiationChecker {
+impl Default for RenegotiationScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for RenegotiationChecker {
+impl VulnScanner for RenegotiationScanner {
     fn name(&self) -> &str {
         "Insecure Renegotiation"
     }
@@ -275,7 +275,7 @@ impl VulnChecker for RenegotiationChecker {
         "TLS renegotiation prefix injection vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         let mut evidence = Vec::new();
         let mut issues = Vec::new();
 

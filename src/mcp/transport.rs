@@ -42,10 +42,19 @@ impl HttpServerHandle {
     }
 }
 
+/// Subscription entry tracking a session's subscription to a resource
+#[derive(Clone)]
+struct Subscription {
+    session_id: String,
+    uri: String,
+    is_sse: bool, // true for SSE, false for stream
+}
+
 struct HttpSharedState {
     core: Arc<Mutex<McpServer>>,
     sse_sessions: Mutex<HashMap<String, mpsc::Sender<SseEvent>>>,
     stream_sessions: Mutex<HashMap<String, mpsc::Sender<String>>>,
+    subscriptions: Mutex<Vec<Subscription>>,
     counter: AtomicU64,
 }
 
@@ -55,6 +64,7 @@ impl HttpSharedState {
             core,
             sse_sessions: Mutex::new(HashMap::new()),
             stream_sessions: Mutex::new(HashMap::new()),
+            subscriptions: Mutex::new(Vec::new()),
             counter: AtomicU64::new(1),
         }
     }
@@ -84,6 +94,73 @@ impl HttpSharedState {
         {
             let _ = sender.send(message);
         }
+    }
+
+    /// Subscribe a session to a resource URI
+    fn subscribe(&self, session_id: &str, uri: &str, is_sse: bool) {
+        if let Ok(mut subs) = self.subscriptions.lock() {
+            // Check if already subscribed
+            let exists = subs
+                .iter()
+                .any(|s| s.session_id == session_id && s.uri == uri);
+            if !exists {
+                subs.push(Subscription {
+                    session_id: session_id.to_string(),
+                    uri: uri.to_string(),
+                    is_sse,
+                });
+            }
+        }
+    }
+
+    /// Unsubscribe a session from a resource URI
+    fn unsubscribe(&self, session_id: &str, uri: &str) {
+        if let Ok(mut subs) = self.subscriptions.lock() {
+            subs.retain(|s| !(s.session_id == session_id && s.uri == uri));
+        }
+    }
+
+    /// Remove all subscriptions for a session (called on disconnect)
+    fn remove_session_subscriptions(&self, session_id: &str) {
+        if let Ok(mut subs) = self.subscriptions.lock() {
+            subs.retain(|s| s.session_id != session_id);
+        }
+    }
+
+    /// Broadcast an update to all subscribers of a resource
+    #[allow(dead_code)]
+    fn broadcast_update(&self, uri: &str, data: &str) {
+        let subscribers: Vec<Subscription> = self
+            .subscriptions
+            .lock()
+            .map(|subs| {
+                subs.iter()
+                    .filter(|s| s.uri == uri || uri.starts_with(&s.uri))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let notification = format!(
+            r#"{{"jsonrpc":"2.0","method":"notifications/resources/updated","params":{{"uri":"{}","data":{}}}}}"#,
+            uri, data
+        );
+
+        for sub in subscribers {
+            if sub.is_sse {
+                self.dispatch_sse(&sub.session_id, notification.clone());
+            } else {
+                self.dispatch_stream(&sub.session_id, notification.clone());
+            }
+        }
+    }
+
+    /// Get subscription count for monitoring
+    fn subscription_count(&self) -> usize {
+        self.subscriptions
+            .lock()
+            .map(|subs| subs.len())
+            .unwrap_or(0)
     }
 }
 
@@ -301,10 +378,90 @@ fn handle_sse_connection(
         }
     }
 
+    // Cleanup: remove session and its subscriptions
+    shared.remove_session_subscriptions(&session_id);
     let _ = shared
         .sse_sessions
         .lock()
         .map(|mut map| map.remove(&session_id));
+}
+
+/// Result of handling a subscription method
+enum SubscriptionAction {
+    Handled(String), // Response JSON to send
+    NotSubscription, // Not a subscription method, proceed normally
+}
+
+/// Check if message is a subscription method and handle it
+fn try_handle_subscription(
+    message: &crate::utils::json::JsonValue,
+    shared: &Arc<HttpSharedState>,
+    session_id: &str,
+    is_sse: bool,
+) -> SubscriptionAction {
+    use crate::utils::json::JsonValue;
+
+    let method = message.get("method").and_then(|v| {
+        if let JsonValue::String(s) = v {
+            Some(s.as_str())
+        } else {
+            None
+        }
+    });
+
+    let id = message.get("id").cloned();
+
+    let params = message.get("params");
+
+    match method {
+        Some("resources/subscribe") => {
+            let uri = params
+                .and_then(|p| p.get("uri"))
+                .and_then(|u| {
+                    if let JsonValue::String(s) = u {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            shared.subscribe(session_id, &uri, is_sse);
+
+            let id_str = id
+                .map(|v| v.to_json_string())
+                .unwrap_or_else(|| "null".to_string());
+            let response = format!(
+                r#"{{"jsonrpc":"2.0","id":{},"result":{{"subscribed":true,"uri":"{}"}}}}"#,
+                id_str, uri
+            );
+            SubscriptionAction::Handled(response)
+        }
+        Some("resources/unsubscribe") => {
+            let uri = params
+                .and_then(|p| p.get("uri"))
+                .and_then(|u| {
+                    if let JsonValue::String(s) = u {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
+
+            shared.unsubscribe(session_id, &uri);
+
+            let id_str = id
+                .map(|v| v.to_json_string())
+                .unwrap_or_else(|| "null".to_string());
+            let response = format!(
+                r#"{{"jsonrpc":"2.0","id":{},"result":{{"unsubscribed":true,"uri":"{}"}}}}"#,
+                id_str, uri
+            );
+            SubscriptionAction::Handled(response)
+        }
+        _ => SubscriptionAction::NotSubscription,
+    }
 }
 
 fn handle_sse_message(
@@ -346,6 +503,16 @@ fn handle_sse_message(
             return;
         }
     };
+
+    // Check for subscription methods first
+    match try_handle_subscription(&message, &shared, &session_id, true) {
+        SubscriptionAction::Handled(response) => {
+            shared.dispatch_sse(&session_id, response);
+            write_simple_response(reader.get_mut(), 202, b"accepted");
+            return;
+        }
+        SubscriptionAction::NotSubscription => {}
+    }
 
     let response = {
         let mut guard = match shared.core.lock() {
@@ -419,6 +586,8 @@ fn handle_stream_connection(
     }
 
     let _ = send_chunk_end(&mut stream);
+    // Cleanup: remove session and its subscriptions
+    shared.remove_session_subscriptions(&session_id);
     let _ = shared
         .stream_sessions
         .lock()
@@ -465,6 +634,16 @@ fn handle_stream_message(
         }
     };
 
+    // Check for subscription methods first
+    match try_handle_subscription(&message, &shared, &session_id, false) {
+        SubscriptionAction::Handled(response) => {
+            shared.dispatch_stream(&session_id, response);
+            write_simple_response(reader.get_mut(), 202, b"accepted");
+            return;
+        }
+        SubscriptionAction::NotSubscription => {}
+    }
+
     let response = {
         let mut guard = match shared.core.lock() {
             Ok(guard) => guard,
@@ -494,9 +673,10 @@ fn respond_status(
         .lock()
         .map(|map| map.len())
         .unwrap_or(0);
+    let sub_count = shared.subscription_count();
     let status = format!(
-        "{{\"peer\":\"{:?}\",\"sse\":{},\"stream\":{}}}",
-        peer, sse_count, stream_count
+        r#"{{"peer":"{:?}","sessions":{{"sse":{},"stream":{}}},"subscriptions":{}}}"#,
+        peer, sse_count, stream_count, sub_count
     );
 
     write_simple_response(reader.get_mut(), 200, status.as_bytes());

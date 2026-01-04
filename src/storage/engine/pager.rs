@@ -511,6 +511,30 @@ impl Pager {
             let mut freelist = self.freelist.write().unwrap();
             if let Some(id) = freelist.allocate() {
                 id
+            } else if freelist.trunk_head() != 0 {
+                let trunk_id = freelist.trunk_head();
+                drop(freelist);
+
+                let trunk = self.read_page(trunk_id).map_err(|e| match e {
+                    PagerError::PageNotFound(_) => {
+                        PagerError::InvalidDatabase("Freelist trunk missing".to_string())
+                    }
+                    other => other,
+                })?;
+
+                let mut freelist = self.freelist.write().unwrap();
+                freelist
+                    .load_from_trunk(&trunk)
+                    .map_err(|e| PagerError::InvalidDatabase(format!("Freelist: {}", e)))?;
+                let id = freelist.allocate().ok_or_else(|| {
+                    PagerError::InvalidDatabase("Freelist empty after trunk load".to_string())
+                })?;
+
+                let mut header = self.header.write().unwrap();
+                header.freelist_head = freelist.trunk_head();
+                *self.header_dirty.lock().unwrap() = true;
+
+                id
             } else {
                 // No free pages, extend file
                 let mut header = self.header.write().unwrap();
@@ -562,6 +586,31 @@ impl Pager {
     pub fn flush(&self) -> Result<(), PagerError> {
         if self.config.read_only {
             return Ok(());
+        }
+
+        // Persist freelist to trunk pages when dirty
+        let trunks = {
+            let mut freelist = self.freelist.write().unwrap();
+            if freelist.is_dirty() {
+                let mut header = self.header.write().unwrap();
+                let trunks = freelist.flush_to_trunks(0, || {
+                    let id = header.page_count;
+                    header.page_count += 1;
+                    id
+                });
+                header.freelist_head = freelist.trunk_head();
+                *self.header_dirty.lock().unwrap() = true;
+                freelist.mark_clean();
+                trunks
+            } else {
+                Vec::new()
+            }
+        };
+
+        for trunk in trunks {
+            let page_id = trunk.page_id();
+            self.cache.insert(page_id, trunk);
+            self.cache.mark_dirty(page_id);
         }
 
         // Flush dirty pages from cache
@@ -744,6 +793,31 @@ mod tests {
             // Next allocation should reuse page 1
             let page3 = pager.allocate_page(PageType::BTreeLeaf).unwrap();
             assert_eq!(page3.page_id(), id1);
+        }
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_freelist_persistence() {
+        let path = temp_db_path();
+        cleanup(&path);
+
+        let freed_id;
+        {
+            let pager = Pager::open_default(&path).unwrap();
+            let page1 = pager.allocate_page(PageType::BTreeLeaf).unwrap();
+            let _page2 = pager.allocate_page(PageType::BTreeLeaf).unwrap();
+            freed_id = page1.page_id();
+
+            pager.free_page(freed_id).unwrap();
+            pager.sync().unwrap();
+        }
+
+        {
+            let pager = Pager::open_default(&path).unwrap();
+            let page = pager.allocate_page(PageType::BTreeLeaf).unwrap();
+            assert_eq!(page.page_id(), freed_id);
         }
 
         cleanup(&path);

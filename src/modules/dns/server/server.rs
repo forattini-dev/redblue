@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -56,6 +56,8 @@ pub struct DnsServerConfig {
     pub timeout: Duration,
     /// Log queries
     pub log_queries: bool,
+    /// Maximum concurrent handler threads
+    pub max_concurrent: usize,
 }
 
 impl Default for DnsServerConfig {
@@ -69,6 +71,7 @@ impl Default for DnsServerConfig {
             enable_tcp: true,
             timeout: Duration::from_secs(5),
             log_queries: false,
+            max_concurrent: 128,
         }
     }
 }
@@ -112,6 +115,12 @@ impl DnsServerConfig {
         self.log_queries = enable;
         self
     }
+
+    /// Set maximum concurrent handler threads
+    pub fn with_max_concurrent(mut self, max: usize) -> Self {
+        self.max_concurrent = max.max(1);
+        self
+    }
 }
 
 /// DNS server statistics
@@ -125,6 +134,48 @@ pub struct ServerStats {
     pub errors: u64,
 }
 
+struct ConcurrencyLimiter {
+    max: usize,
+    active: AtomicUsize,
+}
+
+impl ConcurrencyLimiter {
+    fn new(max: usize) -> Self {
+        Self {
+            max: max.max(1),
+            active: AtomicUsize::new(0),
+        }
+    }
+
+    fn try_acquire(self: &Arc<Self>) -> Option<ConcurrencyGuard> {
+        loop {
+            let current = self.active.load(Ordering::Relaxed);
+            if current >= self.max {
+                return None;
+            }
+            if self
+                .active
+                .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                return Some(ConcurrencyGuard {
+                    limiter: Arc::clone(self),
+                });
+            }
+        }
+    }
+}
+
+struct ConcurrencyGuard {
+    limiter: Arc<ConcurrencyLimiter>,
+}
+
+impl Drop for ConcurrencyGuard {
+    fn drop(&mut self) {
+        self.limiter.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// DNS Server
 pub struct DnsServer {
     config: DnsServerConfig,
@@ -133,6 +184,7 @@ pub struct DnsServer {
     resolver: Arc<UpstreamResolver>,
     running: Arc<AtomicBool>,
     stats: Arc<std::sync::RwLock<ServerStats>>,
+    limiter: Arc<ConcurrencyLimiter>,
 }
 
 impl DnsServer {
@@ -146,6 +198,7 @@ impl DnsServer {
         };
 
         Self {
+            limiter: Arc::new(ConcurrencyLimiter::new(config.max_concurrent)),
             config,
             rules: Arc::new(RulesEngine::new()),
             cache: Arc::new(DnsCache::new()),
@@ -233,10 +286,18 @@ impl DnsServer {
             match udp_socket.recv_from(&mut buffer) {
                 Ok((len, src)) => {
                     let query = buffer[..len].to_vec();
+                    let Some(guard) = self.limiter.try_acquire() else {
+                        if self.config.log_queries {
+                            eprintln!("[DNS] Query limit reached, dropping UDP packet");
+                        }
+                        continue;
+                    };
+
                     let socket = udp_socket.try_clone().ok();
                     let server = self.clone_internals();
 
                     thread::spawn(move || {
+                        let _guard = guard;
                         if let Some(socket) = socket {
                             server.handle_udp_query(&socket, &query, src);
                         }
@@ -256,8 +317,16 @@ impl DnsServer {
             if let Some(ref listener) = tcp_listener {
                 match listener.accept() {
                     Ok((stream, _src)) => {
+                        let Some(guard) = self.limiter.try_acquire() else {
+                            if self.config.log_queries {
+                                eprintln!("[DNS] Connection limit reached, closing TCP client");
+                            }
+                            continue;
+                        };
+
                         let server = self.clone_internals();
                         thread::spawn(move || {
+                            let _guard = guard;
                             server.handle_tcp_connection(stream);
                         });
                     }
@@ -761,5 +830,15 @@ mod tests {
         let mut server = DnsServer::new(config);
         server.add_rule(DnsRule::block("*.ads.com"));
         assert!(!server.is_running());
+    }
+
+    #[test]
+    fn test_concurrency_limiter() {
+        let limiter = Arc::new(ConcurrencyLimiter::new(2));
+        let guard_one = limiter.try_acquire().expect("first acquire");
+        let _guard_two = limiter.try_acquire().expect("second acquire");
+        assert!(limiter.try_acquire().is_none());
+        drop(guard_one);
+        assert!(limiter.try_acquire().is_some());
     }
 }

@@ -293,7 +293,7 @@ impl BTree {
             return Ok(false);
         }
 
-        let (leaf_id, _path) = self.find_leaf(root_id, key)?;
+        let (leaf_id, path) = self.find_leaf(root_id, key)?;
         let mut page = self.pager.read_page(leaf_id)?;
 
         // Find the key
@@ -308,9 +308,10 @@ impl BTree {
                 if page.cell_count() == 0 && page.page_id() == root_id {
                     self.pager.free_page(root_id)?;
                     *self.root_page_id.write().unwrap() = 0;
+                } else {
+                    self.rebalance_leaf(leaf_id, path)?;
                 }
 
-                // TODO: Implement merge/rebalance for underflow
                 Ok(true)
             }
             SearchResult::NotFound(_) => Ok(false),
@@ -597,6 +598,336 @@ impl BTree {
 
         Ok((new_page, separator))
     }
+
+    fn rebalance_leaf(&self, leaf_id: u32, path: Vec<u32>) -> BTreeResult<()> {
+        if path.is_empty() {
+            return Ok(());
+        }
+
+        let root_id = self.root_page_id();
+        if leaf_id == root_id {
+            return Ok(());
+        }
+
+        let mut leaf = self.pager.read_page(leaf_id)?;
+        let mut leaf_entries = read_leaf_entries(&leaf)?;
+        let min_bytes = leaf_min_bytes();
+
+        let parent_id = *path.last().unwrap();
+        let mut parent = self.pager.read_page(parent_id)?;
+        let (mut parent_keys, mut parent_children) = read_interior_keys_children(&parent)?;
+
+        let child_index = parent_children
+            .iter()
+            .position(|&id| id == leaf_id)
+            .ok_or_else(|| BTreeError::Corrupted("Leaf missing from parent".into()))?;
+
+        if child_index > 0 {
+            if let Some((first_key, _)) = leaf_entries.first() {
+                if parent_keys.get(child_index - 1).map(|k| k.as_slice())
+                    != Some(first_key.as_slice())
+                {
+                    parent_keys[child_index - 1] = first_key.clone();
+                    write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+                    parent.update_checksum();
+                    self.pager.write_page(parent_id, parent.clone())?;
+                }
+            }
+        }
+
+        if leaf_entries_size(&leaf_entries) >= min_bytes {
+            return Ok(());
+        }
+
+        if child_index > 0 {
+            let left_id = parent_children[child_index - 1];
+            let mut left = self.pager.read_page(left_id)?;
+            let mut left_entries = read_leaf_entries(&left)?;
+            let mut borrowed = false;
+
+            while leaf_entries_size(&leaf_entries) < min_bytes {
+                let Some(entry) = left_entries.pop() else {
+                    break;
+                };
+                if leaf_entries_size(&left_entries) < min_bytes {
+                    left_entries.push(entry);
+                    break;
+                }
+                leaf_entries.insert(0, entry);
+                borrowed = true;
+            }
+
+            if borrowed {
+                write_leaf_entries(&mut left, &left_entries)?;
+                left.update_checksum();
+                self.pager.write_page(left_id, left)?;
+
+                write_leaf_entries(&mut leaf, &leaf_entries)?;
+                leaf.update_checksum();
+                self.pager.write_page(leaf_id, leaf)?;
+
+                if let Some((first_key, _)) = leaf_entries.first() {
+                    parent_keys[child_index - 1] = first_key.clone();
+                    write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+                    parent.update_checksum();
+                    self.pager.write_page(parent_id, parent)?;
+                }
+
+                return Ok(());
+            }
+        }
+
+        if child_index + 1 < parent_children.len() {
+            let right_id = parent_children[child_index + 1];
+            let mut right = self.pager.read_page(right_id)?;
+            let mut right_entries = read_leaf_entries(&right)?;
+            let mut borrowed = false;
+
+            while leaf_entries_size(&leaf_entries) < min_bytes {
+                if right_entries.is_empty() {
+                    break;
+                }
+                let entry = right_entries.remove(0);
+                if leaf_entries_size(&right_entries) < min_bytes {
+                    right_entries.insert(0, entry);
+                    break;
+                }
+                leaf_entries.push(entry);
+                borrowed = true;
+            }
+
+            if borrowed {
+                write_leaf_entries(&mut right, &right_entries)?;
+                right.update_checksum();
+                self.pager.write_page(right_id, right)?;
+
+                write_leaf_entries(&mut leaf, &leaf_entries)?;
+                leaf.update_checksum();
+                self.pager.write_page(leaf_id, leaf)?;
+
+                if let Some((first_key, _)) = right_entries.first() {
+                    parent_keys[child_index] = first_key.clone();
+                    write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+                    parent.update_checksum();
+                    self.pager.write_page(parent_id, parent)?;
+                }
+
+                return Ok(());
+            }
+        }
+
+        if child_index > 0 {
+            let left_id = parent_children[child_index - 1];
+            let mut left = self.pager.read_page(left_id)?;
+            let mut left_entries = read_leaf_entries(&left)?;
+
+            left_entries.extend(leaf_entries.into_iter());
+            write_leaf_entries(&mut left, &left_entries)?;
+
+            let next_leaf = read_next_leaf(&leaf);
+            set_next_leaf(&mut left, next_leaf);
+            if next_leaf != 0 {
+                let mut next = self.pager.read_page(next_leaf)?;
+                set_prev_leaf(&mut next, left_id);
+                next.update_checksum();
+                self.pager.write_page(next_leaf, next)?;
+            }
+
+            left.update_checksum();
+            self.pager.write_page(left_id, left)?;
+            self.pager.free_page(leaf_id)?;
+
+            parent_keys.remove(child_index - 1);
+            parent_children.remove(child_index);
+            write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+            parent.update_checksum();
+            self.pager.write_page(parent_id, parent)?;
+
+            let mut parent_path = path;
+            parent_path.pop();
+            return self.rebalance_interior(parent_id, parent_path);
+        }
+
+        if child_index + 1 < parent_children.len() {
+            let right_id = parent_children[child_index + 1];
+            let right = self.pager.read_page(right_id)?;
+            let right_entries = read_leaf_entries(&right)?;
+
+            leaf_entries.extend(right_entries.into_iter());
+            write_leaf_entries(&mut leaf, &leaf_entries)?;
+
+            let next_leaf = read_next_leaf(&right);
+            set_next_leaf(&mut leaf, next_leaf);
+            if next_leaf != 0 {
+                let mut next = self.pager.read_page(next_leaf)?;
+                set_prev_leaf(&mut next, leaf_id);
+                next.update_checksum();
+                self.pager.write_page(next_leaf, next)?;
+            }
+
+            leaf.update_checksum();
+            self.pager.write_page(leaf_id, leaf)?;
+            self.pager.free_page(right_id)?;
+
+            parent_keys.remove(child_index);
+            parent_children.remove(child_index + 1);
+            write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+            parent.update_checksum();
+            self.pager.write_page(parent_id, parent)?;
+
+            let mut parent_path = path;
+            parent_path.pop();
+            return self.rebalance_interior(parent_id, parent_path);
+        }
+
+        Ok(())
+    }
+
+    fn rebalance_interior(&self, node_id: u32, mut path: Vec<u32>) -> BTreeResult<()> {
+        let root_id = self.root_page_id();
+        let mut node = self.pager.read_page(node_id)?;
+        let (mut node_keys, mut node_children) = read_interior_keys_children(&node)?;
+        let min_bytes = interior_min_bytes();
+
+        if node_id == root_id {
+            if node_keys.is_empty() {
+                let next_root = node_children.first().copied().unwrap_or(0);
+                self.pager.free_page(node_id)?;
+                *self.root_page_id.write().unwrap() = next_root;
+            }
+            return Ok(());
+        }
+
+        if interior_entries_size(&node_keys) >= min_bytes {
+            return Ok(());
+        }
+
+        let parent_id = match path.pop() {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+        let mut parent = self.pager.read_page(parent_id)?;
+        let (mut parent_keys, mut parent_children) = read_interior_keys_children(&parent)?;
+
+        let child_index = parent_children
+            .iter()
+            .position(|&id| id == node_id)
+            .ok_or_else(|| BTreeError::Corrupted("Interior missing from parent".into()))?;
+
+        if child_index > 0 {
+            let left_id = parent_children[child_index - 1];
+            let mut left = self.pager.read_page(left_id)?;
+            let (mut left_keys, mut left_children) = read_interior_keys_children(&left)?;
+
+            if let Some(borrow_key) = left_keys.last().cloned() {
+                let borrow_size = interior_key_size(&borrow_key);
+                if interior_entries_size(&left_keys).saturating_sub(borrow_size) >= min_bytes {
+                    let parent_key = parent_keys[child_index - 1].clone();
+                    let borrowed_key = left_keys.pop().unwrap();
+                    let borrowed_child = left_children.pop().unwrap();
+
+                    node_keys.insert(0, parent_key);
+                    node_children.insert(0, borrowed_child);
+                    parent_keys[child_index - 1] = borrowed_key;
+
+                    write_interior_entries(&mut left, &left_keys, &left_children)?;
+                    left.update_checksum();
+                    self.pager.write_page(left_id, left)?;
+
+                    write_interior_entries(&mut node, &node_keys, &node_children)?;
+                    node.update_checksum();
+                    self.pager.write_page(node_id, node)?;
+
+                    write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+                    parent.update_checksum();
+                    self.pager.write_page(parent_id, parent)?;
+
+                    return Ok(());
+                }
+            }
+        }
+
+        if child_index + 1 < parent_children.len() {
+            let right_id = parent_children[child_index + 1];
+            let mut right = self.pager.read_page(right_id)?;
+            let (mut right_keys, mut right_children) = read_interior_keys_children(&right)?;
+
+            if let Some(borrow_key) = right_keys.first().cloned() {
+                let borrow_size = interior_key_size(&borrow_key);
+                if interior_entries_size(&right_keys).saturating_sub(borrow_size) >= min_bytes {
+                    let parent_key = parent_keys[child_index].clone();
+                    let new_parent_key = right_keys.remove(0);
+                    let borrowed_child = right_children.remove(0);
+
+                    node_keys.push(parent_key);
+                    node_children.push(borrowed_child);
+                    parent_keys[child_index] = new_parent_key;
+
+                    write_interior_entries(&mut right, &right_keys, &right_children)?;
+                    right.update_checksum();
+                    self.pager.write_page(right_id, right)?;
+
+                    write_interior_entries(&mut node, &node_keys, &node_children)?;
+                    node.update_checksum();
+                    self.pager.write_page(node_id, node)?;
+
+                    write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+                    parent.update_checksum();
+                    self.pager.write_page(parent_id, parent)?;
+
+                    return Ok(());
+                }
+            }
+        }
+
+        if child_index > 0 {
+            let left_id = parent_children[child_index - 1];
+            let mut left = self.pager.read_page(left_id)?;
+            let (mut left_keys, mut left_children) = read_interior_keys_children(&left)?;
+            let parent_key = parent_keys.remove(child_index - 1);
+            parent_children.remove(child_index);
+
+            left_keys.push(parent_key);
+            left_keys.extend(node_keys.into_iter());
+            left_children.extend(node_children.into_iter());
+
+            write_interior_entries(&mut left, &left_keys, &left_children)?;
+            left.update_checksum();
+            self.pager.write_page(left_id, left)?;
+            self.pager.free_page(node_id)?;
+
+            write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+            parent.update_checksum();
+            self.pager.write_page(parent_id, parent)?;
+
+            return self.rebalance_interior(parent_id, path);
+        }
+
+        if child_index + 1 < parent_children.len() {
+            let right_id = parent_children[child_index + 1];
+            let right = self.pager.read_page(right_id)?;
+            let (right_keys, right_children) = read_interior_keys_children(&right)?;
+            let parent_key = parent_keys.remove(child_index);
+            parent_children.remove(child_index + 1);
+
+            node_keys.push(parent_key);
+            node_keys.extend(right_keys.into_iter());
+            node_children.extend(right_children.into_iter());
+
+            write_interior_entries(&mut node, &node_keys, &node_children)?;
+            node.update_checksum();
+            self.pager.write_page(node_id, node)?;
+            self.pager.free_page(right_id)?;
+
+            write_interior_entries(&mut parent, &parent_keys, &parent_children)?;
+            parent.update_checksum();
+            self.pager.write_page(parent_id, parent)?;
+
+            return self.rebalance_interior(parent_id, path);
+        }
+
+        Ok(())
+    }
 }
 
 // ==================== Search Helpers ====================
@@ -650,6 +981,30 @@ fn find_first_child(page: &Page) -> BTreeResult<u32> {
     Ok(child)
 }
 
+fn leaf_min_bytes() -> usize {
+    (PAGE_SIZE - LEAF_DATA_OFFSET) * MIN_FILL_FACTOR / 100
+}
+
+fn interior_min_bytes() -> usize {
+    (PAGE_SIZE - INTERIOR_DATA_OFFSET) * MIN_FILL_FACTOR / 100
+}
+
+fn leaf_entry_size(entry: &(Vec<u8>, Vec<u8>)) -> usize {
+    4 + entry.0.len() + entry.1.len()
+}
+
+fn leaf_entries_size(entries: &[(Vec<u8>, Vec<u8>)]) -> usize {
+    entries.iter().map(leaf_entry_size).sum()
+}
+
+fn interior_key_size(key: &[u8]) -> usize {
+    2 + key.len() + 4
+}
+
+fn interior_entries_size(keys: &[Vec<u8>]) -> usize {
+    keys.iter().map(|k| interior_key_size(k)).sum()
+}
+
 // ==================== Leaf Page Helpers ====================
 
 fn read_leaf_cell(page: &Page, index: usize) -> BTreeResult<(Vec<u8>, Vec<u8>)> {
@@ -696,6 +1051,24 @@ fn write_leaf_cell(page: &mut Page, index: usize, key: &[u8], value: &[u8]) -> B
     data[offset + 4..offset + 4 + key.len()].copy_from_slice(key);
     data[offset + 4 + key.len()..offset + 4 + key.len() + value.len()].copy_from_slice(value);
 
+    Ok(())
+}
+
+fn read_leaf_entries(page: &Page) -> BTreeResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    let cell_count = page.cell_count() as usize;
+    let mut entries = Vec::with_capacity(cell_count);
+    for i in 0..cell_count {
+        entries.push(read_leaf_cell(page, i)?);
+    }
+    Ok(entries)
+}
+
+fn write_leaf_entries(page: &mut Page, entries: &[(Vec<u8>, Vec<u8>)]) -> BTreeResult<()> {
+    clear_leaf_cells(page);
+    for (i, (k, v)) in entries.iter().enumerate() {
+        write_leaf_cell(page, i, k, v)?;
+    }
+    page.set_cell_count(entries.len() as u16);
     Ok(())
 }
 
@@ -783,6 +1156,11 @@ fn read_next_leaf(page: &Page) -> u32 {
     ])
 }
 
+fn set_prev_leaf(page: &mut Page, prev: u32) {
+    let data = page.as_bytes_mut();
+    data[LEAF_PREV_OFFSET..LEAF_PREV_OFFSET + 4].copy_from_slice(&prev.to_le_bytes());
+}
+
 fn set_next_leaf(page: &mut Page, next: u32) {
     let data = page.as_bytes_mut();
     data[LEAF_NEXT_OFFSET..LEAF_NEXT_OFFSET + 4].copy_from_slice(&next.to_le_bytes());
@@ -815,6 +1193,52 @@ fn read_interior_cell(page: &Page, index: usize) -> BTreeResult<(Vec<u8>, u32)> 
     ]);
 
     Ok((key, child))
+}
+
+fn read_interior_keys_children(page: &Page) -> BTreeResult<(Vec<Vec<u8>>, Vec<u32>)> {
+    let cell_count = page.cell_count() as usize;
+    let mut keys = Vec::with_capacity(cell_count);
+    let mut children = Vec::with_capacity(cell_count + 1);
+
+    for i in 0..cell_count {
+        let (key, child) = read_interior_cell(page, i)?;
+        keys.push(key);
+        children.push(child);
+    }
+
+    if cell_count == 0 {
+        let right_child = page.right_child();
+        if right_child != 0 {
+            children.push(right_child);
+        }
+    } else {
+        children.push(page.right_child());
+    }
+
+    Ok((keys, children))
+}
+
+fn write_interior_entries(page: &mut Page, keys: &[Vec<u8>], children: &[u32]) -> BTreeResult<()> {
+    if !keys.is_empty() && children.len() != keys.len() + 1 {
+        return Err(BTreeError::Corrupted(
+            "Interior keys/children length mismatch".into(),
+        ));
+    }
+
+    clear_interior_cells(page);
+    if keys.is_empty() {
+        page.set_cell_count(0);
+        let right_child = children.first().copied().unwrap_or(0);
+        page.set_right_child(right_child);
+        return Ok(());
+    }
+
+    for (i, key) in keys.iter().enumerate() {
+        write_interior_cell(page, i, key, children[i])?;
+    }
+    page.set_cell_count(keys.len() as u16);
+    page.set_right_child(*children.last().unwrap());
+    Ok(())
 }
 
 fn write_interior_cell(page: &mut Page, index: usize, key: &[u8], child: u32) -> BTreeResult<()> {
@@ -1008,6 +1432,65 @@ mod tests {
         assert_eq!(tree.get(b"b").unwrap(), None);
         assert_eq!(tree.get(b"c").unwrap(), Some(b"3".to_vec()));
         assert_eq!(tree.count().unwrap(), 2);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_btree_delete_rebalance_removes_empty_leaf() {
+        let path = temp_db_path();
+        cleanup(&path);
+
+        let pager = Arc::new(Pager::open_default(&path).unwrap());
+        let tree = BTree::new(pager.clone());
+
+        let value = vec![b'v'; 200];
+        for i in 0..60u32 {
+            let key = format!("key{:03}", i);
+            tree.insert(key.as_bytes(), &value).unwrap();
+        }
+
+        let root_id = tree.root_page_id();
+        let first_leaf = tree.find_first_leaf(root_id).unwrap();
+        let mut leaf_ids = Vec::new();
+        let mut current = first_leaf;
+        loop {
+            leaf_ids.push(current);
+            let page = pager.read_page(current).unwrap();
+            let next = read_next_leaf(&page);
+            if next == 0 {
+                break;
+            }
+            current = next;
+        }
+
+        assert!(leaf_ids.len() >= 3);
+
+        let target_leaf = leaf_ids[1];
+        let page = pager.read_page(target_leaf).unwrap();
+        let cell_count = page.cell_count() as usize;
+        let mut keys = Vec::with_capacity(cell_count);
+        for i in 0..cell_count {
+            let (key, _) = read_leaf_cell(&page, i).unwrap();
+            keys.push(key);
+        }
+
+        for key in &keys {
+            tree.delete(key).unwrap();
+        }
+
+        let expected = 60 - keys.len();
+        assert_eq!(tree.count().unwrap(), expected);
+
+        let mut cursor = tree.cursor_first().unwrap();
+        let mut results = Vec::new();
+        while let Some((key, _)) = cursor.next().unwrap() {
+            results.push(key);
+        }
+
+        assert_eq!(results.len(), expected);
+        let last_key = format!("key{:03}", 59).into_bytes();
+        assert_eq!(results.last(), Some(&last_key));
 
         cleanup(&path);
     }

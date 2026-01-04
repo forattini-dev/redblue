@@ -75,6 +75,12 @@ impl HttpTransportConfig {
         self
     }
 
+    /// Enable or disable TLS verification
+    pub fn with_tls_verify(mut self, verify: bool) -> Self {
+        self.base.tls_verify = verify;
+        self
+    }
+
     /// Add certificate pin
     pub fn with_cert_pin(mut self, fingerprint: [u8; 32]) -> Self {
         self.base.cert_pins.push(fingerprint);
@@ -141,11 +147,16 @@ impl HttpTransport {
             .with_body(data.to_vec())
             .with_header("User-Agent", &self.config.user_agent)
             .with_header("Content-Type", &self.config.content_type)
-            .with_header("Accept", &self.config.accept);
+            .with_header("Accept", &self.config.accept)
+            .with_tls_verify(self.config.base.tls_verify);
 
         // Add custom headers
         for (key, value) in &self.config.base.custom_headers {
             request = request.with_header(key, value);
+        }
+
+        if !self.config.base.cert_pins.is_empty() {
+            request = request.with_cert_pins(self.config.base.cert_pins.clone());
         }
 
         request

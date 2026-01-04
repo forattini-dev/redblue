@@ -14,6 +14,7 @@
 ///
 /// NO external dependencies - pure Rust implementation
 use crate::protocols::http::HttpClient;
+use crate::storage::engine::emitter::GraphEmitter;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -231,6 +232,48 @@ impl WebFingerprinter {
         if headers.contains_key("CF-RAY") || headers.contains_key("cf-ray") {
             techs.push(Technology {
                 name: "Cloudflare".to_string(),
+                category: TechCategory::CDN,
+                version: None,
+                confidence: Confidence::High,
+            });
+        }
+
+        // AWS WAF/CloudFront
+        if headers.contains_key("x-amz-cf-id") || headers.contains_key("x-amz-cf-pop") {
+            techs.push(Technology {
+                name: "AWS CloudFront".to_string(),
+                category: TechCategory::CDN,
+                version: None,
+                confidence: Confidence::High,
+            });
+        }
+
+        // Akamai CDN
+        if headers.contains_key("x-akamai-transformed")
+            || headers.contains_key("x-akamai-request-id")
+        {
+            techs.push(Technology {
+                name: "Akamai".to_string(),
+                category: TechCategory::CDN,
+                version: None,
+                confidence: Confidence::High,
+            });
+        }
+
+        // Sucuri WAF
+        if headers.contains_key("x-sucuri-id") || headers.contains_key("x-sucuri-cache") {
+            techs.push(Technology {
+                name: "Sucuri WAF".to_string(),
+                category: TechCategory::CDN,
+                version: None,
+                confidence: Confidence::High,
+            });
+        }
+
+        // Imperva/Incapsula WAF
+        if headers.contains_key("x-iinfo") {
+            techs.push(Technology {
+                name: "Imperva WAF".to_string(),
                 category: TechCategory::CDN,
                 version: None,
                 confidence: Confidence::High,
@@ -1069,6 +1112,105 @@ impl WebFingerprinter {
             }
         }
         None
+    }
+
+    // ========================================================================
+    // Graph Integration
+    // ========================================================================
+
+    /// Emit fingerprint results to the graph database
+    ///
+    /// Creates:
+    /// - Host node for the target
+    /// - Technology nodes for each detected technology
+    /// - Edges linking technologies to the host
+    pub fn emit_to_graph(&self, result: &FingerprintResult, emitter: Option<&GraphEmitter>) {
+        // Use provided emitter or global singleton
+        let global_emitter;
+        let emitter = match emitter {
+            Some(e) => e,
+            None => {
+                global_emitter = GraphEmitter::global();
+                &*global_emitter
+            }
+        };
+
+        // Extract host from URL
+        let host = Self::extract_host_from_url(&result.url);
+        if host.is_empty() {
+            return;
+        }
+
+        // Emit host node
+        emitter.emit_host(&host, None, None);
+
+        // Emit each technology
+        for tech in &result.technologies {
+            let category = Self::tech_category_to_string(&tech.category);
+            emitter.emit_technology(&host, &tech.name, tech.version.as_deref(), Some(&category));
+        }
+
+        // Emit CMS as technology if identified
+        if let Some(cms) = &result.cms {
+            // CMS might already be in technologies, but emitter handles dedup
+            emitter.emit_technology(&host, cms, None, Some("cms"));
+        }
+
+        // Emit web server as technology
+        if let Some(server) = &result.web_server {
+            emitter.emit_technology(&host, server, None, Some("server"));
+        }
+
+        // Emit programming language
+        if let Some(lang) = &result.programming_language {
+            emitter.emit_technology(&host, lang, None, Some("language"));
+        }
+
+        // Emit frameworks
+        for framework in &result.frameworks {
+            emitter.emit_technology(&host, framework, None, Some("framework"));
+        }
+    }
+
+    /// Fingerprint and emit results to graph in one call
+    pub fn fingerprint_with_graph(&self, url: &str) -> Result<FingerprintResult, String> {
+        let result = self.fingerprint(url)?;
+        self.emit_to_graph(&result, None);
+        Ok(result)
+    }
+
+    /// Extract host/IP from URL
+    fn extract_host_from_url(url: &str) -> String {
+        // Remove scheme
+        let without_scheme = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .unwrap_or(url);
+
+        // Extract host (before any path or port)
+        without_scheme
+            .split('/')
+            .next()
+            .unwrap_or(without_scheme)
+            .split(':')
+            .next()
+            .unwrap_or(without_scheme)
+            .to_string()
+    }
+
+    /// Convert TechCategory to string for graph storage
+    fn tech_category_to_string(category: &TechCategory) -> String {
+        match category {
+            TechCategory::CMS => "cms".to_string(),
+            TechCategory::Framework => "framework".to_string(),
+            TechCategory::WebServer => "server".to_string(),
+            TechCategory::Language => "language".to_string(),
+            TechCategory::Library => "library".to_string(),
+            TechCategory::CDN => "cdn".to_string(),
+            TechCategory::Analytics => "analytics".to_string(),
+            TechCategory::Database => "database".to_string(),
+            TechCategory::Other => "other".to_string(),
+        }
     }
 }
 

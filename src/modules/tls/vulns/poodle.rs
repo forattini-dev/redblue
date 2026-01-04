@@ -5,15 +5,15 @@
 ///
 /// Also checks for TLS POODLE (improper CBC padding validation).
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct PoodleChecker {
+pub struct PoodleScanner {
     timeout: Duration,
 }
 
-impl PoodleChecker {
+impl PoodleScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -94,13 +94,13 @@ impl PoodleChecker {
     }
 }
 
-impl Default for PoodleChecker {
+impl Default for PoodleScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for PoodleChecker {
+impl VulnScanner for PoodleScanner {
     fn name(&self) -> &str {
         "POODLE"
     }
@@ -113,7 +113,7 @@ impl VulnChecker for PoodleChecker {
         "SSL 3.0 Padding Oracle On Downgraded Legacy Encryption vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         let mut evidence = Vec::new();
 
         // Check for SSL 3.0 support (definite POODLE vulnerability)

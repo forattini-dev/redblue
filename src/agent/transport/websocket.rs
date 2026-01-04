@@ -3,10 +3,19 @@
 //! Provides full-duplex communication channel using WebSocket protocol.
 //! Useful for real-time command execution and interactive sessions.
 
-use crate::agent::transport::{Transport, TransportConfig, TransportError, TransportResult};
+use crate::agent::transport::{
+    fill_csprng, Transport, TransportConfig, TransportError, TransportResult,
+};
+use crate::crypto::sha1::sha1;
+use crate::crypto::sha256;
+use crate::protocols::x509::X509Certificate;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
+
+#[cfg(not(target_os = "windows"))]
+use boring::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode, SslVersion};
 
 /// WebSocket opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,16 +87,9 @@ impl WsFrame {
 
     /// Generate random mask key
     fn generate_mask() -> [u8; 4] {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let nanos = now.subsec_nanos();
-        [
-            ((nanos >> 24) & 0xFF) as u8,
-            ((nanos >> 16) & 0xFF) as u8,
-            ((nanos >> 8) & 0xFF) as u8,
-            (nanos & 0xFF) as u8,
-        ]
+        let mut mask = [0u8; 4];
+        fill_csprng(&mut mask).expect("OS CSPRNG unavailable");
+        mask
     }
 
     /// Serialize frame to bytes
@@ -219,6 +221,8 @@ pub struct WebSocketTransportConfig {
     pub url: String,
     /// Path component
     pub path: String,
+    /// Whether path was explicitly overridden
+    pub path_override: bool,
     /// Origin header
     pub origin: Option<String>,
     /// Ping interval for keepalive
@@ -235,6 +239,7 @@ impl Default for WebSocketTransportConfig {
             base: TransportConfig::default(),
             url: "ws://localhost:8080".into(),
             path: "/ws".into(),
+            path_override: false,
             origin: None,
             ping_interval: Duration::from_secs(30),
             auto_reconnect: true,
@@ -255,6 +260,7 @@ impl WebSocketTransportConfig {
     /// Set path
     pub fn with_path(mut self, path: &str) -> Self {
         self.path = path.to_string();
+        self.path_override = true;
         self
     }
 
@@ -275,6 +281,60 @@ impl WebSocketTransportConfig {
         self.auto_reconnect = enabled;
         self
     }
+
+    /// Enable or disable TLS verification
+    pub fn with_tls_verify(mut self, verify: bool) -> Self {
+        self.base.tls_verify = verify;
+        self
+    }
+}
+
+enum WebSocketStream {
+    Tcp(TcpStream),
+    #[cfg(not(target_os = "windows"))]
+    Tls(SslStream<TcpStream>),
+}
+
+impl WebSocketStream {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            WebSocketStream::Tcp(stream) => stream.set_read_timeout(timeout),
+            #[cfg(not(target_os = "windows"))]
+            WebSocketStream::Tls(stream) => stream.get_mut().set_read_timeout(timeout),
+        }
+    }
+
+    fn set_write_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        match self {
+            WebSocketStream::Tcp(stream) => stream.set_write_timeout(timeout),
+            #[cfg(not(target_os = "windows"))]
+            WebSocketStream::Tls(stream) => stream.get_mut().set_write_timeout(timeout),
+        }
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            WebSocketStream::Tcp(stream) => stream.read(buf),
+            #[cfg(not(target_os = "windows"))]
+            WebSocketStream::Tls(stream) => stream.read(buf),
+        }
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()> {
+        match self {
+            WebSocketStream::Tcp(stream) => stream.read_exact(buf),
+            #[cfg(not(target_os = "windows"))]
+            WebSocketStream::Tls(stream) => stream.read_exact(buf),
+        }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        match self {
+            WebSocketStream::Tcp(stream) => stream.write_all(buf),
+            #[cfg(not(target_os = "windows"))]
+            WebSocketStream::Tls(stream) => stream.write_all(buf),
+        }
+    }
 }
 
 /// WebSocket Transport implementation
@@ -282,11 +342,13 @@ pub struct WebSocketTransport {
     /// Configuration
     config: WebSocketTransportConfig,
     /// TCP connection
-    stream: Option<TcpStream>,
+    stream: Option<WebSocketStream>,
     /// Connection status
     connected: bool,
     /// WebSocket key used in handshake
     ws_key: String,
+    /// Buffered bytes from handshake or partial reads
+    read_buffer: Vec<u8>,
 }
 
 impl WebSocketTransport {
@@ -297,6 +359,7 @@ impl WebSocketTransport {
             stream: None,
             connected: false,
             ws_key: Self::generate_key(),
+            read_buffer: Vec::new(),
         }
     }
 
@@ -307,16 +370,8 @@ impl WebSocketTransport {
 
     /// Generate random WebSocket key
     fn generate_key() -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let nanos = now.subsec_nanos();
-
-        // Generate 16 random bytes
         let mut bytes = [0u8; 16];
-        for (i, b) in bytes.iter_mut().enumerate() {
-            *b = ((nanos.wrapping_mul((i as u32 + 1) * 1337)) % 256) as u8;
-        }
+        fill_csprng(&mut bytes).expect("OS CSPRNG unavailable");
 
         // Base64 encode
         Self::base64_encode(&bytes)
@@ -354,8 +409,8 @@ impl WebSocketTransport {
         result
     }
 
-    /// Parse URL into host and port
-    fn parse_url(&self) -> Result<(String, u16, bool), String> {
+    /// Parse URL into host, port, path, and TLS flag.
+    fn parse_url(&self) -> Result<(String, u16, String, bool), String> {
         let url = &self.config.url;
         let (scheme, rest) = if url.starts_with("wss://") {
             ("wss", &url[6..])
@@ -368,39 +423,61 @@ impl WebSocketTransport {
         let use_tls = scheme == "wss";
         let default_port = if use_tls { 443 } else { 80 };
 
-        // Extract host:port
-        let (host, port) = if let Some(colon_idx) = rest.find(':') {
-            let host = &rest[..colon_idx];
-            let port_str = rest[colon_idx + 1..].split('/').next().unwrap_or("");
+        let (host_port, path_opt) = match rest.find('/') {
+            Some(idx) => (&rest[..idx], Some(&rest[idx..])),
+            None => (rest, None),
+        };
+
+        let (host, port) = if let Some(host_port) = host_port.strip_prefix('[') {
+            let end = host_port.find(']').ok_or("Invalid IPv6 literal")?;
+            let host = &host_port[..end];
+            let remainder = &host_port[end + 1..];
+            let port = if let Some(port_str) = remainder.strip_prefix(':') {
+                port_str.parse().unwrap_or(default_port)
+            } else if remainder.is_empty() {
+                default_port
+            } else {
+                return Err("Invalid IPv6 host:port".into());
+            };
+            (host.to_string(), port)
+        } else if let Some(colon_idx) = host_port.rfind(':') {
+            if host_port[..colon_idx].contains(':') {
+                return Err("IPv6 literal must be bracketed".into());
+            }
+            let host = &host_port[..colon_idx];
+            let port_str = &host_port[colon_idx + 1..];
             let port = port_str.parse().unwrap_or(default_port);
             (host.to_string(), port)
         } else {
-            let host = rest.split('/').next().unwrap_or(rest);
-            (host.to_string(), default_port)
+            (host_port.to_string(), default_port)
         };
 
-        Ok((host, port, use_tls))
+        let path = if self.config.path_override {
+            self.config.path.clone()
+        } else if let Some(path_from_url) = path_opt {
+            if path_from_url.is_empty() {
+                "/".to_string()
+            } else {
+                path_from_url.to_string()
+            }
+        } else {
+            self.config.path.clone()
+        };
+
+        Ok((host, port, path, use_tls))
     }
 
     /// Perform WebSocket handshake
     fn handshake(&mut self) -> TransportResult<()> {
-        let (host, port, _use_tls) = self
+        self.read_buffer.clear();
+        let (host, port, path, use_tls) = self
             .parse_url()
             .map_err(|e| TransportError::ConnectionFailed(e))?;
 
-        // Connect TCP
-        let addr = format!("{}:{}", host, port);
-        let stream = TcpStream::connect(&addr)
-            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
-
-        stream
-            .set_read_timeout(Some(self.config.base.io_timeout))
-            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
-        stream
-            .set_write_timeout(Some(self.config.base.io_timeout))
-            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
-
+        let stream = self.connect_stream(&host, port, use_tls)?;
         self.stream = Some(stream);
+
+        let host_header = Self::format_host_header(&host, port, use_tls);
 
         // Send WebSocket upgrade request
         let request = format!(
@@ -411,8 +488,8 @@ impl WebSocketTransport {
              Sec-WebSocket-Key: {}\r\n\
              Sec-WebSocket-Version: 13\r\n\
              {}\r\n",
-            self.config.path,
-            host,
+            path,
+            host_header,
             self.ws_key,
             self.config
                 .origin
@@ -425,28 +502,258 @@ impl WebSocketTransport {
             stream
                 .write_all(request.as_bytes())
                 .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        }
 
-            // Read response
-            let mut response = [0u8; 1024];
-            let n = stream
-                .read(&mut response)
-                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        let response = self.read_handshake_response()?;
+        let (status, headers) =
+            Self::parse_response_headers(&response).map_err(TransportError::InvalidData)?;
 
-            let response_str = String::from_utf8_lossy(&response[..n]);
+        if status != 101 {
+            return Err(TransportError::ConnectionFailed(format!(
+                "WebSocket handshake failed: status {}",
+                status
+            )));
+        }
 
-            // Check for 101 Switching Protocols
-            if !response_str.contains("101") || !response_str.to_lowercase().contains("upgrade") {
-                return Err(TransportError::ConnectionFailed(format!(
-                    "WebSocket handshake failed: {}",
-                    response_str
+        let upgrade = headers
+            .get("upgrade")
+            .ok_or_else(|| TransportError::InvalidData("Missing Upgrade header".into()))?;
+        if !upgrade.eq_ignore_ascii_case("websocket") {
+            return Err(TransportError::InvalidData("Invalid Upgrade header".into()));
+        }
+
+        let connection = headers
+            .get("connection")
+            .ok_or_else(|| TransportError::InvalidData("Missing Connection header".into()))?;
+        if !Self::header_contains_token(connection, "upgrade") {
+            return Err(TransportError::InvalidData(
+                "Invalid Connection header".into(),
+            ));
+        }
+
+        let accept = headers
+            .get("sec-websocket-accept")
+            .ok_or_else(|| TransportError::InvalidData("Missing Sec-WebSocket-Accept".into()))?;
+        let expected = Self::compute_accept(&self.ws_key);
+        if accept.trim() != expected {
+            return Err(TransportError::InvalidData(
+                "Sec-WebSocket-Accept mismatch".into(),
+            ));
+        }
+
+        self.connected = true;
+        Ok(())
+    }
+
+    fn connect_stream(
+        &self,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+    ) -> TransportResult<WebSocketStream> {
+        let addr = format!("{}:{}", host, port);
+        let stream = TcpStream::connect(&addr)
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        stream
+            .set_read_timeout(Some(self.config.base.io_timeout))
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        stream
+            .set_write_timeout(Some(self.config.base.io_timeout))
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+
+        let mut stream = if use_tls {
+            self.wrap_tls(host, stream)?
+        } else {
+            WebSocketStream::Tcp(stream)
+        };
+
+        stream
+            .set_read_timeout(Some(self.config.base.io_timeout))
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        stream
+            .set_write_timeout(Some(self.config.base.io_timeout))
+            .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+
+        Ok(stream)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn wrap_tls(&self, host: &str, stream: TcpStream) -> TransportResult<WebSocketStream> {
+        let mut builder = SslConnector::builder(SslMethod::tls_client())
+            .map_err(|e| TransportError::TlsError(format!("TLS builder error: {}", e)))?;
+        if self.config.base.tls_verify {
+            builder.set_verify(SslVerifyMode::PEER);
+            builder
+                .set_default_verify_paths()
+                .map_err(|e| TransportError::TlsError(format!("TLS verify paths: {}", e)))?;
+        } else {
+            builder.set_verify(SslVerifyMode::NONE);
+        }
+        builder
+            .set_min_proto_version(Some(SslVersion::TLS1_2))
+            .map_err(|e| TransportError::TlsError(format!("TLS min version: {}", e)))?;
+        builder
+            .set_max_proto_version(Some(SslVersion::TLS1_3))
+            .map_err(|e| TransportError::TlsError(format!("TLS max version: {}", e)))?;
+
+        let connector = builder.build();
+        let tls_stream = connector
+            .connect(host, stream)
+            .map_err(|e| TransportError::TlsError(format!("TLS connect failed: {}", e)))?;
+        self.validate_tls_peer(host, &tls_stream)?;
+        Ok(WebSocketStream::Tls(tls_stream))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn validate_tls_peer(&self, host: &str, stream: &SslStream<TcpStream>) -> TransportResult<()> {
+        if !self.config.base.tls_verify && self.config.base.cert_pins.is_empty() {
+            return Ok(());
+        }
+
+        let cert = stream
+            .ssl()
+            .peer_certificate()
+            .ok_or_else(|| TransportError::TlsError("TLS peer certificate missing".into()))?;
+        let der = cert
+            .to_der()
+            .map_err(|e| TransportError::TlsError(format!("TLS peer certificate export: {}", e)))?;
+
+        if !self.config.base.cert_pins.is_empty() {
+            let fingerprint = sha256::sha256(&der);
+            let matched = self
+                .config
+                .base
+                .cert_pins
+                .iter()
+                .any(|pin| pin == &fingerprint);
+            if !matched {
+                return Err(TransportError::TlsError(
+                    "TLS peer certificate pin mismatch".into(),
+                ));
+            }
+        }
+
+        if self.config.base.tls_verify {
+            let parsed = X509Certificate::from_der(&der)
+                .map_err(|e| TransportError::TlsError(format!("TLS cert parse: {}", e)))?;
+            parsed
+                .is_valid_at(std::time::SystemTime::now())
+                .map_err(TransportError::TlsError)?;
+            if !parsed.matches_host(host) {
+                return Err(TransportError::TlsError(format!(
+                    "TLS certificate does not match host '{}'",
+                    host
                 )));
             }
-
-            self.connected = true;
-            Ok(())
-        } else {
-            Err(TransportError::Disconnected)
         }
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn wrap_tls(&self, _host: &str, _stream: TcpStream) -> TransportResult<WebSocketStream> {
+        Err(TransportError::TlsError(
+            "TLS not supported on Windows".to_string(),
+        ))
+    }
+
+    fn format_host_header(host: &str, port: u16, use_tls: bool) -> String {
+        let default_port = if use_tls { 443 } else { 80 };
+        let host_value = if host.contains(':') {
+            format!("[{}]", host)
+        } else {
+            host.to_string()
+        };
+        if port != default_port {
+            format!("{}:{}", host_value, port)
+        } else {
+            host_value
+        }
+    }
+
+    fn read_handshake_response(&mut self) -> TransportResult<String> {
+        // TODO(test): add regression test to ensure handshake buffering preserves frame bytes.
+        const MAX_HEADER_BYTES: usize = 16 * 1024;
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 1024];
+
+        let stream = self.stream.as_mut().ok_or(TransportError::Disconnected)?;
+
+        loop {
+            let n = stream
+                .read(&mut chunk)
+                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+            if n == 0 {
+                return Err(TransportError::Disconnected);
+            }
+
+            buffer.extend_from_slice(&chunk[..n]);
+            if let Some(header_end) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                let header_end = header_end + 4;
+                if header_end > MAX_HEADER_BYTES {
+                    return Err(TransportError::InvalidData(
+                        "Handshake response too large".into(),
+                    ));
+                }
+                if header_end < buffer.len() {
+                    self.read_buffer.extend_from_slice(&buffer[header_end..]);
+                    buffer.truncate(header_end);
+                }
+                break;
+            }
+
+            if buffer.len() > MAX_HEADER_BYTES {
+                return Err(TransportError::InvalidData(
+                    "Handshake response too large".into(),
+                ));
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&buffer).to_string())
+    }
+
+    fn parse_response_headers(response: &str) -> Result<(u16, HashMap<String, String>), String> {
+        let header_end = response
+            .find("\r\n\r\n")
+            .ok_or("Missing header terminator")?;
+        let header_block = &response[..header_end];
+        let mut lines = header_block.split("\r\n");
+
+        let status_line = lines.next().ok_or("Missing status line")?;
+        let status_code = status_line
+            .split_whitespace()
+            .nth(1)
+            .ok_or("Missing status code")?
+            .parse::<u16>()
+            .map_err(|_| "Invalid status code")?;
+
+        let mut headers = HashMap::new();
+        for line in lines {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((name, value)) = line.split_once(':') {
+                headers.insert(name.trim().to_lowercase(), value.trim().to_string());
+            }
+        }
+
+        Ok((status_code, headers))
+    }
+
+    fn compute_accept(key: &str) -> String {
+        const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+        let mut combined = Vec::with_capacity(key.len() + GUID.len());
+        combined.extend_from_slice(key.as_bytes());
+        combined.extend_from_slice(GUID.as_bytes());
+        let digest = sha1(&combined);
+        Self::base64_encode(&digest)
+    }
+
+    fn header_contains_token(value: &str, token: &str) -> bool {
+        value
+            .split(',')
+            .any(|part| part.trim().eq_ignore_ascii_case(token))
     }
 
     /// Send a WebSocket frame
@@ -464,32 +771,133 @@ impl WebSocketTransport {
 
     /// Receive a WebSocket frame
     fn recv_frame(&mut self) -> TransportResult<WsFrame> {
-        if let Some(ref mut stream) = self.stream {
-            // Read frame header
-            let mut buffer = vec![0u8; 16384];
-            let mut total_read = 0;
+        let mut header = [0u8; 2];
+        self.read_exact_buffered(&mut header)?;
 
-            loop {
-                let n = stream
-                    .read(&mut buffer[total_read..])
-                    .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+        let first = header[0];
+        let second = header[1];
 
-                if n == 0 {
+        let fin = (first & 0x80) != 0;
+        let opcode = WsOpcode::try_from(first & 0x0F).map_err(TransportError::InvalidData)?;
+        let masked = (second & 0x80) != 0;
+        let mut payload_len = (second & 0x7F) as u64;
+
+        if payload_len == 126 {
+            let mut ext = [0u8; 2];
+            self.read_exact_buffered(&mut ext)?;
+            payload_len = u16::from_be_bytes(ext) as u64;
+        } else if payload_len == 127 {
+            let mut ext = [0u8; 8];
+            self.read_exact_buffered(&mut ext)?;
+            payload_len = u64::from_be_bytes(ext);
+        }
+
+        if payload_len > self.config.max_message_size as u64 {
+            return Err(TransportError::InvalidData(format!(
+                "Inbound frame too large: {} bytes",
+                payload_len
+            )));
+        }
+
+        let mask = if masked {
+            let mut key = [0u8; 4];
+            self.read_exact_buffered(&mut key)?;
+            Some(key)
+        } else {
+            None
+        };
+
+        let mut payload = vec![0u8; payload_len as usize];
+        if !payload.is_empty() {
+            self.read_exact_buffered(&mut payload)?;
+        }
+
+        if let Some(mask_key) = &mask {
+            for (i, byte) in payload.iter_mut().enumerate() {
+                *byte ^= mask_key[i % 4];
+            }
+        }
+
+        Ok(WsFrame {
+            fin,
+            opcode,
+            mask,
+            payload,
+        })
+    }
+
+    fn read_exact_buffered(&mut self, buf: &mut [u8]) -> TransportResult<()> {
+        let mut offset = 0;
+        while offset < buf.len() {
+            if !self.read_buffer.is_empty() {
+                let take = (buf.len() - offset).min(self.read_buffer.len());
+                buf[offset..offset + take].copy_from_slice(&self.read_buffer[..take]);
+                self.read_buffer.drain(..take);
+                offset += take;
+                continue;
+            }
+
+            let stream = self.stream.as_mut().ok_or(TransportError::Disconnected)?;
+            stream
+                .read_exact(&mut buf[offset..])
+                .map_err(|e| TransportError::ConnectionFailed(e.to_string()))?;
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    fn recv_message(&mut self) -> TransportResult<Vec<u8>> {
+        let mut message = Vec::new();
+        let mut data_opcode: Option<WsOpcode> = None;
+
+        loop {
+            let frame = self.recv_frame()?;
+
+            match frame.opcode {
+                WsOpcode::Binary | WsOpcode::Text => {
+                    if data_opcode.is_some() {
+                        return Err(TransportError::InvalidData(
+                            "Unexpected data frame during continuation".into(),
+                        ));
+                    }
+                    data_opcode = Some(frame.opcode);
+                    message.extend_from_slice(&frame.payload);
+                }
+                WsOpcode::Continuation => {
+                    if data_opcode.is_none() {
+                        return Err(TransportError::InvalidData(
+                            "Unexpected continuation frame".into(),
+                        ));
+                    }
+                    message.extend_from_slice(&frame.payload);
+                }
+                WsOpcode::Ping => {
+                    let pong = WsFrame::pong(frame.payload);
+                    self.send_frame(&pong)?;
+                    continue;
+                }
+                WsOpcode::Pong => continue,
+                WsOpcode::Close => {
                     self.connected = false;
                     return Err(TransportError::Disconnected);
                 }
-
-                total_read += n;
-
-                // Try to parse frame
-                match WsFrame::from_bytes(&buffer[..total_read]) {
-                    Ok((frame, _)) => return Ok(frame),
-                    Err(_) if total_read < buffer.len() => continue,
-                    Err(e) => return Err(TransportError::InvalidData(e)),
-                }
             }
-        } else {
-            Err(TransportError::Disconnected)
+
+            if message.len() > self.config.max_message_size {
+                return Err(TransportError::InvalidData(format!(
+                    "Inbound message too large: {} bytes",
+                    message.len()
+                )));
+            }
+
+            if frame.fin {
+                if data_opcode.is_none() {
+                    return Err(TransportError::InvalidData(
+                        "Final frame missing data opcode".into(),
+                    ));
+                }
+                return Ok(message);
+            }
         }
     }
 }
@@ -514,26 +922,7 @@ impl Transport for WebSocketTransport {
         let frame = WsFrame::binary(data.to_vec());
         self.send_frame(&frame)?;
 
-        // Receive response
-        loop {
-            let response_frame = self.recv_frame()?;
-
-            match response_frame.opcode {
-                WsOpcode::Binary | WsOpcode::Text => {
-                    return Ok(response_frame.payload);
-                }
-                WsOpcode::Ping => {
-                    // Respond with pong
-                    let pong = WsFrame::pong(response_frame.payload);
-                    self.send_frame(&pong)?;
-                }
-                WsOpcode::Close => {
-                    self.connected = false;
-                    return Err(TransportError::Disconnected);
-                }
-                _ => continue,
-            }
-        }
+        self.recv_message()
     }
 
     fn is_connected(&self) -> bool {
@@ -551,7 +940,24 @@ impl Transport for WebSocketTransport {
     }
 
     fn current_endpoint(&self) -> String {
-        format!("{}{}", self.config.url, self.config.path)
+        match self.parse_url() {
+            Ok((host, port, path, use_tls)) => {
+                let scheme = if use_tls { "wss" } else { "ws" };
+                let host_part = if host.contains(':') {
+                    format!("[{}]", host)
+                } else {
+                    host
+                };
+                let default_port = if use_tls { 443 } else { 80 };
+                let port_part = if port != default_port {
+                    format!(":{}", port)
+                } else {
+                    String::new()
+                };
+                format!("{}://{}{}{}", scheme, host_part, port_part, path)
+            }
+            Err(_) => format!("{}{}", self.config.url, self.config.path),
+        }
     }
 
     fn close(&mut self) {
@@ -600,6 +1006,7 @@ impl WebSocketProfileBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
 
     #[test]
     fn test_ws_frame_binary() {
@@ -670,15 +1077,17 @@ mod tests {
     #[test]
     fn test_url_parsing() {
         let transport = WebSocketTransport::with_url("ws://localhost:8080");
-        let (host, port, tls) = transport.parse_url().unwrap();
+        let (host, port, path, tls) = transport.parse_url().unwrap();
         assert_eq!(host, "localhost");
         assert_eq!(port, 8080);
+        assert_eq!(path, "/ws");
         assert!(!tls);
 
         let transport = WebSocketTransport::with_url("wss://secure.example.com");
-        let (host, port, tls) = transport.parse_url().unwrap();
+        let (host, port, path, tls) = transport.parse_url().unwrap();
         assert_eq!(host, "secure.example.com");
         assert_eq!(port, 443);
+        assert_eq!(path, "/ws");
         assert!(tls);
     }
 
@@ -698,5 +1107,136 @@ mod tests {
 
         let browser = WebSocketProfileBuilder::browser("ws://localhost", "https://example.com");
         assert_eq!(browser.config.origin, Some("https://example.com".into()));
+    }
+
+    #[test]
+    fn test_url_parsing_with_path() {
+        let transport = WebSocketTransport::with_url("ws://localhost:8080/chat");
+        let (host, port, path, tls) = transport.parse_url().unwrap();
+        assert_eq!(host, "localhost");
+        assert_eq!(port, 8080);
+        assert_eq!(path, "/chat");
+        assert!(!tls);
+    }
+
+    #[test]
+    fn test_url_parsing_ipv6() {
+        let transport = WebSocketTransport::with_url("ws://[2001:db8::1]:9000/stream");
+        let (host, port, path, tls) = transport.parse_url().unwrap();
+        assert_eq!(host, "2001:db8::1");
+        assert_eq!(port, 9000);
+        assert_eq!(path, "/stream");
+        assert!(!tls);
+    }
+
+    #[test]
+    fn test_url_parsing_ipv6_default_port() {
+        let transport = WebSocketTransport::with_url("wss://[2001:db8::1]/stream");
+        let (host, port, path, tls) = transport.parse_url().unwrap();
+        assert_eq!(host, "2001:db8::1");
+        assert_eq!(port, 443);
+        assert_eq!(path, "/stream");
+        assert!(tls);
+    }
+
+    #[test]
+    fn test_sec_websocket_accept() {
+        let key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let expected = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+        let actual = WebSocketTransport::compute_accept(key);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_recv_message_fragmentation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let frame1 = WsFrame {
+                fin: false,
+                opcode: WsOpcode::Binary,
+                mask: None,
+                payload: b"hello".to_vec(),
+            };
+            let frame2 = WsFrame {
+                fin: true,
+                opcode: WsOpcode::Continuation,
+                mask: None,
+                payload: b"world".to_vec(),
+            };
+            socket.write_all(&frame1.to_bytes()).unwrap();
+            socket.write_all(&frame2.to_bytes()).unwrap();
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut transport = WebSocketTransport::with_url("ws://127.0.0.1");
+        transport.stream = Some(WebSocketStream::Tcp(client_stream));
+        transport.connected = true;
+
+        let message = transport.recv_message().unwrap();
+        assert_eq!(message, b"helloworld");
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_handshake_rejects_missing_accept() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 512];
+            let _ = socket.read(&mut buf);
+            let response = "\
+HTTP/1.1 101 Switching Protocols\r\n\
+Upgrade: websocket\r\n\
+Connection: Upgrade\r\n\
+\r\n";
+            socket.write_all(response.as_bytes()).unwrap();
+        });
+
+        let mut transport = WebSocketTransport::with_url(&format!("ws://{}", addr));
+        let result = transport.handshake();
+        assert!(matches!(result, Err(TransportError::InvalidData(_))));
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_recv_message_enforces_max_size() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let frame1 = WsFrame {
+                fin: false,
+                opcode: WsOpcode::Binary,
+                mask: None,
+                payload: b"hello".to_vec(),
+            };
+            let frame2 = WsFrame {
+                fin: true,
+                opcode: WsOpcode::Continuation,
+                mask: None,
+                payload: b"world".to_vec(),
+            };
+            socket.write_all(&frame1.to_bytes()).unwrap();
+            socket.write_all(&frame2.to_bytes()).unwrap();
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut transport = WebSocketTransport::with_url("ws://127.0.0.1");
+        transport.stream = Some(WebSocketStream::Tcp(client_stream));
+        transport.connected = true;
+        transport.config.max_message_size = 8;
+
+        let result = transport.recv_message();
+        assert!(matches!(result, Err(TransportError::InvalidData(_))));
+
+        server.join().unwrap();
     }
 }

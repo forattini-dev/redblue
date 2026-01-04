@@ -3,6 +3,7 @@
 
 use crate::agent::protocol::AgentCommand;
 use crate::agent::server::{AgentServer, SessionStatus};
+use crate::serde_json;
 use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

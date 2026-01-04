@@ -11,6 +11,8 @@ pub mod chacha20;
 pub mod hkdf;
 pub mod hmac;
 pub mod md5;
+#[path = "os-random.rs"]
+pub mod os_random;
 pub mod prf;
 pub mod rsa;
 pub mod sha1;
@@ -18,10 +20,26 @@ pub mod sha256;
 pub mod sha384;
 pub mod tls13_hash;
 pub mod tls13_keyschedule;
+pub mod uuid;
 pub mod x25519;
 
-// Encoding formats
+// Encoding formats (legacy module)
 pub mod encoding;
+
+// Codec system (new unified encoding/decoding)
+pub mod codec;
+
+// Classical ciphers
+pub mod cipher;
+
+// Cryptographic analysis
+pub mod analysis;
+
+// Recipe system for chaining operations
+pub mod recipe;
+
+// TLS fingerprinting
+pub mod fingerprint;
 
 // Certificate management
 pub mod certs;

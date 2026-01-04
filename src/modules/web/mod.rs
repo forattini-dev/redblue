@@ -6,6 +6,7 @@
 /// - Web crawling and endpoint discovery
 /// - Technology fingerprinting (whatweb-style)
 /// - Vulnerability scanning (nikto-style)
+/// - SQL injection testing (sqlmap-style)
 /// - CMS-specific scanning with Strategy Pattern
 /// - Advanced CMS security testing (wpscan/droopescan style)
 /// - HTML DOM parsing and CSS selectors (Cheerio-like)
@@ -17,14 +18,17 @@ pub mod cms; // Advanced CMS security testing (wpscan, droopescan replacement)
 pub mod crawler;
 pub mod dom; // HTML DOM parser with CSS selectors
 pub mod extractors; // Built-in extractors for common web data
-pub mod fingerprint; // HTTP fingerprinting & tech detection
-pub mod fingerprinter;
+pub mod fingerprinter; // HTTP fingerprinting, tech & WAF detection
 pub mod fuzzer;
+pub mod git_exposed; // Exposed .git directory scanner (git-scanner style)
 pub mod headers;
 pub mod linkfinder;
+pub mod nosqli; // NoSQL injection testing (MongoDB, Redis, Elasticsearch)
+pub mod recursive; // Recursive content discovery (link extraction, queue, scanner)
 #[path = "scanner-strategy.rs"]
 pub mod scanner_strategy;
 pub mod scraper; // Rule-based web scraping
+pub mod sqli; // SQL injection testing (sqlmap-style)
 pub mod strategies;
 #[path = "vuln-scanner.rs"]
 pub mod vuln_scanner;
@@ -45,3 +49,28 @@ pub use strategies::{
     WPScanner,
 };
 pub use vuln_scanner::{ScanResult as VulnScanResult, WebScanner};
+
+// SQL injection testing
+pub use sqli::{
+    payloads::{Dbms, RiskLevel, SqliPayload, SqliTechnique},
+    tamper::{TamperScript, TAMPER_SCRIPTS},
+    techniques::{DetectionConfig, DetectionResult, InjectionPoint},
+    ScanConfig as SqliScanConfig, ScanResult as SqliScanResult, SqliScanner,
+};
+
+// NoSQL injection testing
+pub use nosqli::{
+    payloads::{NoSqlDb, NoSqlPayload, NoSqlTechnique, RiskLevel as NoSqlRiskLevel},
+    techniques::{
+        DetectionConfig as NoSqlDetectionConfig, DetectionResult as NoSqlDetectionResult,
+        InjectionPoint as NoSqlInjectionPoint,
+    },
+    AuthBypassScanner, JsonBodyScanner, NoSqliScanner, ScanConfig as NoSqlScanConfig,
+    ScanResult as NoSqlScanResult,
+};
+
+// Recursive content discovery
+pub use recursive::{
+    DiscoveredResource, DiscoverySource, ExtractedLink, LinkExtractor, LinkSource, QueuedUrl,
+    RecursionQueue, RecursiveScanConfig, RecursiveScanner, ScannerState,
+};

@@ -26,8 +26,9 @@
 use super::apt_catalog::all_apt_playbooks;
 use super::catalog::all_playbooks;
 use super::types::{Playbook, RiskLevel, TargetOS, TargetType};
+use crate::modules::common::Severity;
 use crate::modules::exploit::planner::{AttackPlan, PlannerInput};
-use crate::storage::records::{PortScanRecord, Severity, VulnerabilityRecord};
+use crate::storage::records::{PortScanRecord, VulnerabilityRecord};
 
 /// Input for playbook recommendation
 #[derive(Debug, Clone, Default)]

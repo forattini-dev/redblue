@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use crate::crypto::aes_gcm::{aes256_gcm_decrypt, aes256_gcm_encrypt};
 use crate::crypto::sha256::sha256;
+use crate::crypto::uuid::Uuid;
 
 const SERVICE_NAME: &str = "redblue";
 const KEYRING_FILE: &str = "keyring.enc";
@@ -229,7 +230,7 @@ fn derive_keyring_key() -> [u8; 32] {
 
 /// Generate a random 12-byte nonce
 fn generate_nonce() -> [u8; 12] {
-    let uuid = uuid::Uuid::new_v4();
+    let uuid = Uuid::new_v4();
     let mut nonce = [0u8; 12];
     nonce.copy_from_slice(&uuid.as_bytes()[0..12]);
     nonce

@@ -10,6 +10,7 @@
 pub mod html;
 pub mod json;
 pub mod markdown;
+pub mod pentest;
 
 use std::collections::HashMap;
 use std::fs;
@@ -19,37 +20,7 @@ pub use html::HtmlExporter;
 pub use json::JsonExporter;
 pub use markdown::MarkdownExporter;
 
-/// Severity levels for findings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Severity {
-    Info,
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl Severity {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Severity::Info => "Info",
-            Severity::Low => "Low",
-            Severity::Medium => "Medium",
-            Severity::High => "High",
-            Severity::Critical => "Critical",
-        }
-    }
-
-    pub fn color(&self) -> &'static str {
-        match self {
-            Severity::Info => "#17a2b8",
-            Severity::Low => "#28a745",
-            Severity::Medium => "#ffc107",
-            Severity::High => "#fd7e14",
-            Severity::Critical => "#dc3545",
-        }
-    }
-}
+use crate::modules::common::Severity;
 
 /// A security finding
 #[derive(Debug, Clone)]

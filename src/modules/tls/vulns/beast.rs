@@ -3,15 +3,15 @@
 /// Tests for Browser Exploit Against SSL/TLS vulnerability.
 /// Affects TLS 1.0 with CBC mode ciphers.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct BeastChecker {
+pub struct BeastScanner {
     timeout: Duration,
 }
 
-impl BeastChecker {
+impl BeastScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -96,13 +96,13 @@ impl BeastChecker {
     }
 }
 
-impl Default for BeastChecker {
+impl Default for BeastScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for BeastChecker {
+impl VulnScanner for BeastScanner {
     fn name(&self) -> &str {
         "BEAST"
     }
@@ -115,7 +115,7 @@ impl VulnChecker for BeastChecker {
         "Browser Exploit Against SSL/TLS (TLS 1.0 CBC vulnerability)"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         match self.check_tls10_cbc(host, port) {
             Ok((true, evidence)) => {
                 VulnCheckResult::vulnerable(

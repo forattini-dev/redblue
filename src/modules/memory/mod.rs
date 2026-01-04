@@ -27,7 +27,27 @@ pub mod pattern;
 pub mod process;
 pub mod scanner;
 
+// Hex editor infrastructure
+pub mod buffer;
+pub mod search;
+pub mod source;
+pub mod types;
+pub mod undo;
+pub mod view;
+
 pub use maps::{parse_maps, MemoryPermissions, MemoryRegion};
 pub use pattern::{Pattern, PatternScanner};
 pub use process::ProcessMemory;
 pub use scanner::{ScanResult, ScanType, Scanner, ValueType};
+
+// Hex editor exports
+pub use buffer::{Delta, Page, PagedBuffer, PAGE_SIZE};
+pub use search::{
+    replace, replace_all, search_simple, search_text, BoyerMooreSearcher, SearchResult,
+};
+pub use source::{
+    BufferSource, DataSource, FileSource, ProcessMemorySource, SourceError, SourceResult,
+};
+pub use types::{DataInterpreter, DataValue, Endian};
+pub use undo::{UndoEntry, UndoError, UndoResult, UndoStack};
+pub use view::{parse_hex, to_hex, HexView, OffsetFormat, ViewSettings};

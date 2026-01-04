@@ -1,3 +1,5 @@
+// Legacy wrapper over deprecated table APIs until unified store migration completes.
+
 use std::io;
 use std::net::IpAddr;
 use std::path::Path;
@@ -8,9 +10,12 @@ use crate::storage::records::{
     TlsScanRecord, WhoisRecord,
 };
 use crate::storage::store::Database;
+use crate::storage::segments::actions::{ActionRecord, ActionTrace, ActionType, Target};
+use crate::storage::segments::loot::LootEntry;
 use crate::storage::tables::{
-    DnsTable, HostIntelTable, HttpTable, IocTable, MitreTable, PlaybookTable, PortScanTable,
-    ProxyTable, SessionTable, SubdomainTable, TlsScanTable, VulnTable, WhoisTable,
+    ActionTable, DnsTable, HostIntelTable, HttpTable, IocTable, LootTable, MitreTable, PlaybookTable,
+    PortScanTable, ProxyTable, SessionTable, SubdomainTable, TlsScanTable, TraceTable, VulnTable,
+    WhoisTable,
 };
 
 pub struct RedDb {
@@ -89,6 +94,23 @@ impl RedDb {
 
     pub fn playbooks(&mut self) -> PlaybookTable<'_> {
         PlaybookTable::new(&mut self.store)
+    }
+
+    pub fn actions(&mut self) -> ActionTable<'_> {
+        ActionTable::new(&mut self.store)
+    }
+
+    pub fn traces(&mut self) -> TraceTable<'_> {
+        TraceTable::new(&mut self.store)
+    }
+
+    pub fn loot(&mut self) -> LootTable<'_> {
+        LootTable::new(&mut self.store)
+    }
+
+    /// Get all loot entries (convenience method)
+    pub fn all_loot(&mut self) -> io::Result<Vec<LootEntry>> {
+        Ok(self.loot().all().to_vec())
     }
 
     pub fn flush(&mut self) -> io::Result<()> {
@@ -238,6 +260,74 @@ impl RedDb {
 
     pub fn proxy_request_count(&mut self) -> io::Result<usize> {
         self.proxy().request_count()
+    }
+
+    // ==================== Action Methods ====================
+
+    /// Save an action record and auto-promote to loot if applicable
+    ///
+    /// Auto-promotion creates LootEntry for:
+    /// - Port scans with open ports → Service loot
+    /// - Vulnerability scans → Vulnerability loot
+    /// - TLS audits → Technology loot
+    /// - HTTP responses → Endpoint loot
+    /// - DNS results → Finding loot
+    /// - Fingerprint results → Technology loot
+    /// - Successful exploits → Vulnerability loot
+    pub fn save_action(&mut self, record: ActionRecord) -> io::Result<()> {
+        // Auto-promote to loot if applicable
+        if let Some(loot) = LootEntry::from_action(&record) {
+            self.loot().insert(loot);
+        }
+        self.actions().insert(record)
+    }
+
+    pub fn get_action(&mut self, id: [u8; 16]) -> io::Result<Option<ActionRecord>> {
+        Ok(self.actions().get(id)?.cloned())
+    }
+
+    pub fn get_actions_by_target(&mut self, target: &Target) -> io::Result<Vec<ActionRecord>> {
+        Ok(self
+            .actions()
+            .by_target(target)?
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    pub fn get_actions_by_type(&mut self, action_type: ActionType) -> io::Result<Vec<ActionRecord>> {
+        Ok(self
+            .actions()
+            .by_type(action_type)?
+            .into_iter()
+            .cloned()
+            .collect())
+    }
+
+    pub fn get_successful_actions(&mut self) -> io::Result<Vec<ActionRecord>> {
+        Ok(self.actions().successful()?.into_iter().cloned().collect())
+    }
+
+    pub fn get_failed_actions(&mut self) -> io::Result<Vec<ActionRecord>> {
+        Ok(self.actions().failed()?.into_iter().cloned().collect())
+    }
+
+    pub fn action_count(&mut self) -> io::Result<usize> {
+        self.actions().count()
+    }
+
+    // ==================== Trace Methods ====================
+
+    pub fn save_trace(&mut self, trace: ActionTrace) -> io::Result<()> {
+        self.traces().insert(trace)
+    }
+
+    pub fn get_trace_for_action(&mut self, action_id: [u8; 16]) -> io::Result<Option<ActionTrace>> {
+        Ok(self.traces().for_action(action_id)?.cloned())
+    }
+
+    pub fn trace_count(&mut self) -> io::Result<usize> {
+        self.traces().count()
     }
 }
 

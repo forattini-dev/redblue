@@ -105,7 +105,8 @@ pub mod types;
 
 pub use apt_catalog::{all_apt_playbooks, get_apt_playbook, list_apt_groups};
 pub use catalog::{
-    all_playbooks, get_playbook, playbooks_by_risk, playbooks_by_tag, playbooks_for_target,
+    all_chains, all_playbooks, get_chain, get_playbook, playbooks_by_risk, playbooks_by_tag,
+    playbooks_for_target,
 };
 pub use executor::PlaybookExecutor;
 pub use recommender::{

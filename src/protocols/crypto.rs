@@ -20,7 +20,6 @@ use std::fs::File;
 use std::io::{self, Read};
 #[cfg(windows)]
 use std::ptr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // ============================================================================
 // SHA256 Implementation (RFC 6234)
@@ -479,56 +478,13 @@ fn os_random_bytes(buffer: &mut [u8]) -> io::Result<()> {
     }
 }
 
-fn fallback_entropy(len: usize) -> Vec<u8> {
-    use std::process;
-    use std::thread;
-
-    let mut material = Vec::with_capacity(64);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    material.extend_from_slice(&now.as_secs().to_le_bytes());
-    material.extend_from_slice(&now.subsec_nanos().to_le_bytes());
-    material.extend_from_slice(&process::id().to_le_bytes());
-
-    let thread_id = format!("{:?}", thread::current().id());
-    material.extend_from_slice(thread_id.as_bytes());
-
-    let stack_addr = &material as *const _ as usize;
-    material.extend_from_slice(&stack_addr.to_le_bytes());
-
-    let mut output = vec![0u8; len];
-    let mut counter = 0u64;
-    let mut offset = 0usize;
-
-    while offset < len {
-        let mut hasher = Sha256::new();
-        hasher.update(&material);
-        hasher.update(&counter.to_be_bytes());
-        let block = hasher.finalize();
-
-        let to_copy = (len - offset).min(block.len());
-        output[offset..offset + to_copy].copy_from_slice(&block[..to_copy]);
-        offset += to_copy;
-        counter = counter.wrapping_add(1);
-    }
-
-    output
-}
-
 fn gather_entropy(len: usize) -> Result<Vec<u8>, String> {
     if len == 0 {
         return Ok(Vec::new());
     }
 
-    let mut buffer = fallback_entropy(len);
-    if os_random_bytes(&mut buffer).is_err() {
-        let extra = fallback_entropy(len);
-        for (dst, src) in buffer.iter_mut().zip(extra.iter()) {
-            *dst ^= *src;
-        }
-    }
-
+    let mut buffer = vec![0u8; len];
+    os_random_bytes(&mut buffer).map_err(|err| format!("OS CSPRNG failed: {}", err))?;
     Ok(buffer)
 }
 
@@ -1602,4 +1558,18 @@ pub fn hkdf(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Vec<u8> {
 pub fn hkdf_sha384(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Vec<u8> {
     let prk = hkdf_extract_sha384(salt, ikm);
     hkdf_expand_sha384(&prk, info, length)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SecureRandom;
+
+    #[test]
+    fn test_secure_random_initialization() {
+        let mut rng = SecureRandom::new().expect("SecureRandom init failed");
+        let mut output = [0u8; 32];
+        rng.fill_bytes(&mut output)
+            .expect("SecureRandom fill failed");
+        assert_eq!(output.len(), 32);
+    }
 }

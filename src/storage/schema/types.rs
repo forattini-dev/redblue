@@ -43,6 +43,14 @@ pub enum DataType {
     Json = 13,
     /// UUID (16 bytes)
     Uuid = 14,
+    /// Reference to a graph node (for unified queries)
+    NodeRef = 15,
+    /// Reference to a graph edge
+    EdgeRef = 16,
+    /// Reference to a vector in vector store
+    VectorRef = 17,
+    /// Reference to a table row (table_id, row_id)
+    RowRef = 18,
 }
 
 impl DataType {
@@ -68,6 +76,10 @@ impl DataType {
             12 => Some(DataType::Nullable),
             13 => Some(DataType::Json),
             14 => Some(DataType::Uuid),
+            15 => Some(DataType::NodeRef),
+            16 => Some(DataType::EdgeRef),
+            17 => Some(DataType::VectorRef),
+            18 => Some(DataType::RowRef),
             _ => None,
         }
     }
@@ -90,6 +102,11 @@ impl DataType {
             DataType::Vector => None, // depends on dimensions
             DataType::Nullable => None,
             DataType::Json => None,
+            // Cross-references (variable-length IDs)
+            DataType::NodeRef => None,
+            DataType::EdgeRef => None,
+            DataType::VectorRef => Some(8), // u64 vector ID
+            DataType::RowRef => None,       // table_id (varint) + row_id (u64)
         }
     }
 
@@ -104,6 +121,10 @@ impl DataType {
                 | DataType::Timestamp
                 | DataType::IpAddr
                 | DataType::Uuid
+                | DataType::NodeRef
+                | DataType::EdgeRef
+                | DataType::VectorRef
+                | DataType::RowRef
         )
     }
 
@@ -138,6 +159,10 @@ impl fmt::Display for DataType {
             DataType::Nullable => write!(f, "NULLABLE"),
             DataType::Json => write!(f, "JSON"),
             DataType::Uuid => write!(f, "UUID"),
+            DataType::NodeRef => write!(f, "NODEREF"),
+            DataType::EdgeRef => write!(f, "EDGEREF"),
+            DataType::VectorRef => write!(f, "VECTORREF"),
+            DataType::RowRef => write!(f, "ROWREF"),
         }
     }
 }
@@ -173,6 +198,14 @@ pub enum Value {
     Json(Vec<u8>),
     /// UUID
     Uuid([u8; 16]),
+    /// Graph node reference (node ID string)
+    NodeRef(String),
+    /// Graph edge reference (edge ID string)
+    EdgeRef(String),
+    /// Vector store reference (collection, vector ID)
+    VectorRef(String, u64),
+    /// Table row reference (table name, row ID)
+    RowRef(String, u64),
 }
 
 impl Value {
@@ -193,6 +226,10 @@ impl Value {
             Value::Vector(_) => DataType::Vector,
             Value::Json(_) => DataType::Json,
             Value::Uuid(_) => DataType::Uuid,
+            Value::NodeRef(_) => DataType::NodeRef,
+            Value::EdgeRef(_) => DataType::EdgeRef,
+            Value::VectorRef(_, _) => DataType::VectorRef,
+            Value::RowRef(_, _) => DataType::RowRef,
         }
     }
 
@@ -277,6 +314,32 @@ impl Value {
             Value::Uuid(uuid) => {
                 buf.push(DataType::Uuid.to_byte());
                 buf.extend_from_slice(uuid);
+            }
+            Value::NodeRef(node_id) => {
+                buf.push(DataType::NodeRef.to_byte());
+                let bytes = node_id.as_bytes();
+                write_varint(&mut buf, bytes.len() as u64);
+                buf.extend_from_slice(bytes);
+            }
+            Value::EdgeRef(edge_id) => {
+                buf.push(DataType::EdgeRef.to_byte());
+                let bytes = edge_id.as_bytes();
+                write_varint(&mut buf, bytes.len() as u64);
+                buf.extend_from_slice(bytes);
+            }
+            Value::VectorRef(collection, vector_id) => {
+                buf.push(DataType::VectorRef.to_byte());
+                let coll_bytes = collection.as_bytes();
+                write_varint(&mut buf, coll_bytes.len() as u64);
+                buf.extend_from_slice(coll_bytes);
+                buf.extend_from_slice(&vector_id.to_le_bytes());
+            }
+            Value::RowRef(table, row_id) => {
+                buf.push(DataType::RowRef.to_byte());
+                let table_bytes = table.as_bytes();
+                write_varint(&mut buf, table_bytes.len() as u64);
+                buf.extend_from_slice(table_bytes);
+                buf.extend_from_slice(&row_id.to_le_bytes());
             }
         }
 
@@ -436,6 +499,54 @@ impl Value {
                 offset += 16;
                 Value::Uuid(uuid)
             }
+            DataType::NodeRef => {
+                let (len, len_bytes) = read_varint(&data[offset..])?;
+                offset += len_bytes;
+                if data.len() < offset + len as usize {
+                    return Err(ValueError::TruncatedData);
+                }
+                let node_id =
+                    String::from_utf8_lossy(&data[offset..offset + len as usize]).to_string();
+                offset += len as usize;
+                Value::NodeRef(node_id)
+            }
+            DataType::EdgeRef => {
+                let (len, len_bytes) = read_varint(&data[offset..])?;
+                offset += len_bytes;
+                if data.len() < offset + len as usize {
+                    return Err(ValueError::TruncatedData);
+                }
+                let edge_id =
+                    String::from_utf8_lossy(&data[offset..offset + len as usize]).to_string();
+                offset += len as usize;
+                Value::EdgeRef(edge_id)
+            }
+            DataType::VectorRef => {
+                let (len, len_bytes) = read_varint(&data[offset..])?;
+                offset += len_bytes;
+                if data.len() < offset + len as usize + 8 {
+                    return Err(ValueError::TruncatedData);
+                }
+                let collection =
+                    String::from_utf8_lossy(&data[offset..offset + len as usize]).to_string();
+                offset += len as usize;
+                let vector_id = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+                offset += 8;
+                Value::VectorRef(collection, vector_id)
+            }
+            DataType::RowRef => {
+                let (len, len_bytes) = read_varint(&data[offset..])?;
+                offset += len_bytes;
+                if data.len() < offset + len as usize + 8 {
+                    return Err(ValueError::TruncatedData);
+                }
+                let table =
+                    String::from_utf8_lossy(&data[offset..offset + len as usize]).to_string();
+                offset += len as usize;
+                let row_id = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+                offset += 8;
+                Value::RowRef(table, row_id)
+            }
             DataType::Nullable => {
                 // Nullable without inner type means null
                 Value::Null
@@ -533,6 +644,10 @@ impl fmt::Display for Value {
                     u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]
                 )
             }
+            Value::NodeRef(id) => write!(f, "node:{}", id),
+            Value::EdgeRef(id) => write!(f, "edge:{}", id),
+            Value::VectorRef(coll, id) => write!(f, "vector:{}:{}", coll, id),
+            Value::RowRef(table, id) => write!(f, "row:{}:{}", table, id),
         }
     }
 }

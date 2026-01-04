@@ -21,6 +21,7 @@ pub enum WordlistCategory {
     Subdomains,
     Directories,
     Usernames,
+    Vhosts,
     Mixed,
 }
 
@@ -127,6 +128,31 @@ pub fn get_wordlist_sources() -> Vec<WordlistSource> {
             size_hint: "~60MB compressed -> ~140MB",
             category: WordlistCategory::Passwords,
             compressed: true,
+        },
+        // VHost wordlists (embedded - use vhosts module directly)
+        WordlistSource {
+            name: "vhosts-cloud-modern",
+            description: "Cloud provider patterns, SaaS, modern infrastructure (~1200)",
+            url: "embedded:vhosts/cloud-modern",
+            size_hint: "~15KB",
+            category: WordlistCategory::Vhosts,
+            compressed: false,
+        },
+        WordlistSource {
+            name: "vhosts-pentest-focused",
+            description: "Pentesting targets, admin panels, sensitive endpoints (~600)",
+            url: "embedded:vhosts/pentest-focused",
+            size_hint: "~8KB",
+            category: WordlistCategory::Vhosts,
+            compressed: false,
+        },
+        WordlistSource {
+            name: "vhosts-common",
+            description: "Traditional subdomain patterns used as virtual hosts (~800)",
+            url: "embedded:vhosts/common",
+            size_hint: "~10KB",
+            category: WordlistCategory::Vhosts,
+            compressed: false,
         },
     ]
 }

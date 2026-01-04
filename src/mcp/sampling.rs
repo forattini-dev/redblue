@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use crate::modules::common::Severity;
+
 /// A sampling request from the server to the LLM
 #[derive(Debug, Clone)]
 pub struct SamplingRequest {
@@ -140,15 +142,7 @@ pub enum FindingType {
     DataExposure,
 }
 
-/// Severity level
-#[derive(Debug, Clone, Copy)]
-pub enum Severity {
-    Critical,
-    High,
-    Medium,
-    Low,
-    Info,
-}
+// Severity imported from crate::modules::common
 
 /// A decision point requiring LLM input
 #[derive(Debug, Clone)]

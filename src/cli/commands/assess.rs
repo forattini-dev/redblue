@@ -371,7 +371,7 @@ impl AssessCommand {
             .ok_or_else(|| format!("Playbook not found: {}", playbook_id))?;
 
         let mut ctx = PlaybookContext::new(target);
-        let executor = PlaybookExecutor::new();
+        let mut executor = PlaybookExecutor::new();
 
         let report = executor.execute(&playbook, &mut ctx);
 

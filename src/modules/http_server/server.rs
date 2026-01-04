@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
@@ -34,7 +34,7 @@ pub struct HttpServerConfig {
     pub timeout: Duration,
     /// Enable logging
     pub log_requests: bool,
-    /// Number of worker threads
+    /// Maximum concurrent handler threads
     pub workers: usize,
     /// Serve embedded files (hook.js, etc.)
     pub serve_embedded: bool,
@@ -160,7 +160,7 @@ impl HttpServerConfig {
         self
     }
 
-    /// Set number of worker threads
+    /// Set maximum concurrent handler threads
     pub fn with_workers(mut self, n: usize) -> Self {
         self.workers = n.max(1);
         self
@@ -193,6 +193,52 @@ impl ServerStats {
     }
 }
 
+struct ConcurrencyLimiter {
+    max: usize,
+    active: AtomicUsize,
+}
+
+impl ConcurrencyLimiter {
+    fn new(max: usize) -> Self {
+        Self {
+            max: max.max(1),
+            active: AtomicUsize::new(0),
+        }
+    }
+
+    fn try_acquire(self: &Arc<Self>) -> Option<ConcurrencyGuard> {
+        loop {
+            let current = self.active.load(Ordering::Relaxed);
+            if current >= self.max {
+                return None;
+            }
+            if self
+                .active
+                .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                return Some(ConcurrencyGuard {
+                    limiter: Arc::clone(self),
+                });
+            }
+        }
+    }
+
+    fn max(&self) -> usize {
+        self.max
+    }
+}
+
+struct ConcurrencyGuard {
+    limiter: Arc<ConcurrencyLimiter>,
+}
+
+impl Drop for ConcurrencyGuard {
+    fn drop(&mut self) {
+        self.limiter.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// HTTP Server
 #[derive(Clone)]
 pub struct HttpServer {
@@ -200,12 +246,14 @@ pub struct HttpServer {
     stats: Arc<ServerStats>,
     running: Arc<AtomicBool>,
     bound_addr: Arc<Mutex<Option<SocketAddr>>>,
+    limiter: Arc<ConcurrencyLimiter>,
 }
 
 impl HttpServer {
     /// Create new HTTP server
     pub fn new(config: HttpServerConfig) -> Self {
         Self {
+            limiter: Arc::new(ConcurrencyLimiter::new(config.workers)),
             config,
             stats: Arc::new(ServerStats::new()),
             running: Arc::new(AtomicBool::new(false)),
@@ -263,11 +311,23 @@ impl HttpServer {
         while self.running.load(Ordering::Relaxed) {
             match listener.accept() {
                 Ok((stream, addr)) => {
+                    let Some(guard) = self.limiter.try_acquire() else {
+                        if self.config.log_requests {
+                            eprintln!(
+                                "[HTTP] Connection limit reached ({}), dropping {}",
+                                self.limiter.max(),
+                                addr
+                            );
+                        }
+                        continue;
+                    };
+
                     let config = self.config.clone();
                     let stats = self.stats.clone();
                     let _running = self.running.clone();
 
                     thread::spawn(move || {
+                        let _guard = guard;
                         if let Err(e) = handle_connection(stream, addr, &config, &stats) {
                             if config.log_requests {
                                 eprintln!("[HTTP] Error handling {}: {}", addr, e);
@@ -843,5 +903,15 @@ mod tests {
         assert!(!config.cors);
         assert!(!config.dir_listing);
         assert_eq!(config.workers, 8);
+    }
+
+    #[test]
+    fn test_concurrency_limiter() {
+        let limiter = Arc::new(ConcurrencyLimiter::new(2));
+        let guard_one = limiter.try_acquire().expect("first acquire");
+        let _guard_two = limiter.try_acquire().expect("second acquire");
+        assert!(limiter.try_acquire().is_none());
+        drop(guard_one);
+        assert!(limiter.try_acquire().is_some());
     }
 }

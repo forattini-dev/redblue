@@ -13,6 +13,8 @@
 //! ZERO DEPENDENCIES - Pure Rust implementation
 //! Replaces: chacha20poly1305 crate, ring, sodiumoxide
 
+use crate::crypto::os_random;
+
 /// ChaCha20 stream cipher
 ///
 /// ChaCha20 is a stream cipher designed by Daniel J. Bernstein.
@@ -568,44 +570,17 @@ fn char_to_value(c: u8) -> Option<u8> {
     }
 }
 
-/// Generate random key (32 bytes)
-///
-/// Note: This is NOT cryptographically secure random.
-/// For production use, integrate with OS-provided CSPRNG.
+/// Generate random key (32 bytes) using OS CSPRNG.
 pub fn generate_key() -> [u8; 32] {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let mut key = [0u8; 32];
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    // Simple pseudo-random (NOT cryptographically secure, but good enough for demo)
-    for i in 0..32 {
-        key[i] = ((time.wrapping_mul((i + 1) as u128)) % 256) as u8;
-    }
-
+    os_random::fill_bytes(&mut key).expect("OS CSPRNG unavailable");
     key
 }
 
-/// Generate random nonce (12 bytes)
-///
-/// Note: This is NOT cryptographically secure random.
-/// For production use, integrate with OS-provided CSPRNG.
+/// Generate random nonce (12 bytes) using OS CSPRNG.
 pub fn generate_nonce() -> [u8; 12] {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     let mut nonce = [0u8; 12];
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    for i in 0..12 {
-        nonce[i] = ((time.wrapping_mul((i + 100) as u128)) % 256) as u8;
-    }
-
+    os_random::fill_bytes(&mut nonce).expect("OS CSPRNG unavailable");
     nonce
 }
 

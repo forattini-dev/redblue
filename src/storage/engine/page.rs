@@ -66,6 +66,14 @@ pub enum PageType {
     FreelistTrunk = 5,
     /// Database header page (page 0)
     Header = 6,
+    /// Graph node page (packed node records)
+    GraphNode = 7,
+    /// Graph edge page (packed edge records)
+    GraphEdge = 8,
+    /// Graph adjacency list page (outgoing edges per node)
+    GraphAdjacency = 9,
+    /// Graph metadata page (statistics, index roots)
+    GraphMeta = 10,
 }
 
 impl PageType {
@@ -79,6 +87,10 @@ impl PageType {
             4 => Some(Self::Vector),
             5 => Some(Self::FreelistTrunk),
             6 => Some(Self::Header),
+            7 => Some(Self::GraphNode),
+            8 => Some(Self::GraphEdge),
+            9 => Some(Self::GraphAdjacency),
+            10 => Some(Self::GraphMeta),
             _ => None,
         }
     }
@@ -848,5 +860,378 @@ mod tests {
 
         // New page should have max free space
         assert_eq!(header.free_space(), PAGE_SIZE - HEADER_SIZE);
+    }
+
+    // ============================================================================
+    // Additional comprehensive tests for page operations
+    // ============================================================================
+
+    #[test]
+    fn test_all_page_types() {
+        // Verify all page types can be created and round-tripped
+        let page_types = [
+            PageType::Free,
+            PageType::BTreeLeaf,
+            PageType::BTreeInterior,
+            PageType::Overflow,
+            PageType::Vector,
+            PageType::FreelistTrunk,
+            PageType::Header,
+            PageType::GraphNode,
+            PageType::GraphEdge,
+            PageType::GraphAdjacency,
+            PageType::GraphMeta,
+        ];
+
+        for (i, &pt) in page_types.iter().enumerate() {
+            let page = Page::new(pt, i as u32);
+            assert_eq!(page.page_type().unwrap(), pt);
+            assert_eq!(page.page_id(), i as u32);
+        }
+    }
+
+    #[test]
+    fn test_page_type_from_u8() {
+        assert_eq!(PageType::from_u8(0), Some(PageType::Free));
+        assert_eq!(PageType::from_u8(1), Some(PageType::BTreeLeaf));
+        assert_eq!(PageType::from_u8(2), Some(PageType::BTreeInterior));
+        assert_eq!(PageType::from_u8(10), Some(PageType::GraphMeta));
+        assert_eq!(PageType::from_u8(11), None);
+        assert_eq!(PageType::from_u8(255), None);
+    }
+
+    #[test]
+    fn test_page_from_slice_valid() {
+        let original = Page::new(PageType::BTreeLeaf, 123);
+        let slice = original.as_bytes();
+        let restored = Page::from_slice(slice).unwrap();
+
+        assert_eq!(restored.page_id(), 123);
+        assert_eq!(restored.page_type().unwrap(), PageType::BTreeLeaf);
+    }
+
+    #[test]
+    fn test_page_from_slice_invalid_size() {
+        let short_slice = [0u8; 100];
+        let result = Page::from_slice(&short_slice);
+        assert!(matches!(result, Err(PageError::InvalidSize(100))));
+
+        let long_slice = [0u8; 5000];
+        let result = Page::from_slice(&long_slice);
+        assert!(matches!(result, Err(PageError::InvalidSize(5000))));
+    }
+
+    #[test]
+    fn test_page_parent_and_child() {
+        let mut page = Page::new(PageType::BTreeInterior, 10);
+
+        page.set_parent_id(5);
+        page.set_right_child(15);
+
+        assert_eq!(page.parent_id(), 5);
+        assert_eq!(page.right_child(), 15);
+
+        // Verify through header
+        let header = page.header().unwrap();
+        assert_eq!(header.parent_id, 5);
+        assert_eq!(header.right_child, 15);
+    }
+
+    #[test]
+    fn test_cell_pointer_bounds() {
+        let page = Page::new(PageType::BTreeLeaf, 1);
+
+        // No cells, so index 0 is out of bounds
+        let result = page.get_cell_pointer(0);
+        assert!(matches!(result, Err(PageError::CellOutOfBounds(0))));
+
+        let result = page.get_cell_pointer(100);
+        assert!(matches!(result, Err(PageError::CellOutOfBounds(100))));
+    }
+
+    #[test]
+    fn test_cell_pointer_invalid_value() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Pointer too low (inside header)
+        let result = page.set_cell_pointer(0, 10);
+        assert!(matches!(result, Err(PageError::InvalidCellPointer(10))));
+
+        // Pointer too high (past page)
+        let result = page.set_cell_pointer(0, PAGE_SIZE as u16 + 1);
+        assert!(matches!(result, Err(PageError::InvalidCellPointer(_))));
+    }
+
+    #[test]
+    fn test_empty_key_value() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Empty key
+        page.insert_cell(b"", b"value").unwrap();
+        let (key, value) = page.read_cell(0).unwrap();
+        assert!(key.is_empty());
+        assert_eq!(value, b"value");
+
+        // Empty value
+        page.insert_cell(b"key", b"").unwrap();
+        let (key, value) = page.read_cell(1).unwrap();
+        assert_eq!(key, b"key");
+        assert!(value.is_empty());
+
+        // Both empty
+        page.insert_cell(b"", b"").unwrap();
+        let (key, value) = page.read_cell(2).unwrap();
+        assert!(key.is_empty());
+        assert!(value.is_empty());
+    }
+
+    #[test]
+    fn test_large_value_overflow() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Value larger than content area should require overflow
+        let huge_value = vec![0xAB; CONTENT_SIZE];
+        let result = page.insert_cell(b"key", &huge_value);
+        assert!(matches!(result, Err(PageError::OverflowRequired)));
+    }
+
+    #[test]
+    fn test_checksum_stability() {
+        let mut page = Page::new(PageType::BTreeLeaf, 42);
+        page.insert_cell(b"test", b"data").unwrap();
+
+        page.update_checksum();
+        let checksum1 = page.header().unwrap().checksum;
+
+        // Same content should produce same checksum
+        page.update_checksum();
+        let checksum2 = page.header().unwrap().checksum;
+
+        assert_eq!(checksum1, checksum2);
+    }
+
+    #[test]
+    fn test_checksum_changes_with_content() {
+        let mut page1 = Page::new(PageType::BTreeLeaf, 1);
+        let mut page2 = Page::new(PageType::BTreeLeaf, 1);
+
+        page1.insert_cell(b"key1", b"value1").unwrap();
+        page2.insert_cell(b"key2", b"value2").unwrap();
+
+        page1.update_checksum();
+        page2.update_checksum();
+
+        assert_ne!(
+            page1.header().unwrap().checksum,
+            page2.header().unwrap().checksum
+        );
+    }
+
+    #[test]
+    fn test_free_space_decreases_with_cells() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+        let initial_free = page.header().unwrap().free_space();
+
+        page.insert_cell(b"key", b"value").unwrap();
+        let after_first = page.header().unwrap().free_space();
+
+        page.insert_cell(b"another_key", b"another_value").unwrap();
+        let after_second = page.header().unwrap().free_space();
+
+        assert!(after_first < initial_free);
+        assert!(after_second < after_first);
+    }
+
+    #[test]
+    fn test_search_empty_page() {
+        let page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Search on empty page
+        assert_eq!(page.search_key(b"anything"), Err(0));
+    }
+
+    #[test]
+    fn test_search_single_cell() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+        page.insert_cell(b"middle", b"v").unwrap();
+
+        // Exact match
+        assert_eq!(page.search_key(b"middle"), Ok(0));
+
+        // Before
+        assert_eq!(page.search_key(b"aaa"), Err(0));
+
+        // After
+        assert_eq!(page.search_key(b"zzz"), Err(1));
+    }
+
+    #[test]
+    fn test_binary_data() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Binary key and value with null bytes
+        let binary_key = [0x00, 0x01, 0x02, 0xFF, 0xFE];
+        let binary_value = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00];
+
+        page.insert_cell(&binary_key, &binary_value).unwrap();
+
+        let (key, value) = page.read_cell(0).unwrap();
+        assert_eq!(key, binary_key.to_vec());
+        assert_eq!(value, binary_value.to_vec());
+    }
+
+    #[test]
+    fn test_max_cells_stress() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Insert many small cells
+        let mut inserted = 0;
+        for i in 0..MAX_CELLS {
+            let key = format!("{:04}", i);
+            if page.insert_cell(key.as_bytes(), b"x").is_ok() {
+                inserted += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Verify all inserted cells are readable
+        for i in 0..inserted {
+            let (key, _) = page.read_cell(i).unwrap();
+            assert_eq!(key, format!("{:04}", i).as_bytes());
+        }
+    }
+
+    #[test]
+    fn test_content_mut() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        // Get mutable content and modify
+        let content = page.content_mut();
+        content[0] = 0xAB;
+        content[1] = 0xCD;
+
+        // Verify modification persisted
+        let content = page.content();
+        assert_eq!(content[0], 0xAB);
+        assert_eq!(content[1], 0xCD);
+    }
+
+    #[test]
+    fn test_page_bytes_roundtrip() {
+        let mut page = Page::new(PageType::BTreeLeaf, 999);
+        page.insert_cell(b"key", b"value").unwrap();
+        page.update_checksum();
+
+        // Get bytes and recreate
+        let bytes = *page.as_bytes();
+        let restored = Page::from_bytes(bytes);
+
+        assert_eq!(restored.page_id(), 999);
+        assert!(restored.verify_checksum().is_ok());
+
+        let (key, value) = restored.read_cell(0).unwrap();
+        assert_eq!(key, b"key");
+        assert_eq!(value, b"value");
+    }
+
+    #[test]
+    fn test_header_page_operations() {
+        let mut page = Page::new_header_page(1000);
+
+        assert!(page.verify_header_page().is_ok());
+        assert_eq!(page.read_page_count(), 1000);
+        assert_eq!(page.read_freelist_head(), 0);
+
+        // Update page count
+        page.write_page_count(2000);
+        assert_eq!(page.read_page_count(), 2000);
+
+        // Update freelist head
+        page.write_freelist_head(42);
+        assert_eq!(page.read_freelist_head(), 42);
+    }
+
+    #[test]
+    fn test_page_flags_multiple() {
+        let mut header = PageHeader::new(PageType::BTreeLeaf, 1);
+
+        // Set multiple flags
+        header.set_flag(PageFlag::Dirty);
+        header.set_flag(PageFlag::Locked);
+        header.set_flag(PageFlag::Encrypted);
+
+        assert!(header.has_flag(PageFlag::Dirty));
+        assert!(header.has_flag(PageFlag::Locked));
+        assert!(header.has_flag(PageFlag::Encrypted));
+        assert!(!header.has_flag(PageFlag::Pinned));
+
+        // Clear one flag
+        header.clear_flag(PageFlag::Locked);
+        assert!(header.has_flag(PageFlag::Dirty));
+        assert!(!header.has_flag(PageFlag::Locked));
+        assert!(header.has_flag(PageFlag::Encrypted));
+    }
+
+    #[test]
+    fn test_page_error_display() {
+        let errors = [
+            PageError::InvalidPageType(99),
+            PageError::ChecksumMismatch {
+                expected: 0x1234,
+                actual: 0x5678,
+            },
+            PageError::InvalidSize(100),
+            PageError::PageFull,
+            PageError::CellOutOfBounds(5),
+            PageError::InvalidCellPointer(10),
+            PageError::OverflowRequired,
+        ];
+
+        for error in &errors {
+            // Just verify Display doesn't panic
+            let _msg = format!("{}", error);
+        }
+    }
+
+    #[test]
+    fn test_cell_count_consistency() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        assert_eq!(page.cell_count(), 0);
+
+        page.insert_cell(b"a", b"1").unwrap();
+        assert_eq!(page.cell_count(), 1);
+
+        page.insert_cell(b"b", b"2").unwrap();
+        assert_eq!(page.cell_count(), 2);
+
+        page.insert_cell(b"c", b"3").unwrap();
+        assert_eq!(page.cell_count(), 3);
+
+        // Set cell count manually (for testing)
+        page.set_cell_count(0);
+        assert_eq!(page.cell_count(), 0);
+    }
+
+    #[test]
+    fn test_free_start_end_consistency() {
+        let mut page = Page::new(PageType::BTreeLeaf, 1);
+
+        let initial_start = page.free_start();
+        let initial_end = page.free_end();
+
+        assert_eq!(initial_start, HEADER_SIZE as u16);
+        assert_eq!(initial_end, PAGE_SIZE as u16);
+
+        page.insert_cell(b"test_key", b"test_value").unwrap();
+
+        let after_start = page.free_start();
+        let after_end = page.free_end();
+
+        // free_start should increase (cell pointer added)
+        assert!(after_start > initial_start);
+        // free_end should decrease (cell content added)
+        assert!(after_end < initial_end);
     }
 }

@@ -9,10 +9,11 @@
 /// - Certificate validation
 ///
 /// NO external dependencies - all implemented from scratch
-use crate::modules::tls::scanner::{
-    CipherStrength as ScannerCipherStrength, SecurityIssue, Severity as ScannerSeverity,
-    TlsScanner, TlsVersion,
-};
+use crate::modules::common::Severity;
+use crate::modules::tls::scanner::{SecurityIssue, TlsScanner, TlsVersion};
+
+// Re-export CipherStrength from scanner for API consistency
+pub use crate::modules::tls::scanner::CipherStrength;
 use crate::protocols::{
     tls12::Tls12Client,
     tls_cert::{CertificateInfo, TlsClient},
@@ -54,12 +55,7 @@ pub struct CipherInfo {
     pub strength: CipherStrength,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum CipherStrength {
-    Weak,
-    Medium,
-    Strong,
-}
+// CipherStrength imported from scanner module for unified type
 
 #[derive(Debug, Clone)]
 pub struct Vulnerability {
@@ -68,24 +64,7 @@ pub struct Vulnerability {
     pub description: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Severity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Severity::Low => write!(f, "LOW"),
-            Severity::Medium => write!(f, "MEDIUM"),
-            Severity::High => write!(f, "HIGH"),
-            Severity::Critical => write!(f, "CRITICAL"),
-        }
-    }
-}
+// Severity imported from crate::modules::common
 
 pub struct TlsAuditor {
     timeout: Duration,
@@ -275,12 +254,7 @@ impl TlsAuditor {
     fn convert_issue(&self, issue: SecurityIssue) -> Vulnerability {
         Vulnerability {
             name: issue.title,
-            severity: match issue.severity {
-                ScannerSeverity::Low => Severity::Low,
-                ScannerSeverity::Medium => Severity::Medium,
-                ScannerSeverity::High => Severity::High,
-                ScannerSeverity::Critical => Severity::Critical,
-            },
+            severity: issue.severity,
             description: issue.description,
         }
     }
@@ -301,7 +275,7 @@ impl TlsAuditor {
                 ciphers.push(CipherInfo {
                     name: cipher.name.clone(),
                     code: cipher.id,
-                    strength: map_cipher_strength(cipher.strength.clone()),
+                    strength: cipher.strength.clone(),
                 });
             }
         }
@@ -329,14 +303,6 @@ impl TlsAuditor {
 impl Default for TlsAuditor {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn map_cipher_strength(strength: ScannerCipherStrength) -> CipherStrength {
-    match strength {
-        ScannerCipherStrength::Secure => CipherStrength::Strong,
-        ScannerCipherStrength::Weak => CipherStrength::Medium,
-        ScannerCipherStrength::Insecure | ScannerCipherStrength::NullCipher => CipherStrength::Weak,
     }
 }
 
@@ -418,25 +384,25 @@ fn cipher_meta(code: u16) -> (String, CipherStrength) {
     match code {
         0xC02F => (
             "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256".to_string(),
-            CipherStrength::Strong,
+            CipherStrength::Secure,
         ),
         0xC030 => (
             "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".to_string(),
-            CipherStrength::Strong,
+            CipherStrength::Secure,
         ),
         0x003C => (
             "TLS_RSA_WITH_AES_128_CBC_SHA256".to_string(),
-            CipherStrength::Medium,
+            CipherStrength::Weak,
         ),
         0x003D => (
             "TLS_RSA_WITH_AES_256_CBC_SHA256".to_string(),
-            CipherStrength::Medium,
+            CipherStrength::Weak,
         ),
         0x002F => (
             "TLS_RSA_WITH_AES_128_CBC_SHA".to_string(),
-            CipherStrength::Weak,
+            CipherStrength::Insecure,
         ),
-        other => (format!("0x{:04X}", other), CipherStrength::Medium),
+        other => (format!("0x{:04X}", other), CipherStrength::Weak),
     }
 }
 
@@ -453,7 +419,7 @@ mod tests {
     #[test]
     fn test_cipher_strength() {
         let weak = CipherStrength::Weak;
-        let strong = CipherStrength::Strong;
-        assert_ne!(weak, strong);
+        let secure = CipherStrength::Secure;
+        assert_ne!(weak, secure);
     }
 }

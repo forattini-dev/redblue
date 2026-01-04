@@ -1,9 +1,8 @@
 /// CMS Detection Module
 ///
 /// Multi-method CMS detection with confidence scoring
+use super::http_client::fetch_url;
 use super::{CmsScanConfig, CmsType, DetectionResult, HttpResponse};
-use std::io::{Read, Write};
-use std::net::TcpStream;
 
 /// CMS Detector with multiple detection methods
 pub struct CmsDetector {
@@ -676,122 +675,7 @@ impl CmsDetector {
 
     /// Fetch URL and return response
     fn fetch(&self, url: &str, config: &CmsScanConfig) -> Option<HttpResponse> {
-        // Parse URL
-        let (host, port, path, use_tls) = self.parse_url(url)?;
-
-        // Build request
-        let request = format!(
-            "GET {} HTTP/1.1\r\n\
-             Host: {}\r\n\
-             User-Agent: {}\r\n\
-             Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n\
-             Connection: close\r\n\
-             \r\n",
-            path, host, config.user_agent
-        );
-
-        // Connect
-        let addr = format!("{}:{}", host, port);
-        let mut stream = TcpStream::connect_timeout(&addr.parse().ok()?, config.timeout).ok()?;
-
-        stream.set_read_timeout(Some(config.timeout)).ok()?;
-        stream.set_write_timeout(Some(config.timeout)).ok()?;
-
-        if use_tls {
-            // For TLS, we'd need our TLS implementation
-            // For now, return None for HTTPS
-            return None;
-        }
-
-        // Send request
-        stream.write_all(request.as_bytes()).ok()?;
-
-        // Read response
-        let mut response = Vec::new();
-        let mut buf = [0u8; 8192];
-        loop {
-            match stream.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => response.extend_from_slice(&buf[..n]),
-                Err(_) => break,
-            }
-        }
-
-        // Parse response
-        self.parse_response(&response, url)
-    }
-
-    /// Parse URL into components
-    fn parse_url(&self, url: &str) -> Option<(String, u16, String, bool)> {
-        let url = url.trim();
-        let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
-            ("https", rest)
-        } else if let Some(rest) = url.strip_prefix("http://") {
-            ("http", rest)
-        } else {
-            ("http", url)
-        };
-
-        let use_tls = scheme == "https";
-        let default_port = if use_tls { 443 } else { 80 };
-
-        let (host_port, path) = match rest.find('/') {
-            Some(pos) => (&rest[..pos], &rest[pos..]),
-            None => (rest, "/"),
-        };
-
-        let (host, port) = match host_port.find(':') {
-            Some(pos) => {
-                let h = &host_port[..pos];
-                let p = host_port[pos + 1..].parse().ok()?;
-                (h, p)
-            }
-            None => (host_port, default_port),
-        };
-
-        Some((host.to_string(), port, path.to_string(), use_tls))
-    }
-
-    /// Parse HTTP response
-    fn parse_response(&self, data: &[u8], url: &str) -> Option<HttpResponse> {
-        let text = String::from_utf8_lossy(data);
-        let mut lines = text.lines();
-
-        // Parse status line
-        let status_line = lines.next()?;
-        let parts: Vec<&str> = status_line.split_whitespace().collect();
-        if parts.len() < 2 {
-            return None;
-        }
-        let status_code: u16 = parts[1].parse().ok()?;
-
-        // Parse headers
-        let mut headers = Vec::new();
-        for line in lines.by_ref() {
-            if line.is_empty() {
-                break;
-            }
-            if let Some(pos) = line.find(':') {
-                let name = line[..pos].trim().to_string();
-                let value = line[pos + 1..].trim().to_string();
-                headers.push((name, value));
-            }
-        }
-
-        // Rest is body
-        let body_start = text
-            .find("\r\n\r\n")
-            .map(|p| p + 4)
-            .or_else(|| text.find("\n\n").map(|p| p + 2))
-            .unwrap_or(text.len());
-        let body = text[body_start..].to_string();
-
-        Some(HttpResponse {
-            status_code,
-            headers,
-            body,
-            url: url.to_string(),
-        })
+        fetch_url(url, &config.user_agent, config.timeout)
     }
 }
 

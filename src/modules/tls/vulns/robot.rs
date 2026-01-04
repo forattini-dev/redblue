@@ -3,15 +3,15 @@
 /// Tests for RSA PKCS#1 v1.5 padding oracle vulnerabilities.
 /// Affects servers using RSA key exchange ciphers with improper error handling.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct RobotChecker {
+pub struct RobotScanner {
     timeout: Duration,
 }
 
-impl RobotChecker {
+impl RobotScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -201,13 +201,13 @@ impl RobotChecker {
     }
 }
 
-impl Default for RobotChecker {
+impl Default for RobotScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for RobotChecker {
+impl VulnScanner for RobotScanner {
     fn name(&self) -> &str {
         "ROBOT"
     }
@@ -221,7 +221,7 @@ impl VulnChecker for RobotChecker {
         "Return Of Bleichenbacher's Oracle Threat - RSA padding oracle attack"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         let mut evidence = Vec::new();
 
         // First check if RSA ciphers are supported

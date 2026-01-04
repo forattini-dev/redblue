@@ -1,3 +1,5 @@
+pub mod entropy;
+pub mod git;
 /// Secrets Detection Module
 ///
 /// Replaces: gitleaks, trufflehog, detect-secrets, git-secrets
@@ -8,17 +10,23 @@
 /// - Git history scanning
 /// - Multiple output formats
 /// - Custom rule support
-
 pub mod patterns;
 pub mod scanner;
-pub mod entropy;
-pub mod git;
+pub mod validator;
 
-pub use scanner::SecretsScanner;
-pub use patterns::{SecretPattern, PatternCategory};
 pub use entropy::EntropyAnalyzer;
+pub use patterns::{PatternCategory, PatternMatcher, SecretPattern};
+pub use scanner::SecretsScanner;
+pub use validator::{SecretValidator, ValidationResult, ValidationStatus};
 
 use std::path::PathBuf;
+
+// Use canonical Severity from common module
+use crate::modules::common::Severity;
+
+/// Type alias for backward compatibility with existing code.
+/// New code should use `common::Severity` directly.
+pub type SecretSeverity = Severity;
 
 /// A detected secret
 #[derive(Debug, Clone)]
@@ -65,28 +73,6 @@ impl SecretFinding {
             finding.match_text = "****".to_string();
         }
         finding
-    }
-}
-
-/// Severity levels for secrets
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SecretSeverity {
-    Info,
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl std::fmt::Display for SecretSeverity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Info => write!(f, "INFO"),
-            Self::Low => write!(f, "LOW"),
-            Self::Medium => write!(f, "MEDIUM"),
-            Self::High => write!(f, "HIGH"),
-            Self::Critical => write!(f, "CRITICAL"),
-        }
     }
 }
 
@@ -218,7 +204,10 @@ impl ScanSummary {
 
     /// Risk rating based on findings
     pub fn risk_rating(&self) -> &str {
-        let critical = *self.by_severity.get(&SecretSeverity::Critical).unwrap_or(&0);
+        let critical = *self
+            .by_severity
+            .get(&SecretSeverity::Critical)
+            .unwrap_or(&0);
         let high = *self.by_severity.get(&SecretSeverity::High).unwrap_or(&0);
         let medium = *self.by_severity.get(&SecretSeverity::Medium).unwrap_or(&0);
 

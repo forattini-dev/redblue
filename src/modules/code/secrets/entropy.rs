@@ -2,7 +2,6 @@
 ///
 /// Calculates Shannon entropy to detect high-entropy strings
 /// that might be secrets (API keys, tokens, etc.)
-
 use std::collections::HashMap;
 
 /// Entropy analyzer for detecting random/secret-like strings
@@ -141,7 +140,9 @@ impl EntropyAnalyzer {
         let mut results = Vec::new();
 
         // Split on common delimiters
-        let delimiters = [' ', '\n', '\t', '\'', '"', '`', '=', ':', ';', ',', '(', ')', '[', ']', '{', '}'];
+        let delimiters = [
+            ' ', '\n', '\t', '\'', '"', '`', '=', ':', ';', ',', '(', ')', '[', ']', '{', '}',
+        ];
 
         for word in text.split(|c| delimiters.contains(&c)) {
             let trimmed = word.trim();

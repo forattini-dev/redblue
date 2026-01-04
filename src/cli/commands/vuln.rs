@@ -775,7 +775,7 @@ impl VulnCommand {
             Severity::High => "HIGH",
             Severity::Medium => "MED ",
             Severity::Low => "LOW ",
-            Severity::None => "NONE",
+            Severity::Info => "INFO",
         };
 
         let kev_marker = if vuln.cisa_kev { " [KEV]" } else { "" };

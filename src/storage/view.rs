@@ -161,6 +161,18 @@ impl RedDbView {
                     eprintln!("Warning: PlaybookSegmentView not implemented for RedDbView.");
                     playbooks_view = None;
                 }
+                SegmentKind::Actions => {
+                    // Actions are stored but not exposed via read-only view
+                    // Use RedDb directly for action queries
+                }
+                SegmentKind::Traces => {
+                    // Traces are stored but not exposed via read-only view
+                    // Use RedDb directly for trace queries
+                }
+                SegmentKind::Loot => {
+                    // Loot is stored but not exposed via read-only view
+                    // Use RedDb directly for loot queries
+                }
             }
         }
 
@@ -241,9 +253,7 @@ fn decode_err_to_io(err: DecodeError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::records::PortStatus;
-    use crate::storage::reddb::RedDb;
-    use std::net::{IpAddr, Ipv4Addr};
+    use crate::storage::RedDb;
     use std::path::PathBuf;
 
     struct FileGuard {
@@ -281,78 +291,21 @@ mod tests {
     }
 
     #[test]
-    fn test_view_with_ports() {
-        let (_guard, path) = temp_db("ports");
+    fn test_open_unified_store_rejected() {
+        let (_guard, path) = temp_db("unified");
 
-        // Create database with port scans
-        {
-            let mut db = RedDb::open(&path).unwrap();
-            let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
-            db.save_port_scan(ip, 22, PortStatus::Open).unwrap();
-            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
-            db.save_port_scan(ip, 443, PortStatus::Closed).unwrap();
-            db.flush().unwrap();
-        }
+        // Create unified store file (RDST)
+        let db = RedDb::open(&path).unwrap();
+        let _ = db
+            .node("ports", "Port")
+            .property("ip", "192.168.1.1")
+            .property("port", 80i64)
+            .property("state", "open")
+            .save();
+        db.flush().unwrap();
 
-        // Open as view
-        let view = RedDbView::open(&path).unwrap();
-        assert!(view.ports().is_some());
-    }
-
-    #[test]
-    fn test_view_with_subdomains() {
-        let (_guard, path) = temp_db("subs");
-
-        // Create database with subdomains
-        {
-            let mut db = RedDb::open(&path).unwrap();
-            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-            db.save_subdomain(
-                "example.com",
-                "api.example.com",
-                vec![ip],
-                crate::storage::records::SubdomainSource::DnsBruteforce,
-            )
-            .unwrap();
-            db.save_subdomain(
-                "example.com",
-                "www.example.com",
-                vec![ip],
-                crate::storage::records::SubdomainSource::CertTransparency,
-            )
-            .unwrap();
-            db.flush().unwrap();
-        }
-
-        // Open as view
-        let view = RedDbView::open(&path).unwrap();
-        assert!(view.subdomains().is_some());
-    }
-
-    #[test]
-    fn test_view_accessors() {
-        let (_guard, path) = temp_db("accessors");
-
-        // Create database with data
-        {
-            let mut db = RedDb::open(&path).unwrap();
-            let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
-            db.flush().unwrap();
-        }
-
-        // Verify accessors
-        let view = RedDbView::open(&path).unwrap();
-
-        // Some accessors may be None if no data was written for that type
-        assert!(view.ports().is_some());
-        // These may or may not have data depending on the flush
-        let _ = view.subdomains();
-        let _ = view.dns();
-        let _ = view.http();
-        let _ = view.tls();
-        let _ = view.whois();
-        let _ = view.hosts();
+        let result = RedDbView::open(&path);
+        assert!(result.is_err());
     }
 
     #[test]

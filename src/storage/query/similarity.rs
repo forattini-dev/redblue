@@ -5,10 +5,32 @@
 
 use super::filter::Filter;
 use super::sort::QueryLimits;
+use crate::storage::engine::distance::DistanceMetric;
+use crate::storage::engine::vector_store::{SearchResult, VectorCollection, VectorId};
 use crate::storage::schema::Value;
-use crate::storage::vector::types::SearchResult;
-use crate::storage::vector::{DenseVector, Distance, FlatIndex, IvfIndex, VectorId};
 use std::collections::HashMap;
+
+/// Dense vector wrapper for similarity queries
+#[derive(Debug, Clone)]
+pub struct DenseVector {
+    values: Vec<f32>,
+}
+
+impl DenseVector {
+    pub fn new(values: Vec<f32>) -> Self {
+        Self { values }
+    }
+
+    pub fn as_slice(&self) -> &[f32] {
+        &self.values
+    }
+}
+
+impl From<Vec<f32>> for DenseVector {
+    fn from(values: Vec<f32>) -> Self {
+        Self { values }
+    }
+}
 
 /// Similarity query parameters
 #[derive(Debug, Clone)]
@@ -18,7 +40,7 @@ pub struct SimilarityQuery {
     /// Number of neighbors to find
     pub k: usize,
     /// Distance metric
-    pub distance: Distance,
+    pub distance: DistanceMetric,
     /// Optional filter to apply before similarity search
     pub filter: Option<Filter>,
     /// Number of probes for IVF index (if applicable)
@@ -33,7 +55,7 @@ impl SimilarityQuery {
         Self {
             vector,
             k,
-            distance: Distance::Cosine,
+            distance: DistanceMetric::Cosine,
             filter: None,
             n_probes: None,
             distance_threshold: None,
@@ -41,7 +63,7 @@ impl SimilarityQuery {
     }
 
     /// Set distance metric
-    pub fn with_distance(mut self, distance: Distance) -> Self {
+    pub fn with_distance(mut self, distance: DistanceMetric) -> Self {
         self.distance = distance;
         self
     }
@@ -90,11 +112,11 @@ impl SimilarityResult {
     }
 
     /// Create with score conversion based on distance metric
-    pub fn with_metric(id: VectorId, distance: f32, metric: Distance) -> Self {
+    pub fn with_metric(id: VectorId, distance: f32, metric: DistanceMetric) -> Self {
         let score = match metric {
-            Distance::Cosine => 1.0 - distance, // Cosine: 0 = identical, 2 = opposite
-            Distance::DotProduct => -distance,  // Already negated, higher = more similar
-            _ => 1.0 / (1.0 + distance),        // L2, Manhattan: inverse transform
+            DistanceMetric::Cosine => 1.0 - distance, // Cosine: 0 = identical, 2 = opposite
+            DistanceMetric::InnerProduct => -distance, // Negated dot product
+            DistanceMetric::L2 => 1.0 / (1.0 + distance),
         };
 
         Self {
@@ -120,7 +142,7 @@ pub struct SimilarityResultSet {
     /// Query vector dimension
     pub dimension: usize,
     /// Distance metric used
-    pub distance: Distance,
+    pub distance: DistanceMetric,
     /// Total vectors searched (for approximate search)
     pub vectors_searched: Option<usize>,
     /// Search time in microseconds
@@ -129,7 +151,7 @@ pub struct SimilarityResultSet {
 
 impl SimilarityResultSet {
     /// Create empty result set
-    pub fn empty(dimension: usize, distance: Distance) -> Self {
+    pub fn empty(dimension: usize, distance: DistanceMetric) -> Self {
         Self {
             results: Vec::new(),
             dimension,
@@ -140,7 +162,11 @@ impl SimilarityResultSet {
     }
 
     /// Create from search results
-    pub fn from_results(results: Vec<SearchResult>, dimension: usize, distance: Distance) -> Self {
+    pub fn from_results(
+        results: Vec<SearchResult>,
+        dimension: usize,
+        distance: DistanceMetric,
+    ) -> Self {
         let similarity_results = results
             .into_iter()
             .map(|r| SimilarityResult::with_metric(r.id, r.distance, distance))
@@ -205,7 +231,7 @@ pub trait VectorIndex: Send + Sync {
     fn dimension(&self) -> usize;
 
     /// Get distance metric
-    fn distance_metric(&self) -> Distance;
+    fn distance_metric(&self) -> DistanceMetric;
 
     /// Get number of indexed vectors
     fn len(&self) -> usize;
@@ -216,31 +242,9 @@ pub trait VectorIndex: Send + Sync {
     }
 }
 
-/// Wrapper for FlatIndex implementing VectorIndex
-pub struct FlatVectorIndex {
-    index: FlatIndex,
-}
-
-impl FlatVectorIndex {
-    /// Create from FlatIndex
-    pub fn new(index: FlatIndex) -> Self {
-        Self { index }
-    }
-
-    /// Get underlying index
-    pub fn inner(&self) -> &FlatIndex {
-        &self.index
-    }
-
-    /// Get mutable underlying index
-    pub fn inner_mut(&mut self) -> &mut FlatIndex {
-        &mut self.index
-    }
-}
-
-impl VectorIndex for FlatVectorIndex {
+impl VectorIndex for VectorCollection {
     fn search(&self, query: &DenseVector, k: usize) -> Vec<SearchResult> {
-        self.index.search(query, k)
+        VectorCollection::search(self, query.as_slice(), k)
     }
 
     fn search_with_params(
@@ -249,83 +253,23 @@ impl VectorIndex for FlatVectorIndex {
         k: usize,
         _n_probes: Option<usize>,
     ) -> Vec<SearchResult> {
-        // Flat index ignores n_probes (exact search)
-        self.index.search(query, k)
+        VectorCollection::search(self, query.as_slice(), k)
     }
 
     fn get(&self, id: VectorId) -> Option<DenseVector> {
-        self.index.get(id)
+        VectorCollection::get(self, id).map(|vec| DenseVector::new(vec.clone()))
     }
 
     fn dimension(&self) -> usize {
-        self.index.dim()
+        self.dimension
     }
 
-    fn distance_metric(&self) -> Distance {
-        self.index.distance_metric()
-    }
-
-    fn len(&self) -> usize {
-        self.index.len()
-    }
-}
-
-/// Wrapper for IvfIndex implementing VectorIndex
-pub struct IvfVectorIndex {
-    index: IvfIndex,
-    default_probes: usize,
-}
-
-impl IvfVectorIndex {
-    /// Create from IvfIndex
-    pub fn new(index: IvfIndex, default_probes: usize) -> Self {
-        Self {
-            index,
-            default_probes,
-        }
-    }
-
-    /// Get underlying index
-    pub fn inner(&self) -> &IvfIndex {
-        &self.index
-    }
-
-    /// Get mutable underlying index
-    pub fn inner_mut(&mut self) -> &mut IvfIndex {
-        &mut self.index
-    }
-}
-
-impl VectorIndex for IvfVectorIndex {
-    fn search(&self, query: &DenseVector, k: usize) -> Vec<SearchResult> {
-        self.index.search(query, k, self.default_probes)
-    }
-
-    fn search_with_params(
-        &self,
-        query: &DenseVector,
-        k: usize,
-        n_probes: Option<usize>,
-    ) -> Vec<SearchResult> {
-        let probes = n_probes.unwrap_or(self.default_probes);
-        self.index.search(query, k, probes)
-    }
-
-    fn get(&self, _id: VectorId) -> Option<DenseVector> {
-        // IVF index doesn't support direct get by ID efficiently
-        None
-    }
-
-    fn dimension(&self) -> usize {
-        self.index.dim()
-    }
-
-    fn distance_metric(&self) -> Distance {
-        Distance::L2 // IVF typically uses L2
+    fn distance_metric(&self) -> DistanceMetric {
+        self.metric
     }
 
     fn len(&self) -> usize {
-        self.index.len()
+        self.len()
     }
 }
 
@@ -411,17 +355,17 @@ where
 mod tests {
     use super::*;
 
-    fn create_test_index() -> FlatVectorIndex {
-        let mut index = FlatIndex::new(3, Distance::Cosine);
+    fn create_test_index() -> VectorCollection {
+        let mut collection = VectorCollection::new("test", 3).with_metric(DistanceMetric::Cosine);
 
         // Add test vectors
-        index.add(1, DenseVector::new(vec![1.0, 0.0, 0.0]));
-        index.add(2, DenseVector::new(vec![0.0, 1.0, 0.0]));
-        index.add(3, DenseVector::new(vec![0.0, 0.0, 1.0]));
-        index.add(4, DenseVector::new(vec![0.7, 0.7, 0.0]));
-        index.add(5, DenseVector::new(vec![0.5, 0.5, 0.7]));
+        let _ = collection.insert(vec![1.0, 0.0, 0.0], None);
+        let _ = collection.insert(vec![0.0, 1.0, 0.0], None);
+        let _ = collection.insert(vec![0.0, 0.0, 1.0], None);
+        let _ = collection.insert(vec![0.7, 0.7, 0.0], None);
+        let _ = collection.insert(vec![0.5, 0.5, 0.7], None);
 
-        FlatVectorIndex::new(index)
+        collection
     }
 
     #[test]
@@ -439,11 +383,11 @@ mod tests {
     #[test]
     fn test_similarity_result_score() {
         // Cosine distance 0 = identical
-        let result = SimilarityResult::with_metric(1, 0.0, Distance::Cosine);
+        let result = SimilarityResult::with_metric(1, 0.0, DistanceMetric::Cosine);
         assert!((result.score - 1.0).abs() < 0.01);
 
         // Cosine distance 1 = orthogonal
-        let result = SimilarityResult::with_metric(1, 1.0, Distance::Cosine);
+        let result = SimilarityResult::with_metric(1, 1.0, DistanceMetric::Cosine);
         assert!(result.score < 0.01);
     }
 
@@ -479,34 +423,14 @@ mod tests {
     fn test_vector_index_trait() {
         let index = create_test_index();
 
-        assert_eq!(index.dimension(), 3);
-        assert_eq!(index.len(), 5);
-        assert!(!index.is_empty());
+        let index_ref: &dyn VectorIndex = &index;
 
-        let vec = index.get(1).unwrap();
+        assert_eq!(index_ref.dimension(), 3);
+        assert_eq!(index_ref.len(), 5);
+        assert!(!index_ref.is_empty());
+
+        let vec = index_ref.get(1).unwrap();
         assert_eq!(vec.as_slice(), &[1.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn test_ivf_vector_index() {
-        let mut ivf = IvfIndex::new(3, 2, Distance::L2);
-
-        // Train with some vectors
-        let training = vec![
-            DenseVector::new(vec![1.0, 0.0, 0.0]),
-            DenseVector::new(vec![0.0, 1.0, 0.0]),
-        ];
-        ivf.train(&training, 10);
-
-        ivf.add(1, DenseVector::new(vec![0.9, 0.1, 0.0]));
-        ivf.add(2, DenseVector::new(vec![0.1, 0.9, 0.0]));
-
-        let index = IvfVectorIndex::new(ivf, 2);
-
-        let query = DenseVector::new(vec![1.0, 0.0, 0.0]);
-        let results = index.search(&query, 2);
-
-        assert!(!results.is_empty());
     }
 
     #[test]
@@ -518,7 +442,7 @@ mod tests {
                 SimilarityResult::new(3, 2.0), // score ~0.33
             ],
             dimension: 3,
-            distance: Distance::L2,
+            distance: DistanceMetric::L2,
             vectors_searched: Some(100),
             search_time_us: 100,
         };
@@ -530,12 +454,12 @@ mod tests {
     #[test]
     fn test_similarity_query_builder() {
         let query = SimilarityQuery::new(DenseVector::new(vec![1.0, 0.0, 0.0]), 10)
-            .with_distance(Distance::L2)
+            .with_distance(DistanceMetric::L2)
             .with_probes(5)
             .with_threshold(1.0);
 
         assert_eq!(query.k, 10);
-        assert_eq!(query.distance, Distance::L2);
+        assert_eq!(query.distance, DistanceMetric::L2);
         assert_eq!(query.n_probes, Some(5));
         assert_eq!(query.distance_threshold, Some(1.0));
     }
@@ -613,7 +537,7 @@ mod tests {
                 .map(|i| SimilarityResult::new(i, i as f32 * 0.1))
                 .collect(),
             dimension: 3,
-            distance: Distance::L2,
+            distance: DistanceMetric::L2,
             vectors_searched: Some(100),
             search_time_us: 100,
         };

@@ -2,15 +2,87 @@
 //!
 //! Fetches ATT&CK data from MITRE's GitHub repository (STIX 2.1 format).
 //! Uses simple JSON parsing instead of full STIX library.
+//!
+//! ## Caching
+//!
+//! Data is cached locally to avoid repeated network fetches:
+//! - Linux: `~/.cache/redblue/mitre/`
+//! - macOS: `~/Library/Caches/redblue/mitre/`
+//! - Windows: `%LOCALAPPDATA%\redblue\mitre\`
+//!
+//! Use `--refresh` to force a fresh download from GitHub.
 
 use super::types::*;
 use crate::protocols::http::HttpClient;
-use std::time::Duration;
+use std::env;
+use std::fs;
+use std::io::{Read as _, Write as _};
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 /// Base URL for MITRE ATT&CK STIX data on GitHub
 const ATTACK_ENTERPRISE_URL: &str = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json";
 const ATTACK_MOBILE_URL: &str = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/mobile-attack/mobile-attack.json";
 const ATTACK_ICS_URL: &str = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/ics-attack/ics-attack.json";
+
+/// Cache expiry time (7 days in seconds)
+const CACHE_EXPIRY_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Get the cache directory for MITRE ATT&CK data
+///
+/// Returns platform-specific cache directory:
+/// - Linux: `$XDG_CACHE_HOME/redblue/mitre` or `~/.cache/redblue/mitre`
+/// - macOS: `~/Library/Caches/redblue/mitre`
+/// - Windows: `%LOCALAPPDATA%\redblue\mitre`
+fn get_cache_dir() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "linux") {
+        // Respect XDG_CACHE_HOME on Linux
+        env::var("XDG_CACHE_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".cache"))
+            })
+    } else if cfg!(target_os = "macos") {
+        env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join("Library/Caches"))
+    } else if cfg!(target_os = "windows") {
+        env::var("LOCALAPPDATA").ok().map(PathBuf::from)
+    } else {
+        // Fallback for other platforms
+        env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".cache"))
+    };
+
+    base.map(|p| p.join("redblue").join("mitre"))
+}
+
+/// Get cache file path for a specific matrix
+fn get_cache_file_path(matrix: AttackMatrix) -> Option<PathBuf> {
+    let dir = get_cache_dir()?;
+    let filename = match matrix {
+        AttackMatrix::Enterprise => "enterprise-attack.json",
+        AttackMatrix::Mobile => "mobile-attack.json",
+        AttackMatrix::Ics => "ics-attack.json",
+    };
+    Some(dir.join(filename))
+}
+
+/// Check if cached data is still valid (not expired)
+fn is_cache_valid(cache_path: &PathBuf) -> bool {
+    if let Ok(metadata) = fs::metadata(cache_path) {
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(elapsed) = SystemTime::now().duration_since(modified) {
+                return elapsed.as_secs() < CACHE_EXPIRY_SECS;
+            }
+        }
+    }
+    false
+}
 
 /// MITRE ATT&CK client
 pub struct MitreClient {
@@ -48,12 +120,61 @@ impl MitreClient {
         }
     }
 
-    /// Fetch and parse ATT&CK data
+    /// Try to load ATT&CK data from disk cache
+    fn load_from_cache(&self) -> Option<String> {
+        let cache_path = get_cache_file_path(self.matrix)?;
+
+        if !is_cache_valid(&cache_path) {
+            return None;
+        }
+
+        let mut file = fs::File::open(&cache_path).ok()?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).ok()?;
+
+        Some(contents)
+    }
+
+    /// Save ATT&CK data to disk cache
+    fn save_to_cache(&self, data: &str) -> Result<(), String> {
+        let cache_dir = get_cache_dir().ok_or("Could not determine cache directory")?;
+        let cache_path =
+            get_cache_file_path(self.matrix).ok_or("Could not determine cache path")?;
+
+        // Create cache directory if it doesn't exist
+        fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("Failed to create cache directory: {}", e))?;
+
+        // Write data to cache file
+        let mut file = fs::File::create(&cache_path)
+            .map_err(|e| format!("Failed to create cache file: {}", e))?;
+
+        file.write_all(data.as_bytes())
+            .map_err(|e| format!("Failed to write cache file: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Fetch and parse ATT&CK data (uses disk cache if available)
     pub fn fetch(&mut self) -> Result<&AttackData, String> {
+        // Return memory cache if already loaded
         if self.cache.is_some() {
             return Ok(self.cache.as_ref().unwrap());
         }
 
+        // Try disk cache first
+        if let Some(cached_json) = self.load_from_cache() {
+            let data = self.parse_stix_bundle(&cached_json)?;
+            self.cache = Some(data);
+            return Ok(self.cache.as_ref().unwrap());
+        }
+
+        // Fetch from network
+        self.fetch_fresh()
+    }
+
+    /// Force fetch ATT&CK data from network (bypasses cache)
+    pub fn fetch_fresh(&mut self) -> Result<&AttackData, String> {
         let url = self.get_url();
         let response = self.http.get(url)?;
 
@@ -65,10 +186,63 @@ impl MitreClient {
         }
 
         let body = String::from_utf8_lossy(&response.body);
+
+        // Save to disk cache (ignore errors - cache is optional)
+        let _ = self.save_to_cache(&body);
+
         let data = self.parse_stix_bundle(&body)?;
         self.cache = Some(data);
 
         Ok(self.cache.as_ref().unwrap())
+    }
+
+    /// Clear the disk cache for all matrices
+    pub fn clear_cache() -> Result<(), String> {
+        if let Some(cache_dir) = get_cache_dir() {
+            if cache_dir.exists() {
+                fs::remove_dir_all(&cache_dir)
+                    .map_err(|e| format!("Failed to clear cache: {}", e))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Get cache status information
+    pub fn cache_info(&self) -> CacheInfo {
+        let cache_path = get_cache_file_path(self.matrix);
+
+        match cache_path {
+            None => CacheInfo {
+                path: None,
+                exists: false,
+                size_bytes: 0,
+                age_secs: 0,
+                expired: true,
+            },
+            Some(path) => {
+                let exists = path.exists();
+                let (size_bytes, age_secs) = if exists {
+                    let meta = fs::metadata(&path).ok();
+                    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let age = meta
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| SystemTime::now().duration_since(t).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    (size, age)
+                } else {
+                    (0, 0)
+                };
+
+                CacheInfo {
+                    path: Some(path),
+                    exists,
+                    size_bytes,
+                    age_secs,
+                    expired: age_secs >= CACHE_EXPIRY_SECS,
+                }
+            }
+        }
     }
 
     /// Parse STIX 2.1 bundle JSON into AttackData

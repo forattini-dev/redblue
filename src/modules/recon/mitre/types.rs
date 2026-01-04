@@ -522,6 +522,49 @@ pub struct AttackStats {
     pub mitigations: usize,
 }
 
+/// Cache status information
+#[derive(Debug)]
+pub struct CacheInfo {
+    /// Path to cache file (None if platform unsupported)
+    pub path: Option<std::path::PathBuf>,
+    /// Whether cache file exists
+    pub exists: bool,
+    /// Size of cache file in bytes
+    pub size_bytes: u64,
+    /// Age of cache in seconds
+    pub age_secs: u64,
+    /// Whether cache has expired
+    pub expired: bool,
+}
+
+impl CacheInfo {
+    /// Format cache age as human-readable string
+    pub fn age_display(&self) -> String {
+        let secs = self.age_secs;
+        if secs < 60 {
+            format!("{}s ago", secs)
+        } else if secs < 3600 {
+            format!("{}m ago", secs / 60)
+        } else if secs < 86400 {
+            format!("{}h ago", secs / 3600)
+        } else {
+            format!("{}d ago", secs / 86400)
+        }
+    }
+
+    /// Format cache size as human-readable string
+    pub fn size_display(&self) -> String {
+        let bytes = self.size_bytes;
+        if bytes < 1024 {
+            format!("{} B", bytes)
+        } else if bytes < 1024 * 1024 {
+            format!("{:.1} KB", bytes as f64 / 1024.0)
+        } else {
+            format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+        }
+    }
+}
+
 /// Normalize technique ID to uppercase with proper format
 fn normalize_technique_id(id: &str) -> String {
     let upper = id.to_uppercase();

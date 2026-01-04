@@ -7,12 +7,15 @@
 /// - DNS bruteforce with wordlists
 /// - Multi-threaded enumeration
 /// - Passive enumeration from public sources
+/// - Automatic graph population (Host, Domain nodes)
 ///
 /// NO external dependencies - all implemented from scratch
 use crate::config;
 use crate::modules::recon::crtsh::CrtShClient;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::http::HttpClient;
+use crate::storage::engine::emitter::GraphEmitter;
+use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -377,6 +380,10 @@ impl SubdomainEnumerator {
         results.sort_by(|a, b| a.subdomain.cmp(&b.subdomain));
 
         println!("\n✅ Total unique subdomains discovered: {}", results.len());
+
+        // Emit synergy events for cross-module integration
+        emit_subdomain_events(&self.domain, &results);
+
         Ok(results)
     }
 
@@ -906,6 +913,60 @@ impl SubdomainEnumerator {
         unique.sort_by(|a, b| a.subdomain.cmp(&b.subdomain));
         unique
     }
+
+    /// Emit enumeration results to the intelligence graph
+    ///
+    /// This method populates the graph with:
+    /// - Domain nodes for the target domain and subdomains
+    /// - Host nodes for resolved IP addresses
+    /// - Domain-to-Host edges for DNS resolution relationships
+    /// - Domain-to-Domain edges for parent-child relationships
+    ///
+    /// # Arguments
+    /// * `results` - Enumeration results to emit
+    /// * `emitter` - Optional emitter (uses global if None)
+    pub fn emit_to_graph(&self, results: &[SubdomainResult], emitter: Option<&GraphEmitter>) {
+        let global_emitter;
+        let emitter = match emitter {
+            Some(e) => e,
+            None => {
+                global_emitter = GraphEmitter::global();
+                &*global_emitter
+            }
+        };
+
+        // Emit parent domain
+        emitter.emit_domain(&self.domain, None);
+
+        for result in results {
+            // Emit subdomain linked to parent
+            let parent = if result.subdomain != self.domain {
+                Some(self.domain.as_str())
+            } else {
+                None
+            };
+            emitter.emit_domain(&result.subdomain, parent);
+
+            // Emit hosts and link to domain
+            for ip in &result.ips {
+                emitter.emit_domain_host(&result.subdomain, ip);
+            }
+
+            // Emit CNAME chain as related domains
+            for cname in &result.cname_chain {
+                emitter.emit_domain(cname, Some(&result.subdomain));
+            }
+        }
+    }
+
+    /// Enumerate all and automatically emit to graph
+    ///
+    /// Combines `enumerate_all()` with `emit_to_graph()` for convenience.
+    pub fn enumerate_all_with_graph(&mut self) -> Result<Vec<SubdomainResult>, String> {
+        let results = self.enumerate_all()?;
+        self.emit_to_graph(&results, None);
+        Ok(results)
+    }
 }
 
 /// Default wordlist for subdomain bruteforce
@@ -1331,6 +1392,49 @@ pub fn load_wordlist_from_file(path: &str) -> Result<Vec<String>, String> {
     }
 
     Ok(wordlist)
+}
+
+/// Emit synergy events for discovered subdomains
+///
+/// This enables cross-module integration where other modules can subscribe
+/// to subdomain discoveries and trigger automated actions:
+/// - Port scanning on newly discovered hosts
+/// - TLS certificate analysis on new domains
+/// - Web crawling for discovered subdomains
+fn emit_subdomain_events(parent_domain: &str, results: &[SubdomainResult]) {
+    for result in results {
+        // Emit subdomain discovery event (using host entity type for domains)
+        let event = Event::new(EventType::Discovery, "recon::subdomain")
+            .with_entity(EntityRef::host(&result.subdomain).with_label("subdomain"))
+            .with_data("parent_domain", parent_domain)
+            .with_data("source", &result.source.to_string())
+            .with_data("subdomain", &result.subdomain);
+
+        emit(event);
+
+        // Emit host discovery events for each resolved IP
+        for ip in &result.ips {
+            let host_event = Event::new(EventType::Discovery, "recon::subdomain")
+                .with_entity(EntityRef::host(ip))
+                .with_data("resolved_from", &result.subdomain)
+                .with_data("ip", ip);
+
+            emit(host_event);
+        }
+
+        // Emit CNAME chain as additional discovery data
+        if !result.cname_chain.is_empty() {
+            let cname_event = Event::new(EventType::Discovery, "recon::subdomain")
+                .with_entity(EntityRef::host(&result.subdomain).with_label("cname"))
+                .with_data("cname_chain", &result.cname_chain.join(" -> "))
+                .with_data(
+                    "final_cname",
+                    result.cname_chain.last().unwrap_or(&String::new()),
+                );
+
+            emit(cname_event);
+        }
+    }
 }
 
 #[cfg(test)]

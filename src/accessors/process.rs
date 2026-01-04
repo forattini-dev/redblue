@@ -1,11 +1,11 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use crate::json;
+use crate::serde_json::{JsonDecode, JsonEncode, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct ProcessInfo {
     pid: u32,
     ppid: u32,
@@ -13,6 +13,38 @@ struct ProcessInfo {
     state: String,
     uid: u32,
     cmdline: Vec<String>,
+}
+
+impl JsonEncode for ProcessInfo {
+    fn to_json_value(&self) -> Value {
+        let mut map = Map::new();
+        map.insert("pid".to_string(), self.pid.to_json_value());
+        map.insert("ppid".to_string(), self.ppid.to_json_value());
+        map.insert("name".to_string(), self.name.to_json_value());
+        map.insert("state".to_string(), self.state.to_json_value());
+        map.insert("uid".to_string(), self.uid.to_json_value());
+        map.insert("cmdline".to_string(), self.cmdline.to_json_value());
+        Value::Object(map)
+    }
+}
+
+impl JsonDecode for ProcessInfo {
+    fn from_json_value(value: Value) -> Result<Self, String> {
+        let map = match value {
+            Value::Object(map) => map,
+            _ => return Err("expected object".to_string()),
+        };
+        Ok(Self {
+            pid: u32::from_json_value(map.get("pid").cloned().unwrap_or(Value::Null))?,
+            ppid: u32::from_json_value(map.get("ppid").cloned().unwrap_or(Value::Null))?,
+            name: String::from_json_value(map.get("name").cloned().unwrap_or(Value::Null))?,
+            state: String::from_json_value(map.get("state").cloned().unwrap_or(Value::Null))?,
+            uid: u32::from_json_value(map.get("uid").cloned().unwrap_or(Value::Null))?,
+            cmdline: Vec::<String>::from_json_value(
+                map.get("cmdline").cloned().unwrap_or(Value::Null),
+            )?,
+        })
+    }
 }
 
 pub struct ProcessAccessor;
@@ -125,7 +157,7 @@ impl ProcessAccessor {
         }
 
         let processes: Vec<ProcessInfo> =
-            serde_json::from_value(result.data.unwrap()).unwrap_or_default();
+            crate::serde_json::from_value(result.data.unwrap()).unwrap_or_default();
 
         // Build map of children
         let mut children: HashMap<u32, Vec<u32>> = HashMap::new();

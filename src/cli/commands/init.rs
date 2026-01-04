@@ -186,6 +186,7 @@ wordlists:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::uuid::Uuid;
     use std::collections::HashMap;
 
     #[test]
@@ -329,7 +330,7 @@ mod tests {
         let cmd = InitCommand;
 
         // Create a unique temp directory
-        let unique_id = uuid::Uuid::new_v4();
+        let unique_id = Uuid::new_v4();
         let temp_dir = std::env::temp_dir()
             .join("redblue_init_tests")
             .join(format!("create_{}", unique_id));
@@ -376,7 +377,7 @@ mod tests {
         let cmd = InitCommand;
 
         // Create a unique temp directory
-        let unique_id = uuid::Uuid::new_v4();
+        let unique_id = Uuid::new_v4();
         let temp_dir = std::env::temp_dir()
             .join("redblue_init_tests")
             .join(format!("exists_{}", unique_id));
@@ -424,7 +425,7 @@ mod tests {
         let cmd = InitCommand;
 
         // Create a unique temp directory
-        let unique_id = uuid::Uuid::new_v4();
+        let unique_id = Uuid::new_v4();
         let temp_dir = std::env::temp_dir()
             .join("redblue_init_tests")
             .join(format!("force_{}", unique_id));
@@ -473,7 +474,7 @@ mod tests {
         let cmd = InitCommand;
 
         // Create a unique temp directory and use it as current dir
-        let unique_id = uuid::Uuid::new_v4();
+        let unique_id = Uuid::new_v4();
         let temp_dir = std::env::temp_dir()
             .join("redblue_init_tests")
             .join(format!("default_{}", unique_id));

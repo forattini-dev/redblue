@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod detect;
 pub mod drupal;
+#[path = "http-client.rs"]
+mod http_client;
 pub mod joomla;
 /// CMS Security Testing Module
 ///

@@ -968,6 +968,141 @@ pub fn get_source_ip(dest: Ipv4Addr) -> io::Result<Ipv4Addr> {
     }
 }
 
+/// ACK Scanner for firewall detection
+///
+/// ACK scanning sends TCP ACK packets to determine firewall filtering rules.
+/// Unlike SYN scans, ACK scans don't determine if ports are open/closed,
+/// only whether they are filtered or unfiltered by a firewall.
+///
+/// - RST response → Port is **unfiltered** (firewall allows traffic)
+/// - No response → Port is **filtered** (firewall drops packets)
+/// - ICMP unreachable → Port is **filtered** (firewall rejects)
+#[cfg(target_family = "unix")]
+pub struct AckScanner {
+    src_ip: Ipv4Addr,
+    dst_ip: Ipv4Addr,
+    timeout: Duration,
+}
+
+#[cfg(target_family = "unix")]
+impl AckScanner {
+    pub fn new(src_ip: Ipv4Addr, dst_ip: Ipv4Addr) -> Self {
+        Self {
+            src_ip,
+            dst_ip,
+            timeout: Duration::from_secs(3),
+        }
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Scan a single port using ACK technique
+    ///
+    /// Returns:
+    /// - `PortState::Unfiltered` if RST received (firewall allows)
+    /// - `PortState::Filtered` if no response or ICMP unreachable
+    pub fn scan_port(&self, port: u16) -> io::Result<RawScanResult> {
+        use raw_socket::RawSocket;
+
+        let socket = RawSocket::new_raw()?;
+        socket.set_timeout(self.timeout)?;
+
+        let src_port = 40000 + (rand_u16() % 10000);
+
+        // Build TCP ACK packet (just ACK flag, no SYN)
+        let mut tcp = TcpHeader::ack(src_port, port);
+        // ACK scan uses a random ack_num as if acknowledging data
+        tcp.ack_num = rand_u16() as u32 * 65536 + rand_u16() as u32;
+        tcp.checksum = tcp.calculate_checksum(self.src_ip, self.dst_ip, &[]);
+
+        let ip = Ipv4Header::new(self.src_ip, self.dst_ip, IPPROTO_TCP, 20);
+
+        let mut packet = Vec::with_capacity(40);
+        packet.extend_from_slice(&ip.to_bytes());
+        packet.extend_from_slice(&tcp.to_bytes());
+
+        let start = Instant::now();
+        socket.send_to(&packet, self.dst_ip)?;
+
+        // Wait for RST response
+        let mut buf = [0u8; 1500];
+        let deadline = Instant::now() + self.timeout;
+
+        while Instant::now() < deadline {
+            match socket.recv(&mut buf) {
+                Ok(len) if len >= 40 => {
+                    if let Ok(resp_ip) = Ipv4Header::from_bytes(&buf[..20]) {
+                        // Check if this is from our target
+                        if resp_ip.src_addr != self.dst_ip {
+                            continue;
+                        }
+
+                        let ip_hdr_len = (resp_ip.ihl as usize) * 4;
+
+                        // Check for TCP RST response
+                        if resp_ip.protocol == IPPROTO_TCP && len >= ip_hdr_len + 20 {
+                            if let Ok(resp_tcp) = TcpHeader::from_bytes(&buf[ip_hdr_len..]) {
+                                if resp_tcp.src_port == port
+                                    && resp_tcp.dst_port == src_port
+                                    && resp_tcp.is_rst()
+                                {
+                                    // RST received = port is unfiltered
+                                    return Ok(RawScanResult {
+                                        port,
+                                        state: PortState::Unfiltered,
+                                        rtt: Some(start.elapsed()),
+                                        ttl: Some(resp_ip.ttl),
+                                    });
+                                }
+                            }
+                        }
+
+                        // Check for ICMP unreachable (administratively filtered)
+                        if resp_ip.protocol == 1 && len >= ip_hdr_len + 8 {
+                            // ICMP protocol = 1
+                            if let Ok(icmp) = IcmpDestUnreachable::from_bytes(&buf[ip_hdr_len..]) {
+                                if icmp.is_admin_prohibited() || icmp.is_port_unreachable() {
+                                    // ICMP response = filtered (firewall rejected)
+                                    return Ok(RawScanResult {
+                                        port,
+                                        state: PortState::Filtered,
+                                        rtt: Some(start.elapsed()),
+                                        ttl: Some(resp_ip.ttl),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(_) => continue,
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => break,
+                Err(e) => return Err(e),
+            }
+        }
+
+        // No response = filtered (firewall drops ACK packets)
+        Ok(RawScanResult {
+            port,
+            state: PortState::Filtered,
+            rtt: None,
+            ttl: None,
+        })
+    }
+
+    /// Scan multiple ports
+    pub fn scan_ports(&self, ports: &[u16]) -> io::Result<Vec<RawScanResult>> {
+        let mut results = Vec::with_capacity(ports.len());
+        for &port in ports {
+            results.push(self.scan_port(port)?);
+        }
+        Ok(results)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

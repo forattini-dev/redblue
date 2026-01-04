@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use crate::serde_json::{JsonDecode, JsonEncode, Map, Value};
 /// Script Types and Definitions
 ///
 /// Core types for redblue's scripting engine.
@@ -16,29 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Helper for serializing Duration as seconds
-mod duration_serde {
-    use serde::{Deserialize, Deserializer, Serializer};
-    use std::time::Duration;
-
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u64(duration.as_secs())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let secs = u64::deserialize(deserializer)?;
-        Ok(Duration::from_secs(secs))
-    }
-}
-
 /// Script category for filtering and safety
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptCategory {
     /// Vulnerability detection (CVE checks, misconfigurations)
     Vuln,
@@ -139,7 +118,7 @@ impl std::fmt::Display for ScriptCategory {
 }
 
 /// Script metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ScriptMetadata {
     /// Unique script identifier (e.g., "http-vuln-cve2021-44228")
     pub id: String,
@@ -184,7 +163,7 @@ impl Default for ScriptMetadata {
 }
 
 /// Script execution context
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ScriptContext {
     /// Target host
     pub host: String,
@@ -193,7 +172,6 @@ pub struct ScriptContext {
     /// Protocol detected/assumed
     pub protocol: String,
     /// Timeout for operations
-    #[serde(with = "duration_serde")]
     pub timeout: Duration,
     /// Previously gathered data (banner, headers, etc.)
     pub data: HashMap<String, String>,
@@ -241,7 +219,7 @@ impl ScriptContext {
 }
 
 /// Script execution result
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ScriptResult {
     /// Script ID
     pub script_id: String,
@@ -256,7 +234,6 @@ pub struct ScriptResult {
     /// Extracted data (for use by other scripts)
     pub extracted: HashMap<String, String>,
     /// Execution time
-    #[serde(with = "duration_serde")]
     pub duration: Duration,
 }
 
@@ -316,7 +293,7 @@ impl ScriptResult {
 }
 
 /// Script execution status
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptStatus {
     /// Script hasn't run yet
     NotRun,
@@ -349,7 +326,7 @@ impl std::fmt::Display for ScriptStatus {
 }
 
 /// A finding from a script
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Finding {
     /// Finding type
     pub finding_type: FindingType,
@@ -417,8 +394,61 @@ impl Finding {
     }
 }
 
+impl JsonEncode for Finding {
+    fn to_json_value(&self) -> Value {
+        let mut map = Map::new();
+        map.insert(
+            "finding_type".to_string(),
+            self.finding_type.to_json_value(),
+        );
+        map.insert("severity".to_string(), self.severity.to_json_value());
+        map.insert("title".to_string(), self.title.to_json_value());
+        map.insert("description".to_string(), self.description.to_json_value());
+        map.insert("evidence".to_string(), self.evidence.to_json_value());
+        map.insert("remediation".to_string(), self.remediation.to_json_value());
+        map.insert("cve".to_string(), self.cve.to_json_value());
+        map.insert("cvss".to_string(), self.cvss.to_json_value());
+        map.insert("confidence".to_string(), self.confidence.to_json_value());
+        Value::Object(map)
+    }
+}
+
+impl JsonDecode for Finding {
+    fn from_json_value(value: Value) -> Result<Self, String> {
+        let map = match value {
+            Value::Object(map) => map,
+            _ => return Err("expected object".to_string()),
+        };
+        Ok(Self {
+            finding_type: FindingType::from_json_value(
+                map.get("finding_type").cloned().unwrap_or(Value::Null),
+            )?,
+            severity: FindingSeverity::from_json_value(
+                map.get("severity").cloned().unwrap_or(Value::Null),
+            )?,
+            title: String::from_json_value(map.get("title").cloned().unwrap_or(Value::Null))?,
+            description: String::from_json_value(
+                map.get("description").cloned().unwrap_or(Value::Null),
+            )?,
+            evidence: Vec::<String>::from_json_value(
+                map.get("evidence")
+                    .cloned()
+                    .unwrap_or(Value::Array(Vec::new())),
+            )?,
+            remediation: Option::<String>::from_json_value(
+                map.get("remediation").cloned().unwrap_or(Value::Null),
+            )?,
+            cve: Option::<String>::from_json_value(map.get("cve").cloned().unwrap_or(Value::Null))?,
+            cvss: Option::<f32>::from_json_value(map.get("cvss").cloned().unwrap_or(Value::Null))?,
+            confidence: f32::from_json_value(
+                map.get("confidence").cloned().unwrap_or(Value::Number(1.0)),
+            )?,
+        })
+    }
+}
+
 /// Finding type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FindingType {
     /// Vulnerability found
     Vulnerability,
@@ -450,8 +480,39 @@ impl std::fmt::Display for FindingType {
     }
 }
 
+impl JsonEncode for FindingType {
+    fn to_json_value(&self) -> Value {
+        let s = match self {
+            FindingType::Vulnerability => "Vulnerability",
+            FindingType::Discovery => "Discovery",
+            FindingType::Misconfiguration => "Misconfiguration",
+            FindingType::InfoLeak => "InfoLeak",
+            FindingType::Credential => "Credential",
+            FindingType::Version => "Version",
+            FindingType::Info => "Info",
+        };
+        Value::String(s.to_string())
+    }
+}
+
+impl JsonDecode for FindingType {
+    fn from_json_value(value: Value) -> Result<Self, String> {
+        let s = String::from_json_value(value)?;
+        match s.to_lowercase().as_str() {
+            "vulnerability" | "vuln" => Ok(FindingType::Vulnerability),
+            "discovery" => Ok(FindingType::Discovery),
+            "misconfiguration" | "misconfig" => Ok(FindingType::Misconfiguration),
+            "infoleak" | "info_leak" | "info-leak" => Ok(FindingType::InfoLeak),
+            "credential" | "credentials" => Ok(FindingType::Credential),
+            "version" => Ok(FindingType::Version),
+            "info" => Ok(FindingType::Info),
+            _ => Err("invalid finding_type".to_string()),
+        }
+    }
+}
+
 /// Finding severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FindingSeverity {
     Info,
     Low,
@@ -484,8 +545,35 @@ impl std::fmt::Display for FindingSeverity {
     }
 }
 
+impl JsonEncode for FindingSeverity {
+    fn to_json_value(&self) -> Value {
+        let s = match self {
+            FindingSeverity::Info => "Info",
+            FindingSeverity::Low => "Low",
+            FindingSeverity::Medium => "Medium",
+            FindingSeverity::High => "High",
+            FindingSeverity::Critical => "Critical",
+        };
+        Value::String(s.to_string())
+    }
+}
+
+impl JsonDecode for FindingSeverity {
+    fn from_json_value(value: Value) -> Result<Self, String> {
+        let s = String::from_json_value(value)?;
+        match s.to_lowercase().as_str() {
+            "info" => Ok(FindingSeverity::Info),
+            "low" => Ok(FindingSeverity::Low),
+            "medium" => Ok(FindingSeverity::Medium),
+            "high" => Ok(FindingSeverity::High),
+            "critical" => Ok(FindingSeverity::Critical),
+            _ => Err("invalid finding_severity".to_string()),
+        }
+    }
+}
+
 /// Script argument definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ScriptArg {
     /// Argument name
     pub name: String,

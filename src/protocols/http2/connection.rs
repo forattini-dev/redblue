@@ -7,6 +7,7 @@ use super::framing::{flags, Frame, FrameType};
 use super::hpack::{Header, HpackDecoder, HpackEncoder};
 use super::stream::{StreamEvent, StreamId, StreamManager};
 use super::{ALPN_H2, CONNECTION_PREFACE, DEFAULT_MAX_FRAME_SIZE, DEFAULT_WINDOW_SIZE};
+use crate::protocols::x509::X509Certificate;
 use boring::ssl::{SslConnector, SslMethod, SslStream, SslVerifyMode};
 use std::io::Write;
 use std::net::TcpStream;
@@ -41,7 +42,10 @@ impl Http2Client {
         let mut connector = SslConnector::builder(SslMethod::tls_client())
             .map_err(|e| format!("SSL connector creation failed: {}", e))?;
 
-        connector.set_verify(SslVerifyMode::NONE); // TODO: Proper certificate validation
+        connector.set_verify(SslVerifyMode::PEER);
+        connector
+            .set_default_verify_paths()
+            .map_err(|e| format!("TLS verify paths: {}", e))?;
         connector
             .set_alpn_protos(ALPN_H2)
             .map_err(|e| format!("ALPN setup failed: {}", e))?;
@@ -50,6 +54,7 @@ impl Http2Client {
         let mut tls_stream = connector
             .connect(host, tcp_stream)
             .map_err(|e| format!("TLS handshake failed: {}", e))?;
+        validate_tls_peer(host, &tls_stream)?;
 
         // Verify ALPN negotiation succeeded
         if let Some(protocol) = tls_stream.ssl().selected_alpn_protocol() {
@@ -687,12 +692,37 @@ pub trait Http2ResponseHandler {
     }
 }
 
+fn validate_tls_peer(host: &str, stream: &SslStream<TcpStream>) -> Result<(), String> {
+    let cert = stream
+        .ssl()
+        .peer_certificate()
+        .ok_or_else(|| "TLS peer certificate missing".to_string())?;
+    let der = cert
+        .to_der()
+        .map_err(|e| format!("TLS peer certificate export: {}", e))?;
+    validate_peer_certificate_der(host, &der)
+}
+
+fn validate_peer_certificate_der(host: &str, der: &[u8]) -> Result<(), String> {
+    let parsed =
+        X509Certificate::from_der(der).map_err(|e| format!("TLS peer certificate parse: {}", e))?;
+    parsed.is_valid_at(std::time::SystemTime::now())?;
+    if !parsed.matches_host(host) {
+        return Err(format!(
+            "TLS certificate does not match requested host '{}'",
+            host
+        ));
+    }
+    Ok(())
+}
+
 /// Default max concurrent streams
 const DEFAULT_MAX_CONCURRENT_STREAMS: u32 = 100;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boring::x509::X509;
 
     #[test]
     fn test_http2_response_body_string() {
@@ -720,5 +750,14 @@ mod tests {
         assert_eq!(response.header("Content-Type"), Some("text/html")); // Case-insensitive
         assert_eq!(response.header("content-length"), Some("1234"));
         assert_eq!(response.header("x-missing"), None);
+    }
+
+    #[test]
+    fn test_validate_peer_certificate_hostname() {
+        let pem = include_bytes!("../../../test-certs/server.crt");
+        let cert = X509::from_pem(pem).expect("test cert parse");
+        let der = cert.to_der().expect("test cert der");
+        assert!(validate_peer_certificate_der("localhost", &der).is_ok());
+        assert!(validate_peer_certificate_der("example.com", &der).is_err());
     }
 }

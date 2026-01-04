@@ -11,6 +11,8 @@ use crate::modules::recon::harvester::Harvester;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::http::HttpClient;
 use crate::protocols::whois::WhoisClient;
+#[cfg(not(target_os = "windows"))]
+use crate::protocols::x509::X509Certificate;
 use crate::storage::session::SessionFile;
 #[cfg(not(target_os = "windows"))]
 use boring::nid::Nid;
@@ -519,12 +521,34 @@ impl MagicScan {
             .peer_certificate()
             .ok_or_else(|| "Server did not present a certificate".to_string())?;
 
+        Self::verify_tls_certificate(&host, &cert, std::time::SystemTime::now())?;
         self.summarize_certificate(&cert, &host)
     }
 
     #[cfg(target_os = "windows")]
     fn inspect_tls_certificate(&self) -> Result<PhaseResult, String> {
         Err("TLS certificate inspection is not available on Windows".to_string())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn verify_tls_certificate(
+        host: &str,
+        cert: &X509,
+        now: std::time::SystemTime,
+    ) -> Result<(), String> {
+        let der = cert
+            .to_der()
+            .map_err(|e| format!("TLS peer certificate export: {}", e))?;
+        let parsed = X509Certificate::from_der(&der)
+            .map_err(|e| format!("TLS peer certificate parse: {}", e))?;
+        parsed.is_valid_at(now)?;
+        if !parsed.matches_host(host) {
+            return Err(format!(
+                "TLS certificate does not match requested host '{}'",
+                host
+            ));
+        }
+        Ok(())
     }
 
     fn analyze_http_headers(&self) -> Result<PhaseResult, String> {
@@ -783,7 +807,10 @@ impl MagicScan {
         builder
             .set_max_proto_version(Some(SslVersion::TLS1_3))
             .map_err(|e| format!("Failed to set max TLS version: {}", e))?;
-        builder.set_verify(SslVerifyMode::NONE);
+        builder.set_verify(SslVerifyMode::PEER);
+        builder
+            .set_default_verify_paths()
+            .map_err(|e| format!("Failed to set TLS verify paths: {}", e))?;
         Ok(builder.build())
     }
 
@@ -1059,6 +1086,8 @@ pub fn execute(ctx: &CliContext) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_os = "windows"))]
+    use crate::protocols::x509::parse_x509_time;
 
     #[test]
     fn test_magic_scan_creation() {
@@ -1068,5 +1097,19 @@ mod tests {
         let scan = scan.unwrap();
         assert_eq!(scan.target, "example.com");
         assert_eq!(scan.preset.name, "stealth"); // Default
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_magic_tls_verify_host_mismatch() {
+        let pem = include_bytes!("../../../test-certs/server.crt");
+        let cert = X509::from_pem(pem).expect("test cert parse");
+        let now = parse_x509_time("20251105000000Z").expect("valid time");
+
+        let ok = MagicScan::verify_tls_certificate("localhost", &cert, now);
+        assert!(ok.is_ok());
+
+        let err = MagicScan::verify_tls_certificate("example.com", &cert, now);
+        assert!(err.is_err());
     }
 }

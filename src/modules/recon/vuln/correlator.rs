@@ -25,8 +25,9 @@ use super::kev::KevEntry;
 use super::osv::Ecosystem;
 use super::{
     calculate_risk_score, find_cpe, generate_cpe, DetectedTech, ExploitDbClient, KevClient,
-    NvdClient, OsvClient, Severity, TechCategory, VulnCollection, VulnSource, Vulnerability,
+    NvdClient, OsvClient, TechCategory, VulnCollection, VulnSource, Vulnerability,
 };
+use crate::modules::common::Severity;
 use std::time::{Duration, Instant};
 
 /// Configuration for the correlation engine
@@ -65,7 +66,7 @@ impl Default for CorrelatorConfig {
             timeout: Duration::from_secs(30),
             nvd_api_key: None,
             osv_ecosystem: None,
-            min_severity: Severity::None,
+            min_severity: Severity::Info,
             exploits_only: false,
         }
     }
@@ -145,7 +146,7 @@ impl TechCorrelation {
             .iter()
             .map(|v| v.severity)
             .max()
-            .unwrap_or(Severity::None)
+            .unwrap_or(Severity::Info)
     }
 }
 
@@ -237,7 +238,7 @@ impl CorrelationReport {
                 Severity::High => self.summary.high_count += 1,
                 Severity::Medium => self.summary.medium_count += 1,
                 Severity::Low => self.summary.low_count += 1,
-                Severity::None => {}
+                Severity::Info => {}
             }
 
             if vuln.has_exploit() {
@@ -673,7 +674,7 @@ mod tests {
         assert!(config.use_kev);
         assert!(config.use_exploitdb);
         assert_eq!(config.max_vulns_per_tech, 50);
-        assert_eq!(config.min_severity, Severity::None);
+        assert_eq!(config.min_severity, Severity::Info);
         assert!(!config.exploits_only);
     }
 

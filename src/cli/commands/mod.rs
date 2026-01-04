@@ -4,45 +4,54 @@ pub mod assess; // ✅ Assessment workflow - fingerprint → vuln → playbook
 pub mod attack; // ✅ Attack workflow - plan, run, playbooks
 pub mod auth_test; // ✅ Credential testing
 pub mod bench;
+pub mod binary; // ✅ Binary analysis - ELF/PE parsing, checksec, ROP gadgets
 pub mod cloud;
 pub mod code;
 pub mod collection; // ✅ Browser credentials collection
 pub mod config; // ✅ Configuration management - database passwords, settings
 pub mod crypto; // ✅ File encryption vault - AES-256-GCM
-pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
-pub mod search; // ✅ Global search across all stored data
-pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
-                 // pub mod database; // Database operations - TODO: APIs changed, needs update
+pub mod database; // ✅ Database operations - engine, vector search
 pub mod deps;
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod dns_server; // ✅ DNS server with hijacking for MITM
 pub mod docs; // ✅ Documentation search and indexing
+pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
+pub mod exploit_browser; // ✅ RBB Browser Exploitation
 pub mod fuzz;
+pub mod git_exposed; // ✅ Exposed .git directory scanner
 pub mod health; // ✅ Port health monitoring (check, diff, watch)
+pub mod hex; // ✅ Hex editor - view, edit, search, replace, inspect binary files
 pub mod http_server; // ✅ HTTP server for file serving and payload hosting
 pub mod init; // ✅ Config init command
+pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
+pub mod intel_graph; // ✅ Graph intelligence - pagerank, centrality, communities
+pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
+pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
+pub mod intel_taxii;
+pub mod loot; // ✅ Loot management - credentials, vulns, findings, attack graph
 pub mod magic;
 pub mod mcp;
 #[cfg(target_os = "linux")]
 pub mod memory; // ✅ Process memory inspection (Cheat Engine-style)
 #[cfg(not(target_os = "windows"))]
 pub mod mitm; // ✅ MITM attack orchestrator - DNS hijacking + TLS interception (requires TLS)
-              // pub mod monitor; // Network monitoring - TODO: monitor.rs doesn't exist
-pub mod exploit_browser; // ✅ RBB Browser Exploitation
-pub mod intel; // ✅ Intelligence domain - vuln, mitre, ioc, taxii
-pub mod intel_ioc; // ✅ IOC extraction and management - rb intel ioc
-pub mod intel_mitre; // ✅ MITRE ATT&CK intelligence - rb intel mitre
-pub mod intel_taxii;
 pub mod nc; // ⚠️ Netcat - AUTHORIZED USE ONLY
 pub mod network;
+pub mod nosqli; // ✅ NoSQL injection testing - MongoDB, Redis, Elasticsearch
+pub mod password; // ✅ Password hash cracking - dictionary, mask, hybrid
 pub mod ping; // ICMP ping
+pub mod playbook; // ✅ Playbook management - pentest methodologies
 pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
 pub mod recon;
 pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email/breach
 pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
+pub mod report; // ✅ Report generation - pentest reports from loot and graph
 pub mod scan;
 pub mod screenshot;
+pub mod search; // ✅ Global search across all stored data
+pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
+pub mod sqli; // ✅ SQL injection testing - sqlmap-style
 pub mod takeover;
 pub mod tls; // TLS security testing - audit, ciphers, vuln
 pub mod tls_intel; // ✅ TLS intelligence gathering
@@ -70,6 +79,10 @@ impl CommandRegistry {
     fn new() -> Self {
         let commands: Vec<Box<dyn Command>> = vec![
             Box::new(access::AccessCommand), // ✅ Remote access - rb access shell create
+            Box::new(loot::LootEntryCommand), // ✅ Loot entry management
+            Box::new(loot::LootGraphCommand), // ✅ Attack graph analysis
+            Box::new(playbook::PlaybookCommand), // ✅ Playbook methodologies
+            Box::new(report::ReportCommand), // ✅ Report generation
             Box::new(agent::AgentCommand),   // ✅ C2 Agent
             Box::new(assess::AssessCommand), // ✅ Assessment workflow
             Box::new(attack::AttackCommand), // ✅ Attack workflow - plan, run, playbooks
@@ -81,6 +94,9 @@ impl CommandRegistry {
             Box::new(trace::TraceCommand),
             Box::new(dns::DnsCommand), // ✅ DNS with RESTful verbs (list, get, describe)
             Box::new(web::WebCommand), // ✅ Re-enabled with TLS cert & audit!
+            Box::new(sqli::SqliCommand), // ✅ SQL injection testing - sqlmap-style
+            Box::new(nosqli::NoSqliCommand), // ✅ NoSQL injection testing
+            Box::new(git_exposed::GitExposedCommand), // ✅ Exposed .git scanner
             Box::new(tls::TlsCommand), // TLS security testing
             Box::new(tls_intel::TlsIntelCommand), // ✅ TLS intelligence gathering
             Box::new(recon::ReconCommand),
@@ -92,6 +108,14 @@ impl CommandRegistry {
             Box::new(collection::CollectCommand), // ✅ Browser collection
             Box::new(fuzz::FuzzCommand),          // ✅ Web fuzzing engine
             Box::new(crypto::CryptoCommand),      // ✅ File encryption vault
+            Box::new(crypto::CryptoCodecCommand), // ✅ Encoding/decoding (Base64, Hex, etc.)
+            Box::new(crypto::CryptoCipherCommand), // ✅ Classical ciphers (Caesar, ROT13, etc.)
+            Box::new(crypto::CryptoAnalyzeCommand), // ✅ Analysis (hash ID, frequency, auto-detect)
+            Box::new(crypto::CryptoRecipeCommand), // ✅ CyberChef-style recipe chains
+            Box::new(crypto::CryptoCyclicCommand), // ✅ De Bruijn patterns for exploit dev
+            Box::new(password::PasswordCommand),  // ✅ Password hash cracking
+            Box::new(binary::BinaryCommand), // ✅ Binary analysis - ELF/PE parsing, checksec, ROP
+            Box::new(hex::HexCommand),       // ✅ Hex editor - view, edit, search, replace
             Box::new(deps::DepsCommand),
             Box::new(cloud::CloudCommand),
             Box::new(takeover::TakeoverCommand),
@@ -102,6 +126,7 @@ impl CommandRegistry {
             Box::new(mcp::McpCommand),               // ✅ Local MCP server bridge
             Box::new(docs::DocsCommand),             // ✅ Documentation search
             Box::new(intel::IntelCommand),           // ✅ Intelligence domain - rb intel vuln *
+            Box::new(intel_graph::IntelGraphCommand), // ✅ Graph intelligence - rb intel graph *
             Box::new(intel_mitre::IntelMitreCommand), // ✅ MITRE ATT&CK intelligence - rb intel mitre *
             Box::new(intel_ioc::IntelIocCommand),     // ✅ IOC extraction - rb intel ioc *
             Box::new(intel_taxii::IntelTaxiiCommand), // ✅ TAXII 2.1 client - rb intel taxii *
@@ -137,7 +162,8 @@ impl CommandRegistry {
                                                // Box::new(monitor::MonitorCommand),  // Temporarily disabled
         ];
 
-        // commands.extend(database::commands()); // Temporarily disabled
+        let mut commands = commands;
+        commands.extend(database::commands()); // ✅ Database - engine, vector search
 
         let mut domain_index: HashMap<String, Vec<usize>> = HashMap::new();
         let mut resource_index: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -552,9 +578,13 @@ fn is_magic_scan_target(input: &str) -> bool {
         // Simple check: if it's not a known CLI domain
         let known_domains = [
             "access",
-            "agent",  // C2 Agent
-            "assess", // Assessment workflow
-            "attack", // ✅ Attack workflow - plan, run, playbooks (includes lab)
+            "agent",    // C2 Agent
+            "assess",   // Assessment workflow
+            "attack",   // ✅ Attack workflow - plan, run, playbooks (includes lab)
+            "binary",   // ✅ Binary analysis - ELF/PE parsing, checksec, ROP gadgets
+            "loot",     // ✅ Loot management - credentials, vulns, attack graph
+            "playbook", // ✅ Playbook methodologies
+            "report",   // ✅ Report generation
             "network",
             "dns",
             "web",

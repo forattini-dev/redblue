@@ -1,10 +1,12 @@
 pub mod acl; // NEW: Access Control List (IP allow/deny)
 pub mod banner; // NEW: Service banner grabbing
 pub mod broker; // NEW: Multi-client chat server (ncat --broker)
+pub mod craft; // Declarative packet crafting with attack signatures
 pub mod discovery;
 pub mod extras; // NEW: Rate limiting, logging, file transfer optimization
 pub mod fingerprint;
 pub mod health; // Port health monitoring (check, diff, watch)
+pub mod highspeed; // Masscan-style high-performance scanning algorithms
 pub mod netcat;
 pub mod ping;
 pub mod proxy; // NEW: Proxy support (SOCKS4/5, HTTP CONNECT)

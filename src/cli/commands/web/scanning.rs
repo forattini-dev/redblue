@@ -1,4 +1,5 @@
 use crate::cli::{format::OutputFormat, output::Output, validator::Validator, CliContext};
+use crate::modules::common::Severity;
 use crate::modules::web::scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 use crate::modules::web::strategies::django::{DjangoScanResult, DjangoSeverity};
 use crate::modules::web::strategies::drupal::{
@@ -8,7 +9,7 @@ use crate::modules::web::strategies::laravel::{
     FindingSeverity as LaravelSeverity, LaravelScanResult,
 };
 use crate::modules::web::strategies::wordpress::{VulnSeverity, WPScanResult};
-use crate::modules::web::vuln_scanner::{self, Severity, WebScanner};
+use crate::modules::web::vuln_scanner::{self, WebScanner};
 use std::sync::Arc;
 
 fn guard_plain_http(url: &str, command: &str) -> Result<(), String> {

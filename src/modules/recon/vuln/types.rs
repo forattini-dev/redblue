@@ -4,6 +4,8 @@
 
 use super::cpe::TechCategory;
 
+use crate::modules::common::Severity;
+
 /// Detected technology with version information
 #[derive(Debug, Clone)]
 pub struct DetectedTech {
@@ -62,61 +64,8 @@ impl DetectedTech {
     }
 }
 
-/// Vulnerability severity levels based on CVSS
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severity {
-    /// CVSS 0.0 or unknown
-    None,
-    /// CVSS 0.1 - 3.9
-    Low,
-    /// CVSS 4.0 - 6.9
-    Medium,
-    /// CVSS 7.0 - 8.9
-    High,
-    /// CVSS 9.0 - 10.0
-    Critical,
-}
-
-impl Severity {
-    /// Convert CVSS score to severity
-    pub fn from_cvss(score: f32) -> Self {
-        match score {
-            s if s >= 9.0 => Severity::Critical,
-            s if s >= 7.0 => Severity::High,
-            s if s >= 4.0 => Severity::Medium,
-            s if s >= 0.1 => Severity::Low,
-            _ => Severity::None,
-        }
-    }
-
-    /// Get display string
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Severity::Critical => "CRITICAL",
-            Severity::High => "HIGH",
-            Severity::Medium => "MEDIUM",
-            Severity::Low => "LOW",
-            Severity::None => "NONE",
-        }
-    }
-
-    /// Get color code for terminal output
-    pub fn color_code(&self) -> &'static str {
-        match self {
-            Severity::Critical => "\x1b[91m", // Bright red
-            Severity::High => "\x1b[31m",     // Red
-            Severity::Medium => "\x1b[33m",   // Yellow
-            Severity::Low => "\x1b[36m",      // Cyan
-            Severity::None => "\x1b[37m",     // White
-        }
-    }
-}
-
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
+// Severity is imported from crate::modules::common
+// Previous local Severity::None maps to common::Severity::Info
 
 /// Source of vulnerability information
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,7 +225,7 @@ impl Vulnerability {
             description: String::new(),
             cvss_v3: None,
             cvss_v2: None,
-            severity: Severity::None,
+            severity: Severity::Info,
             published: None,
             modified: None,
             references: Vec::new(),
@@ -461,7 +410,7 @@ mod tests {
         assert_eq!(Severity::from_cvss(7.5), Severity::High);
         assert_eq!(Severity::from_cvss(5.0), Severity::Medium);
         assert_eq!(Severity::from_cvss(2.0), Severity::Low);
-        assert_eq!(Severity::from_cvss(0.0), Severity::None);
+        assert_eq!(Severity::from_cvss(0.0), Severity::Info);
     }
 
     #[test]

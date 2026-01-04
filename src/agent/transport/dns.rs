@@ -6,7 +6,9 @@
 //! Query format:  <base32_data>.<sequence>.<session_id>.<domain> TXT
 //! Response: TXT record containing base32 encoded response
 
-use crate::agent::transport::{Transport, TransportConfig, TransportError, TransportResult};
+use crate::agent::transport::{
+    fill_csprng, Transport, TransportConfig, TransportError, TransportResult,
+};
 use crate::protocols::dns::{DnsClient, DnsRdata, DnsRecordType};
 use std::time::Duration;
 
@@ -123,23 +125,9 @@ impl DnsTransport {
 
     /// Generate random session ID (8 chars base32)
     fn generate_session_id() -> String {
-        let bytes: [u8; 5] = [
-            Self::random_byte(),
-            Self::random_byte(),
-            Self::random_byte(),
-            Self::random_byte(),
-            Self::random_byte(),
-        ];
+        let mut bytes = [0u8; 5];
+        fill_csprng(&mut bytes).expect("OS CSPRNG unavailable");
         Self::base32_encode(&bytes)
-    }
-
-    /// Simple random byte generator using time
-    fn random_byte() -> u8 {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos();
-        (nanos % 256) as u8
     }
 
     /// RFC 4648 Base32 encoding (lowercase for DNS)

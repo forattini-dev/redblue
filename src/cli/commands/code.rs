@@ -1,6 +1,8 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::crypto::uuid::Uuid;
+use crate::modules::code::secrets::{SecretValidator, ValidationStatus};
 use crate::modules::collection::secrets::git_scanner::GitScanner;
 use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
 use std::fs;
@@ -22,11 +24,23 @@ impl Command for CodeCommand {
     }
 
     fn routes(&self) -> Vec<Route> {
-        vec![Route {
-            verb: "scan",
-            summary: "Scan directory or file for secrets",
-            usage: "rb code secrets scan <path|url>",
-        }]
+        vec![
+            Route {
+                verb: "scan",
+                summary: "Scan directory or file for secrets",
+                usage: "rb code secrets scan <path|url>",
+            },
+            Route {
+                verb: "validate",
+                summary: "Validate a secret against its provider API",
+                usage: "rb code secrets validate <secret> --provider <name>",
+            },
+            Route {
+                verb: "providers",
+                summary: "List supported secret validation providers",
+                usage: "rb code secrets providers",
+            },
+        ]
     }
 
     fn flags(&self) -> Vec<Flag> {
@@ -38,6 +52,12 @@ impl Command for CodeCommand {
                 .with_default("text"),
             Flag::new("history", "Scan git history (full log) for remote repos")
                 .with_default("true"),
+            Flag::new(
+                "validate",
+                "Validate detected secrets against provider APIs",
+            )
+            .with_short('V'),
+            Flag::new("provider", "Provider name for secret validation").with_short('p'),
         ]
     }
 
@@ -52,27 +72,37 @@ impl Command for CodeCommand {
                 "rb code secrets scan https://github.com/owner/repo.git",
             ),
             (
-                "Scan specific directory",
-                "rb code secrets scan /path/to/repo",
+                "Scan and validate secrets",
+                "rb code secrets scan . --validate",
             ),
             (
-                "Scan with JSON output",
-                "rb code secrets scan . --output json",
+                "Validate a GitHub token",
+                "rb code secrets validate ghp_xxxx --provider github",
             ),
+            (
+                "Validate with auto-detection",
+                "rb code secrets validate sk_live_xxxx",
+            ),
+            ("List supported providers", "rb code secrets providers"),
         ]
     }
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
         let verb = ctx.verb.as_ref().ok_or_else(|| {
             print_help(self);
-            "No verb provided. Use 'scan'.".to_string()
+            "No verb provided. Use 'scan', 'validate', or 'providers'.".to_string()
         })?;
 
         match verb.as_str() {
             "scan" => self.scan(ctx),
+            "validate" => self.validate(ctx),
+            "providers" => self.list_providers(),
             _ => {
                 print_help(self);
-                Err(format!("Unknown verb '{}'. Valid: scan", verb))
+                Err(format!(
+                    "Unknown verb '{}'. Valid: scan, validate, providers",
+                    verb
+                ))
             }
         }
     }
@@ -121,7 +151,7 @@ impl CodeCommand {
     }
 
     fn scan_remote_repo(&self, url: &str, _ctx: &CliContext) -> Result<Vec<SecretFinding>, String> {
-        let temp_dir = std::env::temp_dir().join(format!("redblue-scan-{}", uuid::Uuid::new_v4()));
+        let temp_dir = std::env::temp_dir().join(format!("redblue-scan-{}", Uuid::new_v4()));
         let temp_path = temp_dir.to_string_lossy().to_string();
 
         Output::info(&format!("Cloning {} to temporary directory...", url));
@@ -313,5 +343,269 @@ impl CodeCommand {
             .replace('\n', "\\n")
             .replace('\r', "\\r")
             .replace('\t', "\\t")
+    }
+
+    /// Validate a secret against its provider API
+    fn validate(&self, ctx: &CliContext) -> Result<(), String> {
+        let secret = ctx.target.as_ref().ok_or_else(|| {
+            "Missing secret. Syntax: rb code secrets validate <secret> --provider <name>"
+                .to_string()
+        })?;
+
+        Output::header("Secret Validator");
+
+        let validator = SecretValidator::new();
+
+        // Get provider from flags or try auto-detection
+        let provider = ctx.flags.get("provider").or_else(|| ctx.flags.get("p"));
+
+        let result = if let Some(provider_name) = provider {
+            Output::item("Provider", provider_name);
+            Output::item("Secret", &self.mask_secret(secret));
+            Output::spinner_start("Validating secret...");
+            validator.validate(secret, provider_name)
+        } else {
+            // Try to auto-detect provider from secret pattern
+            Output::item("Secret", &self.mask_secret(secret));
+            Output::info("No provider specified, attempting auto-detection...");
+            Output::spinner_start("Validating secret...");
+
+            // Try to detect provider from secret prefix
+            let detected_provider = self.detect_provider_from_secret(secret);
+            if let Some(provider_name) = detected_provider {
+                Output::item("Detected provider", provider_name);
+                validator.validate(secret, provider_name)
+            } else {
+                Output::spinner_done();
+                return Err(
+                    "Could not auto-detect provider. Please specify --provider <name>".to_string(),
+                );
+            }
+        };
+
+        Output::spinner_done();
+
+        // Display result
+        match result.status {
+            ValidationStatus::Valid => {
+                Output::success(&format!(
+                    "Secret is VALID for provider: {}",
+                    result.provider
+                ));
+
+                // Show additional info if available
+                if !result.info.is_empty() {
+                    println!("\n\x1b[1mAccount Info:\x1b[0m");
+                    for (key, value) in &result.info {
+                        println!("  {}: \x1b[36m{}\x1b[0m", key, value);
+                    }
+                }
+
+                println!("\n\x1b[33m⚠ WARNING: This secret is active and should be rotated immediately!\x1b[0m");
+            }
+            ValidationStatus::Invalid => {
+                Output::info(&format!(
+                    "Secret is INVALID for provider: {}",
+                    result.provider
+                ));
+                println!("  The secret appears to be expired, revoked, or incorrect.");
+            }
+            ValidationStatus::RateLimited => {
+                Output::warning(&format!("Rate limited by provider: {}", result.provider));
+                println!("  Try again later or reduce validation frequency.");
+            }
+            ValidationStatus::Error => {
+                Output::error(&format!(
+                    "Validation error: {}",
+                    result.error.unwrap_or_default()
+                ));
+            }
+            ValidationStatus::Unsupported => {
+                Output::error(&format!("Provider '{}' is not supported", result.provider));
+                println!("  Run 'rb code secrets providers' to see supported providers.");
+            }
+            ValidationStatus::IncompleteParams => {
+                Output::error("Additional parameters required for this provider");
+            }
+        }
+
+        println!("\n  Response time: {}ms", result.response_time_ms);
+
+        Ok(())
+    }
+
+    /// List all supported secret validation providers
+    fn list_providers(&self) -> Result<(), String> {
+        Output::header("Supported Secret Providers");
+
+        let validator = SecretValidator::new();
+        let mut providers: Vec<&str> = validator.supported_providers();
+        providers.sort();
+
+        println!("\n\x1b[1m{} providers available:\x1b[0m\n", providers.len());
+
+        // Group by category
+        let categories = [
+            (
+                "Cloud",
+                vec![
+                    "aws",
+                    "gcp",
+                    "azure",
+                    "digitalocean",
+                    "heroku",
+                    "vercel",
+                    "netlify",
+                    "linode",
+                    "vultr",
+                ],
+            ),
+            (
+                "Code",
+                vec![
+                    "github",
+                    "gitlab",
+                    "bitbucket",
+                    "circleci",
+                    "travisci",
+                    "buildkite",
+                    "npm",
+                    "pypi",
+                ],
+            ),
+            (
+                "Communication",
+                vec![
+                    "slack", "discord", "telegram", "twilio", "sendgrid", "mailgun", "postmark",
+                ],
+            ),
+            ("Payment", vec!["stripe", "paypal", "square", "coinbase"]),
+            (
+                "AI/ML",
+                vec!["openai", "anthropic", "replicate", "huggingface"],
+            ),
+            (
+                "Monitoring",
+                vec!["datadog", "sentry", "pagerduty", "newrelic"],
+            ),
+            (
+                "SaaS",
+                vec![
+                    "hubspot", "zendesk", "asana", "notion", "linear", "airtable",
+                ],
+            ),
+            (
+                "Security",
+                vec!["shodan", "virustotal", "securitytrails", "censys"],
+            ),
+        ];
+
+        for (category, expected) in &categories {
+            let found: Vec<&&str> = providers.iter().filter(|p| expected.contains(*p)).collect();
+
+            if !found.is_empty() {
+                println!("\x1b[1;34m{}:\x1b[0m", category);
+                for provider in found {
+                    println!("  • {}", provider);
+                }
+                println!();
+            }
+        }
+
+        // Show any remaining uncategorized
+        let categorized: Vec<&str> = categories
+            .iter()
+            .flat_map(|(_, providers)| providers.iter().copied())
+            .collect();
+        let other: Vec<&&str> = providers
+            .iter()
+            .filter(|p| !categorized.contains(*p))
+            .collect();
+
+        if !other.is_empty() {
+            println!("\x1b[1;34mOther:\x1b[0m");
+            for provider in other {
+                println!("  • {}", provider);
+            }
+            println!();
+        }
+
+        println!("\x1b[2mUsage: rb code secrets validate <secret> --provider <name>\x1b[0m");
+
+        Ok(())
+    }
+
+    /// Try to detect provider from secret pattern
+    fn detect_provider_from_secret(&self, secret: &str) -> Option<&'static str> {
+        // GitHub tokens
+        if secret.starts_with("ghp_")
+            || secret.starts_with("gho_")
+            || secret.starts_with("ghu_")
+            || secret.starts_with("ghs_")
+        {
+            return Some("github");
+        }
+
+        // Stripe keys
+        if secret.starts_with("sk_live_")
+            || secret.starts_with("sk_test_")
+            || secret.starts_with("pk_live_")
+            || secret.starts_with("pk_test_")
+        {
+            return Some("stripe");
+        }
+
+        // Slack tokens
+        if secret.starts_with("xoxb-")
+            || secret.starts_with("xoxp-")
+            || secret.starts_with("xoxa-")
+            || secret.starts_with("xoxs-")
+        {
+            return Some("slack");
+        }
+
+        // OpenAI
+        if secret.starts_with("sk-") && secret.len() > 40 {
+            return Some("openai");
+        }
+
+        // Discord
+        if secret.len() == 59 && secret.contains('.') {
+            return Some("discord");
+        }
+
+        // Telegram Bot
+        if secret.contains(':')
+            && secret
+                .split(':')
+                .next()
+                .map(|s| s.parse::<u64>().is_ok())
+                .unwrap_or(false)
+        {
+            return Some("telegram");
+        }
+
+        // Anthropic
+        if secret.starts_with("sk-ant-") {
+            return Some("anthropic");
+        }
+
+        // GitLab
+        if secret.starts_with("glpat-") {
+            return Some("gitlab");
+        }
+
+        // npm
+        if secret.starts_with("npm_") {
+            return Some("npm");
+        }
+
+        // Shodan
+        if secret.len() == 32 && secret.chars().all(|c| c.is_ascii_alphanumeric()) {
+            // Could be Shodan or many others - don't auto-detect
+            return None;
+        }
+
+        None
     }
 }

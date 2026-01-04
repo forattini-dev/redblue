@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use serde::{Deserialize, Serialize};
-
 use crate::compression::gzip::decompress;
+use crate::serde_json::{Map, Value};
 
 // Embedded compressed ATT&CK data
 const ATTACK_DATA_GZ: &[u8] = include_bytes!("data/enterprise-attack.json.gz");
@@ -15,7 +14,7 @@ pub fn db() -> &'static AttackDatabase {
     DB.get_or_init(|| AttackDatabase::load().expect("Failed to load embedded ATT&CK database"))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AttackTechnique {
     pub id: String,           // STIX ID
     pub technique_id: String, // T1059.001
@@ -32,7 +31,7 @@ pub struct AttackTechnique {
     pub detection: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ThreatGroup {
     pub id: String,       // STIX ID
     pub group_id: String, // G0016
@@ -42,14 +41,14 @@ pub struct ThreatGroup {
     pub associated_techniques: Vec<String>, // List of T-codes
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Tactic {
     pub id: String,
     pub name: String,
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Software {
     pub id: String,
     pub name: String,
@@ -68,15 +67,15 @@ impl AttackDatabase {
     fn load() -> Result<Self, String> {
         let json_bytes =
             decompress(ATTACK_DATA_GZ).map_err(|e| format!("Decompression failed: {:?}", e))?;
-        let bundle: StixBundle =
-            serde_json::from_slice(&json_bytes).map_err(|e| format!("JSON parse failed: {}", e))?;
+        let stix_objects =
+            parse_stix_objects(&json_bytes).map_err(|e| format!("JSON parse failed: {}", e))?;
 
         let mut techniques = HashMap::new();
         let mut groups = HashMap::new();
         let mut relationships = Vec::new();
 
         // Pass 1: Load objects
-        for object in bundle.objects {
+        for object in stix_objects {
             match object {
                 StixObject::AttackPattern(ap) => {
                     if let Some(ext_id) = ap
@@ -238,39 +237,25 @@ impl AttackDatabase {
     }
 }
 
-// STIX Types for Deserialization
+// STIX Types for Deserialization (manual parsing)
 
-#[derive(Deserialize)]
-struct StixBundle {
-    objects: Vec<StixObject>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
 enum StixObject {
-    #[serde(rename = "attack-pattern")]
     AttackPattern(AttackPattern),
-    #[serde(rename = "intrusion-set")]
     IntrusionSet(IntrusionSet),
-    #[serde(rename = "relationship")]
     Relationship(Relationship),
-    #[serde(other)]
     Other,
 }
 
-#[derive(Deserialize)]
 struct ExternalReference {
     source_name: String,
     external_id: Option<String>,
     url: Option<String>,
 }
 
-#[derive(Deserialize)]
 struct KillChainPhase {
     phase_name: String,
 }
 
-#[derive(Deserialize)]
 struct AttackPattern {
     id: String,
     name: String,
@@ -285,7 +270,6 @@ struct AttackPattern {
     x_mitre_detection: Option<String>,
 }
 
-#[derive(Deserialize)]
 struct IntrusionSet {
     id: String,
     name: String,
@@ -294,11 +278,168 @@ struct IntrusionSet {
     external_references: Vec<ExternalReference>,
 }
 
-#[derive(Deserialize)]
 struct Relationship {
     relationship_type: String,
     source_ref: String,
     target_ref: String,
+}
+
+fn parse_stix_objects(json_bytes: &[u8]) -> Result<Vec<StixObject>, String> {
+    let root: Value = crate::serde_json::from_slice(json_bytes)?;
+    parse_stix_objects_value(&root)
+}
+
+fn parse_stix_objects_value(value: &Value) -> Result<Vec<StixObject>, String> {
+    let map = match value {
+        Value::Object(map) => map,
+        _ => return Err("expected stix bundle object".to_string()),
+    };
+    let objects = match map.get("objects") {
+        Some(Value::Array(items)) => items,
+        _ => return Err("missing stix objects array".to_string()),
+    };
+
+    let mut out = Vec::new();
+    for item in objects {
+        if let Some(obj) = parse_stix_object(item) {
+            out.push(obj);
+        }
+    }
+    Ok(out)
+}
+
+fn parse_stix_object(value: &Value) -> Option<StixObject> {
+    let map = match value {
+        Value::Object(map) => map,
+        _ => return None,
+    };
+    let obj_type = map.get("type").and_then(|v| v.as_str())?;
+    match obj_type {
+        "attack-pattern" => parse_attack_pattern(map).map(StixObject::AttackPattern),
+        "intrusion-set" => parse_intrusion_set(map).map(StixObject::IntrusionSet),
+        "relationship" => parse_relationship(map).map(StixObject::Relationship),
+        _ => Some(StixObject::Other),
+    }
+}
+
+fn parse_attack_pattern(map: &Map<String, Value>) -> Option<AttackPattern> {
+    let id = map_get_string(map, "id")?;
+    let name = map_get_string(map, "name")?;
+    let external_references = map
+        .get("external_references")
+        .map(parse_external_references)
+        .unwrap_or_default();
+
+    Some(AttackPattern {
+        id,
+        name,
+        description: map_get_string(map, "description"),
+        external_references,
+        kill_chain_phases: map
+            .get("kill_chain_phases")
+            .map(parse_kill_chain_phases)
+            .filter(|items| !items.is_empty()),
+        x_mitre_platforms: map
+            .get("x_mitre_platforms")
+            .map(parse_string_array)
+            .filter(|items| !items.is_empty()),
+        x_mitre_is_subtechnique: map_get_bool(map, "x_mitre_is_subtechnique"),
+        x_mitre_deprecated: map_get_bool(map, "x_mitre_deprecated"),
+        revoked: map_get_bool(map, "revoked"),
+        x_mitre_data_sources: map
+            .get("x_mitre_data_sources")
+            .map(parse_string_array)
+            .filter(|items| !items.is_empty()),
+        x_mitre_detection: map_get_string(map, "x_mitre_detection"),
+    })
+}
+
+fn parse_intrusion_set(map: &Map<String, Value>) -> Option<IntrusionSet> {
+    let id = map_get_string(map, "id")?;
+    let name = map_get_string(map, "name")?;
+    let external_references = map
+        .get("external_references")
+        .map(parse_external_references)
+        .unwrap_or_default();
+
+    Some(IntrusionSet {
+        id,
+        name,
+        description: map_get_string(map, "description"),
+        aliases: map
+            .get("aliases")
+            .map(parse_string_array)
+            .filter(|items| !items.is_empty()),
+        external_references,
+    })
+}
+
+fn parse_relationship(map: &Map<String, Value>) -> Option<Relationship> {
+    Some(Relationship {
+        relationship_type: map_get_string(map, "relationship_type")?,
+        source_ref: map_get_string(map, "source_ref")?,
+        target_ref: map_get_string(map, "target_ref")?,
+    })
+}
+
+fn parse_external_references(value: &Value) -> Vec<ExternalReference> {
+    let mut out = Vec::new();
+    let items = match value {
+        Value::Array(items) => items,
+        _ => return out,
+    };
+    for item in items {
+        let map = match item {
+            Value::Object(map) => map,
+            _ => continue,
+        };
+        let source_name = match map_get_string(map, "source_name") {
+            Some(name) => name,
+            None => continue,
+        };
+        out.push(ExternalReference {
+            source_name,
+            external_id: map_get_string(map, "external_id"),
+            url: map_get_string(map, "url"),
+        });
+    }
+    out
+}
+
+fn parse_kill_chain_phases(value: &Value) -> Vec<KillChainPhase> {
+    let mut out = Vec::new();
+    let items = match value {
+        Value::Array(items) => items,
+        _ => return out,
+    };
+    for item in items {
+        let map = match item {
+            Value::Object(map) => map,
+            _ => continue,
+        };
+        if let Some(phase_name) = map_get_string(map, "phase_name") {
+            out.push(KillChainPhase { phase_name });
+        }
+    }
+    out
+}
+
+fn parse_string_array(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn map_get_string(map: &Map<String, Value>, key: &str) -> Option<String> {
+    map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+
+fn map_get_bool(map: &Map<String, Value>, key: &str) -> Option<bool> {
+    map.get(key).and_then(|v| v.as_bool())
 }
 
 #[cfg(test)]

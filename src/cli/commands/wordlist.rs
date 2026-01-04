@@ -28,7 +28,7 @@ impl Command for WordlistCommand {
             Route {
                 verb: "sources",
                 summary: "List downloadable wordlist sources",
-                usage: "rb wordlist collection sources [--category passwords|subdomains|dirs|usernames]",
+                usage: "rb wordlist collection sources [--category passwords|subdomains|dirs|usernames|vhosts]",
             },
             Route {
                 verb: "search",
@@ -82,7 +82,7 @@ impl Command for WordlistCommand {
             Flag::new("cached", "Show only cached wordlists"),
             Flag::new(
                 "category",
-                "Filter by category (passwords, subdomains, dirs, usernames)",
+                "Filter by category (passwords, subdomains, dirs, usernames, vhosts)",
             )
             .with_short('c'),
         ]
@@ -465,6 +465,7 @@ impl WordlistCommand {
                 "subdomains" | "subdomain" | "dns" => Some(WordlistCategory::Subdomains),
                 "dirs" | "directories" | "dir" | "web" => Some(WordlistCategory::Directories),
                 "usernames" | "username" | "users" | "user" => Some(WordlistCategory::Usernames),
+                "vhosts" | "vhost" | "virtualhosts" => Some(WordlistCategory::Vhosts),
                 _ => None,
             };
 
@@ -479,7 +480,7 @@ impl WordlistCommand {
                     println!("}}");
                 } else {
                     Output::warning(&format!("Unknown category: {}", cat));
-                    println!("Available: passwords, subdomains, dirs, usernames");
+                    println!("Available: passwords, subdomains, dirs, usernames, vhosts");
                 }
                 return Ok(());
             }
@@ -498,6 +499,7 @@ impl WordlistCommand {
                     WordlistCategory::Subdomains => "subdomains",
                     WordlistCategory::Directories => "directories",
                     WordlistCategory::Usernames => "usernames",
+                    WordlistCategory::Vhosts => "vhosts",
                     WordlistCategory::Mixed => "mixed",
                 };
                 println!("    {{");
@@ -539,6 +541,10 @@ impl WordlistCommand {
             .iter()
             .filter(|s| s.category == WordlistCategory::Usernames)
             .collect();
+        let vhosts: Vec<_> = filtered
+            .iter()
+            .filter(|s| s.category == WordlistCategory::Vhosts)
+            .collect();
 
         let print_section = |title: &str, items: &[&crate::wordlists::WordlistSource]| {
             if !items.is_empty() {
@@ -556,6 +562,7 @@ impl WordlistCommand {
         print_section("🌐 Subdomains", &subdomains);
         print_section("📁 Directories", &dirs);
         print_section("👤 Usernames", &usernames);
+        print_section("🖥️ Virtual Hosts", &vhosts);
 
         println!("To download: rb wordlist collection get <name>");
         println!("Example:     rb wordlist collection get rockyou");
@@ -587,6 +594,7 @@ impl WordlistCommand {
                     WordlistCategory::Subdomains => "subdomains",
                     WordlistCategory::Directories => "directories",
                     WordlistCategory::Usernames => "usernames",
+                    WordlistCategory::Vhosts => "vhosts",
                     WordlistCategory::Mixed => "mixed",
                 };
                 println!("    {{");
@@ -624,6 +632,7 @@ impl WordlistCommand {
                 WordlistCategory::Subdomains => "subdomains",
                 WordlistCategory::Directories => "dirs",
                 WordlistCategory::Usernames => "usernames",
+                WordlistCategory::Vhosts => "vhosts",
                 WordlistCategory::Mixed => "mixed",
             };
             println!(
@@ -898,6 +907,424 @@ impl WordlistFileCommand {
         for w in words {
             println!("{}", w);
         }
+
+        Ok(())
+    }
+}
+
+/// Intelligent wordlist operations (context resolution, mutation, learning)
+pub struct WordlistIntelCommand;
+
+impl Command for WordlistIntelCommand {
+    fn domain(&self) -> &str {
+        "wordlist"
+    }
+
+    fn resource(&self) -> &str {
+        "intel"
+    }
+
+    fn description(&self) -> &str {
+        "Intelligent wordlist operations: context-aware resolution, mutation, and TF-IDF learning"
+    }
+
+    fn routes(&self) -> Vec<Route> {
+        vec![
+            Route {
+                verb: "resolve",
+                summary: "Resolve context-aware wordlist for a scanning context",
+                usage: "rb wordlist intel resolve <context> [--size small|medium|large]",
+            },
+            Route {
+                verb: "mutate",
+                summary: "Apply mutation rules to wordlist",
+                usage: "rb wordlist intel mutate <file> --rules <rule1,rule2>",
+            },
+            Route {
+                verb: "learn",
+                summary: "Show learned words from previous scans",
+                usage: "rb wordlist intel learn --from-scan <scan_id>",
+            },
+            Route {
+                verb: "extract",
+                summary: "Extract words from HTML/JS content using TF-IDF",
+                usage: "rb wordlist intel extract <file_or_url>",
+            },
+            Route {
+                verb: "checkpoints",
+                summary: "List available scan checkpoints for resume",
+                usage: "rb wordlist intel checkpoints",
+            },
+        ]
+    }
+
+    fn flags(&self) -> Vec<Flag> {
+        vec![
+            Flag::new("output", "Output format (text, json)")
+                .with_short('o')
+                .with_default("text"),
+            Flag::new("size", "Wordlist size: small, medium, large, or auto")
+                .with_short('s')
+                .with_default("auto"),
+            Flag::new(
+                "rules",
+                "Mutation rules: leet, case, suffix, prefix, append-numbers",
+            )
+            .with_short('r'),
+            Flag::new("from-scan", "Learn from scan ID"),
+            Flag::new("domain", "Filter learned words by domain"),
+            Flag::new("top", "Show top N words")
+                .with_short('n')
+                .with_default("100"),
+        ]
+    }
+
+    fn examples(&self) -> Vec<(&str, &str)> {
+        vec![
+            (
+                "Resolve directory wordlist",
+                "rb wordlist intel resolve directories --size medium",
+            ),
+            (
+                "Resolve subdomain wordlist",
+                "rb wordlist intel resolve subdomains --size large",
+            ),
+            (
+                "Apply leet mutations",
+                "rb wordlist intel mutate passwords.txt --rules leet,case",
+            ),
+            (
+                "Extract words from HTML",
+                "rb wordlist intel extract response.html --top 50",
+            ),
+            ("List scan checkpoints", "rb wordlist intel checkpoints"),
+        ]
+    }
+
+    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+        let verb = ctx.verb.as_ref().ok_or_else(|| {
+            print_help(self);
+            "No verb provided".to_string()
+        })?;
+
+        match verb.as_str() {
+            "resolve" => self.resolve(ctx),
+            "mutate" => self.mutate(ctx),
+            "learn" => self.learn(ctx),
+            "extract" => self.extract(ctx),
+            "checkpoints" => self.checkpoints(ctx),
+            _ => {
+                Output::error(&format!("Unknown verb: {}", verb));
+                Err("Invalid verb".to_string())
+            }
+        }
+    }
+}
+
+impl WordlistIntelCommand {
+    fn resolve(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        let context_str = ctx.target.as_ref().ok_or(
+            "Missing context.\nUsage: rb wordlist intel resolve <context>\n\nContexts: directories, files, subdomains, parameters, passwords, usernames",
+        )?;
+
+        use crate::modules::wordlist::{ContextResolver, WordlistContext, WordlistSize};
+
+        let context = match context_str.to_lowercase().as_str() {
+            "directories" | "dirs" | "dir" => WordlistContext::Directories,
+            "files" | "file" => WordlistContext::Files,
+            "subdomains" | "subdomain" | "sub" => WordlistContext::Subdomains,
+            "parameters" | "params" | "param" => WordlistContext::Parameters,
+            "passwords" | "password" | "pass" => WordlistContext::Passwords,
+            "usernames" | "username" | "user" => WordlistContext::Usernames,
+            other => WordlistContext::Custom(other.to_string()),
+        };
+
+        let size_str = ctx.get_flag("size").unwrap_or_else(|| "auto".to_string());
+        let size = match size_str.to_lowercase().as_str() {
+            "small" | "s" => WordlistSize::Small,
+            "medium" | "m" => WordlistSize::Medium,
+            "large" | "l" => WordlistSize::Large,
+            _ => {
+                // Auto-detect based on context (use default target for size suggestion)
+                ContextResolver::suggest_size("", None)
+            }
+        };
+
+        let recommendations = ContextResolver::recommended_wordlists(&context);
+
+        if is_json {
+            println!("{{");
+            println!("  \"context\": \"{:?}\",", context);
+            println!("  \"size\": \"{:?}\",", size);
+            println!("  \"wordlists\": [");
+            for (i, name) in recommendations.iter().enumerate() {
+                let comma = if i < recommendations.len() - 1 {
+                    ","
+                } else {
+                    ""
+                };
+                println!("    \"{}\"{}", name, comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("Wordlist Resolution: {:?}", context));
+        Output::item("Context", &format!("{:?}", context));
+        Output::item("Size", &format!("{:?}", size));
+
+        Output::section("Recommended Wordlists");
+        for name in &recommendations {
+            println!("  • {}", name);
+        }
+
+        // Show extensions for this context
+        let extensions = ContextResolver::context_extensions(&context);
+        if !extensions.is_empty() {
+            Output::section("Common Extensions");
+            println!("  {}", extensions.join(", "));
+        }
+
+        Ok(())
+    }
+
+    fn mutate(&self, ctx: &CliContext) -> Result<(), String> {
+        let path_str = ctx.target.as_ref().ok_or(
+            "Missing wordlist path.\nUsage: rb wordlist intel mutate <file> --rules <rules>",
+        )?;
+
+        let rules_str = ctx.get_flag("rules").ok_or(
+            "Missing rules.\nUsage: rb wordlist intel mutate <file> --rules leet,case\n\nRules: leet, case, suffix, prefix, append-numbers",
+        )?;
+
+        use crate::modules::wordlist::loader::Loader;
+        use crate::modules::wordlist::mutations::Mutator;
+        use std::io::{BufRead, BufReader};
+
+        let path = std::path::Path::new(path_str);
+        let reader = Loader::open(path).map_err(|e| e.to_string())?;
+        let buf_reader = BufReader::new(reader);
+        let lines: Result<Vec<String>, _> = buf_reader.lines().collect();
+        let words = lines.map_err(|e| e.to_string())?;
+
+        // Parse rules
+        let rules: Vec<&str> = rules_str.split(',').map(|s| s.trim()).collect();
+
+        let mut mutated: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for word in &words {
+            // Always include original
+            mutated.insert(word.clone());
+
+            for rule in &rules {
+                let mutations: Vec<String> = match *rule {
+                    "leet" | "l33t" => vec![Mutator::l33t(word)],
+                    "case" => Mutator::common_mutations(word),
+                    "suffix" => {
+                        let suffixes = ["123", "1", "!", "@", "2024", "2025"];
+                        suffixes.iter().map(|s| format!("{}{}", word, s)).collect()
+                    }
+                    "prefix" => {
+                        let prefixes = ["the", "my", "admin", "root", "test"];
+                        prefixes.iter().map(|p| format!("{}{}", p, word)).collect()
+                    }
+                    "append-numbers" | "numbers" => Mutator::append_numbers(word, 99),
+                    _ => vec![],
+                };
+                mutated.extend(mutations);
+            }
+        }
+
+        for word in mutated {
+            println!("{}", word);
+        }
+
+        Ok(())
+    }
+
+    fn learn(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        let top_n: usize = ctx
+            .get_flag("top")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(100);
+
+        // Note: This is a placeholder - actual learned words would come from storage
+        Output::warning("TF-IDF learning integration requires active scan data");
+        Output::info("Learned words are captured during scans with --learn-words flag");
+
+        if is_json {
+            println!("{{");
+            println!("  \"learned_words\": [],");
+            println!("  \"total\": 0,");
+            println!("  \"note\": \"No learned words available. Run a scan with --learn-words to collect vocabulary.\"");
+            println!("}}");
+        } else {
+            Output::header("Learned Words");
+            println!("\n  No learned words found in storage.");
+            println!("\n  To learn words during a scan:");
+            println!("    rb web fuzz http://target/FUZZ --learn-words");
+            println!("\n  To view learned words after a scan:");
+            println!(
+                "    rb wordlist intel learn --from-scan <scan_id> --top {}",
+                top_n
+            );
+        }
+
+        Ok(())
+    }
+
+    fn extract(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        let path_str = ctx.target.as_ref().ok_or(
+            "Missing file path.\nUsage: rb wordlist intel extract <file>\nExample: rb wordlist intel extract response.html",
+        )?;
+
+        let top_n: usize = ctx
+            .get_flag("top")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(100);
+
+        // Read file
+        let content =
+            std::fs::read_to_string(path_str).map_err(|e| format!("Failed to read file: {}", e))?;
+
+        use crate::modules::wordlist::{Document, TfIdfEngine, WordExtractor};
+
+        // Extract words
+        let extractor = WordExtractor::with_defaults();
+        let result = extractor.extract(&content);
+
+        if result.is_empty() {
+            if is_json {
+                println!("{{");
+                println!("  \"words\": [],");
+                println!("  \"total\": 0");
+                println!("}}");
+            } else {
+                Output::warning("No words extracted from content");
+            }
+            return Ok(());
+        }
+
+        // Calculate TF-IDF scores
+        let mut engine = TfIdfEngine::with_defaults();
+        engine.add_document(Document::new(path_str, result.all_words.clone()));
+        let scores = engine.top_words(top_n);
+
+        if is_json {
+            println!("{{");
+            println!("  \"source\": \"{}\",", path_str.replace('"', "\\\""));
+            println!("  \"total_extracted\": {},", result.all_words.len());
+            println!("  \"words\": [");
+            for (i, word) in scores.iter().enumerate() {
+                let comma = if i < scores.len() - 1 { "," } else { "" };
+                println!(
+                    "    {{\"word\": \"{}\", \"score\": {:.4}}}{}",
+                    word.word.replace('"', "\\\""),
+                    word.tfidf,
+                    comma
+                );
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header(&format!("Word Extraction: {}", path_str));
+        Output::item("Total Extracted", &result.all_words.len().to_string());
+        Output::item("Text Words", &result.text_words.len().to_string());
+        Output::item("Path Words", &result.path_words.len().to_string());
+        Output::item("Form Fields", &result.form_fields.len().to_string());
+        Output::item("JS Identifiers", &result.js_identifiers.len().to_string());
+
+        Output::section(&format!(
+            "Top {} Words (TF-IDF Scored)",
+            top_n.min(scores.len())
+        ));
+        println!("{:<30} {:>10}", "WORD", "SCORE");
+        println!("{}", "━".repeat(45));
+
+        for word in scores.iter().take(top_n) {
+            println!("{:<30} {:>10.4}", word.word, word.tfidf);
+        }
+
+        Ok(())
+    }
+
+    fn checkpoints(&self, ctx: &CliContext) -> Result<(), String> {
+        let format = ctx.get_output_format();
+        let is_json = format == crate::cli::format::OutputFormat::Json;
+
+        use crate::modules::web::fuzzer::ResumeManager;
+
+        let manager = ResumeManager::with_defaults();
+        let checkpoints = manager.list_checkpoints();
+
+        if is_json {
+            println!("{{");
+            println!("  \"checkpoints\": [");
+            for (i, cp) in checkpoints.iter().enumerate() {
+                let comma = if i < checkpoints.len() - 1 { "," } else { "" };
+                println!("    {{");
+                println!("      \"scan_id\": \"{}\",", cp.scan_id);
+                println!(
+                    "      \"target\": \"{}\",",
+                    cp.target_url.replace('"', "\\\"")
+                );
+                println!("      \"progress\": {:.1},", cp.progress_percent);
+                println!("      \"requests\": {},", cp.requests_made);
+                println!("      \"elapsed\": \"{}\"", cp.elapsed_string());
+                println!("    }}{}", comma);
+            }
+            println!("  ]");
+            println!("}}");
+            return Ok(());
+        }
+
+        Output::header("Scan Checkpoints");
+
+        if checkpoints.is_empty() {
+            Output::info("No checkpoints found");
+            println!("\n  Checkpoints are created during scans with --checkpoint flag:");
+            println!("    rb web fuzz http://target/FUZZ --checkpoint");
+            println!("\n  To resume a scan:");
+            println!("    rb web fuzz --resume <scan_id>");
+            return Ok(());
+        }
+
+        println!(
+            "{:<20} {:<40} {:>8} {:>10}",
+            "SCAN ID", "TARGET", "PROGRESS", "ELAPSED"
+        );
+        println!("{}", "━".repeat(85));
+
+        for cp in &checkpoints {
+            let target_display = if cp.target_url.len() > 38 {
+                format!("{}...", &cp.target_url[..35])
+            } else {
+                cp.target_url.clone()
+            };
+
+            println!(
+                "{:<20} {:<40} {:>7.1}% {:>10}",
+                &cp.scan_id.as_str()[..16.min(cp.scan_id.as_str().len())],
+                target_display,
+                cp.progress_percent,
+                cp.elapsed_string()
+            );
+        }
+
+        println!("\n  Total: {} checkpoint(s)", checkpoints.len());
+        println!("\n  To resume a scan: rb web fuzz --resume <scan_id>");
 
         Ok(())
     }

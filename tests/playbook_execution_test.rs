@@ -2,6 +2,7 @@ use redblue::playbooks::{
     Playbook, PlaybookContext, PlaybookExecutor, PlaybookPhase, PlaybookStep, RiskLevel,
     StepFailureAction,
 };
+use redblue::storage::segments::actions::ActionOutcome;
 
 #[test]
 fn test_playbook_execution_simple() {
@@ -22,7 +23,7 @@ fn test_playbook_execution_simple() {
     // Enable dry run to avoid actual execution if we want, but echo is safe.
     // However, RedBlue's executor runs commands. Let's run it for real since it's just echo.
 
-    let executor = PlaybookExecutor::new();
+    let mut executor = PlaybookExecutor::new();
     let result = executor.execute(&playbook, &mut context);
 
     assert!(result.success);
@@ -47,7 +48,7 @@ fn test_playbook_variables() {
     let mut context = PlaybookContext::new("127.0.0.1");
     context.set_arg("custom", "MyValue");
 
-    let executor = PlaybookExecutor::new();
+    let mut executor = PlaybookExecutor::new();
     let result = executor.execute(&playbook, &mut context);
 
     assert!(result.success);
@@ -66,7 +67,7 @@ fn test_playbook_chaining() {
 
     // Context
     let mut context = PlaybookContext::new("localhost");
-    let executor = PlaybookExecutor::new();
+    let mut executor = PlaybookExecutor::new();
 
     let result = executor.execute(&pb1, &mut context);
 
@@ -88,7 +89,7 @@ fn test_playbook_failure_handling() {
     );
 
     let mut context = PlaybookContext::new("localhost");
-    let executor = PlaybookExecutor::new();
+    let mut executor = PlaybookExecutor::new();
 
     let result = executor.execute(&pb, &mut context);
 
@@ -97,4 +98,59 @@ fn test_playbook_failure_handling() {
     // Step 2 should not be in results or marked skipped?
     // Executor loop breaks on Abort.
     assert_eq!(result.step_results.len(), 1);
+}
+
+#[test]
+fn test_playbook_success_criteria_met() {
+    let mut playbook = Playbook::new("criteria-pass", "Criteria Pass");
+    playbook.steps.push(
+        PlaybookStep::new(1, PlaybookPhase::Recon, "Criteria Step")
+            .with_command("echo 'Target: {{ target }}'")
+            .with_success("Target: {{ target }}"),
+    );
+
+    let mut context = PlaybookContext::new("127.0.0.1");
+    let mut executor = PlaybookExecutor::new();
+    let result = executor.execute(&playbook, &mut context);
+
+    assert!(result.success);
+    assert!(result.step_results[0].success);
+}
+
+#[test]
+fn test_playbook_success_criteria_missing() {
+    let mut playbook = Playbook::new("criteria-fail", "Criteria Fail");
+    playbook.steps.push(
+        PlaybookStep::new(1, PlaybookPhase::Recon, "Criteria Step")
+            .with_command("echo 'No match'")
+            .with_success("Expected signal"),
+    );
+
+    let mut context = PlaybookContext::new("127.0.0.1");
+    let mut executor = PlaybookExecutor::new();
+    let result = executor.execute(&playbook, &mut context);
+
+    assert!(!result.success);
+    assert!(!result.step_results[0].success);
+}
+
+#[test]
+fn test_playbook_success_criteria_failure_records_action() {
+    let mut playbook = Playbook::new("criteria-fail-action", "Criteria Fail Action");
+    playbook.steps.push(
+        PlaybookStep::new(1, PlaybookPhase::Recon, "Criteria Step")
+            .with_command("echo 'No match'")
+            .with_success("Expected signal"),
+    );
+
+    let mut context = PlaybookContext::new("127.0.0.1");
+    let mut executor = PlaybookExecutor::new();
+    let result = executor.execute(&playbook, &mut context);
+
+    assert!(!result.success);
+    assert_eq!(executor.actions().len(), 1);
+    assert!(matches!(
+        executor.actions()[0].outcome,
+        ActionOutcome::Failed { .. }
+    ));
 }

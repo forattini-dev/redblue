@@ -8,6 +8,8 @@ use crate::storage::records::{
     ProxyWebSocketRecord, SessionRecord, SubdomainRecord, SubdomainSource, TlsScanRecord,
     WhoisRecord,
 };
+use crate::storage::segments::actions::{ActionRecord, ActionTrace, ActionType, Target};
+use crate::storage::segments::loot::{LootCategory, LootEntry};
 use crate::storage::store::Database;
 
 pub struct PortScanTable<'a> {
@@ -137,6 +139,10 @@ impl<'a> WhoisTable<'a> {
 
     pub fn get(&self, domain: &str, _max_age_secs: u32) -> io::Result<Option<WhoisRecord>> {
         Ok(self.db.get_whois(domain))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = WhoisRecord> + '_ {
+        self.db.whois_records()
     }
 }
 
@@ -448,6 +454,108 @@ impl<'a> PlaybookTable<'a> {
 
     pub fn all(&self) -> io::Result<Vec<PlaybookRunRecord>> {
         Ok(self.db.all_playbook_runs())
+    }
+}
+
+pub struct ActionTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> ActionTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, record: ActionRecord) -> io::Result<()> {
+        self.db.insert_action(record);
+        Ok(())
+    }
+
+    pub fn get(&self, id: [u8; 16]) -> io::Result<Option<&ActionRecord>> {
+        Ok(self.db.action_by_id(id))
+    }
+
+    pub fn by_target(&self, target: &Target) -> io::Result<Vec<&ActionRecord>> {
+        Ok(self.db.actions_by_target(target))
+    }
+
+    pub fn by_type(&self, action_type: ActionType) -> io::Result<Vec<&ActionRecord>> {
+        Ok(self.db.actions_by_type(action_type))
+    }
+
+    pub fn successful(&self) -> io::Result<Vec<&ActionRecord>> {
+        Ok(self.db.successful_actions())
+    }
+
+    pub fn failed(&self) -> io::Result<Vec<&ActionRecord>> {
+        Ok(self.db.failed_actions())
+    }
+
+    pub fn all(&self) -> io::Result<&[ActionRecord]> {
+        Ok(self.db.all_actions())
+    }
+
+    pub fn count(&self) -> io::Result<usize> {
+        Ok(self.db.action_count())
+    }
+}
+
+pub struct TraceTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> TraceTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, trace: ActionTrace) -> io::Result<()> {
+        self.db.insert_trace(trace);
+        Ok(())
+    }
+
+    pub fn for_action(&self, action_id: [u8; 16]) -> io::Result<Option<&ActionTrace>> {
+        Ok(self.db.trace_for_action(action_id))
+    }
+
+    pub fn all(&self) -> io::Result<&[ActionTrace]> {
+        Ok(self.db.all_traces())
+    }
+
+    pub fn count(&self) -> io::Result<usize> {
+        Ok(self.db.trace_count())
+    }
+}
+
+// ==================== LootTable ====================
+
+pub struct LootTable<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> LootTable<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn insert(&mut self, entry: LootEntry) {
+        self.db.insert_loot(entry);
+    }
+
+    pub fn get(&mut self, key: &str) -> Option<LootEntry> {
+        self.db.loot_by_key(key)
+    }
+
+    pub fn by_category(&mut self, category: LootCategory) -> Vec<LootEntry> {
+        self.db.loot_by_category(category)
+    }
+
+    pub fn all(&mut self) -> Vec<LootEntry> {
+        self.db.all_loot()
+    }
+
+    pub fn count(&self) -> usize {
+        self.db.loot_count()
     }
 }
 

@@ -3,15 +3,15 @@
 /// Tests for weak Diffie-Hellman key exchange parameters.
 /// Servers using DH parameters smaller than 1024 bits are vulnerable.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct LogjamChecker {
+pub struct LogjamScanner {
     timeout: Duration,
 }
 
-impl LogjamChecker {
+impl LogjamScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -140,13 +140,13 @@ impl LogjamChecker {
     }
 }
 
-impl Default for LogjamChecker {
+impl Default for LogjamScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for LogjamChecker {
+impl VulnScanner for LogjamScanner {
     fn name(&self) -> &str {
         "LOGJAM"
     }
@@ -159,7 +159,7 @@ impl VulnChecker for LogjamChecker {
         "Weak Diffie-Hellman key exchange vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         let mut evidence = Vec::new();
 
         // Check for export-grade DH (critical)

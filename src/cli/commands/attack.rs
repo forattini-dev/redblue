@@ -12,15 +12,14 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::modules::common::Severity as StorageSeverity;
 use crate::playbooks::{
     all_playbooks, get_apt_playbook, get_playbook, list_apt_groups, DetectedOS, PlaybookContext,
     PlaybookExecutor, PlaybookRecommendation, PlaybookRecommender, ReconFindings, RiskLevel,
 };
-use crate::storage::records::{
-    PortScanRecord, PortStatus, Severity as StorageSeverity, VulnerabilityRecord,
-};
+use crate::storage::records::{PortScanRecord, PortStatus, VulnerabilityRecord};
 use crate::storage::service::StorageService;
-use crate::storage::RedDb;
+use crate::storage::unified::{RedDB, UnifiedEntity};
 use std::net::IpAddr;
 
 pub struct AttackCommand;
@@ -135,10 +134,14 @@ impl AttackCommand {
             Output::header(&format!("Attack Planning: {}", target));
         }
 
-        // Load findings from storage
+        // Load findings from storage (Modern RedDB)
         let db_path = StorageService::db_path(target);
-        let findings = match RedDb::open(&db_path) {
-            Ok(mut store) => {
+
+        // Try to open the database
+        let db_result = RedDB::open(&db_path);
+
+        let findings = match db_result {
+            Ok(db) => {
                 if !is_json {
                     Output::spinner_start("Loading reconnaissance data...");
                 }
@@ -163,12 +166,37 @@ impl AttackCommand {
                             })
                     };
 
-                let ports = if let Some(ip) = target_ip {
-                    store.ports().get_by_ip(ip).unwrap_or_default()
+                // Query ports
+                let mut ports = Vec::new();
+                if let Some(ip) = target_ip {
+                    // Query UnifiedStore
+                    let results = db
+                        .query()
+                        .collection("ports")
+                        .where_prop("ip", ip.to_string())
+                        .execute();
+
+                    if let Ok(query_res) = results {
+                        for item in query_res.items {
+                            if let Some(record) = self.entity_to_port_record(&item.entity) {
+                                ports.push(record);
+                            }
+                        }
+                    }
+                }
+
+                // Query vulnerabilities
+                // Note: Vulnerability scanning results integration is pending in PersistenceManager
+                // Assuming "vulns" collection
+                let vulns_res = db.query().collection("vulns").execute();
+                let vulns = if let Ok(res) = vulns_res {
+                    res.items
+                        .into_iter()
+                        .filter_map(|item| self.entity_to_vuln_record(&item.entity))
+                        .collect()
                 } else {
                     Vec::new()
                 };
-                let vulns = store.vulns().all().unwrap_or_default();
 
                 if !is_json {
                     Output::spinner_done();
@@ -188,12 +216,10 @@ impl AttackCommand {
                     .into_iter()
                     .collect();
 
-                let vuln_records: Vec<VulnerabilityRecord> = vulns;
-
                 ReconFindings {
                     target: target.to_string(),
                     ports,
-                    vulns: vuln_records,
+                    vulns,
                     fingerprints: fp_strings,
                     detected_os,
                     target_type: Some(self.detect_target_type(target)),
@@ -201,6 +227,7 @@ impl AttackCommand {
                 }
             }
             Err(_) => {
+                // Handle case where no DB exists yet (or legacy)
                 if is_json {
                     println!("{{");
                     println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
@@ -214,10 +241,6 @@ impl AttackCommand {
                 println!();
                 Output::info("Run reconnaissance first:");
                 println!("  \x1b[1;36mrb recon full {}\x1b[0m", target);
-                println!();
-                Output::info("Or run individual scans:");
-                println!("  \x1b[36mrb network ports scan {}\x1b[0m", target);
-                println!("  \x1b[36mrb recon domain vuln http://{}\x1b[0m", target);
                 return Ok(());
             }
         };
@@ -314,6 +337,40 @@ impl AttackCommand {
         Ok(())
     }
 
+    /// Convert UnifiedEntity to PortScanRecord
+    fn entity_to_port_record(&self, entity: &UnifiedEntity) -> Option<PortScanRecord> {
+        if let Some(node) = entity.data.as_node() {
+            let ip_str = node.get("ip")?.as_text()?;
+            let port = node.get("port")?.as_integer()? as u16;
+            let state_str = node.get("state")?.as_text()?;
+
+            let status = match state_str {
+                "open" => PortStatus::Open,
+                "closed" => PortStatus::Closed,
+                "filtered" => PortStatus::Filtered,
+                "open|filtered" => PortStatus::OpenFiltered,
+                _ => PortStatus::Open,
+            };
+
+            Some(PortScanRecord {
+                ip: ip_str.parse().ok()?,
+                port,
+                status,
+                service_id: 0,
+                timestamp: 0,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Convert UnifiedEntity to VulnerabilityRecord (Placeholder)
+    fn entity_to_vuln_record(&self, _entity: &UnifiedEntity) -> Option<VulnerabilityRecord> {
+        // Implementation depends on how vulns are stored in RedDB
+        // For now return None as migration is incremental
+        None
+    }
+
     /// Execute a playbook
     fn run_playbook(&self, ctx: &CliContext) -> Result<(), String> {
         let playbook_id = ctx
@@ -394,7 +451,7 @@ impl AttackCommand {
                     println!("      \"name\": \"{}\",", step.name.replace('"', "\\\""));
                     println!("      \"phase\": \"{}\",", step.phase.as_str());
                     println!(
-                        "      \"description\": \"{}\"",
+                        "      \"description\": \"{}\",",
                         step.description.replace('"', "\\\"").replace('\n', " ")
                     );
                     println!("    }}{}", comma);
@@ -409,7 +466,7 @@ impl AttackCommand {
 
             for step in &playbook.steps {
                 println!(
-                    "  {}. \x1b[1m{}\x1b[0m [{}]",
+                    "  {}. \x1b[1m{}[0m [{}]",
                     step.number,
                     step.name,
                     step.phase.as_str()
@@ -433,7 +490,7 @@ impl AttackCommand {
             context.set_arg(k, v);
         }
 
-        let executor = PlaybookExecutor::new();
+        let mut executor = PlaybookExecutor::new();
         let result = executor.execute(&playbook, &mut context);
 
         if !is_json {

@@ -8,6 +8,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::modules::common::Severity;
 use crate::modules::recon::fingerprint::FingerprintEngine;
 use crate::modules::recon::vuln::{
     correlator::{CorrelationReport, CorrelatorConfig, VulnCorrelator},
@@ -17,7 +18,7 @@ use crate::modules::recon::vuln::{
     nvd::NvdClient,
     osv::{Ecosystem, OsvClient},
     risk::{calculate_risk_score, RiskLevel},
-    types::{DetectedTech, Severity, VulnCollection, Vulnerability},
+    types::{DetectedTech, VulnCollection, Vulnerability},
 };
 
 pub struct IntelCommand;
@@ -854,7 +855,7 @@ impl IntelCommand {
             Severity::High => "HIGH",
             Severity::Medium => "MED ",
             Severity::Low => "LOW ",
-            Severity::None => "NONE",
+            Severity::Info => "INFO",
         };
 
         let kev_marker = if vuln.cisa_kev { " [KEV]" } else { "" };

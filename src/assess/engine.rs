@@ -10,6 +10,7 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::assess::cache::{CacheManager, CacheStatus, CachedTechnologies, CachedVulnerabilities};
+use crate::modules::common::Severity as RecordSeverity;
 use crate::modules::recon::vuln::{
     CorrelationReport, CorrelatorConfig, DetectedTech, TechCategory as VulnTechCategory,
     VulnCorrelator,
@@ -21,8 +22,10 @@ use crate::playbooks::recommender::{
     DetectedOS, PlaybookRecommender, RecommendationResult, ReconFindings,
 };
 use crate::playbooks::types::RiskLevel;
-use crate::storage::records::{Severity as RecordSeverity, VulnerabilityRecord};
-use crate::storage::RedDb;
+use crate::storage::records::VulnerabilityRecord;
+use crate::storage::service::StorageService;
+use crate::storage::unified::RedDB;
+use crate::storage::QueryManager;
 
 /// Assessment options
 #[derive(Debug, Clone)]
@@ -111,14 +114,18 @@ impl AssessmentEngine {
 
         // Open database
         let mut db =
-            RedDb::open(&self.db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+            RedDB::open(&self.db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut query = StorageService::global()
+            .open_query_manager(&self.db_path)
+            .map_err(|e| format!("Failed to open query manager: {}", e))?;
 
         // Phase 1: Technology Discovery
-        let (technologies, fingerprint_cache_status) = self.phase_fingerprint(&opts, &mut db)?;
+        let (technologies, fingerprint_cache_status) =
+            self.phase_fingerprint(&opts, &mut query, &mut db)?;
 
         // Phase 2: Vulnerability Correlation
         let (vuln_report, vuln_records, vuln_cache_status) =
-            self.phase_vulnerabilities(&opts, &technologies, &mut db)?;
+            self.phase_vulnerabilities(&opts, &technologies, &mut query, &mut db)?;
 
         // Calculate risk score
         let risk_score = self.calculate_risk_score(&vuln_records, vuln_report.as_ref());
@@ -147,10 +154,11 @@ impl AssessmentEngine {
     fn phase_fingerprint(
         &self,
         opts: &AssessOptions,
-        db: &mut RedDb,
+        query: &mut QueryManager,
+        db: &mut RedDB,
     ) -> Result<(Vec<Technology>, CacheStatus), String> {
         // Check cache first
-        let cached = self.cache.get_technologies(&self.target, db);
+        let cached = self.cache.get_technologies(&self.target, query);
 
         match cached {
             Some(CachedTechnologies {
@@ -191,7 +199,8 @@ impl AssessmentEngine {
         &self,
         opts: &AssessOptions,
         technologies: &[Technology],
-        db: &mut RedDb,
+        query: &mut QueryManager,
+        db: &mut RedDB,
     ) -> Result<
         (
             Option<CorrelationReport>,
@@ -201,7 +210,7 @@ impl AssessmentEngine {
         String,
     > {
         // Check cache first
-        let cached = self.cache.get_vulnerabilities(&self.target, db);
+        let cached = self.cache.get_vulnerabilities(&self.target, query);
 
         match cached {
             Some(CachedVulnerabilities {
@@ -322,7 +331,7 @@ impl AssessmentEngine {
                     crate::modules::recon::vuln::Severity::High => RecordSeverity::High,
                     crate::modules::recon::vuln::Severity::Medium => RecordSeverity::Medium,
                     crate::modules::recon::vuln::Severity::Low => RecordSeverity::Low,
-                    crate::modules::recon::vuln::Severity::None => RecordSeverity::Info,
+                    crate::modules::recon::vuln::Severity::Info => RecordSeverity::Info,
                 };
 
                 // Extract technology name from CPE or use title
@@ -377,7 +386,7 @@ impl AssessmentEngine {
     fn store_fingerprint_results(
         &self,
         _result: &FingerprintResult,
-        _db: &mut RedDb,
+        _db: &mut RedDB,
     ) -> Result<(), String> {
         // HTTP records are automatically stored by the fingerprinter
         // when it makes requests, so we don't need to store them again
@@ -388,11 +397,30 @@ impl AssessmentEngine {
     fn store_vuln_records(
         &self,
         records: &[VulnerabilityRecord],
-        db: &mut RedDb,
+        db: &mut RedDB,
     ) -> Result<(), String> {
         for record in records {
-            db.vulns()
-                .insert(record.clone())
+            let mut node = db
+                .node("vulns", "Vulnerability")
+                .property("cve_id", record.cve_id.clone())
+                .property("technology", record.technology.clone())
+                .property("cvss", record.cvss as f64)
+                .property("risk_score", record.risk_score as i64)
+                .property("severity", format!("{:?}", record.severity))
+                .property("description", record.description.clone())
+                .property("exploit_available", record.exploit_available)
+                .property("in_kev", record.in_kev)
+                .property("discovered_at", record.discovered_at as i64)
+                .property("source", record.source.clone());
+
+            if let Some(version) = &record.version {
+                node = node.property("version", version.clone());
+            }
+            if !record.references.is_empty() {
+                node = node.property("references", record.references.join("\n"));
+            }
+
+            node.save()
                 .map_err(|e| format!("Failed to store vulnerability: {}", e))?;
         }
         Ok(())

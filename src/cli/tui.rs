@@ -1,11 +1,15 @@
 // TUI - Full-screen Text User Interface (k9s-style)
 // ZERO external dependencies - pure Rust std only
 
+use crate::storage::engine::{
+    ConnectedComponents, GraphNodeType, GraphStore, PageRank, StoredNode,
+};
 use crate::storage::session::SessionFile;
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -193,6 +197,7 @@ pub enum ViewMode {
     Vuln,       // [V] Vulnerabilities & CVEs
     Mitre,      // [M] MITRE ATT&CK Mapping
     IOC,        // [I] Indicators of Compromise
+    Graph,      // [G] Intel Graph - nodes, edges, paths, attack surface
     RBB,        // [R] RedBlue Browser - hooked browsers C2 dashboard
     Activity,   // [0] Scan activity log (last tab)
     Normal,     // Scan activity: normal profile timeline
@@ -216,6 +221,7 @@ impl ViewMode {
             ViewMode::Vuln => "Vulnerabilities",
             ViewMode::Mitre => "MITRE ATT&CK",
             ViewMode::IOC => "IOCs",
+            ViewMode::Graph => "Intel Graph",
             ViewMode::RBB => "RBB Zombies",
             ViewMode::Activity => "Activity Log",
             ViewMode::Normal => "Normal Profile",
@@ -238,7 +244,8 @@ impl ViewMode {
             ViewMode::HTTP => ViewMode::Vuln,
             ViewMode::Vuln => ViewMode::Mitre,
             ViewMode::Mitre => ViewMode::IOC,
-            ViewMode::IOC => ViewMode::RBB,
+            ViewMode::IOC => ViewMode::Graph,
+            ViewMode::Graph => ViewMode::RBB,
             ViewMode::RBB => ViewMode::Activity,
             ViewMode::Activity => ViewMode::Overview,
             ViewMode::Normal => ViewMode::Stealth,
@@ -262,7 +269,8 @@ impl ViewMode {
             ViewMode::Vuln => ViewMode::HTTP,
             ViewMode::Mitre => ViewMode::Vuln,
             ViewMode::IOC => ViewMode::Mitre,
-            ViewMode::RBB => ViewMode::IOC,
+            ViewMode::Graph => ViewMode::IOC,
+            ViewMode::RBB => ViewMode::Graph,
             ViewMode::Activity => ViewMode::RBB,
             ViewMode::Normal => ViewMode::Activity,
             ViewMode::Stealth => ViewMode::Normal,
@@ -303,6 +311,11 @@ pub struct TuiApp {
     vuln_data: Vec<TableRow>,             // Vulnerabilities
     mitre_data: Vec<TableRow>,            // MITRE techniques
     ioc_data: Vec<TableRow>,              // IOCs
+    // Graph exploration state
+    graph: Arc<RwLock<GraphStore>>,       // Intel graph store
+    graph_current_node: Option<String>,   // Current node context for contextual queries
+    graph_data: Vec<TableRow>,            // Graph nodes/edges for display
+    graph_path_results: Vec<Vec<String>>, // Path finding results
     scan_activity: Vec<String>,           // Real-time scan logs
     // RBB (RedBlue Browser) zombie tracking
     rbb_zombies: Vec<TableRow>,      // Hooked browser zombies
@@ -328,21 +341,36 @@ pub struct TuiApp {
 impl TuiApp {
     /// Create new TUI application
     pub fn new(target: String) -> Result<Self, String> {
-        let (session_path, db_path) = if target.ends_with(SessionFile::EXTENSION) {
+        use crate::storage::service::StorageService;
+
+        let (session_target, db_path) = if target.ends_with(SessionFile::EXTENSION) {
             let trimmed = target.trim_end_matches(SessionFile::EXTENSION).to_string();
-            (target.clone(), format!("{}.rdb", trimmed))
-        } else if target.ends_with(".rdb") {
-            let trimmed = target.trim_end_matches(".rdb").to_string();
             (
-                format!("{}{}", trimmed, SessionFile::EXTENSION),
-                target.clone(),
+                trimmed.clone(),
+                StorageService::db_path(&trimmed)
+                    .to_string_lossy()
+                    .to_string(),
             )
+        } else if target.ends_with(".json") || target.ends_with(".rdb") {
+            let trimmed = target
+                .trim_end_matches(".json")
+                .trim_end_matches(".rdb")
+                .to_string();
+            (trimmed, target.clone())
         } else {
-            let identifier = SessionFile::identifier_for(&target);
             (
-                format!("{}{}", identifier, SessionFile::EXTENSION),
-                format!("{}.rdb", identifier),
+                target.clone(),
+                StorageService::db_path(&target)
+                    .to_string_lossy()
+                    .to_string(),
             )
+        };
+
+        let identifier = SessionFile::identifier_for(&session_target);
+        let session_path = if target.ends_with(SessionFile::EXTENSION) {
+            target.clone()
+        } else {
+            format!("{}{}", identifier, SessionFile::EXTENSION)
         };
 
         let size = TermSize::get().unwrap_or(TermSize { rows: 24, cols: 80 });
@@ -369,6 +397,11 @@ impl TuiApp {
             vuln_data: Vec::new(),
             mitre_data: Vec::new(),
             ioc_data: Vec::new(),
+            // Graph exploration state
+            graph: Arc::new(RwLock::new(GraphStore::new())),
+            graph_current_node: None,
+            graph_data: Vec::new(),
+            graph_path_results: Vec::new(),
             scan_activity: Vec::new(),
             rbb_zombies: Vec::new(),
             rbb_server_addr: None,
@@ -486,7 +519,7 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Load data from RedDb database
+    /// Load data from unified database
     fn load_database_data(&mut self) -> Result<(), String> {
         // Only load if database file exists
         if !std::path::Path::new(&self.db_path).exists() {
@@ -507,11 +540,11 @@ impl TuiApp {
             }
         }
 
-        // Open RedDb and load real data
-        use crate::storage::RedDb;
+        use crate::storage::service::StorageService;
 
-        let mut db =
-            RedDb::open(&self.db_path).map_err(|e| format!("Failed to open database: {}", e))?;
+        let mut db = StorageService::global()
+            .open_query_manager(&self.db_path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
 
         // Clear existing data
         self.network_data.clear();
@@ -526,8 +559,7 @@ impl TuiApp {
 
         // Load port scan data once and reuse for multiple views
         let port_scans = db
-            .ports()
-            .get_all()
+            .list_port_scans()
             .map_err(|e| format!("Failed to load port scans: {}", e))?;
 
         self.network_data = Self::build_network_rows(&port_scans);
@@ -548,27 +580,9 @@ impl TuiApp {
             });
         }
 
-        // Load vulnerabilities
-        let _vulns = db
-            .mitre() // Assuming vulns are part of mitre/vuln segment, but actually we have VulnSegment
-            // Wait, RedDb doesn't have .vulns() accessor yet. I missed adding it to RedDb.
-            // I added .mitre() and .iocs() to RedDb, but not .vuln().
-            // I should check if VulnSegment is exposed.
-            // Ah, I need to check src/storage/reddb.rs again.
-            // Let's assume I need to add .vulns() to RedDb first.
-            // But wait, the task was to "Load vuln, mitre, and ioc data".
-            // I'll pause this edit and go back to RedDb to add vulns() accessor.
-            // Actually, let's verify RedDb first.
-            .all() // This is wrong if I call .mitre().all() for vulns
-            .map_err(|e| format!("Failed to load MITRE data: {}", e))?;
-
-        // I need to add .vulns() to RedDb.
-        // Let's abort this edit and fix RedDb first.
-
         // Load subdomain data
         let subdomains = db
-            .subdomains()
-            .get_all()
+            .list_subdomain_records(&self.target)
             .map_err(|e| format!("Failed to load subdomains: {}", e))?;
 
         for sub in subdomains {
@@ -600,17 +614,16 @@ impl TuiApp {
             .push(format!("Loaded {} subdomains", self.subdomains_data.len()));
         // Load vulnerabilities
         let vuln_records = db
-            .vulns()
-            .all()
+            .list_vulnerabilities()
             .map_err(|e| format!("Failed to load vulnerability records: {}", e))?;
 
         for rec in vuln_records {
             let status = match rec.severity {
-                crate::storage::records::Severity::Critical => "Critical",
-                crate::storage::records::Severity::High => "High",
-                crate::storage::records::Severity::Medium => "Medium",
-                crate::storage::records::Severity::Low => "Low",
-                crate::storage::records::Severity::Info => "Info",
+                crate::modules::common::Severity::Critical => "Critical",
+                crate::modules::common::Severity::High => "High",
+                crate::modules::common::Severity::Medium => "Medium",
+                crate::modules::common::Severity::Low => "Low",
+                crate::modules::common::Severity::Info => "Info",
             };
 
             self.vuln_data.push(TableRow {
@@ -621,48 +634,8 @@ impl TuiApp {
             });
         }
 
-        let mitre_records = db
-            .mitre()
-            .all()
-            .map_err(|e| format!("Failed to load MITRE records: {}", e))?;
-
-        for rec in mitre_records {
-            let status = if rec.confidence > 80 {
-                "High"
-            } else if rec.confidence > 50 {
-                "Medium"
-            } else {
-                "Low"
-            };
-
-            self.mitre_data.push(TableRow {
-                module: rec.technique_id.clone(),
-                status: status.to_string(),
-                data: format!("{} ({})", rec.technique_name, rec.tactic),
-                timestamp: rec.detected_at as u64,
-            });
-        }
-
-        let ioc_records = db
-            .iocs()
-            .all()
-            .map_err(|e| format!("Failed to load IOC records: {}", e))?;
-
-        for rec in ioc_records {
-            self.ioc_data.push(TableRow {
-                module: rec.value.clone(),
-                status: format!("{:?}", rec.ioc_type),
-                data: rec.source.clone(),
-                timestamp: rec.last_seen as u64,
-            });
-        }
-
         self.scan_activity
             .push(format!("Loaded {} vulnerabilities", self.vuln_data.len()));
-        self.scan_activity
-            .push(format!("Loaded {} MITRE mappings", self.mitre_data.len()));
-        self.scan_activity
-            .push(format!("Loaded {} IOCs", self.ioc_data.len()));
         self.scan_activity
             .push("Database loaded successfully".to_string());
         self.scan_activity
@@ -1242,6 +1215,7 @@ impl TuiApp {
             | ViewMode::Vuln
             | ViewMode::Mitre
             | ViewMode::IOC => self.render_table(content_start_row, available_rows)?,
+            ViewMode::Graph => self.render_graph(content_start_row, available_rows)?,
             ViewMode::RBB => self.render_rbb(content_start_row, available_rows)?,
             ViewMode::Whois | ViewMode::Certs | ViewMode::Sessions => {
                 self.render_keyvalue(content_start_row, available_rows)?
@@ -1725,6 +1699,147 @@ impl TuiApp {
                         "?".to_string()
                     },
                     reset
+                );
+                row += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Render intel graph view
+    fn render_graph(&self, start_row: u16, available_rows: usize) -> Result<(), String> {
+        let mut row = start_row;
+
+        // Header
+        println!("{}{}{}", ansi::move_to(row, 2), ansi::BOLD, ansi::CYAN);
+        print!("Intel Graph");
+
+        if let Ok(graph) = self.graph.read() {
+            let node_count = graph.node_count();
+            let edge_count = graph.edge_count();
+            print!(" [{}N/{}E]", node_count, edge_count);
+        }
+
+        if let Some(ref node) = self.graph_current_node {
+            print!(" {}Context: {}{}", ansi::GREEN, node, ansi::CYAN);
+        }
+        println!("{}", ansi::RESET);
+        row += 2;
+
+        // Show graph data or nodes list
+        if self.graph_data.is_empty() {
+            println!(
+                "{}  {}Graph is empty. Run scans to populate, or use 'nodes' command.{}",
+                ansi::move_to(row, 2),
+                ansi::DIM,
+                ansi::RESET
+            );
+            row += 2;
+
+            // Quick instructions
+            println!(
+                "{}  {}Commands:{}",
+                ansi::move_to(row, 2),
+                ansi::ORANGE,
+                ansi::RESET
+            );
+            row += 1;
+            println!(
+                "{}    :nodes       - List all graph nodes",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :node <id>   - Select a node as context",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :neighbors   - Show neighbors from context",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :reach       - What can I reach from here?",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :paths a b   - Find paths between nodes",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :pagerank    - Find influential nodes",
+                ansi::move_to(row, 2)
+            );
+            row += 1;
+            println!(
+                "{}    :components  - Find network segments",
+                ansi::move_to(row, 2)
+            );
+        } else {
+            // Table header
+            println!(
+                "{}  {}ID                    Type           Label{}",
+                ansi::move_to(row, 2),
+                ansi::BOLD,
+                ansi::RESET
+            );
+            row += 1;
+            println!(
+                "{}  {}{}{}",
+                ansi::move_to(row, 2),
+                ansi::DIM,
+                "-".repeat(70.min(self.size.cols as usize - 4)),
+                ansi::RESET
+            );
+            row += 1;
+
+            // Render node rows
+            let visible_start = self.scroll_offset;
+            let visible_end = (visible_start + available_rows - 6).min(self.graph_data.len());
+
+            for (i, node) in self
+                .graph_data
+                .iter()
+                .enumerate()
+                .skip(visible_start)
+                .take(visible_end - visible_start)
+            {
+                if row >= start_row + available_rows as u16 - 2 {
+                    break;
+                }
+
+                let is_selected = i == self.selected_row;
+                let is_context = Some(&node.module) == self.graph_current_node.as_ref();
+
+                let prefix = if is_selected {
+                    ">"
+                } else if is_context {
+                    "→"
+                } else {
+                    " "
+                };
+
+                let color = if is_context {
+                    ansi::GREEN
+                } else if is_selected {
+                    ansi::BRIGHT_CYAN
+                } else {
+                    ""
+                };
+
+                println!(
+                    "{}{}{}  {:<20} {:<14} {}{}",
+                    ansi::move_to(row, 2),
+                    color,
+                    prefix,
+                    truncate_str(&node.module, 20),
+                    truncate_str(&node.status, 14),
+                    truncate_str(&node.data, 35),
+                    ansi::RESET
                 );
                 row += 1;
             }
@@ -2391,6 +2506,62 @@ impl TuiApp {
             "$table" => {
                 self.execute_extract_table()?;
             }
+            // ========== Graph Exploration Commands ==========
+            "graph" => {
+                self.switch_view(ViewMode::Graph)?;
+                self.execute_graph_stats()?;
+            }
+            "nodes" => {
+                self.execute_graph_nodes()?;
+            }
+            "node" => {
+                if parts.len() < 2 {
+                    // Show current node context
+                    if let Some(ref node) = self.graph_current_node {
+                        self.scan_activity.push(format!("Current node: {}", node));
+                    } else {
+                        self.scan_activity
+                            .push("No node selected. Use: node <id>".to_string());
+                    }
+                } else {
+                    let node_id = parts[1..].join(" ");
+                    self.execute_graph_select_node(&node_id)?;
+                }
+            }
+            "neighbors" => {
+                let node_id = if parts.len() > 1 {
+                    Some(parts[1..].join(" "))
+                } else {
+                    self.graph_current_node.clone()
+                };
+                if let Some(id) = node_id {
+                    self.execute_graph_neighbors(&id)?;
+                } else {
+                    return Err(
+                        "No node specified and no current node context. Use: neighbors <id>"
+                            .to_string(),
+                    );
+                }
+            }
+            "reach" => {
+                if let Some(ref node) = self.graph_current_node.clone() {
+                    self.execute_graph_reach(node)?;
+                } else {
+                    return Err("No current node. Use: node <id> to select first".to_string());
+                }
+            }
+            "paths" => {
+                if parts.len() < 3 {
+                    return Err("Usage: paths <from> <to>".to_string());
+                }
+                self.execute_graph_paths(parts[1], parts[2])?;
+            }
+            "pagerank" => {
+                self.execute_graph_pagerank()?;
+            }
+            "components" => {
+                self.execute_graph_components()?;
+            }
             "target" => {
                 // Change target context dynamically
                 if parts.len() < 2 {
@@ -2461,6 +2632,25 @@ impl TuiApp {
                     .push("    $css              - Extract stylesheets".to_string());
                 self.scan_activity
                     .push("    $table            - Extract tables".to_string());
+                self.scan_activity.push("  Graph:".to_string());
+                self.scan_activity
+                    .push("    graph             - Switch to Graph view & show stats".to_string());
+                self.scan_activity
+                    .push("    nodes             - List all nodes in graph".to_string());
+                self.scan_activity
+                    .push("    node <id>         - Select node as context".to_string());
+                self.scan_activity.push(
+                    "    neighbors [id]    - Show neighbors (uses context if no id)".to_string(),
+                );
+                self.scan_activity.push(
+                    "    reach             - What can I reach from current node?".to_string(),
+                );
+                self.scan_activity
+                    .push("    paths <from> <to> - Find paths between nodes".to_string());
+                self.scan_activity
+                    .push("    pagerank          - Calculate node importance".to_string());
+                self.scan_activity
+                    .push("    components        - Find connected components".to_string());
                 self.scan_activity.push("  Other:".to_string());
                 self.scan_activity
                     .push("    run <preset>   - Run scan preset".to_string());
@@ -2533,6 +2723,8 @@ impl TuiApp {
 
     /// Change the target context dynamically
     fn change_target(&mut self, new_target: &str) -> Result<(), String> {
+        use crate::storage::service::StorageService;
+
         let old_target = self.target.clone();
 
         // Update target and associated paths
@@ -2541,7 +2733,9 @@ impl TuiApp {
         // Recalculate session and database paths
         let identifier = SessionFile::identifier_for(new_target);
         self.session_path = format!("{}{}", identifier, SessionFile::EXTENSION);
-        self.db_path = format!("{}.rdb", identifier);
+        self.db_path = StorageService::db_path(new_target)
+            .to_string_lossy()
+            .to_string();
 
         // Log the change
         self.scan_activity
@@ -2845,6 +3039,440 @@ impl TuiApp {
         self.scan_activity
             .push(format!("Tables: {} found", doc.matches("<table").count()));
         Ok(())
+    }
+
+    // ========== Graph Exploration Methods ==========
+
+    /// Show graph statistics
+    fn execute_graph_stats(&mut self) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        let node_count = graph.node_count();
+        let edge_count = graph.edge_count();
+
+        self.scan_activity
+            .push("═══ Graph Statistics ═══".to_string());
+        self.scan_activity.push(format!("  Nodes: {}", node_count));
+        self.scan_activity.push(format!("  Edges: {}", edge_count));
+
+        if node_count > 0 {
+            // Count by type
+            let hosts = graph.nodes_of_type(GraphNodeType::Host).len();
+            let services = graph.nodes_of_type(GraphNodeType::Service).len();
+            let vulns = graph.nodes_of_type(GraphNodeType::Vulnerability).len();
+            let creds = graph.nodes_of_type(GraphNodeType::Credential).len();
+            let users = graph.nodes_of_type(GraphNodeType::User).len();
+
+            self.scan_activity.push("  By type:".to_string());
+            if hosts > 0 {
+                self.scan_activity.push(format!("    Hosts: {}", hosts));
+            }
+            if services > 0 {
+                self.scan_activity
+                    .push(format!("    Services: {}", services));
+            }
+            if vulns > 0 {
+                self.scan_activity
+                    .push(format!("    Vulnerabilities: {}", vulns));
+            }
+            if creds > 0 {
+                self.scan_activity
+                    .push(format!("    Credentials: {}", creds));
+            }
+            if users > 0 {
+                self.scan_activity.push(format!("    Users: {}", users));
+            }
+        }
+
+        if let Some(ref node) = self.graph_current_node {
+            self.scan_activity
+                .push(format!("  Current context: {}", node));
+        }
+
+        Ok(())
+    }
+
+    /// List all nodes in the graph
+    fn execute_graph_nodes(&mut self) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        let nodes: Vec<_> = graph.iter_nodes().collect();
+
+        if nodes.is_empty() {
+            self.scan_activity
+                .push("Graph is empty. Run scans to populate.".to_string());
+            return Ok(());
+        }
+
+        self.scan_activity
+            .push(format!("═══ Graph Nodes ({}) ═══", nodes.len()));
+
+        // Group by type
+        let mut by_type: HashMap<String, Vec<&StoredNode>> = HashMap::new();
+        for node in &nodes {
+            let type_name = format!("{:?}", node.node_type);
+            by_type.entry(type_name).or_default().push(node);
+        }
+
+        for (type_name, type_nodes) in by_type {
+            self.scan_activity
+                .push(format!("  {} ({}):", type_name, type_nodes.len()));
+            for node in type_nodes.iter().take(10) {
+                let marker = if Some(&node.id) == self.graph_current_node.as_ref() {
+                    "→"
+                } else {
+                    " "
+                };
+                self.scan_activity
+                    .push(format!("  {} {} - {}", marker, node.id, node.label));
+            }
+            if type_nodes.len() > 10 {
+                self.scan_activity
+                    .push(format!("    ... and {} more", type_nodes.len() - 10));
+            }
+        }
+
+        self.graph_data = nodes
+            .iter()
+            .map(|n| TableRow {
+                module: n.id.clone(),
+                status: format!("{:?}", n.node_type),
+                data: n.label.clone(),
+                timestamp: 0,
+            })
+            .collect();
+
+        Ok(())
+    }
+
+    /// Select a node as the current context
+    fn execute_graph_select_node(&mut self, node_id: &str) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        // Check if node exists
+        if let Some(node) = graph.get_node(node_id) {
+            self.graph_current_node = Some(node_id.to_string());
+            self.scan_activity
+                .push(format!("Selected node: {} ({})", node.id, node.label));
+            self.scan_activity
+                .push(format!("  Type: {:?}", node.node_type));
+
+            // Show edges
+            let out_edges = graph.outgoing_edges(node_id);
+            let in_edges = graph.incoming_edges(node_id);
+
+            // Calculate neighbors (unique targets from outgoing + sources from incoming)
+            let mut neighbor_ids: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for (_, target, _) in &out_edges {
+                neighbor_ids.insert(target.clone());
+            }
+            for (_, source, _) in &in_edges {
+                neighbor_ids.insert(source.clone());
+            }
+
+            if !neighbor_ids.is_empty() {
+                self.scan_activity
+                    .push(format!("  Neighbors: {}", neighbor_ids.len()));
+            }
+
+            if !out_edges.is_empty() {
+                self.scan_activity
+                    .push(format!("  Outgoing edges: {}", out_edges.len()));
+            }
+
+            if !in_edges.is_empty() {
+                self.scan_activity
+                    .push(format!("  Incoming edges: {}", in_edges.len()));
+            }
+        } else {
+            // Try partial match
+            let matches: Vec<_> = graph
+                .iter_nodes()
+                .filter(|n| {
+                    n.id.contains(node_id)
+                        || n.label.to_lowercase().contains(&node_id.to_lowercase())
+                })
+                .take(5)
+                .collect();
+
+            if matches.is_empty() {
+                return Err(format!("Node '{}' not found in graph", node_id));
+            } else if matches.len() == 1 {
+                let node = &matches[0];
+                self.graph_current_node = Some(node.id.clone());
+                self.scan_activity
+                    .push(format!("Selected node: {} ({})", node.id, node.label));
+            } else {
+                self.scan_activity.push("Multiple matches:".to_string());
+                for node in matches {
+                    self.scan_activity
+                        .push(format!("  {} - {}", node.id, node.label));
+                }
+                return Err("Specify a more precise node ID".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Show neighbors of a node
+    fn execute_graph_neighbors(&mut self, node_id: &str) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        if graph.get_node(node_id).is_none() {
+            return Err(format!("Node '{}' not found", node_id));
+        }
+
+        // Get neighbors via edges
+        let out_edges = graph.outgoing_edges(node_id);
+        let in_edges = graph.incoming_edges(node_id);
+
+        let neighbor_count = out_edges.len() + in_edges.len();
+        self.scan_activity.push(format!(
+            "═══ Neighbors of {} ({}) ═══",
+            node_id, neighbor_count
+        ));
+
+        if out_edges.is_empty() && in_edges.is_empty() {
+            self.scan_activity.push("  No neighbors".to_string());
+            return Ok(());
+        }
+
+        // Show outgoing edges
+        for (edge_type, target_id, weight) in out_edges.iter().take(15) {
+            if let Some(neighbor) = graph.get_node(target_id) {
+                self.scan_activity.push(format!(
+                    "  --[{:?} {:.2}]--> {} ({:?})",
+                    edge_type, weight, neighbor.label, neighbor.node_type
+                ));
+            }
+        }
+
+        // Show incoming edges
+        for (edge_type, source_id, weight) in in_edges.iter().take(5) {
+            if let Some(neighbor) = graph.get_node(source_id) {
+                self.scan_activity.push(format!(
+                    "  <--[{:?} {:.2}]-- {} ({:?})",
+                    edge_type, weight, neighbor.label, neighbor.node_type
+                ));
+            }
+        }
+
+        if neighbor_count > 20 {
+            self.scan_activity
+                .push(format!("  ... and {} more", neighbor_count - 20));
+        }
+
+        Ok(())
+    }
+
+    /// Show what can be reached from current node (BFS traversal)
+    fn execute_graph_reach(&mut self, node_id: &str) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        if graph.get_node(node_id).is_none() {
+            return Err(format!("Node '{}' not found", node_id));
+        }
+
+        // BFS to find all reachable nodes
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        let mut by_depth: HashMap<usize, Vec<String>> = HashMap::new();
+
+        queue.push_back((node_id.to_string(), 0usize));
+        visited.insert(node_id.to_string());
+
+        let max_depth = 5;
+
+        while let Some((current, depth)) = queue.pop_front() {
+            if depth > max_depth {
+                continue;
+            }
+
+            by_depth.entry(depth).or_default().push(current.clone());
+
+            // Get neighbors via outgoing edges (forward traversal)
+            for (_, target, _) in graph.outgoing_edges(&current) {
+                if !visited.contains(&target) {
+                    visited.insert(target.clone());
+                    queue.push_back((target, depth + 1));
+                }
+            }
+        }
+
+        self.scan_activity
+            .push(format!("═══ Reachable from {} ═══", node_id));
+        self.scan_activity
+            .push(format!("  Total reachable: {} nodes", visited.len() - 1));
+
+        for depth in 1..=max_depth {
+            if let Some(nodes) = by_depth.get(&depth) {
+                self.scan_activity
+                    .push(format!("  Hop {}: {} nodes", depth, nodes.len()));
+                for id in nodes.iter().take(5) {
+                    if let Some(node) = graph.get_node(id) {
+                        self.scan_activity
+                            .push(format!("    {} ({:?})", node.label, node.node_type));
+                    }
+                }
+                if nodes.len() > 5 {
+                    self.scan_activity
+                        .push(format!("    ... and {} more", nodes.len() - 5));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find paths between two nodes
+    fn execute_graph_paths(&mut self, from: &str, to: &str) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        if graph.get_node(from).is_none() {
+            return Err(format!("Source node '{}' not found", from));
+        }
+        if graph.get_node(to).is_none() {
+            return Err(format!("Target node '{}' not found", to));
+        }
+
+        // BFS to find shortest path
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        let mut parent: HashMap<String, String> = HashMap::new();
+
+        queue.push_back(from.to_string());
+        visited.insert(from.to_string());
+
+        let mut found = false;
+
+        while let Some(current) = queue.pop_front() {
+            if current == to {
+                found = true;
+                break;
+            }
+
+            // Get neighbors via outgoing edges
+            for (_, target, _) in graph.outgoing_edges(&current) {
+                if !visited.contains(&target) {
+                    visited.insert(target.clone());
+                    parent.insert(target.clone(), current.clone());
+                    queue.push_back(target);
+                }
+            }
+        }
+
+        if !found {
+            self.scan_activity
+                .push(format!("No path found from {} to {}", from, to));
+            return Ok(());
+        }
+
+        // Reconstruct path
+        let mut path = vec![to.to_string()];
+        let mut current = to.to_string();
+        while let Some(p) = parent.get(&current) {
+            path.push(p.clone());
+            current = p.clone();
+        }
+        path.reverse();
+
+        self.scan_activity
+            .push(format!("═══ Path: {} → {} ═══", from, to));
+        self.scan_activity
+            .push(format!("  Length: {} hops", path.len() - 1));
+
+        for (i, node_id) in path.iter().enumerate() {
+            if let Some(node) = graph.get_node(node_id) {
+                let prefix = if i == 0 {
+                    "Start"
+                } else if i == path.len() - 1 {
+                    "End"
+                } else {
+                    "    "
+                };
+                self.scan_activity.push(format!(
+                    "  {} {} ({:?})",
+                    prefix, node.label, node.node_type
+                ));
+            }
+        }
+
+        self.graph_path_results = vec![path];
+
+        Ok(())
+    }
+
+    /// Calculate PageRank for graph nodes
+    fn execute_graph_pagerank(&mut self) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        if graph.node_count() == 0 {
+            return Err("Graph is empty".to_string());
+        }
+
+        let pagerank = PageRank::new();
+        let result = pagerank.run(&graph);
+
+        self.scan_activity
+            .push("═══ PageRank (Top Influential Nodes) ═══".to_string());
+
+        let top = result.top(10);
+        for (rank, (node_id, score)) in top.iter().enumerate() {
+            if let Some(node) = graph.get_node(node_id) {
+                self.scan_activity.push(format!(
+                    "  {}. {} ({:.4}) - {:?}",
+                    rank + 1,
+                    node.label,
+                    score,
+                    node.node_type
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find connected components
+    fn execute_graph_components(&mut self) -> Result<(), String> {
+        let graph = self.graph.read().map_err(|e| e.to_string())?;
+
+        if graph.node_count() == 0 {
+            return Err("Graph is empty".to_string());
+        }
+
+        let result = ConnectedComponents::find(&graph);
+
+        self.scan_activity
+            .push(format!("═══ Connected Components ({}) ═══", result.count));
+
+        for comp in result.components.iter().take(10) {
+            self.scan_activity
+                .push(format!("  Component {}: {} nodes", comp.id, comp.size));
+
+            // Show sample nodes from this component
+            for node_id in comp.nodes.iter().take(3) {
+                if let Some(node) = graph.get_node(node_id) {
+                    self.scan_activity
+                        .push(format!("    - {} ({:?})", node.label, node.node_type));
+                }
+            }
+        }
+
+        if result.components.len() > 10 {
+            self.scan_activity.push(format!(
+                "  ... and {} more components",
+                result.components.len() - 10
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Get a reference to the graph store
+    pub fn graph_store(&self) -> Arc<RwLock<GraphStore>> {
+        Arc::clone(&self.graph)
     }
 }
 

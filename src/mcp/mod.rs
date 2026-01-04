@@ -8,7 +8,9 @@ pub mod resources;
 pub mod sampling;
 pub mod search;
 pub mod server;
+pub mod tools;
 pub mod transport;
+pub mod types;
 
 pub use categories::{CategoryConfig, CategoryPreset, ToolCategory};
 pub use completions::{Completion, CompletionProvider, CompletionRef};
@@ -19,3 +21,5 @@ pub use resources::{
     ResourceSubscription, ResourceTemplate, SubscriptionManager,
 };
 pub use sampling::{SamplingContext, SamplingRequest, SamplingScenarios};
+pub use server::McpServer;
+pub use types::{DocHit, ToolDefinition, ToolField, ToolResult};

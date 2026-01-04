@@ -9,6 +9,8 @@
 // }
 
 use super::asn1::{Asn1Object, Asn1Value};
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// X.509 Certificate
@@ -201,6 +203,67 @@ impl X509Certificate {
     pub fn is_self_signed(&self) -> bool {
         self.issuer.common_name == self.subject.common_name
             && self.issuer.organization == self.subject.organization
+    }
+
+    /// Check if certificate is valid at the given time
+    pub fn is_valid_at(&self, now: SystemTime) -> Result<(), String> {
+        let not_before = parse_x509_time(&self.validity.not_before).ok_or_else(|| {
+            format!(
+                "Server certificate has unsupported notBefore timestamp '{}'",
+                self.validity.not_before
+            )
+        })?;
+        if now < not_before {
+            return Err(format!(
+                "Server certificate is not valid until {}",
+                self.validity.not_before
+            ));
+        }
+
+        let not_after = parse_x509_time(&self.validity.not_after).ok_or_else(|| {
+            format!(
+                "Server certificate has unsupported notAfter timestamp '{}'",
+                self.validity.not_after
+            )
+        })?;
+        if now > not_after {
+            return Err(format!(
+                "Server certificate expired on {}",
+                self.validity.not_after
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Check if certificate matches the given host
+    pub fn matches_host(&self, host: &str) -> bool {
+        let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        if normalized.is_empty() {
+            return false;
+        }
+
+        let host_is_ip = IpAddr::from_str(&normalized).is_ok();
+
+        let san_entries = self.get_subject_alt_names();
+        if san_entries
+            .iter()
+            .any(|entry| matches_pattern(entry, &normalized, host_is_ip))
+        {
+            return true;
+        }
+
+        let subject = self.subject_string();
+        for part in subject.split(',') {
+            let part = part.trim();
+            if let Some(value) = part.strip_prefix("CN=") {
+                if matches_pattern(value.trim(), &normalized, host_is_ip) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Get certificate subject as string
@@ -417,6 +480,46 @@ fn parse_subject_alt_name(data: &[u8]) -> Result<Vec<String>, String> {
     }
 
     Ok(names)
+}
+
+fn matches_pattern(pattern: &str, host: &str, host_is_ip: bool) -> bool {
+    let candidate = pattern.trim().trim_end_matches('.').to_ascii_lowercase();
+    if candidate.is_empty() {
+        return false;
+    }
+
+    if host_is_ip {
+        return candidate == host;
+    }
+
+    if candidate == host {
+        return true;
+    }
+
+    if !candidate.starts_with("*.") {
+        return false;
+    }
+
+    let suffix = &candidate[2..];
+    if suffix.is_empty() || host_is_ip || !host.ends_with(suffix) {
+        return false;
+    }
+
+    let host_labels = host.split('.').count();
+    let suffix_labels = suffix.split('.').count();
+    if host_labels != suffix_labels + 1 {
+        return false;
+    }
+
+    let prefix_len = host.len().saturating_sub(suffix.len());
+    if prefix_len == 0 {
+        return false;
+    }
+
+    host.as_bytes()
+        .get(prefix_len - 1)
+        .map(|b| *b == b'.')
+        .unwrap_or(false)
 }
 
 /// Format Distinguished Name as string

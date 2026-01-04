@@ -1,5 +1,5 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use serde_json::json;
+use crate::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

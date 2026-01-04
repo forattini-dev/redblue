@@ -9,7 +9,7 @@ pub mod terminal;
 pub mod tui;
 pub mod validator;
 
-use crate::storage::PersistenceConfig;
+use crate::storage::{ActionConfig, PersistenceConfig};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -125,6 +125,19 @@ impl CliContext {
             format::OutputFormat::from_str(&format_str).unwrap_or_default()
         } else {
             format::OutputFormat::default()
+        }
+    }
+
+    /// Get action recording configuration from CLI flags
+    /// Flags: --trace (enable verbose action tracing), --no-store (disable storage)
+    ///
+    /// These flags control the unified intelligence layer behavior:
+    /// - --trace: Enables detailed timing and request/response capture
+    /// - --no-store: Prevents actions from being persisted to the database
+    pub fn get_action_config(&self) -> ActionConfig {
+        ActionConfig {
+            enable_tracing: self.has_flag("trace"),
+            disable_storage: self.has_flag("no-store"),
         }
     }
 
@@ -421,5 +434,50 @@ mod tests {
         assert!(debug_str.contains("CliContext"));
         assert!(debug_str.contains("raw"));
         assert!(debug_str.contains("domain"));
+    }
+
+    #[test]
+    fn test_get_action_config_default() {
+        let ctx = CliContext::new();
+        let config = ctx.get_action_config();
+        assert!(!config.enable_tracing);
+        assert!(!config.disable_storage);
+        assert!(config.should_store());
+        assert!(!config.should_trace());
+    }
+
+    #[test]
+    fn test_get_action_config_with_trace() {
+        let mut ctx = CliContext::new();
+        ctx.flags.insert("trace".to_string(), "true".to_string());
+
+        let config = ctx.get_action_config();
+        assert!(config.enable_tracing);
+        assert!(!config.disable_storage);
+        assert!(config.should_trace());
+    }
+
+    #[test]
+    fn test_get_action_config_with_no_store() {
+        let mut ctx = CliContext::new();
+        ctx.flags.insert("no-store".to_string(), "true".to_string());
+
+        let config = ctx.get_action_config();
+        assert!(!config.enable_tracing);
+        assert!(config.disable_storage);
+        assert!(!config.should_store());
+    }
+
+    #[test]
+    fn test_get_action_config_combined() {
+        let mut ctx = CliContext::new();
+        ctx.flags.insert("trace".to_string(), "true".to_string());
+        ctx.flags.insert("no-store".to_string(), "true".to_string());
+
+        let config = ctx.get_action_config();
+        assert!(config.enable_tracing);
+        assert!(config.disable_storage);
+        assert!(config.should_trace());
+        assert!(!config.should_store());
     }
 }

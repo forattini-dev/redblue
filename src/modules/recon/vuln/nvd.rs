@@ -8,7 +8,8 @@
 //! - Without API key: 5 requests per 30 seconds
 //! - With API key: 50 requests per 30 seconds
 
-use super::types::{Severity, VersionRange, VulnSource, Vulnerability};
+use super::types::{VersionRange, VulnSource, Vulnerability};
+use crate::modules::common::Severity;
 use crate::protocols::http::HttpClient;
 use crate::utils::json::{parse_json, JsonValue};
 

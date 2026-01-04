@@ -105,7 +105,9 @@ pub mod modules;
 pub mod playbooks; // Red Team playbooks with internal MITRE mapping
 pub mod protocols;
 pub mod scripts; // Zero-dependency scripting engine for security checks
+pub mod serde_json;
 pub mod storage;
+pub mod synergy; // Cross-module correlation engine (events, rules, timeline)
 pub mod ui; // Terminal graphics library (Braille canvas, charts, colors)
 pub mod utils;
 pub mod wordlists; // Wordlist management for bruteforce operations

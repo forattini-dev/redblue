@@ -1,4 +1,7 @@
 /// Security modules organized by category
+// Common types shared across all modules
+pub mod common;
+
 // DNS Intelligence & Reconnaissance
 pub mod dns;
 
@@ -113,3 +116,23 @@ pub mod intel;
 // Memory inspection (Cheat Engine-style process memory scanner)
 #[cfg(target_os = "linux")]
 pub mod memory;
+
+// Password Cracking (dictionary, mask, hybrid attacks)
+pub mod password;
+
+// Binary Analysis (ELF/PE parsing, checksec, ROP gadgets)
+pub mod binary;
+
+// Attack Path Analysis (ShadowGraph)
+pub mod graph;
+
+// Graph Visualization (force-directed layout, SVG export)
+pub mod viz;
+
+// Code Analysis (secrets detection, dependency audit)
+pub mod code {
+    pub mod secrets;
+}
+
+// CTF Challenge Generation (juice-shop-ctf style)
+pub mod ctf;

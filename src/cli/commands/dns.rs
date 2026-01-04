@@ -7,7 +7,9 @@ use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::doh::{DohClient, PropagationStatus, DOH_PROVIDERS};
+use crate::storage::client::ActionRecorder;
 use crate::storage::records::DnsRecordType as StorageDnsRecordType;
+use crate::storage::segments::convert::DnsResults;
 use crate::storage::service::StorageService;
 use crate::wordlists::WordlistManager;
 use std::net::IpAddr;
@@ -112,6 +114,9 @@ impl Command for DnsCommand {
                 "Database file path for RESTful queries (default: auto-detect)",
             )
             .with_short('d'),
+            // Global action flags for unified intelligence layer
+            Flag::new("trace", "Enable detailed attempt tracing"),
+            Flag::new("no-store", "Disable automatic action storage"),
         ]
     }
 
@@ -423,6 +428,30 @@ impl DnsCommand {
         if let Some(db_path) = pm.commit()? {
             println!();
             Output::success(&format!("✓ Results saved to {}", db_path.display()));
+        }
+
+        // Auto-persist to unified intelligence layer
+        let action_config = ctx.get_action_config();
+        if action_config.should_store() && !answers.is_empty() {
+            let mut recorder = ActionRecorder::new("dns-record-lookup", action_config)?;
+
+            // Collect all records into single DnsResults
+            let records: Vec<String> = answers.iter().map(|a| a.display_value()).collect();
+            let ttl = answers.first().map(|a| a.ttl);
+
+            let dns_result = DnsResults {
+                domain: domain.to_string(),
+                record_type: record_type_str.clone(),
+                records,
+                ttl,
+                error: None,
+            };
+            recorder.record(dns_result)?;
+
+            let count = recorder.commit()?;
+            if count > 0 && format == crate::cli::format::OutputFormat::Human {
+                Output::info(&format!("Action recorded ({} entries)", count));
+            }
         }
 
         Ok(())

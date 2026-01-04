@@ -1,17 +1,17 @@
-/// CCS Injection Vulnerability Checker (CVE-2014-0224)
+/// CCS Injection Vulnerability Scanner (CVE-2014-0224)
 ///
 /// Tests for OpenSSL ChangeCipherSpec injection vulnerability.
 /// Allows man-in-the-middle attackers to use zero-length master secret.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types, build_client_hello};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct CcsInjectionChecker {
+pub struct CcsInjectionScanner {
     timeout: Duration,
 }
 
-impl CcsInjectionChecker {
+impl CcsInjectionScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -194,13 +194,13 @@ impl CcsInjectionChecker {
     }
 }
 
-impl Default for CcsInjectionChecker {
+impl Default for CcsInjectionScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for CcsInjectionChecker {
+impl VulnScanner for CcsInjectionScanner {
     fn name(&self) -> &str {
         "CCS Injection"
     }
@@ -213,7 +213,7 @@ impl VulnChecker for CcsInjectionChecker {
         "OpenSSL ChangeCipherSpec injection vulnerability"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         match self.check_early_ccs(host, port) {
             Ok((true, evidence)) => {
                 VulnCheckResult::vulnerable(

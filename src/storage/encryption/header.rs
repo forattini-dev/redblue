@@ -14,6 +14,7 @@
 
 use super::key::SecureKey;
 use super::page_encryptor::{PageEncryptor, NONCE_SIZE, TAG_SIZE};
+use crate::crypto::uuid::Uuid;
 
 pub const SALT_SIZE: usize = 32;
 pub const KEY_CHECK_LEN: usize = 32; // Length of known value to encrypt
@@ -34,12 +35,12 @@ impl EncryptionHeader {
     /// Create a new encryption header
     pub fn new(key: &SecureKey) -> Self {
         // Generate random salt
-        let uuid = uuid::Uuid::new_v4();
+        let uuid = Uuid::new_v4();
         let mut salt = [0u8; SALT_SIZE];
         // Fill salt with random data (using uuid chunks for now as we don't have rand)
         let b = uuid.as_bytes();
         salt[0..16].copy_from_slice(b);
-        let uuid2 = uuid::Uuid::new_v4();
+        let uuid2 = Uuid::new_v4();
         salt[16..32].copy_from_slice(uuid2.as_bytes());
 
         // Create key check

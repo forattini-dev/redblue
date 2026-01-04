@@ -6,6 +6,7 @@
 
 use super::key::SecureKey;
 use crate::crypto::aes_gcm::{aes256_gcm_decrypt, aes256_gcm_encrypt};
+use crate::crypto::uuid::Uuid;
 
 /// Size of the nonce (IV) in bytes
 pub const NONCE_SIZE: usize = 12;
@@ -36,7 +37,7 @@ impl PageEncryptor {
     pub fn encrypt(&self, page_id: u32, plaintext: &[u8]) -> Vec<u8> {
         // Generate random nonce (12 bytes)
         // We use uuid v4 (16 random bytes) and truncate to 12
-        let uuid = uuid::Uuid::new_v4();
+        let uuid = Uuid::new_v4();
         let mut nonce = [0u8; NONCE_SIZE];
         nonce.copy_from_slice(&uuid.as_bytes()[0..NONCE_SIZE]);
 

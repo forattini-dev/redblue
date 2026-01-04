@@ -1,13 +1,11 @@
+use super::scanner::SecretsScanner;
 /// Git History Scanner Module
 ///
 /// Scans git history for secrets that may have been committed
 /// and later removed but still exist in history.
-
-use super::{SecretFinding, SecretSeverity, ScannerConfig, ScanSummary};
-use super::scanner::SecretsScanner;
+use super::{ScannerConfig, SecretFinding};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
 
 /// Git history scanner
 pub struct GitHistoryScanner {
@@ -157,17 +155,17 @@ impl GitHistoryScanner {
                 let content = &line[1..]; // Remove the '+'
 
                 // Scan this line
-                let line_findings = self.scanner.scan_string(
-                    content,
-                    &current_file,
-                );
+                let line_findings = self.scanner.scan_string(content, &current_file);
 
                 for mut finding in line_findings {
                     finding.commit = Some(commit.hash.clone());
-                    finding.author = Some(format!("{} <{}>", commit.author_name, commit.author_email));
+                    finding.author =
+                        Some(format!("{} <{}>", commit.author_name, commit.author_email));
                     finding.date = Some(commit.date.clone());
                     finding.line_number = line_number;
-                    finding.context.push(format!("Commit: {}", &commit.hash[..8]));
+                    finding
+                        .context
+                        .push(format!("Commit: {}", &commit.hash[..8]));
                     finding.context.push(format!("Message: {}", commit.message));
                     findings.push(finding);
                 }
@@ -195,8 +193,7 @@ impl GitHistoryScanner {
 
         // Deduplicate by commit hash + file + line
         findings.sort_by(|a, b| {
-            (&a.commit, &a.file_path, a.line_number)
-                .cmp(&(&b.commit, &b.file_path, b.line_number))
+            (&a.commit, &a.file_path, a.line_number).cmp(&(&b.commit, &b.file_path, b.line_number))
         });
         findings.dedup_by(|a, b| {
             a.commit == b.commit && a.file_path == b.file_path && a.line_number == b.line_number
@@ -311,7 +308,11 @@ impl GitHistoryScanner {
     }
 
     /// Verify that historical secrets have been rotated
-    pub fn verify_rotated(&self, repo_path: &Path, findings: &[SecretFinding]) -> Vec<RotationStatus> {
+    pub fn verify_rotated(
+        &self,
+        repo_path: &Path,
+        findings: &[SecretFinding],
+    ) -> Vec<RotationStatus> {
         let mut statuses = Vec::new();
 
         for finding in findings {
@@ -401,7 +402,8 @@ if [ $? -ne 0 ]; then
     echo "Secrets detected in staged changes. Commit blocked."
     exit 1
 fi
-"#.to_string()
+"#
+    .to_string()
 }
 
 #[cfg(test)]

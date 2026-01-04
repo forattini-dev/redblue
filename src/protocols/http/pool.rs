@@ -1,6 +1,10 @@
+#[cfg(not(target_os = "windows"))]
+use crate::crypto::sha256;
 use crate::protocols::http::body::{analyze_headers, chunked_body_complete, BodyStrategy};
 #[cfg(not(target_os = "windows"))]
 use crate::protocols::tls_impersonator::TlsProfile;
+#[cfg(not(target_os = "windows"))]
+use crate::protocols::x509::X509Certificate;
 #[cfg(not(target_os = "windows"))]
 use boring::ssl::{
     Ssl, SslContext, SslMethod, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
@@ -211,11 +215,17 @@ impl ConnectionPool {
     fn get_or_create_ssl_context(
         &self,
         host: &str,
+        tls_verify: bool,
         _profile: Option<TlsProfile>,
     ) -> Result<SslContext, String> {
         let mut contexts = self.ssl_contexts.lock().unwrap();
+        let key = format!(
+            "{}:{}",
+            host,
+            if tls_verify { "verify" } else { "noverify" }
+        );
 
-        if let Some(ctx) = contexts.get(host) {
+        if let Some(ctx) = contexts.get(&key) {
             return Ok(ctx.clone());
         }
 
@@ -234,11 +244,17 @@ impl ConnectionPool {
             .set_max_proto_version(Some(SslVersion::TLS1_3))
             .map_err(|e| format!("Failed to set max TLS version: {}", e))?;
 
-        // Disable certificate verification (matching existing behavior)
-        builder.set_verify(SslVerifyMode::NONE);
+        if tls_verify {
+            builder.set_verify(SslVerifyMode::PEER);
+            builder
+                .set_default_verify_paths()
+                .map_err(|e| format!("Failed to set TLS verify paths: {}", e))?;
+        } else {
+            builder.set_verify(SslVerifyMode::NONE);
+        }
 
         let ctx = builder.build();
-        contexts.insert(host.to_string(), ctx.clone());
+        contexts.insert(key, ctx.clone());
         Ok(ctx)
     }
 
@@ -247,13 +263,10 @@ impl ConnectionPool {
         host: &str,
         port: u16,
         use_tls: bool,
+        tls_verify: bool,
+        tls_pins: &[[u8; 32]],
     ) -> Result<PooledStream, String> {
-        let key = format!(
-            "{}:{}:{}",
-            if use_tls { "https" } else { "http" },
-            host,
-            port
-        );
+        let key = connection_key(host, port, use_tls, tls_verify, tls_pins);
 
         {
             let mut pools = self.pools.lock().unwrap();
@@ -271,7 +284,7 @@ impl ConnectionPool {
 
         if use_tls {
             // Use cached SSL context for session resumption
-            let ctx = self.get_or_create_ssl_context(host, None)?;
+            let ctx = self.get_or_create_ssl_context(host, tls_verify, None)?;
             let addr = format!("{}:{}", host, port);
             let tcp_stream = TcpStream::connect(&addr)
                 .map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
@@ -288,6 +301,7 @@ impl ConnectionPool {
             let ssl_stream = ssl
                 .connect(tcp_stream)
                 .map_err(|e| format!("TLS handshake failed: {}", e))?;
+            validate_tls_peer(host, &ssl_stream, tls_verify, tls_pins)?;
             Ok(PooledStream::Tls(ssl_stream))
         } else {
             let addr = format!("{}:{}", host, port);
@@ -297,13 +311,16 @@ impl ConnectionPool {
         }
     }
 
-    pub fn return_connection(&self, stream: PooledStream, host: &str, port: u16, use_tls: bool) {
-        let key = format!(
-            "{}:{}:{}",
-            if use_tls { "https" } else { "http" },
-            host,
-            port
-        );
+    pub fn return_connection(
+        &self,
+        stream: PooledStream,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+        tls_verify: bool,
+        tls_pins: &[[u8; 32]],
+    ) {
+        let key = connection_key(host, port, use_tls, tls_verify, tls_pins);
 
         let mut pools = self.pools.lock().unwrap();
         let pool = pools.entry(key).or_insert_with(Vec::new);
@@ -354,6 +371,85 @@ impl ConnectionPool {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+fn validate_tls_peer(
+    host: &str,
+    stream: &SslStream<TcpStream>,
+    tls_verify: bool,
+    tls_pins: &[[u8; 32]],
+) -> Result<(), String> {
+    if !tls_verify && tls_pins.is_empty() {
+        return Ok(());
+    }
+
+    let cert = stream
+        .ssl()
+        .peer_certificate()
+        .ok_or_else(|| "TLS peer certificate missing".to_string())?;
+    let der = cert
+        .to_der()
+        .map_err(|e| format!("TLS peer certificate export: {}", e))?;
+
+    if !tls_pins.is_empty() {
+        let fingerprint = sha256::sha256(&der);
+        let matched = tls_pins.iter().any(|pin| pin == &fingerprint);
+        if !matched {
+            return Err("TLS peer certificate pin mismatch".to_string());
+        }
+    }
+
+    if tls_verify {
+        let parsed = X509Certificate::from_der(&der)
+            .map_err(|e| format!("TLS peer certificate parse: {}", e))?;
+        parsed.is_valid_at(std::time::SystemTime::now())?;
+        if !parsed.matches_host(host) {
+            return Err(format!(
+                "TLS certificate does not match requested host '{}'",
+                host
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn connection_key(
+    host: &str,
+    port: u16,
+    use_tls: bool,
+    tls_verify: bool,
+    tls_pins: &[[u8; 32]],
+) -> String {
+    let pins_key = pins_key(tls_pins);
+    format!(
+        "{}:{}:{}:{}:{}",
+        if use_tls { "https" } else { "http" },
+        host,
+        port,
+        if tls_verify { "verify" } else { "noverify" },
+        pins_key
+    )
+}
+
+fn pins_key(tls_pins: &[[u8; 32]]) -> String {
+    if tls_pins.is_empty() {
+        return "nopin".to_string();
+    }
+
+    let mut pins = tls_pins
+        .iter()
+        .map(|pin| {
+            let mut out = String::with_capacity(64);
+            for byte in pin {
+                out.push_str(&format!("{:02x}", byte));
+            }
+            out
+        })
+        .collect::<Vec<String>>();
+    pins.sort();
+    pins.join(",")
+}
+
 #[cfg(target_os = "windows")]
 impl ConnectionPool {
     pub fn new() -> Self {
@@ -379,12 +475,14 @@ impl ConnectionPool {
         host: &str,
         port: u16,
         use_tls: bool,
+        _tls_verify: bool,
+        _tls_pins: &[[u8; 32]],
     ) -> Result<PooledStream, String> {
         if use_tls {
             return Err("HTTPS/TLS is not supported on Windows. Use HTTP instead.".to_string());
         }
 
-        let key = format!("http:{}:{}", host, port);
+        let key = connection_key(host, port, use_tls, true, &[]);
 
         {
             let mut pools = self.pools.lock().unwrap();
@@ -406,13 +504,16 @@ impl ConnectionPool {
         Ok(PooledStream::Plain(tcp_stream))
     }
 
-    pub fn return_connection(&self, stream: PooledStream, host: &str, port: u16, use_tls: bool) {
-        let key = format!(
-            "{}:{}:{}",
-            if use_tls { "https" } else { "http" },
-            host,
-            port
-        );
+    pub fn return_connection(
+        &self,
+        stream: PooledStream,
+        host: &str,
+        port: u16,
+        use_tls: bool,
+        _tls_verify: bool,
+        _tls_pins: &[[u8; 32]],
+    ) {
+        let key = connection_key(host, port, use_tls, true, &[]);
 
         let mut pools = self.pools.lock().unwrap();
         let pool = pools.entry(key).or_insert_with(Vec::new);
@@ -531,7 +632,7 @@ impl PooledHttpClient {
         })?;
         let mut stream = self
             .pool
-            .get_connection(&host, port, use_tls)
+            .get_connection(&host, port, use_tls, true, &[])
             .map_err(|e| PooledError {
                 message: e,
                 ttfb: None,
@@ -740,7 +841,8 @@ impl PooledHttpClient {
         }
 
         if self.keep_alive && allow_reuse && status_code < 400 {
-            self.pool.return_connection(stream, &host, port, use_tls);
+            self.pool
+                .return_connection(stream, &host, port, use_tls, true, &[]);
         }
 
         Ok(PooledResponse {

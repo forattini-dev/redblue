@@ -10,7 +10,44 @@
 //! Subscribe to get updates when scan data changes.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::storage::records::{PortScanRecord, PortStatus};
+use crate::storage::store::Database;
+
+/// Get the default RedDB database path (~/.redblue/scan.rdb)
+fn default_db_path() -> Option<PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|home| PathBuf::from(home).join(".redblue").join("scan.rdb"))
+}
+
+/// Try to open the default RedDB database
+fn open_default_db() -> Option<Database> {
+    let path = default_db_path()?;
+    if path.exists() {
+        Database::open(&path).ok()
+    } else {
+        None
+    }
+}
+
+/// Parse an IP address from a target string
+fn parse_target_ip(target: &str) -> Option<IpAddr> {
+    // Try direct parse
+    if let Ok(ip) = target.parse::<IpAddr>() {
+        return Some(ip);
+    }
+    // Try extracting from URL-like string
+    let cleaned = target
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split(':')
+        .next()?;
+    cleaned.parse::<IpAddr>().ok()
+}
 
 /// Resource metadata for MCP
 #[derive(Debug, Clone)]
@@ -1120,11 +1157,56 @@ impl ResourceRegistry {
     }
 
     fn gen_scan_results(&self, target: &str, scan_type: Option<&str>) -> String {
-        format!(
-            r#"{{"target":"{}","type":"{}","note":"Use rb commands for live scans"}}"#,
-            target,
-            scan_type.unwrap_or("all")
-        )
+        // Try to get real data from RedDB
+        if let Some(mut db) = open_default_db() {
+            let scan_type = scan_type.unwrap_or("all");
+
+            match scan_type {
+                "ports" | "all" => {
+                    // Try to parse target as IP and get port scan results
+                    if let Some(ip) = parse_target_ip(target) {
+                        let ports: Vec<PortScanRecord> = db.ports_for_ip(ip);
+                        if !ports.is_empty() {
+                            let port_list: Vec<String> = ports
+                                .iter()
+                                .map(|p| {
+                                    let state = match p.status {
+                                        PortStatus::Open => "open",
+                                        PortStatus::Closed => "closed",
+                                        PortStatus::Filtered => "filtered",
+                                        PortStatus::OpenFiltered => "open|filtered",
+                                    };
+                                    format!(
+                                        r#"{{"port":{},"state":"{}","service_id":{}}}"#,
+                                        p.port, state, p.service_id
+                                    )
+                                })
+                                .collect();
+                            return format!(
+                                r#"{{"target":"{}","type":"ports","count":{},"results":[{}]}}"#,
+                                target,
+                                ports.len(),
+                                port_list.join(",")
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            // No results found but database exists
+            format!(
+                r#"{{"target":"{}","type":"{}","results":[],"note":"No scan results found. Run rb network ports scan {} first."}}"#,
+                target, scan_type, target
+            )
+        } else {
+            // No database available
+            format!(
+                r#"{{"target":"{}","type":"{}","note":"Database not initialized. Run rb commands to populate."}}"#,
+                target,
+                scan_type.unwrap_or("all")
+            )
+        }
     }
 
     fn gen_cve_details(&self, cve: &str) -> String {

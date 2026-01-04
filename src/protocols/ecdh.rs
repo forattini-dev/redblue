@@ -132,7 +132,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Fix P-256 scalar multiplication bug causing shared secret mismatch
     fn test_ecdh_shared_secret() {
         // Alice generates key pair
         let alice = EcdhKeyPair::generate().unwrap();
@@ -146,6 +145,44 @@ mod tests {
 
         // Shared secrets should match
         assert_eq!(alice_shared, bob_shared);
+    }
+
+    #[test]
+    fn test_ecdh_p256_vector() {
+        let alice_priv =
+            hex_to_array_32("fd431ab0994651d202436213a963dc92601306e115ef65c7261a6cc9a8f6359e");
+        let bob_priv =
+            hex_to_array_32("8b9fc5289fec48bf01ec0ea330693bd2aad15d3af6ae4150a56a63e161117ea6");
+        let alice_pub_bytes = hex_to_bytes(
+            "045367158dffd389a50abdf921117bbc918091442fef4d396f1bca9be990a92b4127ce09b1644ce3a4fc1473450e98c81b450887d14f1489b0e1fa8383546d3baf",
+        );
+        let bob_pub_bytes = hex_to_bytes(
+            "0468fb8fb39aa0054d9bc759d81ab82022550cab5d707c8fd60caa6fd954c94bf998aaffdd433f7151902184f5f46abb94abf89512e34184db65bb2bc913d65445",
+        );
+        let expected_secret =
+            hex_to_array_32("dd6f40bbe304dee0c2a0469289c5ca9496326fac8dafa98ab918965e07cb9598");
+
+        let alice_pub = P256Point::from_uncompressed_bytes(&alice_pub_bytes).unwrap();
+        let bob_pub = P256Point::from_uncompressed_bytes(&bob_pub_bytes).unwrap();
+
+        let alice_calc = P256Point::generator().scalar_mul(&alice_priv);
+        let bob_calc = P256Point::generator().scalar_mul(&bob_priv);
+        assert_eq!(alice_calc, alice_pub);
+        assert_eq!(bob_calc, bob_pub);
+
+        let alice = EcdhKeyPair {
+            private_key: alice_priv,
+            public_key: alice_pub,
+        };
+        let bob = EcdhKeyPair {
+            private_key: bob_priv,
+            public_key: bob_pub,
+        };
+
+        let alice_shared = alice.compute_shared_secret(&bob.public_key);
+        let bob_shared = bob.compute_shared_secret(&alice.public_key);
+        assert_eq!(alice_shared, bob_shared);
+        assert_eq!(alice_shared, expected_secret);
     }
 
     #[test]
@@ -165,5 +202,32 @@ mod tests {
         assert!(super::is_valid_scalar(&one));
 
         assert!(!super::is_valid_scalar(&P256_ORDER));
+    }
+
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(hex.len() / 2);
+        let mut idx = 0;
+        let src = hex.as_bytes();
+        while idx + 1 < src.len() {
+            let hi = from_hex(src[idx]);
+            let lo = from_hex(src[idx + 1]);
+            bytes.push((hi << 4) | lo);
+            idx += 2;
+        }
+        bytes
+    }
+
+    fn hex_to_array_32(hex: &str) -> [u8; 32] {
+        let bytes = hex_to_bytes(hex);
+        bytes.try_into().expect("expected 32-byte hex value")
+    }
+
+    fn from_hex(byte: u8) -> u8 {
+        match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => 0,
+        }
     }
 }

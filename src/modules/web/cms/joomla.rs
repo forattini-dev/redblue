@@ -1,3 +1,4 @@
+use super::http_client::fetch_url;
 /// Joomla Security Scanner
 ///
 /// Replaces: joomscan
@@ -13,8 +14,6 @@ use super::{
     PluginInfo, ThemeInfo, UserDetectionMethod, UserInfo, VulnSeverity,
 };
 use std::collections::VecDeque;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -526,108 +525,6 @@ impl JoomlaScanner {
     fn fetch(&self, url: &str) -> Option<HttpResponse> {
         fetch_url(url, &self.config.user_agent, self.config.timeout)
     }
-}
-
-/// Fetch URL helper
-fn fetch_url(url: &str, user_agent: &str, timeout: std::time::Duration) -> Option<HttpResponse> {
-    let (host, port, path, use_tls) = parse_url(url)?;
-
-    if use_tls {
-        return None;
-    }
-
-    let request = format!(
-        "GET {} HTTP/1.1\r\n\
-         Host: {}\r\n\
-         User-Agent: {}\r\n\
-         Accept: */*\r\n\
-         Connection: close\r\n\
-         \r\n",
-        path, host, user_agent
-    );
-
-    let addr = format!("{}:{}", host, port);
-    let mut stream = TcpStream::connect_timeout(&addr.parse().ok()?, timeout).ok()?;
-    stream.set_read_timeout(Some(timeout)).ok()?;
-    stream.write_all(request.as_bytes()).ok()?;
-
-    let mut response = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        match stream.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => response.extend_from_slice(&buf[..n]),
-            Err(_) => break,
-        }
-    }
-
-    parse_response(&response, url)
-}
-
-/// Parse URL
-fn parse_url(url: &str) -> Option<(String, u16, String, bool)> {
-    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
-        ("https", rest)
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        ("http", rest)
-    } else {
-        ("http", url)
-    };
-
-    let use_tls = scheme == "https";
-    let default_port = if use_tls { 443 } else { 80 };
-
-    let (host_port, path) = match rest.find('/') {
-        Some(pos) => (&rest[..pos], &rest[pos..]),
-        None => (rest, "/"),
-    };
-
-    let (host, port) = match host_port.find(':') {
-        Some(pos) => (&host_port[..pos], host_port[pos + 1..].parse().ok()?),
-        None => (host_port, default_port),
-    };
-
-    Some((host.to_string(), port, path.to_string(), use_tls))
-}
-
-/// Parse HTTP response
-fn parse_response(data: &[u8], url: &str) -> Option<HttpResponse> {
-    let text = String::from_utf8_lossy(data);
-    let mut lines = text.lines();
-
-    let status_line = lines.next()?;
-    let parts: Vec<&str> = status_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    let status_code: u16 = parts[1].parse().ok()?;
-
-    let mut headers = Vec::new();
-    for line in lines.by_ref() {
-        if line.is_empty() {
-            break;
-        }
-        if let Some(pos) = line.find(':') {
-            headers.push((
-                line[..pos].trim().to_string(),
-                line[pos + 1..].trim().to_string(),
-            ));
-        }
-    }
-
-    let body_start = text
-        .find("\r\n\r\n")
-        .map(|p| p + 4)
-        .or_else(|| text.find("\n\n").map(|p| p + 2))
-        .unwrap_or(text.len());
-    let body = text[body_start..].to_string();
-
-    Some(HttpResponse {
-        status_code,
-        headers,
-        body,
-        url: url.to_string(),
-    })
 }
 
 /// Extract version from Joomla XML manifest

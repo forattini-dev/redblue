@@ -5,10 +5,11 @@
 use crate::assess::cache::CacheStatus;
 use crate::assess::engine::AssessmentResult;
 use crate::cli::output::Output;
+use crate::modules::common::Severity;
 use crate::modules::web::fingerprinter::{Confidence, Technology};
 use crate::playbooks::recommender::PlaybookRecommendation;
 use crate::playbooks::types::RiskLevel;
-use crate::storage::records::{Severity, VulnerabilityRecord};
+use crate::storage::records::VulnerabilityRecord;
 
 /// Assessment output formatter
 pub struct AssessmentOutput;

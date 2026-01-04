@@ -29,37 +29,37 @@ pub mod drown;
 pub mod ticketbleed;
 pub mod renegotiation;
 
-pub use heartbleed::HeartbleedChecker;
-pub use poodle::PoodleChecker;
-pub use beast::BeastChecker;
-pub use logjam::LogjamChecker;
-pub use robot::RobotChecker;
-pub use ccs_injection::CcsInjectionChecker;
-pub use drown::DrownChecker;
-pub use ticketbleed::TicketbleedChecker;
-pub use renegotiation::RenegotiationChecker;
+pub use heartbleed::HeartbleedScanner;
+pub use poodle::PoodleScanner;
+pub use beast::BeastScanner;
+pub use logjam::LogjamScanner;
+pub use robot::RobotScanner;
+pub use ccs_injection::CcsInjectionScanner;
+pub use drown::DrownScanner;
+pub use ticketbleed::TicketbleedScanner;
+pub use renegotiation::RenegotiationScanner;
 
-/// Vulnerability severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severity {
-    Info,
-    Low,
-    Medium,
-    High,
-    Critical,
-}
+// Type aliases for backward compatibility (deprecated)
+#[deprecated(note = "Use HeartbleedScanner instead")]
+pub type HeartbleedChecker = HeartbleedScanner;
+#[deprecated(note = "Use PoodleScanner instead")]
+pub type PoodleChecker = PoodleScanner;
+#[deprecated(note = "Use BeastScanner instead")]
+pub type BeastChecker = BeastScanner;
+#[deprecated(note = "Use LogjamScanner instead")]
+pub type LogjamChecker = LogjamScanner;
+#[deprecated(note = "Use RobotScanner instead")]
+pub type RobotChecker = RobotScanner;
+#[deprecated(note = "Use CcsInjectionScanner instead")]
+pub type CcsInjectionChecker = CcsInjectionScanner;
+#[deprecated(note = "Use DrownScanner instead")]
+pub type DrownChecker = DrownScanner;
+#[deprecated(note = "Use TicketbleedScanner instead")]
+pub type TicketbleedChecker = TicketbleedScanner;
+#[deprecated(note = "Use RenegotiationScanner instead")]
+pub type RenegotiationChecker = RenegotiationScanner;
 
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Severity::Info => write!(f, "INFO"),
-            Severity::Low => write!(f, "LOW"),
-            Severity::Medium => write!(f, "MEDIUM"),
-            Severity::High => write!(f, "HIGH"),
-            Severity::Critical => write!(f, "CRITICAL"),
-        }
-    }
-}
+use crate::modules::common::Severity;
 
 /// Result of a vulnerability check
 #[derive(Debug, Clone)]
@@ -123,8 +123,8 @@ impl VulnCheckResult {
     }
 }
 
-/// Trait for vulnerability checkers
-pub trait VulnChecker: Send + Sync {
+/// Trait for vulnerability scanners (unified vocabulary)
+pub trait VulnScanner: Send + Sync {
     /// Name of the vulnerability
     fn name(&self) -> &str;
 
@@ -134,9 +134,13 @@ pub trait VulnChecker: Send + Sync {
     /// Brief description
     fn description(&self) -> &str;
 
-    /// Check if target is vulnerable
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult;
+    /// Scan target for vulnerability
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult;
 }
+
+// Backward compatibility alias
+#[deprecated(note = "Use VulnScanner instead")]
+pub trait VulnChecker: VulnScanner {}
 
 /// TLS scanner configuration
 #[derive(Debug, Clone)]
@@ -165,69 +169,69 @@ impl Default for TlsScanConfig {
 /// Main TLS vulnerability scanner
 pub struct TlsVulnScanner {
     config: TlsScanConfig,
-    checkers: Vec<Box<dyn VulnChecker>>,
+    scanners: Vec<Box<dyn VulnScanner>>,
 }
 
 impl TlsVulnScanner {
     pub fn new(config: TlsScanConfig) -> Self {
-        let mut checkers: Vec<Box<dyn VulnChecker>> = Vec::new();
+        let mut scanners: Vec<Box<dyn VulnScanner>> = Vec::new();
 
-        // Add all checkers unless skipped
+        // Add all scanners unless skipped
         if !config.skip_checks.contains(&"heartbleed".to_string()) {
-            checkers.push(Box::new(HeartbleedChecker::new()));
+            scanners.push(Box::new(HeartbleedScanner::new()));
         }
         if !config.skip_checks.contains(&"poodle".to_string()) {
-            checkers.push(Box::new(PoodleChecker::new()));
+            scanners.push(Box::new(PoodleScanner::new()));
         }
         if !config.skip_checks.contains(&"beast".to_string()) {
-            checkers.push(Box::new(BeastChecker::new()));
+            scanners.push(Box::new(BeastScanner::new()));
         }
         if !config.skip_checks.contains(&"logjam".to_string()) {
-            checkers.push(Box::new(LogjamChecker::new()));
+            scanners.push(Box::new(LogjamScanner::new()));
         }
         if !config.skip_checks.contains(&"robot".to_string()) {
-            checkers.push(Box::new(RobotChecker::new()));
+            scanners.push(Box::new(RobotScanner::new()));
         }
         if !config.skip_checks.contains(&"ccs_injection".to_string()) {
-            checkers.push(Box::new(CcsInjectionChecker::new()));
+            scanners.push(Box::new(CcsInjectionScanner::new()));
         }
         if !config.skip_checks.contains(&"drown".to_string()) {
-            checkers.push(Box::new(DrownChecker::new()));
+            scanners.push(Box::new(DrownScanner::new()));
         }
         if !config.skip_checks.contains(&"ticketbleed".to_string()) {
-            checkers.push(Box::new(TicketbleedChecker::new()));
+            scanners.push(Box::new(TicketbleedScanner::new()));
         }
         if !config.skip_checks.contains(&"renegotiation".to_string()) {
-            checkers.push(Box::new(RenegotiationChecker::new()));
+            scanners.push(Box::new(RenegotiationScanner::new()));
         }
 
-        Self { config, checkers }
+        Self { config, scanners }
     }
 
-    /// Run all vulnerability checks
+    /// Run all vulnerability scans
     pub fn scan(&self, host: &str, port: u16) -> Vec<VulnCheckResult> {
         let mut results = Vec::new();
 
-        for checker in &self.checkers {
+        for scanner in &self.scanners {
             if self.config.verbose {
-                println!("  Checking {}...", checker.name());
+                println!("  Scanning for {}...", scanner.name());
             }
 
-            let result = checker.check(host, port);
+            let result = scanner.scan(host, port);
             results.push(result);
         }
 
         results
     }
 
-    /// Run only critical vulnerability checks (faster)
+    /// Run only critical vulnerability scans (faster)
     pub fn quick_scan(&self, host: &str, port: u16) -> Vec<VulnCheckResult> {
-        let critical_checks = ["Heartbleed", "POODLE", "DROWN"];
+        let critical_vulns = ["Heartbleed", "POODLE", "DROWN"];
         let mut results = Vec::new();
 
-        for checker in &self.checkers {
-            if critical_checks.contains(&checker.name()) {
-                let result = checker.check(host, port);
+        for scanner in &self.scanners {
+            if critical_vulns.contains(&scanner.name()) {
+                let result = scanner.scan(host, port);
                 results.push(result);
             }
         }

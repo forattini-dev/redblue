@@ -383,15 +383,50 @@ impl StorageService {
         // 1. If target ends with .rdb, use it
         // 2. Else use target.rdb
 
-        if target.ends_with(".rdb") {
+        if target.ends_with(".json") {
             PathBuf::from(target)
         } else {
-            PathBuf::from(format!("{}.rdb", target))
+            PathBuf::from(format!("{}.json", target))
         }
     }
 
     fn inspect_segments(path: &Path) -> io::Result<Vec<SegmentKind>> {
         let mut file = File::open(path)?;
+        let mut magic = [0u8; 4];
+        if file.read(&mut magic)? == 4 && &magic == b"RDST" {
+            let db = crate::storage::unified::RedDB::open(path)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+            let mut segments = Vec::new();
+            for collection in db.collections() {
+                let kind = match collection.as_str() {
+                    "ports" => Some(SegmentKind::Ports),
+                    "domains" => Some(SegmentKind::Subdomains),
+                    "dns" => Some(SegmentKind::Dns),
+                    "http" => Some(SegmentKind::Http),
+                    "tls" => Some(SegmentKind::Tls),
+                    "whois" => Some(SegmentKind::Whois),
+                    "hosts" => Some(SegmentKind::Host),
+                    "proxy" => Some(SegmentKind::Proxy),
+                    "mitre" => Some(SegmentKind::Mitre),
+                    "iocs" => Some(SegmentKind::Ioc),
+                    "vulns" => Some(SegmentKind::Vuln),
+                    "sessions" => Some(SegmentKind::Sessions),
+                    "playbooks" => Some(SegmentKind::Playbooks),
+                    "actions" => Some(SegmentKind::Actions),
+                    "traces" => Some(SegmentKind::Traces),
+                    "loot" => Some(SegmentKind::Loot),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    if !segments.contains(&kind) {
+                        segments.push(kind);
+                    }
+                }
+            }
+            return Ok(segments);
+        }
+
+        file.seek(SeekFrom::Start(0))?;
         let header = FileHeader::read(&mut file).map_err(decode_err_to_io)?;
 
         if header.section_count == 0 {
@@ -415,8 +450,7 @@ fn decode_err_to_io(err: DecodeError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::records::PortStatus;
-    use crate::storage::reddb::RedDb;
+    use crate::storage::RedDb;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
 
@@ -1026,9 +1060,16 @@ mod tests {
 
         // Create a real database file
         {
-            let mut db = RedDb::open(&path).unwrap();
+            let db = RedDb::open(&path).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.node("ports", "Port")
+                .property("ip", ip.to_string())
+                .property("port", 80i64)
+                .property("state", "open")
+                .property("service_id", 0i64)
+                .property("timestamp", 0i64)
+                .save()
+                .unwrap();
             db.flush().unwrap();
         }
 
@@ -1050,10 +1091,24 @@ mod tests {
 
         // Create database with various segments
         {
-            let mut db = RedDb::open(&path).unwrap();
+            let db = RedDb::open(&path).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
-            db.save_port_scan(ip, 22, PortStatus::Open).unwrap();
-            db.save_port_scan(ip, 80, PortStatus::Open).unwrap();
+            db.node("ports", "Port")
+                .property("ip", ip.to_string())
+                .property("port", 22i64)
+                .property("state", "open")
+                .property("service_id", 0i64)
+                .property("timestamp", 0i64)
+                .save()
+                .unwrap();
+            db.node("ports", "Port")
+                .property("ip", ip.to_string())
+                .property("port", 80i64)
+                .property("state", "open")
+                .property("service_id", 0i64)
+                .property("timestamp", 0i64)
+                .save()
+                .unwrap();
             db.flush().unwrap();
         }
 

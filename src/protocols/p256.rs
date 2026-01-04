@@ -15,6 +15,9 @@
 //! - RFC 4492: Elliptic Curve Cryptography (ECC) Cipher Suites for TLS
 //! - FIPS 186-4: Digital Signature Standard (DSS)
 
+use crate::crypto::bigint::BigInt;
+use std::sync::OnceLock;
+
 /// P-256 field prime: 2^256 - 2^224 + 2^192 + 2^96 - 1
 const P256_FIELD_PRIME: [u64; 4] = [
     0xFFFFFFFFFFFFFFFF,
@@ -45,6 +48,12 @@ const P256_B: [u64; 4] = [
     0x651D06B0CC53B0F6,
     0xB3EBBD55769886BC,
     0x5AC635D8AA3A93E7,
+];
+
+/// P-256 field prime as big-endian bytes.
+const P256_FIELD_PRIME_BYTES: [u8; 32] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 /// A point on the P-256 elliptic curve in affine coordinates (x, y)
@@ -117,8 +126,30 @@ impl FieldElement {
             carry >>= 64;
         }
 
-        // Reduce modulo p
-        Self::reduce(&result)
+        if carry != 0 {
+            const CARRY_REDUCTION: [u64; 4] = [
+                0x0000000000000001,
+                0xFFFFFFFF00000000,
+                0xFFFFFFFFFFFFFFFF,
+                0xFFFFFFFE,
+            ];
+            let mut carry2 = 0u128;
+            for i in 0..4 {
+                let sum = result[i] as u128 + CARRY_REDUCTION[i] as u128 + carry2;
+                result[i] = sum as u64;
+                carry2 = sum >> 64;
+            }
+        }
+
+        let value = FieldElement { limbs: result };
+        let p = FieldElement {
+            limbs: P256_FIELD_PRIME,
+        };
+        if value.cmp(&p) >= 0 {
+            value.sub(&p)
+        } else {
+            value
+        }
     }
 
     /// Modular subtraction in GF(p)
@@ -179,63 +210,36 @@ impl FieldElement {
         Self::reduce_nist_p256(&r)
     }
 
-    /// Helper to convert 32-bit words to FieldElement limbs (little-endian)
-    fn u32_array_to_limbs(arr: &[u32]) -> FieldElement {
-        let mut limbs = [0u64; 4];
-        if arr.len() >= 8 {
-            for i in 0..4 {
-                limbs[i] = (arr[i * 2] as u64) | ((arr[i * 2 + 1] as u64) << 32);
-            }
-        }
-        FieldElement { limbs }
-    }
-
     /// Fast reduction for P-256 (NIST SP 800-186)
     /// Reduces a 512-bit integer (8x u64) modulo p
     fn reduce_nist_p256(val: &[u64; 8]) -> FieldElement {
-        let mut c = [0u32; 16];
-        for i in 0..8 {
-            c[i * 2] = val[i] as u32;
-            c[i * 2 + 1] = (val[i] >> 32) as u32;
+        let mut bytes = [0u8; 64];
+        for (i, limb) in val.iter().enumerate() {
+            let offset = (7 - i) * 8;
+            bytes[offset..offset + 8].copy_from_slice(&limb.to_be_bytes());
         }
 
-        let t = Self::u32_array_to_limbs(&c[0..8]);
+        let value = BigInt::from_bytes_be(&bytes);
+        let modulus = Self::modulus();
+        let reduced = value.modulo(modulus);
+        Self::from_bigint(&reduced)
+    }
 
-        // S1: (c15, c14, c13, c12, c11, 0, 0, 0)
-        let s1 = Self::u32_array_to_limbs(&[0u32, 0u32, 0u32, c[11], c[12], c[13], c[14], c[15]]);
+    fn modulus() -> &'static BigInt {
+        static MODULUS: OnceLock<BigInt> = OnceLock::new();
+        MODULUS.get_or_init(|| BigInt::from_bytes_be(&P256_FIELD_PRIME_BYTES))
+    }
 
-        // S2: (0, c15, c14, c13, c12, 0, 0, 0)
-        let s2 = Self::u32_array_to_limbs(&[0u32, 0u32, 0u32, c[12], c[13], c[14], c[15], 0u32]);
+    fn from_bigint(value: &BigInt) -> FieldElement {
+        let mut bytes = value.to_bytes_be();
+        if bytes.len() > 32 {
+            bytes = bytes[bytes.len() - 32..].to_vec();
+        }
 
-        // S3: (c15, c14, 0, 0, 0, c10, c9, c8)
-        let s3 = Self::u32_array_to_limbs(&[c[8], c[9], c[10], 0u32, 0u32, 0u32, c[14], c[15]]);
-
-        // S4: (c8, c13, c15, c14, c13, c11, c10, c9)
-        let s4 = Self::u32_array_to_limbs(&[c[9], c[10], c[11], c[13], c[14], c[15], c[13], c[8]]);
-
-        // S5: (c10, c8, 0, 0, 0, c13, c12, c11)
-        let s5 = Self::u32_array_to_limbs(&[c[11], c[12], c[13], 0u32, 0u32, 0u32, c[8], c[10]]);
-
-        // S6: (c11, c9, 0, 0, c15, c14, c13, c12)
-        let s6 = Self::u32_array_to_limbs(&[c[12], c[13], c[14], c[15], 0u32, 0u32, c[9], c[11]]);
-
-        // S7: (c12, 0, c10, c9, c8, c15, c14, c13)
-        let s7 = Self::u32_array_to_limbs(&[c[13], c[14], c[15], c[8], c[9], c[10], 0u32, c[12]]);
-
-        // S8: (c13, 0, c11, c10, c9, 0, c15, c14)
-        let s8 = Self::u32_array_to_limbs(&[c[14], c[15], 0u32, c[9], c[10], c[11], 0u32, c[13]]);
-
-        // r = t + 2s1 + 2s2 + s3 + s4 - s5 - s6 - s7 - s8
-        t.add(&s1)
-            .add(&s1)
-            .add(&s2)
-            .add(&s2)
-            .add(&s3)
-            .add(&s4)
-            .sub(&s5)
-            .sub(&s6)
-            .sub(&s7)
-            .sub(&s8)
+        let mut padded = [0u8; 32];
+        let start = 32 - bytes.len();
+        padded[start..].copy_from_slice(&bytes);
+        FieldElement::from_bytes(&padded)
     }
 
     /// Modular reduction modulo P-256 prime

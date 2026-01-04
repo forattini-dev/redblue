@@ -3,17 +3,20 @@ use crate::cli::commands::{
     annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
 };
 use crate::cli::{output::Output, validator::Validator, CliContext};
-use crate::modules::tls::auditor::{CipherStrength, Severity, TlsAuditResult, TlsAuditor};
+use crate::modules::common::Severity;
+use crate::modules::tls::auditor::{CipherStrength, TlsAuditResult, TlsAuditor};
 use crate::modules::tls::mozilla_profiles::{
     ComplianceSeverity, MozillaComplianceChecker, MozillaProfile,
 };
 use crate::modules::tls::session_resumption::{ResumptionSeverity, SessionResumptionTester};
 use crate::protocols::tls_cert::CertificateInfo;
 use crate::protocols::x509::parse_x509_time;
+use crate::storage::client::ActionRecorder;
 use crate::storage::records::{
     TlsCertRecord, TlsCipherRecord, TlsCipherStrength, TlsScanRecord, TlsSeverity,
     TlsVersionRecord, TlsVulnerabilityRecord,
 };
+use crate::storage::segments::convert::TlsAuditResults;
 use crate::storage::service::StorageService;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -98,6 +101,9 @@ impl Command for TlsCommand {
             )
             .with_short('p')
             .with_default("intermediate"),
+            // Global action flags for unified intelligence layer
+            Flag::new("trace", "Enable detailed attempt tracing"),
+            Flag::new("no-store", "Disable automatic action storage"),
         ]
     }
 
@@ -233,9 +239,10 @@ impl TlsCommand {
             ));
             for cipher in &result.supported_ciphers {
                 let color = match cipher.strength {
-                    CipherStrength::Strong => "\x1b[32m", // Green
-                    CipherStrength::Medium => "\x1b[33m", // Yellow
-                    CipherStrength::Weak => "\x1b[31m",   // Red
+                    CipherStrength::Secure => "\x1b[32m", // Green - modern ciphers
+                    CipherStrength::Weak => "\x1b[33m",   // Yellow - deprecated
+                    CipherStrength::Insecure => "\x1b[31m", // Red - broken
+                    CipherStrength::NullCipher => "\x1b[35m", // Magenta - no encryption!
                 };
                 println!(
                     "  {}● {:?} - {} (0x{:04X})\x1b[0m",
@@ -256,6 +263,7 @@ impl TlsCommand {
                     Severity::High => "\x1b[31m",     // Red
                     Severity::Medium => "\x1b[33m",   // Yellow
                     Severity::Low => "\x1b[36m",      // Cyan
+                    Severity::Info => "\x1b[37m",     // White
                 };
                 println!("  {}{} [{}]\x1b[0m", color, vuln.name, vuln.severity);
                 println!("    {}", vuln.description);
@@ -305,8 +313,68 @@ impl TlsCommand {
             }
         }
 
-        // Persistence
+        // Legacy persistence
         self.save_if_enabled(ctx, &host, &result)?;
+
+        // Auto-persist to unified intelligence layer
+        let action_config = ctx.get_action_config();
+        if action_config.should_store() {
+            let mut recorder = ActionRecorder::new("tls-security-audit", action_config)?;
+
+            // Get the strongest cipher version
+            let version = result
+                .supported_versions
+                .iter()
+                .filter(|v| v.supported)
+                .map(|v| v.version.clone())
+                .next()
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Get the first supported cipher
+            let cipher = result
+                .supported_ciphers
+                .first()
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Extract certificate info
+            let (cert_subject, cert_issuer, expires_at) = result
+                .certificate_chain
+                .first()
+                .map(|c| {
+                    // Parse valid_until string to timestamp if possible
+                    let expires = parse_x509_time(&c.valid_until)
+                        .and_then(|st| st.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs());
+                    (Some(c.subject.clone()), Some(c.issuer.clone()), expires)
+                })
+                .unwrap_or((None, None, None));
+
+            // Collect vulnerability names
+            let issues: Vec<String> = result
+                .vulnerabilities
+                .iter()
+                .map(|v| v.name.clone())
+                .collect();
+
+            let tls_result = TlsAuditResults {
+                host: host.to_string(),
+                port,
+                version,
+                cipher,
+                certificate_subject: cert_subject,
+                certificate_issuer: cert_issuer,
+                expires_at,
+                issues,
+                error: None,
+            };
+            recorder.record(tls_result)?;
+
+            let count = recorder.commit()?;
+            if count > 0 && format == crate::cli::format::OutputFormat::Human {
+                Output::info(&format!("Action recorded ({} entries)", count));
+            }
+        }
 
         Ok(())
     }
@@ -339,15 +407,15 @@ impl TlsCommand {
         }
 
         // Group by strength
-        let mut strong = Vec::new();
-        let mut medium = Vec::new();
+        let mut secure = Vec::new();
         let mut weak = Vec::new();
+        let mut insecure = Vec::new();
 
         for cipher in &result.supported_ciphers {
             match cipher.strength {
-                CipherStrength::Strong => strong.push(cipher),
-                CipherStrength::Medium => medium.push(cipher),
+                CipherStrength::Secure => secure.push(cipher),
                 CipherStrength::Weak => weak.push(cipher),
+                CipherStrength::Insecure | CipherStrength::NullCipher => insecure.push(cipher),
             }
         }
 
@@ -356,29 +424,29 @@ impl TlsCommand {
             result.supported_ciphers.len()
         ));
         println!(
-            "  \x1b[32m● Strong:\x1b[0m  {}\n  \x1b[33m● Medium:\x1b[0m  {}\n  \x1b[31m● Weak:\x1b[0m    {}",
-            strong.len(),
-            medium.len(),
-            weak.len()
+            "  \x1b[32m● Secure:\x1b[0m    {}\n  \x1b[33m● Weak:\x1b[0m      {}\n  \x1b[31m● Insecure:\x1b[0m  {}",
+            secure.len(),
+            weak.len(),
+            insecure.len()
         );
 
-        if !strong.is_empty() {
-            Output::section("Strong Ciphers");
-            for cipher in strong {
+        if !secure.is_empty() {
+            Output::section("Secure Ciphers");
+            for cipher in secure {
                 println!("  \x1b[32m✓\x1b[0m {} (0x{:04X})", cipher.name, cipher.code);
             }
         }
 
-        if !medium.is_empty() {
-            Output::section("Medium Strength Ciphers");
-            for cipher in medium {
+        if !weak.is_empty() {
+            Output::section("Weak Ciphers (Deprecated)");
+            for cipher in weak {
                 println!("  \x1b[33m●\x1b[0m {} (0x{:04X})", cipher.name, cipher.code);
             }
         }
 
-        if !weak.is_empty() {
-            Output::section("Weak Ciphers (AVOID!)");
-            for cipher in weak {
+        if !insecure.is_empty() {
+            Output::section("Insecure Ciphers (AVOID!)");
+            for cipher in insecure {
                 println!("  \x1b[31m✗\x1b[0m {} (0x{:04X})", cipher.name, cipher.code);
             }
         }
@@ -421,6 +489,7 @@ impl TlsCommand {
         let mut high = Vec::new();
         let mut medium = Vec::new();
         let mut low = Vec::new();
+        let mut info = Vec::new();
 
         for vuln in &result.vulnerabilities {
             match vuln.severity {
@@ -428,6 +497,7 @@ impl TlsCommand {
                 Severity::High => high.push(vuln),
                 Severity::Medium => medium.push(vuln),
                 Severity::Low => low.push(vuln),
+                Severity::Info => info.push(vuln),
             }
         }
 
@@ -864,9 +934,10 @@ impl TlsCommand {
                 ""
             };
             let strength_label = match cipher.strength {
-                CipherStrength::Strong => "strong",
-                CipherStrength::Medium => "medium",
+                CipherStrength::Secure => "secure",
                 CipherStrength::Weak => "weak",
+                CipherStrength::Insecure => "insecure",
+                CipherStrength::NullCipher => "null",
             };
             println!("    {{");
             println!("      \"name\": \"{}\",", escape_json(&cipher.name));
@@ -1040,14 +1111,15 @@ impl TlsCommand {
 
     fn convert_cipher_strength(strength: &CipherStrength) -> TlsCipherStrength {
         match strength {
-            CipherStrength::Strong => TlsCipherStrength::Strong,
-            CipherStrength::Medium => TlsCipherStrength::Medium,
-            CipherStrength::Weak => TlsCipherStrength::Weak,
+            CipherStrength::Secure => TlsCipherStrength::Strong,
+            CipherStrength::Weak => TlsCipherStrength::Medium,
+            CipherStrength::Insecure | CipherStrength::NullCipher => TlsCipherStrength::Weak,
         }
     }
 
     fn convert_severity(severity: &Severity) -> TlsSeverity {
         match severity {
+            Severity::Info => TlsSeverity::Low, // Info maps to Low for TLS context
             Severity::Low => TlsSeverity::Low,
             Severity::Medium => TlsSeverity::Medium,
             Severity::High => TlsSeverity::High,

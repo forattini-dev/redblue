@@ -229,7 +229,7 @@ impl RsaPublicKey {
 fn generate_random_nonzero(n: usize) -> Vec<u8> {
     let mut buf = vec![0u8; n];
 
-    // Read from /dev/urandom on Unix systems
+    // OS CSPRNG only
     #[cfg(unix)]
     {
         let mut file = std::fs::File::open("/dev/urandom").expect("Failed to open /dev/urandom");
@@ -237,20 +237,10 @@ fn generate_random_nonzero(n: usize) -> Vec<u8> {
             .expect("Failed to read random data");
     }
 
-    // Fallback: use a simple PRNG based on current time
     #[cfg(not(unix))]
     {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let mut seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
-        for byte in &mut buf {
-            // Linear congruential generator
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            *byte = (seed >> 32) as u8;
-        }
+        use crate::crypto::os_random;
+        os_random::fill_bytes(&mut buf).expect("OS CSPRNG unavailable");
     }
 
     // Ensure no zeros (PKCS#1 v1.5 requirement)
@@ -538,6 +528,13 @@ mod tests {
         let key = RsaPublicKey::new(n, e);
 
         assert_eq!(key.bits, 12); // 3233 = 0xCA1, 12 bits
+    }
+
+    #[test]
+    fn test_random_nonzero_padding_bytes() {
+        let bytes = generate_random_nonzero(128);
+        assert_eq!(bytes.len(), 128);
+        assert!(bytes.iter().all(|&byte| byte != 0));
     }
 
     #[test]

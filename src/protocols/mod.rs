@@ -7,6 +7,7 @@
 /// - Some modules require OpenSSL (boring) which is not available on Windows
 /// - These modules are conditionally compiled with #[cfg(not(target_os = "windows"))]
 pub mod asn1; // ASN.1/DER parser (RFC 2459)
+pub mod craft; // Pigsty-style packet crafting with signature library
 pub mod crypto; // Shared protocol crypto helpers (SHA-384, HKDF)
 pub mod dns; // DNS (RFC 1035)
 pub mod doh; // DNS-over-HTTPS (RFC 8484)
@@ -20,6 +21,7 @@ pub mod http; // HTTP/1.1 (RFC 2616)
 pub mod http2; // HTTP/2 (RFC 7540) - Binary framing, HPACK, multiplexing (requires OpenSSL)
 pub mod https; // HTTPS (HTTP over TLS)
 pub mod icmp; // ICMP (RFC 792)
+pub mod kerberos; // Kerberos 5 (RFC 4120) + PKINIT + S4U attacks
 pub mod ldap; // LDAP (RFC 4511)
 pub mod mongodb; // MongoDB Wire Protocol
 pub mod mssql; // MSSQL TDS Protocol

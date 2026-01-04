@@ -1,5 +1,4 @@
 use crate::playbooks::PlaybookContext;
-use chrono::Local;
 use std::env;
 
 /// Template engine for playbook variable substitution
@@ -88,7 +87,7 @@ impl TemplateEngine {
         match var_name {
             "target" => Some(context.target.clone()),
             "session_id" => Some(context.session_id.clone()),
-            "timestamp" => Some(Local::now().to_rfc3339()),
+            "timestamp" => Some(crate::utils::timing::utc_rfc3339()),
             s if s.starts_with("env:") => {
                 let env_var = &s[4..];
                 env::var(env_var).ok()

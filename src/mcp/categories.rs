@@ -38,6 +38,10 @@ pub enum ToolCategory {
     Command,
     /// Autonomous operations (LLM-guided scans)
     Auto,
+    /// Cryptographic operations (ciphers, codecs, hashing)
+    Crypto,
+    /// Binary exploitation (ELF/PE parsing, ROP, shellcode)
+    Binary,
 }
 
 impl ToolCategory {
@@ -105,6 +109,29 @@ impl ToolCategory {
             "rb.auto.recon" | "rb.auto.vulnscan" | "rb.auto.step" | "rb.auto.guide"
             | "rb.auto.status" | "rb.auto.stop" => ToolCategory::Auto,
 
+            // Crypto tools
+            "rb.crypto.cipher.list"
+            | "rb.crypto.cipher.encrypt"
+            | "rb.crypto.cipher.decrypt"
+            | "rb.crypto.cipher.bruteforce"
+            | "rb.crypto.codec.list"
+            | "rb.crypto.codec.encode"
+            | "rb.crypto.codec.decode"
+            | "rb.crypto.hash"
+            | "rb.crypto.recipe.run" => ToolCategory::Crypto,
+
+            // Binary tools
+            "rb.binary.parse"
+            | "rb.binary.checksec"
+            | "rb.binary.symbols"
+            | "rb.binary.rop.gadgets"
+            | "rb.binary.rop.chain"
+            | "rb.binary.fmtstr.detect"
+            | "rb.binary.fmtstr.payload"
+            | "rb.binary.shellcode.generate"
+            | "rb.binary.pattern.create"
+            | "rb.binary.pattern.offset" => ToolCategory::Binary,
+
             // Default to Discovery for unknown tools
             _ => ToolCategory::Discovery,
         }
@@ -128,6 +155,8 @@ impl ToolCategory {
             ToolCategory::Fingerprint => "fingerprint",
             ToolCategory::Command => "command",
             ToolCategory::Auto => "auto",
+            ToolCategory::Crypto => "crypto",
+            ToolCategory::Binary => "binary",
         }
     }
 
@@ -149,6 +178,8 @@ impl ToolCategory {
             ToolCategory::Fingerprint => "Service fingerprinting",
             ToolCategory::Command => "Direct command execution",
             ToolCategory::Auto => "Autonomous LLM-guided operations",
+            ToolCategory::Crypto => "Cryptographic ciphers, codecs, and hashing",
+            ToolCategory::Binary => "Binary exploitation (ELF/PE, ROP, shellcode)",
         }
     }
 
@@ -170,6 +201,8 @@ impl ToolCategory {
             "fingerprint" => Some(ToolCategory::Fingerprint),
             "command" | "cmd" => Some(ToolCategory::Command),
             "auto" | "autonomous" => Some(ToolCategory::Auto),
+            "crypto" | "cryptography" => Some(ToolCategory::Crypto),
+            "binary" | "exploit" => Some(ToolCategory::Binary),
             _ => None,
         }
     }
@@ -192,6 +225,8 @@ impl ToolCategory {
             ToolCategory::Fingerprint,
             ToolCategory::Command,
             ToolCategory::Auto,
+            ToolCategory::Crypto,
+            ToolCategory::Binary,
         ]
     }
 
@@ -213,6 +248,8 @@ impl ToolCategory {
             ToolCategory::Fingerprint => 1,
             ToolCategory::Command => 1,
             ToolCategory::Auto => 6,
+            ToolCategory::Crypto => 9, // cipher (list, encrypt, decrypt, bruteforce), codec (list, encode, decode), hash, recipe
+            ToolCategory::Binary => 10, // parse, checksec, symbols, rop (gadgets, chain), fmtstr (detect, payload), shellcode, pattern (create, offset)
         }
     }
 }
@@ -274,6 +311,8 @@ impl CategoryPreset {
                 ToolCategory::Evasion,
                 ToolCategory::Command,
                 ToolCategory::Auto,
+                ToolCategory::Crypto,
+                ToolCategory::Binary,
             ]
             .into_iter()
             .collect(),

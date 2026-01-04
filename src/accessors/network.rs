@@ -1,5 +1,6 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use serde_json::{json, Value};
+use crate::json;
+use crate::serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::io::BufRead;

@@ -127,7 +127,7 @@ impl Command for AccessCommand {
                 if ctx.get_output_format() == crate::cli::format::OutputFormat::Json {
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&data).unwrap_or_default()
+                        crate::serde_json::to_string_pretty(&data).unwrap_or_default()
                     );
                 } else {
                     // Try to print somewhat nicely

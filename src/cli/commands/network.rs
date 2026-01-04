@@ -7,7 +7,9 @@ use crate::modules::network::fingerprint::HostFingerprint;
 use crate::modules::network::ping::{ping_system, PingConfig, PingSystemResult};
 use crate::modules::recon::ip_intel::{IpClassification, IpIntel};
 use crate::storage::client::query::format as query_format;
+use crate::storage::client::ActionRecorder;
 use crate::storage::records::{HostIntelRecord, ServiceIntelRecord};
+use crate::storage::segments::convert::{FingerprintResults, PingResults};
 use crate::storage::service::StorageService;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -72,9 +74,12 @@ impl Command for NetworkCommand {
             Flag::new("size", "Packet size in bytes")
                 .with_short('s')
                 .with_default("56"),
-            Flag::new("persist", "Save host fingerprint to database"),
+            Flag::new("persist", "Save host fingerprint to database (legacy)"),
             Flag::new("db", "Database file to read host fingerprints from"),
             Flag::new("bogons", "Show all bogon ranges (IPv4 and IPv6)"),
+            // Global action flags for unified intelligence layer
+            Flag::new("trace", "Enable detailed attempt tracing"),
+            Flag::new("no-store", "Disable automatic action storage"),
         ]
     }
 
@@ -208,6 +213,29 @@ impl NetworkCommand {
 
         // Display results
         self.display_ping_results(&result)?;
+
+        // Auto-persist to unified intelligence layer
+        let action_config = ctx.get_action_config();
+        if action_config.should_store() {
+            if let Ok(target_ip) = host.parse::<IpAddr>() {
+                let mut recorder = ActionRecorder::new("network-host-ping", action_config)?;
+                let ping_result = PingResults {
+                    target: target_ip,
+                    reachable: result.packets_received > 0,
+                    rtt_ms: if result.packets_received > 0 {
+                        Some(result.avg_rtt_ms as u64)
+                    } else {
+                        None
+                    },
+                    ttl: None,
+                };
+                recorder.record(ping_result)?;
+                let count = recorder.commit()?;
+                if count > 0 && !is_json {
+                    Output::info(&format!("Action recorded ({} entries)", count));
+                }
+            }
+        }
 
         Ok(())
     }
@@ -427,6 +455,7 @@ impl NetworkCommand {
 
         self.display_fingerprint(&fingerprint);
 
+        // Legacy persist mode (--persist flag)
         if ctx.flags.contains_key("persist") {
             let attributes = build_partition_attributes(ctx, host, [("operation", "fingerprint")]);
             let mut manager = StorageService::global().persistence_for_target_with(
@@ -442,6 +471,42 @@ impl NetworkCommand {
 
             if let Some(path) = manager.commit()? {
                 Output::success(&format!("Fingerprint saved to {}", path.display()));
+            }
+        }
+
+        // Auto-persist to unified intelligence layer (new ActionRecorder API)
+        let action_config = ctx.get_action_config();
+        if action_config.should_store() {
+            let mut recorder = ActionRecorder::new("network-host-fingerprint", action_config)?;
+
+            // Record a FingerprintResult for each discovered service
+            for svc in &fingerprint.services {
+                let service_name = svc
+                    .service_label
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+                let banner_text = svc.banner.as_ref().map(|b| b.banner.clone());
+                let os_guess = fingerprint
+                    .os_guess
+                    .as_ref()
+                    .map(|g| g.os_family.name().to_string());
+
+                let fp_result = FingerprintResults {
+                    target: fingerprint.ip,
+                    port: svc.port,
+                    service: service_name,
+                    version: None,
+                    os: os_guess,
+                    cpe: vec![],
+                    banner: banner_text,
+                    error: None,
+                };
+                recorder.record(fp_result)?;
+            }
+
+            let count = recorder.commit()?;
+            if count > 0 && !is_json {
+                Output::info(&format!("Actions recorded ({} services)", count));
             }
         }
 

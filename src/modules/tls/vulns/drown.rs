@@ -1,17 +1,17 @@
-/// DROWN Vulnerability Checker (CVE-2016-0800)
+/// DROWN Vulnerability Scanner (CVE-2016-0800)
 ///
 /// Tests for Decrypting RSA with Obsolete and Weakened eNcryption.
 /// Servers supporting SSLv2 can have their modern TLS sessions decrypted.
 
-use super::{VulnChecker, VulnCheckResult, Severity, connect_tcp, tls_types};
+use super::{VulnScanner, VulnCheckResult, Severity, connect_tcp, tls_types};
 use std::io::{Read, Write};
 use std::time::Duration;
 
-pub struct DrownChecker {
+pub struct DrownScanner {
     timeout: Duration,
 }
 
-impl DrownChecker {
+impl DrownScanner {
     pub fn new() -> Self {
         Self {
             timeout: Duration::from_secs(10),
@@ -282,13 +282,13 @@ impl DrownChecker {
     }
 }
 
-impl Default for DrownChecker {
+impl Default for DrownScanner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl VulnChecker for DrownChecker {
+impl VulnScanner for DrownScanner {
     fn name(&self) -> &str {
         "DROWN"
     }
@@ -301,7 +301,7 @@ impl VulnChecker for DrownChecker {
         "Decrypting RSA with Obsolete and Weakened eNcryption (SSLv2 attack)"
     }
 
-    fn check(&self, host: &str, port: u16) -> VulnCheckResult {
+    fn scan(&self, host: &str, port: u16) -> VulnCheckResult {
         let mut evidence = Vec::new();
 
         // Check for SSLv2 support (main DROWN vulnerability)
