@@ -49,9 +49,10 @@ use std::time::Duration;
 // Import tool registration functions
 use crate::mcp::tools::{
     register_auto_tools, register_binary_tools, register_code_tools, register_core_tools,
-    register_crypto_tools, register_dns_tools, register_evasion_tools, register_intel_tools,
-    register_network_tools, register_password_tools, register_recon_tools, register_tls_tools,
-    register_vuln_tools, register_web_tools, register_wordlist_tools,
+    register_crypto_tools, register_dns_tools, register_evasion_tools, register_file_tools,
+    register_intel_tools, register_network_tools, register_password_tools, register_recon_tools,
+    register_tls_tools, register_vector_tools, register_vuln_tools, register_web_tools,
+    register_wordlist_tools,
 };
 
 pub struct McpServer {
@@ -321,8 +322,14 @@ impl McpServer {
         // Crypto tools
         tools.extend(register_crypto_tools());
 
+        // File tools (compression, hash)
+        tools.extend(register_file_tools());
+
         // Binary tools
         tools.extend(register_binary_tools());
+
+        // Vector search tools (tiered quantization)
+        tools.extend(register_vector_tools());
 
         // Inline tools (not yet extracted to modules)
         tools.extend(Self::register_inline_tools());
