@@ -514,6 +514,145 @@ Example:
 
 ---
 
+## Tiered Search (Binary + int8)
+
+The most memory-efficient approach for large-scale similarity search, especially on resource-constrained systems.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Tiered Search Pipeline                        │
+│                                                                  │
+│  Query Vector (fp32)                                            │
+│         │                                                        │
+│         ▼                                                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Stage 1: BINARY SEARCH                                  │    │
+│  │  • Quantize query to 1-bit per dimension                 │    │
+│  │  • Hamming distance (XOR + popcount = 1 CPU instruction) │    │
+│  │  • Returns k × 4 candidates                              │    │
+│  │  • Memory: 32x less than fp32                            │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│         │                                                        │
+│         ▼  (40 candidates for k=10)                             │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Stage 2: INT8 RESCORE                                   │    │
+│  │  • SIMD dot product (AVX2/SSE4)                          │    │
+│  │  • Asymmetric: fp32 query × int8 candidates              │    │
+│  │  • Returns final k results                               │    │
+│  │  • Restores ~99% of fp32 accuracy                        │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│         │                                                        │
+│         ▼  (10 results)                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Stage 3: FP32 RESCORE (optional)                        │    │
+│  │  • Full precision for final ranking                      │    │
+│  │  • Only when TieredSearchConfig::precise() is used       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Memory Comparison
+
+| Representation | Bits/dim | 1M × 1024 dims | Compression |
+|----------------|----------|----------------|-------------|
+| fp32 | 32 | 4 GB | 1x |
+| int8 | 8 | 1 GB | 4x |
+| binary | 1 | 128 MB | 32x |
+| **tiered (bin+i8)** | - | **1.1 GB** | **~4x** |
+
+### Usage
+
+```rust
+use redblue::storage::engine::{TieredIndex, TieredSearchConfig};
+
+// Create index
+let mut index = TieredIndex::new(768);
+
+// Add embeddings
+for embedding in embeddings {
+    index.add(&embedding);
+}
+
+// Search (uses binary → int8 pipeline)
+let results = index.search(&query, 10);
+
+// High-precision search (binary → int8 → fp32)
+let results = index.search_with_config(
+    &query,
+    10,
+    &TieredSearchConfig::precise()
+);
+```
+
+### Memory-Constrained Systems
+
+For edge devices, Raspberry Pi, or containers with limited RAM:
+
+```rust
+// Define memory budget
+let mut index = TieredIndex::memory_constrained(
+    768,                      // dimensions
+    TieredIndex::MB(256)      // max 256 MB
+);
+
+// Add until full
+while let Some(emb) = get_embedding() {
+    if !index.add(&emb) {
+        break;  // Memory limit reached
+    }
+}
+
+// Monitor usage
+println!("Utilization: {:.1}%",
+    index.memory_utilization().unwrap() * 100.0);
+println!("Remaining: {:?} vectors",
+    index.remaining_capacity());
+```
+
+### Capacity by RAM Budget
+
+| RAM Budget | Dimension | Max Vectors (bin+i8) |
+|------------|-----------|---------------------|
+| 256 MB | 768 | ~290,000 |
+| 512 MB | 768 | ~580,000 |
+| 1 GB | 1024 | ~930,000 |
+| 2 GB | 1024 | ~1,800,000 |
+
+### Search Configurations
+
+```rust
+// Fast: fewer candidates, no fp32 rescore
+TieredSearchConfig::fast()      // rescore_multiplier = 2
+
+// Balanced (default)
+TieredSearchConfig::default()   // rescore_multiplier = 4
+
+// Quality: more candidates + fp32 rescore
+TieredSearchConfig::quality()   // rescore_multiplier = 8, use_fp32 = true
+
+// Maximum precision
+TieredSearchConfig::precise()   // rescore_multiplier = 10, use_fp32 = true
+```
+
+### When to Use Tiered Search
+
+```
+✅ Best for:
+  • Memory-constrained environments (edge, IoT, small containers)
+  • Large datasets (100K+ vectors)
+  • 95-99% recall is acceptable
+  • Batch processing workloads
+
+❌ Not ideal for:
+  • Sub-millisecond latency requirements (use HNSW)
+  • 100% exact recall required
+  • Very small datasets (brute force is fine)
+```
+
+---
+
 ## Performance Benchmarks
 
 | Dataset | Index | QPS | Recall@10 | Memory |

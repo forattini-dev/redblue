@@ -45,6 +45,11 @@ pub mod pq;
 pub mod projection;
 pub mod simd_distance;
 pub mod store_strategy;
+
+// Quantization modules for tiered vector search
+pub mod binary_quantize;
+pub mod int8_quantize;
+pub mod tiered_search;
 pub mod unified_index;
 pub mod vector_metadata;
 pub mod vector_store;
@@ -146,3 +151,15 @@ pub use ivf::{IvfConfig, IvfIndex, IvfStats};
 
 // Product Quantization for vector compression
 pub use pq::{PQCode, PQConfig, PQIndex, ProductQuantizer};
+
+// Binary quantization for ultra-fast similarity search
+pub use binary_quantize::{hamming_distance_simd, BinaryIndex, BinarySearchResult, BinaryVector};
+
+// int8 quantization for efficient rescoring
+pub use int8_quantize::{dot_product_i8_f32_simd, dot_product_i8_simd, Int8Index, Int8Vector};
+
+// Tiered search pipeline (binary → int8 → fp32)
+pub use tiered_search::{
+    MemoryConstraint, MemoryLimitError, TieredIndex, TieredIndexBuilder, TieredMemoryStats,
+    TieredSearchConfig, TieredSearchResult,
+};
