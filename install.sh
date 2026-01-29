@@ -25,6 +25,8 @@ BINARY_NAME="rb"
 CHANNEL="stable"  # stable, next, latest
 VERSION=""
 STATIC=""  # Use static (musl) build if available
+VERBOSE=""  # Verbose mode
+BUILD_FROM_SOURCE=""  # Build from source if no releases available
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -45,6 +47,14 @@ while [[ $# -gt 0 ]]; do
             STATIC="true"
             shift
             ;;
+        --verbose|-v)
+            VERBOSE="true"
+            shift
+            ;;
+        --build)
+            BUILD_FROM_SOURCE="true"
+            shift
+            ;;
         -h|--help)
             echo "redblue installer"
             echo ""
@@ -55,6 +65,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --version <version>             Install specific version (e.g., v0.1.0)"
             echo "  --install-dir <path>            Installation directory (default: ~/.local/bin)"
             echo "  --static                        Use static build (musl, useful for Alpine/Docker)"
+            echo "  --verbose, -v                   Enable verbose output"
+            echo "  --build                         Build from source instead of downloading binary"
             echo "  -h, --help                      Show this help message"
             echo ""
             echo "Channels:"
@@ -68,6 +80,8 @@ while [[ $# -gt 0 ]]; do
             echo "  $0 --channel latest             # Install absolute latest"
             echo "  $0 --version v0.1.0             # Install specific version"
             echo "  $0 --static                     # Install static build (for Alpine/Docker)"
+            echo "  $0 --verbose                    # Install with verbose output"
+            echo "  $0 --build                      # Build from source (requires Rust)"
             exit 0
             ;;
         *)
@@ -76,6 +90,13 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Verbose logging
+log_verbose() {
+    if [ "$VERBOSE" = "true" ]; then
+        echo -e "${BLUE}[VERBOSE]${NC} $*"
+    fi
+}
 
 # Print banner
 print_banner() {
@@ -213,18 +234,49 @@ get_release_info() {
     fi
 
     # Fetch release data
+    log_verbose "Fetching from: $api_url"
+    local fetch_exit_code=0
+    
+    # Temporarily disable exit on error for the fetch operation
+    set +e
     if command -v curl >/dev/null 2>&1; then
-        releases_json=$(curl -fsSL "$api_url" 2>/dev/null)
+        log_verbose "Using curl to fetch release data"
+        releases_json=$(curl -fsSL "$api_url" 2>&1)
+        fetch_exit_code=$?
+        log_verbose "curl exit code: $fetch_exit_code"
+        if [ $fetch_exit_code -ne 0 ]; then
+            log_verbose "curl error output: $releases_json"
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        releases_json=$(wget -qO- "$api_url" 2>/dev/null)
+        log_verbose "Using wget to fetch release data"
+        releases_json=$(wget -qO- "$api_url" 2>&1)
+        fetch_exit_code=$?
+        log_verbose "wget exit code: $fetch_exit_code"
+        if [ $fetch_exit_code -ne 0 ]; then
+            log_verbose "wget error output: $releases_json"
+        fi
     else
         echo -e "${RED}Error: curl or wget is required${NC}"
+        set -e
         exit 1
     fi
+    # Re-enable exit on error
+    set -e
 
-    if [ -z "$releases_json" ]; then
+    log_verbose "Fetch completed with exit code: $fetch_exit_code"
+    log_verbose "Response length: ${#releases_json} bytes"
+    
+    if [ -z "$releases_json" ] || echo "$releases_json" | grep -q "404"; then
         echo -e "${RED}Error: Could not fetch release information${NC}"
-        echo -e "${YELLOW}Check your internet connection or try again later${NC}"
+        echo -e "${YELLOW}No releases found at: https://github.com/$REPO/releases${NC}"
+        echo ""
+        echo -e "${BLUE}This repository doesn't have any published releases yet.${NC}"
+        echo -e "${BLUE}You can build from source instead using:${NC}"
+        echo -e "  ${GREEN}$0 --build${NC}"
+        echo ""
+        echo "Or manually build with:"
+        echo -e "  ${GREEN}cargo build --release${NC}"
+        echo -e "  ${GREEN}cargo install --path .${NC}"
         exit 1
     fi
 
@@ -395,6 +447,106 @@ check_path() {
     fi
 }
 
+# Build from source
+build_from_source() {
+    echo -e "${BLUE}Building redblue from source...${NC}"
+    echo ""
+    
+    # Check if we're in the right directory
+    if [ ! -f "Cargo.toml" ]; then
+        echo -e "${RED}Error: Cargo.toml not found${NC}"
+        echo -e "${YELLOW}This script must be run from the redblue source directory, or${NC}"
+        echo -e "${YELLOW}you need to clone the repository first:${NC}"
+        echo ""
+        echo -e "  ${GREEN}git clone https://github.com/$REPO.git${NC}"
+        echo -e "  ${GREEN}cd redblue${NC}"
+        echo -e "  ${GREEN}./install.sh --build${NC}"
+        exit 1
+    fi
+    
+    # Check if cargo is installed
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo -e "${RED}Error: Rust/Cargo is not installed${NC}"
+        echo ""
+        echo "Install Rust from: https://rustup.rs/"
+        echo "Or run:"
+        echo -e "  ${GREEN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${NC}"
+        exit 1
+    fi
+    
+    log_verbose "Rust version: $(rustc --version)"
+    log_verbose "Cargo version: $(cargo --version)"
+    
+    # Check for required build tools
+    local missing_tools=()
+    if ! command -v cmake >/dev/null 2>&1; then
+        missing_tools+=("cmake")
+    fi
+    if ! command -v gcc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
+        missing_tools+=("gcc or clang")
+    fi
+    if ! command -v make >/dev/null 2>&1; then
+        missing_tools+=("make")
+    fi
+    
+    # Check for libclang (needed for bindgen/boring-sys)
+    if ! ldconfig -p 2>/dev/null | grep -q libclang; then
+        if [ ! -f /usr/lib/libclang.so ] && [ ! -f /usr/lib64/libclang.so ] && [ ! -f /usr/lib/x86_64-linux-gnu/libclang.so ]; then
+            missing_tools+=("libclang-dev")
+        fi
+    fi
+    
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        echo -e "${RED}Error: Missing required build tools${NC}"
+        echo ""
+        echo "Required tools: ${missing_tools[*]}"
+        echo ""
+        echo "Install them with:"
+        if [ -f /etc/debian_version ]; then
+            echo -e "  ${GREEN}sudo apt-get update && sudo apt-get install -y cmake build-essential libclang-dev${NC}"
+        elif [ -f /etc/redhat-release ]; then
+            echo -e "  ${GREEN}sudo yum install -y cmake gcc-c++ make clang-devel${NC}"
+        elif [ -f /etc/alpine-release ]; then
+            echo -e "  ${GREEN}sudo apk add cmake gcc g++ make musl-dev clang-dev${NC}"
+        else
+            echo -e "  ${YELLOW}Install cmake, gcc/clang, make, and libclang-dev for your distribution${NC}"
+        fi
+        exit 1
+    fi
+    
+    log_verbose "Build tools check passed"
+    
+    echo -e "${BLUE}Building release binary...${NC}"
+    echo -e "${YELLOW}This may take several minutes on first build...${NC}"
+    echo ""
+    
+    if [ "$VERBOSE" = "true" ]; then
+        cargo build --release
+    else
+        cargo build --release 2>&1 | grep -E "(Compiling|Finished|error|warning:)" || cargo build --release
+    fi
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Error: Build failed${NC}"
+        exit 1
+    fi
+    
+    # Check if binary exists (try both 'redblue' and 'rb' names)
+    if [ -f "target/release/rb" ]; then
+        DOWNLOADED_FILE="target/release/rb"
+    elif [ -f "target/release/redblue" ]; then
+        DOWNLOADED_FILE="target/release/redblue"
+    else
+        echo -e "${RED}Error: Binary not found after build${NC}"
+        echo -e "${YELLOW}Expected to find target/release/rb or target/release/redblue${NC}"
+        exit 1
+    fi
+    
+    RELEASE_TAG="source-build"
+    log_verbose "Built binary: $DOWNLOADED_FILE"
+    echo -e "${GREEN}✓ Build successful${NC}"
+}
+
 # Print success message
 print_success() {
     echo ""
@@ -426,13 +578,26 @@ print_success() {
 # Main installation flow
 main() {
     print_banner
-    detect_platform
-    get_release_info
-    download_binary
-    verify_checksum
-    install_binary
-    check_path
-    print_success
+    
+    if [ "$BUILD_FROM_SOURCE" = "true" ]; then
+        # Build from source path
+        log_verbose "Build from source mode enabled"
+        detect_platform
+        build_from_source
+        install_binary
+        check_path
+        print_success
+    else
+        # Download binary path
+        log_verbose "Binary download mode"
+        detect_platform
+        get_release_info
+        download_binary
+        verify_checksum
+        install_binary
+        check_path
+        print_success
+    fi
 }
 
 main "$@"
