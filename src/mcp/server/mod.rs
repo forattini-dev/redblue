@@ -48,9 +48,12 @@ use std::time::Duration;
 
 // Import tool registration functions
 use crate::mcp::tools::{
-    register_auto_tools, register_binary_tools, register_code_tools, register_core_tools,
-    register_crypto_tools, register_dns_tools, register_evasion_tools, register_file_tools,
-    register_intel_tools, register_network_tools, register_password_tools, register_recon_tools,
+    register_agent_tools, register_auth_tools, register_auto_tools, register_binary_tools,
+    register_code_tools, register_core_tools, register_crypto_tools, register_database_tools,
+    register_dns_tools, register_evasion_tools, register_exploit_tools, register_file_tools,
+    register_fuzz_tools, register_intel_tools, register_loot_tools, register_memory_tools,
+    register_network_tools, register_password_tools, register_playbook_tools,
+    register_proxy_tools, register_recon_tools, register_report_tools, register_service_tools,
     register_tls_tools, register_vector_tools, register_vuln_tools, register_web_tools,
     register_wordlist_tools,
 };
@@ -330,6 +333,39 @@ impl McpServer {
 
         // Vector search tools (tiered quantization)
         tools.extend(register_vector_tools());
+
+        // Playbook tools (list, show, execute)
+        tools.extend(register_playbook_tools());
+
+        // Loot tools (findings, credentials, artifacts)
+        tools.extend(register_loot_tools());
+
+        // Report tools (generation, templates, summary)
+        tools.extend(register_report_tools());
+
+        // Exploit tools (privesc, lateral movement, payloads, CVE search, suggestions)
+        tools.extend(register_exploit_tools());
+
+        // Auth tools (credential testing, password spray, brute force)
+        tools.extend(register_auth_tools());
+
+        // Fuzz tools (directory, vhost, parameter fuzzing)
+        tools.extend(register_fuzz_tools());
+
+        // Service tools (list, install, status of persistence mechanisms)
+        tools.extend(register_service_tools());
+
+        // Agent/C2 tools (info, transports, generate)
+        tools.extend(register_agent_tools());
+
+        // Database/RedDB tools (open, query, node, stats)
+        tools.extend(register_database_tools());
+
+        // Memory tools (scan, regions, read, pattern)
+        tools.extend(register_memory_tools());
+
+        // Proxy tools (start, intercept, rules)
+        tools.extend(register_proxy_tools());
 
         // Inline tools (not yet extracted to modules)
         tools.extend(Self::register_inline_tools());
