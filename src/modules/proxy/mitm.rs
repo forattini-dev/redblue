@@ -252,8 +252,6 @@ pub struct MitmConfig {
     pub logger: TrafficLogger,
     /// Request/response interceptor
     pub interceptor: Option<Arc<dyn RequestInterceptor + Send + Sync>>,
-    /// URL of the JS hook to inject (e.g., RBB hook) - DEPRECATED, use hook_mode
-    pub hook_url: Option<String>,
     /// Hook injection mode
     pub hook_mode: Option<HookMode>,
 }
@@ -276,7 +274,6 @@ impl std::fmt::Debug for MitmConfig {
                 "interceptor",
                 &self.interceptor.as_ref().map(|_| "<interceptor>"),
             )
-            .field("hook_url", &self.hook_url)
             .field("hook_mode", &self.hook_mode)
             .finish()
     }
@@ -292,7 +289,6 @@ impl MitmConfig {
             log_requests: true,
             logger: TrafficLogger::new(false, None, LogFormat::Text),
             interceptor: None,
-            hook_url: None,
             hook_mode: None,
         }
     }
@@ -306,21 +302,9 @@ impl MitmConfig {
         self
     }
 
-    /// Set hook URL (deprecated, use with_hook_mode)
-    pub fn with_hook_url(mut self, url: String) -> Self {
-        self.hook_url = Some(url.clone());
-        self.hook_mode = Some(HookMode::External(url));
-        self
-    }
-
     /// Set hook mode
     pub fn with_hook_mode(mut self, mode: HookMode) -> Self {
-        self.hook_mode = Some(mode.clone());
-        // Also set legacy hook_url for backward compatibility
-        match &mode {
-            HookMode::External(url) => self.hook_url = Some(url.clone()),
-            HookMode::SameOrigin { path, .. } => self.hook_url = Some(path.clone()),
-        }
+        self.hook_mode = Some(mode);
         self
     }
 
@@ -331,7 +315,6 @@ impl MitmConfig {
             callback_url: callback_url.to_string(),
         };
         self.hook_mode = Some(mode);
-        self.hook_url = Some(path.to_string());
         self
     }
 
@@ -987,6 +970,7 @@ impl MitmProxy {
         let hook_mode = config.hook_mode.as_ref().unwrap();
         let mut client_buf = [0u8; 65536]; // Larger buffer for injection
         let mut target_buf = [0u8; 65536];
+        let mut last_request: Option<HttpRequest> = None;
 
         // Determine injection script tag and hook path for interception
         let (inject_script, intercept_path, callback_url) = match hook_mode {
@@ -1019,40 +1003,66 @@ impl MitmProxy {
             let mut data_to_send = client_buf[..n].to_vec();
             let mut is_websocket_upgrade = false;
             let mut serve_hook_directly = false;
+            let mut request_action = InterceptAction::Continue;
 
             if let Some(mut req) = HttpRequest::parse(&data_to_send) {
                 config
                     .logger
                     .log_request(hostname, &req.method, &req.path, &req.version);
 
-                // Check if this request is for our hook path (same-origin mode)
-                if let Some(ref hook_path) = intercept_path {
-                    // Match the path exactly or with query string
-                    let req_path_clean = req.path.split('?').next().unwrap_or(&req.path);
-                    if req_path_clean == hook_path {
-                        config.logger.log_info(&format!(
-                            "[{}] Intercepting hook request: {} -> serving RBB hook",
-                            hostname, req.path
-                        ));
-                        serve_hook_directly = true;
-                    }
+                if let Some(interceptor) = &config.interceptor {
+                    request_action = interceptor.on_request(&mut req, Some(hostname));
                 }
 
-                // Check for WebSocket upgrade request
-                if req.is_websocket_upgrade() {
-                    config.logger.log_info(&format!(
-                        "[{}] WebSocket upgrade request detected (hook mode)",
-                        hostname
-                    ));
-                    is_websocket_upgrade = true;
-                    // Don't modify WebSocket upgrade requests
-                } else if !serve_hook_directly {
-                    // Strip Accept-Encoding to prevent gzip (crucial for injection)
-                    if req.headers.remove("accept-encoding").is_some() {
-                        debug!("Stripped Accept-Encoding from {}", hostname);
+                match request_action {
+                    InterceptAction::Continue => {
+                        // Check if this request is for our hook path (same-origin mode)
+                        if let Some(ref hook_path) = intercept_path {
+                            // Match the path exactly or with query string
+                            let req_path_clean = req.path.split('?').next().unwrap_or(&req.path);
+                            if req_path_clean == hook_path {
+                                config.logger.log_info(&format!(
+                                    "[{}] Intercepting hook request: {} -> serving RBB hook",
+                                    hostname, req.path
+                                ));
+                                serve_hook_directly = true;
+                            }
+                        }
+
+                        // Check for WebSocket upgrade request
+                        if req.is_websocket_upgrade() {
+                            config.logger.log_info(&format!(
+                                "[{}] WebSocket upgrade request detected (hook mode)",
+                                hostname
+                            ));
+                            is_websocket_upgrade = true;
+                            // Don't modify WebSocket upgrade requests
+                        } else if !serve_hook_directly {
+                            // Strip Accept-Encoding to prevent gzip (crucial for injection)
+                            if req.headers.remove("accept-encoding").is_some() {
+                                debug!("Stripped Accept-Encoding from {}", hostname);
+                            }
+                        }
+
                         data_to_send = req.to_bytes();
+                        last_request = Some(req);
+                    }
+                    InterceptAction::Drop => {
+                        let resp = HttpResponse::simple(
+                            403,
+                            "Forbidden",
+                            "Request dropped by interceptor",
+                        );
+                        client.write_all(&resp.to_bytes())?;
+                        continue;
+                    }
+                    InterceptAction::Replace(resp) => {
+                        client.write_all(&resp.to_bytes())?;
+                        continue;
                     }
                 }
+            } else {
+                last_request = None;
             }
 
             // If this is a hook request in same-origin mode, serve it directly without forwarding
@@ -1088,9 +1098,34 @@ impl MitmProxy {
             // Handle WebSocket upgrade response
             if is_websocket_upgrade {
                 if let Some(resp) = HttpResponse::parse(&resp_data) {
+                    let mut resp = resp;
+                    if let Some(interceptor) = &config.interceptor {
+                        if let Some(req) = last_request.as_ref() {
+                            match interceptor.on_response(req, &mut resp) {
+                                InterceptAction::Continue => {}
+                                InterceptAction::Drop => {
+                                    last_request = None;
+                                    continue;
+                                }
+                                InterceptAction::Replace(replacement) => {
+                                    let replacement = replacement.to_bytes();
+                                    config.logger.log_response(
+                                        hostname,
+                                        resp.status_code,
+                                        &resp.status_text,
+                                    );
+                                    client.write_all(&replacement)?;
+                                    last_request = None;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     config
                         .logger
                         .log_response(hostname, resp.status_code, &resp.status_text);
+                    resp_data = resp.to_bytes();
 
                     if resp.is_websocket_upgrade() {
                         config.logger.log_info(&format!(
@@ -1117,6 +1152,26 @@ impl MitmProxy {
             if let Some(mut resp) = HttpResponse::parse(&resp_data) {
                 // Strip security headers to allow injection and framing
                 resp.strip_security_headers();
+
+                if let Some(interceptor) = &config.interceptor {
+                    if let Some(req) = last_request.as_ref() {
+                        match interceptor.on_response(req, &mut resp) {
+                            InterceptAction::Continue => {}
+                            InterceptAction::Drop => {
+                                last_request = None;
+                                continue;
+                            }
+                            InterceptAction::Replace(replacement) => {
+                                let replacement = replacement.to_bytes();
+                                config.logger
+                                    .log_response(hostname, resp.status_code, &resp.status_text);
+                                client.write_all(&replacement)?;
+                                last_request = None;
+                                continue;
+                            }
+                        }
+                    }
+                }
 
                 let content_type = resp
                     .headers
@@ -1147,10 +1202,12 @@ impl MitmProxy {
                 config
                     .logger
                     .log_response(hostname, resp.status_code, &resp.status_text);
+                resp_data = resp.to_bytes();
             }
 
             // Forward to client
             client.write_all(&resp_data)?;
+            last_request = None;
         }
 
         Ok(())
@@ -1169,6 +1226,7 @@ impl MitmProxy {
     {
         let mut client_buf = [0u8; 16384];
         let mut target_buf = [0u8; 16384];
+        let mut last_request: Option<HttpRequest> = None;
 
         loop {
             // Try to read from client
@@ -1180,27 +1238,55 @@ impl MitmProxy {
                 Ok(n) => {
                     let mut data_to_send = client_buf[..n].to_vec();
                     let mut is_websocket_upgrade = false;
+                    let mut request_action = InterceptAction::Continue;
 
                     // Parse request to log or strip headers
                     if let Some(mut req) = HttpRequest::parse(&data_to_send) {
-                        config
-                            .logger
-                            .log_request(hostname, &req.method, &req.path, &req.version);
+                        if let Some(interceptor) = &config.interceptor {
+                            request_action = interceptor.on_request(&mut req, Some(hostname));
+                        }
 
-                        // Check for WebSocket upgrade request
-                        if req.is_websocket_upgrade() {
-                            config.logger.log_info(&format!(
-                                "[{}] WebSocket upgrade request detected",
-                                hostname
-                            ));
-                            is_websocket_upgrade = true;
-                            // Don't modify WebSocket upgrade requests
-                        } else {
-                            // Strip Accept-Encoding to prevent compression (only for non-WebSocket)
-                            if req.headers.remove("accept-encoding").is_some() {
-                                data_to_send = req.to_bytes();
+                        match request_action {
+                            InterceptAction::Continue => {
+                                config
+                                    .logger
+                                    .log_request(hostname, &req.method, &req.path, &req.version);
+
+                                // Check for WebSocket upgrade request
+                                if req.is_websocket_upgrade() {
+                                    config.logger.log_info(&format!(
+                                        "[{}] WebSocket upgrade request detected",
+                                        hostname
+                                    ));
+                                    is_websocket_upgrade = true;
+                                    // Don't modify WebSocket upgrade requests
+                                } else {
+                                    // Strip Accept-Encoding to prevent compression (only for non-WebSocket)
+                                    if req.headers.remove("accept-encoding").is_some() {
+                                        data_to_send = req.to_bytes();
+                                    }
+                                }
+
+                                last_request = Some(req);
+                            }
+                            InterceptAction::Drop => {
+                                let resp = HttpResponse::simple(
+                                    403,
+                                    "Forbidden",
+                                    "Request dropped by interceptor",
+                                );
+                                client.write_all(&resp.to_bytes())?;
+                                last_request = None;
+                                continue;
+                            }
+                            InterceptAction::Replace(resp) => {
+                                client.write_all(&resp.to_bytes())?;
+                                last_request = None;
+                                continue;
                             }
                         }
+                    } else {
+                        last_request = None;
                     }
 
                     // Forward to target
@@ -1215,9 +1301,31 @@ impl MitmProxy {
                             Err(e) => return Err(e.into()),
                         };
 
-                        let resp_data = &target_buf[..m];
+                        let mut resp_data = target_buf[..m].to_vec();
 
-                        if let Some(resp) = HttpResponse::parse(resp_data) {
+                        if let Some(mut resp) = HttpResponse::parse(&resp_data) {
+                            if let Some(interceptor) = &config.interceptor {
+                                if let Some(req) = last_request.as_ref() {
+                                    match interceptor.on_response(req, &mut resp) {
+                                        InterceptAction::Continue => {}
+                                        InterceptAction::Drop => {
+                                            last_request = None;
+                                            continue;
+                                        }
+                                        InterceptAction::Replace(replacement) => {
+                                            config.logger.log_response(
+                                                hostname,
+                                                replacement.status_code,
+                                                &replacement.status_text,
+                                            );
+                                            client.write_all(&replacement.to_bytes())?;
+                                            last_request = None;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+
                             config.logger.log_response(
                                 hostname,
                                 resp.status_code,
@@ -1230,7 +1338,7 @@ impl MitmProxy {
                                     hostname
                                 ));
                                 // Forward the upgrade response to client
-                                client.write_all(resp_data)?;
+                                client.write_all(&resp.to_bytes())?;
                                 // Switch to WebSocket passthrough mode
                                 return Self::websocket_passthrough(
                                     client,
@@ -1239,10 +1347,17 @@ impl MitmProxy {
                                     &config.logger,
                                 );
                             }
+
+                            resp_data = resp.to_bytes();
+                        }
+
+                        if resp_data.is_empty() {
+                            continue;
                         }
 
                         // Not a valid WebSocket upgrade, forward response anyway
-                        client.write_all(resp_data)?;
+                        client.write_all(&resp_data)?;
+                        last_request = None;
                         continue;
                     }
                 }
@@ -1260,6 +1375,28 @@ impl MitmProxy {
                     let mut data_to_send = target_buf[..n].to_vec();
 
                     if let Some(mut resp) = HttpResponse::parse(&data_to_send) {
+                        if let Some(interceptor) = &config.interceptor {
+                            if let Some(req) = last_request.as_ref() {
+                                match interceptor.on_response(req, &mut resp) {
+                                    InterceptAction::Continue => {}
+                                    InterceptAction::Drop => {
+                                        last_request = None;
+                                        continue;
+                                    }
+                                    InterceptAction::Replace(replacement) => {
+                                        config.logger.log_response(
+                                            hostname,
+                                            replacement.status_code,
+                                            &replacement.status_text,
+                                        );
+                                        client.write_all(&replacement.to_bytes())?;
+                                        last_request = None;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+
                         config
                             .logger
                             .log_response(hostname, resp.status_code, &resp.status_text);
@@ -1271,6 +1408,7 @@ impl MitmProxy {
 
                     // Forward to client
                     client.write_all(&data_to_send)?;
+                    last_request = None;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e.into()),
@@ -1348,9 +1486,9 @@ impl MitmProxy {
         let mut target_buf = [0u8; 65536];
         let mut frame_count: u64 = 0;
 
-        // Simple alternating read - not perfect but works for most cases
-        // TODO: Use poll/select for better bidirectional handling
         loop {
+            let mut progress = false;
+
             // Try to read from client (non-blocking would be better)
             match client.read(&mut client_buf) {
                 Ok(0) => {
@@ -1362,6 +1500,7 @@ impl MitmProxy {
                     let frame_type = Self::parse_ws_frame_type(&client_buf[..n]);
                     logger.log_ws_frame(hostname, "C->S", frame_count, frame_type, n);
                     target.write_all(&client_buf[..n])?;
+                    progress = true;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e.into()),
@@ -1378,9 +1517,14 @@ impl MitmProxy {
                     let frame_type = Self::parse_ws_frame_type(&target_buf[..n]);
                     logger.log_ws_frame(hostname, "S->C", frame_count, frame_type, n);
                     client.write_all(&target_buf[..n])?;
+                    progress = true;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e.into()),
+            }
+
+            if !progress {
+                std::thread::sleep(Duration::from_millis(1));
             }
         }
 

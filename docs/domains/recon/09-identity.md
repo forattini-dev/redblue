@@ -158,17 +158,3 @@ rb recon identity username target_handle --threads 100
 # Export to JSON for further processing
 rb recon identity username target_handle -o json > profiles.json
 ```
-
-## Backwards Compatibility
-
-The legacy command `rb recon username search` still works and is aliased to `rb recon identity username`:
-
-```bash
-# Both commands are equivalent:
-rb recon username search johndoe
-rb recon identity username johndoe
-
-# Legacy email command also still works:
-rb recon domain email user@example.com
-rb recon identity email user@example.com
-```

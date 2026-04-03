@@ -95,3 +95,14 @@ docs/rfcs/
 docs/recker/
 # External references
 .reference/
+
+# OpenSpec
+openspec/
+.claude/commands/openspec/
+
+# External repos / references
+Bless/
+HexFiend/
+cheat-engine/
+hexedit/
+CODE_AUDIT.md

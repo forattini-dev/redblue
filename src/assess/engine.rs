@@ -24,8 +24,8 @@ use crate::playbooks::recommender::{
 use crate::playbooks::types::RiskLevel;
 use crate::storage::records::VulnerabilityRecord;
 use crate::storage::service::StorageService;
-use crate::storage::unified::RedDB;
 use crate::storage::QueryManager;
+use crate::storage::RedDB;
 
 /// Assessment options
 #[derive(Debug, Clone)]

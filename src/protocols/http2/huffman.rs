@@ -269,6 +269,38 @@ const HUFFMAN_TABLE: [HuffmanEntry; 256] = [
                       // EOS: (0x3fffffff, 30), // EOS (end-of-string) |11111111|11111111|11111111|111111
 ];
 
+/// Encode raw bytes into HPACK Huffman bitstream
+pub fn huffman_encode(data: &[u8]) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut bit_buffer: u64 = 0;
+    let mut bit_count: u8 = 0;
+
+    for &byte in data {
+        let (code, bits) = HUFFMAN_TABLE[byte as usize];
+        bit_buffer = (bit_buffer << bits) | code as u64;
+        bit_count += bits;
+
+        while bit_count >= 8 {
+            bit_count -= 8;
+            let byte_out = (bit_buffer >> bit_count) as u8;
+            output.push(byte_out);
+
+            let mask = if bit_count == 0 { 0 } else { (1u64 << bit_count) - 1 };
+            bit_buffer &= mask;
+        }
+    }
+
+    if bit_count > 0 {
+        // RFC 7541 requires padding with 1 bits on the last byte
+        let padding = 8 - bit_count;
+        bit_buffer <<= padding;
+        bit_buffer |= (1u64 << padding) - 1;
+        output.push(bit_buffer as u8);
+    }
+
+    output
+}
+
 /// Decode Huffman-encoded data
 pub fn huffman_decode(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut result = Vec::new();
@@ -334,6 +366,31 @@ pub fn huffman_decode(data: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_huffman_roundtrip_www_example_com() {
+        let raw = b"www.example.com";
+        let encoded = huffman_encode(raw);
+        let decoded = huffman_decode(&encoded).unwrap();
+
+        assert_eq!(decoded, raw);
+    }
+
+    #[test]
+    fn test_huffman_roundtrip_custom_values() {
+        let samples = [
+            b"".as_slice(),
+            b"custom-key".as_slice(),
+            b"custom-value".as_slice(),
+            b"HTTP/2".as_slice(),
+        ];
+
+        for raw in samples {
+            let encoded = huffman_encode(raw);
+            let decoded = huffman_decode(&encoded).unwrap();
+            assert_eq!(decoded, raw);
+        }
+    }
 
     #[test]
     fn test_huffman_decode_www_example_com() {

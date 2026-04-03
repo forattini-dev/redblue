@@ -7,17 +7,13 @@ pub use crate::modules::collection::secrets::{SecretFinding, SecretRule, SecretS
 use crate::modules::common::Severity;
 use crate::protocols::http::HttpClient;
 
-/// Type alias for backward compatibility with existing code.
-/// New code should use `common::Severity` directly.
-pub type SecretSeverity = Severity;
-
 /// Web-focused secret finding with severity
 #[derive(Debug, Clone)]
 pub struct WebSecretFinding {
     /// Type of secret found
     pub secret_type: String,
     /// Severity level
-    pub severity: SecretSeverity,
+    pub severity: Severity,
     /// The matched content (truncated)
     pub matched: String,
     /// Source URL

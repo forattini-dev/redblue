@@ -1,5 +1,15 @@
 #![allow(dead_code)]
 
+//! Secret detection module (Gitleaks replacement)
+//!
+//! Detects secrets, API keys, tokens, and credentials in code using:
+//! - Pattern-based detection (regex)
+//! - Shannon entropy analysis
+//! - Recursive file scanning
+//! - False positive filtering
+//!
+//! NO external dependencies - pure Rust std implementation
+
 pub mod archive;
 pub mod config;
 pub mod decoding;
@@ -10,19 +20,6 @@ use config::SecretsConfig;
 
 // Use canonical Severity from common module
 use crate::modules::common::Severity;
-
-/// Type alias for backward compatibility with existing code.
-/// New code should use `common::Severity` directly.
-pub type SecretSeverity = Severity;
-/// Secret detection module (Gitleaks replacement)
-///
-/// Detects secrets, API keys, tokens, and credentials in code using:
-/// - Pattern-based detection (regex)
-/// - Shannon entropy analysis
-/// - Recursive file scanning
-/// - False positive filtering
-///
-/// NO external dependencies - pure Rust std implementation
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -51,12 +48,12 @@ pub struct SecretFinding {
     pub rule_id: String,
     pub description: String,
     pub secret: String,
-    pub severity: SecretSeverity,
+    pub severity: Severity,
     pub entropy: Option<f64>,
     pub pattern_name: String,
     pub matched: String,
     pub line_content: String,
-    pub secret_type: String, // For compatibility with existing code
+    pub secret_type: String, // Secret classification label
 }
 
 pub struct SecretScanner {
@@ -392,7 +389,7 @@ impl SecretScanner {
                 rule_id: risk.rule_id.to_string(),
                 description: risk.description,
                 secret: risk.secret_label,
-                severity: SecretSeverity::High,
+                severity: Severity::High,
                 entropy: None,
                 pattern_name: risk.rule_id.to_string(),
                 matched: "BINARY FILE".to_string(),
@@ -473,7 +470,7 @@ impl SecretScanner {
                         rule_id: rule.id.clone(),
                         description: rule.description.clone(),
                         secret: secret.clone(),
-                        severity: SecretSeverity::High,
+                        severity: Severity::High,
                         entropy,
                         pattern_name: rule.id.clone(),
                         matched: secret.clone(),

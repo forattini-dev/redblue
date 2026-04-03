@@ -7,8 +7,6 @@
 //! Each key can have multiple versions, forming a chain from newest to oldest.
 //! Transactions see a consistent snapshot based on their start timestamp.
 
-// Re-export centralized ID types for backward compatibility
-// These types are now defined in storage::primitives::ids
 pub use crate::storage::primitives::ids::{current_timestamp, next_timestamp, Timestamp, TxnId};
 
 /// Version visibility for a transaction

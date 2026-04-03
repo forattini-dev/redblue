@@ -672,7 +672,6 @@ impl WebSocketTransport {
     }
 
     fn read_handshake_response(&mut self) -> TransportResult<String> {
-        // TODO(test): add regression test to ensure handshake buffering preserves frame bytes.
         const MAX_HEADER_BYTES: usize = 16 * 1024;
         let mut buffer = Vec::new();
         let mut chunk = [0u8; 1024];
@@ -1201,6 +1200,52 @@ Connection: Upgrade\r\n\
         let mut transport = WebSocketTransport::with_url(&format!("ws://{}", addr));
         let result = transport.handshake();
         assert!(matches!(result, Err(TransportError::InvalidData(_))));
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_handshake_preserves_post_header_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+
+            let mut request = Vec::new();
+            let mut buf = [0u8; 2048];
+            let n = socket.read(&mut buf).unwrap();
+            request.extend_from_slice(&buf[..n]);
+
+            let request = String::from_utf8_lossy(&request);
+            let key = request
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("Sec-WebSocket-Key: ")
+                        .map(|key| key.trim().to_string())
+                })
+                .unwrap_or_else(|| "testkey==".to_string());
+            let accept = WebSocketTransport::compute_accept(&key);
+
+            let frame = WsFrame::binary(b"ok".to_vec()).to_bytes();
+            let response = format!(
+                "HTTP/1.1 101 Switching Protocols\r\n\
+Upgrade: websocket\r\n\
+Connection: Upgrade\r\n\
+Sec-WebSocket-Accept: {}\r\n\
+\r\n",
+                accept
+            );
+
+            socket.write_all(response.as_bytes()).unwrap();
+            socket.write_all(&frame).unwrap();
+        });
+
+        let mut transport = WebSocketTransport::with_url(&format!("ws://{}", addr));
+        transport.handshake().expect("handshake failed");
+
+        let msg = transport.recv_message().expect("message read failed");
+        assert_eq!(msg, b"ok");
 
         server.join().unwrap();
     }

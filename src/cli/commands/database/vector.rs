@@ -8,7 +8,7 @@
 use crate::cli::commands::print_help;
 use crate::cli::{output::Output, CliContext};
 use crate::storage::engine::distance::DistanceMetric;
-use crate::storage::unified::{EntityData, RedDB};
+use crate::storage::{EntityData, RedDB};
 use std::collections::HashSet;
 
 use super::DatabaseCommand;

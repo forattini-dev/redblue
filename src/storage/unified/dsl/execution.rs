@@ -287,10 +287,10 @@ pub fn execute_ref_query(
                 }
             }
 
-            // Expand cross-refs
-            for xref in &entity.cross_refs {
-                if xref.ref_type == query.ref_type {
-                    frontier.push((xref.target, depth + 1));
+            // Expand cross-refs via store index
+            for (target_id, ref_type, _) in store.get_refs_from(current_id) {
+                if ref_type == query.ref_type {
+                    frontier.push((target_id, depth + 1));
                 }
             }
         }
@@ -579,18 +579,34 @@ pub fn execute_three_way_join(
 
                 for id in &current_ids {
                     if let Some(current) = results.get(id) {
-                        // Find connected entities via cross-refs
-                        for col_name in store.list_collections() {
-                            if let Some(manager) = store.get_collection(&col_name) {
-                                let entities = manager.query_all(|e| {
-                                    // Check if entity is connected via cross-refs
-                                    e.cross_refs.iter().any(|r| {
-                                        // Match if source or target matches current id
-                                        r.target == *id || r.source == *id
-                                    })
-                                });
+                        let mut seen = HashSet::new();
 
-                                for entity in entities {
+                        for (target_id, _, target_collection) in store.get_refs_from(*id) {
+                            if let Some(entity) = store.get(&target_collection, target_id) {
+                                if seen.insert(entity.id) {
+                                    scanned += 1;
+                                    let entry = new_results.entry(entity.id).or_insert_with(|| {
+                                        let mut path = current.path.clone();
+                                        path.push(entity.id);
+                                        CrossModalMatch {
+                                            entity: entity.clone(),
+                                            vector_score: current.vector_score,
+                                            graph_score: current.graph_score
+                                                + 1.0 / (*depth as f32 + 1.0),
+                                            table_score: current.table_score,
+                                            path,
+                                        }
+                                    });
+                                    entry.graph_score = entry
+                                        .graph_score
+                                        .max(current.graph_score + 1.0 / (*depth as f32 + 1.0));
+                                }
+                            }
+                        }
+
+                        for (source_id, _, source_collection) in store.get_refs_to(*id) {
+                            if let Some(entity) = store.get(&source_collection, source_id) {
+                                if seen.insert(entity.id) {
                                     scanned += 1;
                                     let entry = new_results.entry(entity.id).or_insert_with(|| {
                                         let mut path = current.path.clone();
@@ -632,20 +648,22 @@ pub fn execute_three_way_join(
                             for table_entity in &table_entities {
                                 scanned += 1;
                                 // Check if table entity references current entity
-                                let matches =
-                                    table_entity.cross_refs.iter().any(|r| r.target == *id)
-                                        || on_field
-                                            .as_ref()
-                                            .map(|f| match &table_entity.data {
-                                                EntityData::Row(row) => row
-                                                    .named
-                                                    .as_ref()
-                                                    .and_then(|n| n.get(f))
-                                                    .map(|v| v.to_string() == id.to_string())
-                                                    .unwrap_or(false),
-                                                _ => false,
-                                            })
-                                            .unwrap_or(false);
+                                let matches = store
+                                    .get_refs_from(table_entity.id)
+                                    .iter()
+                                    .any(|(target_id, _, _)| target_id == id)
+                                    || on_field
+                                        .as_ref()
+                                        .map(|f| match &table_entity.data {
+                                            EntityData::Row(row) => row
+                                                .named
+                                                .as_ref()
+                                                .and_then(|n| n.get(f))
+                                                .map(|v| v.to_string() == id.to_string())
+                                                .unwrap_or(false),
+                                            _ => false,
+                                        })
+                                        .unwrap_or(false);
 
                                 if matches {
                                     let entry =

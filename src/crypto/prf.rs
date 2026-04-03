@@ -157,15 +157,6 @@ pub fn derive_master_secret_tls12(
     )
 }
 
-/// Compatibility wrapper for legacy callers expecting TLS 1.2 semantics.
-pub fn derive_master_secret(
-    pre_master_secret: &[u8],
-    client_random: &[u8; 32],
-    server_random: &[u8; 32],
-) -> [u8; 48] {
-    derive_master_secret_tls12(pre_master_secret, client_random, server_random)
-}
-
 pub fn derive_master_secret_tls12_with_hash(
     pre_master_secret: &[u8],
     client_random: &[u8; 32],
@@ -233,21 +224,6 @@ pub fn derive_keys_tls12_with_hash(
         &seed,
         key_material_len,
         hash,
-    )
-}
-
-/// Compatibility wrapper for legacy callers expecting TLS 1.2 semantics.
-pub fn derive_keys(
-    master_secret: &[u8; 48],
-    server_random: &[u8; 32],
-    client_random: &[u8; 32],
-    key_material_len: usize,
-) -> Vec<u8> {
-    derive_keys_tls12(
-        master_secret,
-        server_random,
-        client_random,
-        key_material_len,
     )
 }
 

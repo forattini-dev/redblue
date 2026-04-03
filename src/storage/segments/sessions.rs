@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::storage::encoding::{read_string, write_string, DecodeError};
+use crate::storage::primitives::encoding::{read_string, write_string, DecodeError};
 use crate::storage::records::{SessionRecord, SessionStatus};
 
 #[derive(Debug, Clone, Copy)]

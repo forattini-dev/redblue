@@ -140,7 +140,7 @@ pub fn email(ctx: &CliContext) -> Result<(), String> {
     if let Some(username) = intel.extract_username(target) {
         println!();
         Output::info(&format!(
-            "Tip: Try 'rb recon username search {}' for broader search",
+            "Tip: Try 'rb recon identity username {}' for broader search",
             username
         ));
     }

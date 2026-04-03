@@ -337,24 +337,24 @@ impl<'a> Chart<'a> {
 /// Trait for plotting shapes on a chart
 pub trait Plot<'a> {
     /// Add a line plot to the chart
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart<'a>;
+    fn lineplot(&mut self, shape: &'a Shape) -> &mut Chart<'a>;
 }
 
 /// Trait for plotting colored shapes on a chart
 pub trait ColorPlot<'a> {
     /// Add a colored line plot to the chart
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart<'a>;
+    fn linecolorplot(&mut self, shape: &'a Shape, color: Color) -> &mut Chart<'a>;
 }
 
 impl<'a> Plot<'a> for Chart<'a> {
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart<'a> {
+    fn lineplot(&mut self, shape: &'a Shape) -> &mut Chart<'a> {
         self.shapes.push((shape, None));
         self
     }
 }
 
 impl<'a> ColorPlot<'a> for Chart<'a> {
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: Color) -> &'a mut Chart<'a> {
+    fn linecolorplot(&mut self, shape: &'a Shape, color: Color) -> &mut Chart<'a> {
         self.shapes.push((shape, Some(color)));
         self
     }
@@ -393,39 +393,78 @@ mod tests {
         Chart::new(120, 2, -10.0, 10.0);
     }
 
-    // TODO: Fix lifetime issues with Shape borrowing before enabling these tests
-    #[cfg(disabled_tests)]
-    mod shape_tests {
-        use super::*;
-
-        #[test]
-        fn test_continuous_function() {
-            let mut chart = Chart::new(120, 60, -10.0, 10.0);
-            let shape = Shape::Continuous(Box::new(|x| x.sin()));
-            chart.lineplot(&shape);
-            let frame = chart.frame();
-            assert!(!frame.is_empty());
+    #[test]
+    fn test_continuous_function() {
+        fn wave(x: f32) -> f32 {
+            x.sin()
         }
 
-        #[test]
-        fn test_points() {
-            let points = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 1.5), (3.0, 0.5)];
-            let mut chart = Chart::new(120, 60, -1.0, 4.0);
-            let shape = Shape::Points(&points);
-            chart.lineplot(&shape);
-            let frame = chart.frame();
-            assert!(!frame.is_empty());
-        }
-
-        #[test]
-        fn test_colored_plot() {
-            use crate::ui::colors::colors::RED;
-
-            let mut chart = Chart::new(120, 60, -10.0, 10.0);
-            let shape = Shape::Continuous(Box::new(|x| x.sin()));
-            chart.linecolorplot(&shape, RED);
-            let frame = chart.frame();
-            assert!(!frame.is_empty());
-        }
+        let mut chart = Chart::new(120, 60, -10.0, 10.0);
+        let shape = Shape::Continuous(Box::new(wave as fn(f32) -> f32));
+        chart.lineplot(&shape);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
     }
+
+    #[test]
+    fn test_points() {
+        static POINTS: [(f32, f32); 4] = [(0.0, 1.0), (1.0, 2.0), (2.0, 1.5), (3.0, 0.5)];
+
+        let mut chart = Chart::new(120, 60, -1.0, 4.0);
+        let shape = Shape::Points(&POINTS);
+        chart.lineplot(&shape);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
+    }
+
+    #[test]
+    fn test_lines() {
+        static LINE_POINTS: [(f32, f32); 4] =
+            [(0.0, 0.0), (1.0, 1.0), (2.0, 0.5), (3.0, 1.5)];
+
+        let mut chart = Chart::new(120, 60, -1.0, 4.0);
+        let shape = Shape::Lines(&LINE_POINTS);
+        chart.lineplot(&shape);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
+    }
+
+    #[test]
+    fn test_steps() {
+        static STEP_POINTS: [(f32, f32); 4] =
+            [(0.0, 0.5), (1.0, 1.2), (2.0, 0.2), (3.0, 0.9)];
+
+        let mut chart = Chart::new(120, 60, -1.0, 4.0);
+        let shape = Shape::Steps(&STEP_POINTS);
+        chart.lineplot(&shape);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
+    }
+
+    #[test]
+    fn test_bars() {
+        static BAR_POINTS: [(f32, f32); 4] = [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 1.5)];
+
+        let mut chart = Chart::new(120, 60, -1.0, 4.0);
+        let shape = Shape::Bars(&BAR_POINTS);
+        chart.lineplot(&shape);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
+    }
+
+    #[test]
+    fn test_colored_plot() {
+        use crate::ui::colors::colors::RED;
+
+        fn wave(x: f32) -> f32 {
+            x.cos()
+        }
+
+        let mut chart = Chart::new(120, 60, -10.0, 10.0);
+        let shape = Shape::Continuous(Box::new(wave as fn(f32) -> f32));
+        chart.linecolorplot(&shape, RED);
+        let frame = chart.frame();
+        assert!(!frame.is_empty());
+    }
+
 }

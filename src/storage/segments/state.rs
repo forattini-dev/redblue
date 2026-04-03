@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_string, read_varu32, read_varu64, write_string, write_varu32, write_varu64, DecodeError,
 };
 

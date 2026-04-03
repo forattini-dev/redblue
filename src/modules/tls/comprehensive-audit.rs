@@ -35,7 +35,7 @@
 use crate::modules::common::Severity;
 use crate::modules::tls::{
     heartbleed::{HeartbleedResult, HeartbleedTester},
-    ocsp::OcspStatus,
+    ocsp::{OcspStatus, OcspValidator},
     scanner::{SecurityIssue, TlsScanner},
 };
 use crate::protocols::tls_cert::{CertificateInfo, TlsClient};
@@ -161,13 +161,23 @@ impl ComprehensiveTlsAuditor {
             .unwrap_or_default();
 
         // Step 4: OCSP revocation check (if we have certificates)
-        let ocsp_status = if certificates.len() >= 2 {
-            // Need both leaf and issuer for OCSP
-            // TODO: Extract DER bytes from certificates
-            // For now, return None
-            None
+        let ocsp_status = if certificates.len() >= 2
+            && !certificates[0].der.is_empty()
+            && !certificates[1].der.is_empty()
+        {
+            let validator = OcspValidator::with_timeout(self.timeout);
+            validator
+                .check_certificate(&certificates[0].der, &certificates[1].der)
+                .ok()
+                .map(|response| response.status)
         } else {
-            None
+            // OCSP needs a valid leaf+issuer DER pair. Keep explicit unknown signal
+            // when the chain is present but not complete enough for a revocation check.
+            if certificates.len() >= 1 && !certificates[0].der.is_empty() {
+                Some(OcspStatus::Unknown)
+            } else {
+                None
+            }
         };
 
         // Step 5: Analyze security issues

@@ -43,8 +43,7 @@ impl BatchBuilder {
         let collection = collection.into();
         let label_str = label.into();
 
-        let manager = self.store.get_or_create_collection(&collection);
-        let id = manager.next_entity_id();
+        let id = self.store.next_entity_id();
 
         let kind = EntityKind::GraphNode {
             label: label_str.clone(),
@@ -70,8 +69,7 @@ impl BatchBuilder {
     ) -> Self {
         let collection = collection.into();
 
-        let manager = self.store.get_or_create_collection(&collection);
-        let id = manager.next_entity_id();
+        let id = self.store.next_entity_id();
 
         let kind = EntityKind::Vector {
             collection: collection.clone(),
@@ -95,9 +93,7 @@ impl BatchBuilder {
         // Insert nodes
         for (collection, entity, metadata) in self.nodes {
             let id = entity.id;
-            let manager = self.store.get_or_create_collection(&collection);
-
-            if manager.insert(entity).is_ok() {
+            if self.store.insert_auto(&collection, entity).is_ok() {
                 if !metadata.is_empty() {
                     let _ =
                         self.store
@@ -110,9 +106,7 @@ impl BatchBuilder {
         // Insert vectors
         for (collection, entity, metadata) in self.vectors {
             let id = entity.id;
-            let manager = self.store.get_or_create_collection(&collection);
-
-            if manager.insert(entity).is_ok() {
+            if self.store.insert_auto(&collection, entity).is_ok() {
                 if !metadata.is_empty() {
                     let _ =
                         self.store
@@ -125,9 +119,7 @@ impl BatchBuilder {
         // Insert edges
         for (collection, entity, metadata) in self.edges {
             let id = entity.id;
-            let manager = self.store.get_or_create_collection(&collection);
-
-            if manager.insert(entity).is_ok() {
+            if self.store.insert_auto(&collection, entity).is_ok() {
                 if !metadata.is_empty() {
                     let _ =
                         self.store
@@ -140,9 +132,7 @@ impl BatchBuilder {
         // Insert rows
         for (collection, entity, metadata) in self.rows {
             let id = entity.id;
-            let manager = self.store.get_or_create_collection(&collection);
-
-            if manager.insert(entity).is_ok() {
+            if self.store.insert_auto(&collection, entity).is_ok() {
                 if !metadata.is_empty() {
                     let _ =
                         self.store

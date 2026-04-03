@@ -10,7 +10,7 @@ use super::super::{
     RefType, RowData, UnifiedEntity, UnifiedStore, VectorData,
 };
 use super::error::DevXError;
-use super::refs::{NodeRef, TableRef};
+use super::refs::{NodeRef, TableRef, VectorRef};
 use crate::storage::schema::Value;
 
 // ============================================================================
@@ -27,6 +27,7 @@ pub struct NodeBuilder {
     metadata: HashMap<String, MetadataValue>,
     embeddings: Vec<(String, Vec<f32>, String)>, // (name, vector, model)
     links: Vec<(EntityId, String, f32)>,         // (target, label, weight)
+    cross_links: Vec<(EntityId, String, RefType)>, // (target, collection, ref_type)
 }
 
 impl NodeBuilder {
@@ -45,6 +46,7 @@ impl NodeBuilder {
             metadata: HashMap::new(),
             embeddings: Vec::new(),
             links: Vec::new(),
+            cross_links: Vec::new(),
         }
     }
 
@@ -80,6 +82,11 @@ impl NodeBuilder {
     /// Add metadata linking to a table row
     pub fn link_to_table(mut self, key: impl Into<String>, table_ref: TableRef) -> Self {
         self.metadata.insert(key.into(), table_ref.to_metadata());
+        self.cross_links.push((
+            EntityId::new(table_ref.row_id),
+            table_ref.table.clone(),
+            RefType::NodeToRow,
+        ));
         self
     }
 
@@ -134,8 +141,7 @@ impl NodeBuilder {
 
         let data = EntityData::Node(NodeData::with_properties(self.properties));
 
-        let manager = self.store.get_or_create_collection(&self.collection);
-        let id = manager.next_entity_id();
+        let id = self.store.next_entity_id();
 
         let mut entity = UnifiedEntity::new(id, kind, data);
 
@@ -143,10 +149,14 @@ impl NodeBuilder {
         for (name, vector, model) in self.embeddings {
             entity.add_embedding(super::super::EmbeddingSlot::new(name, vector, model));
         }
+        for (target, target_collection, ref_type) in self.cross_links {
+            entity.add_cross_ref(CrossRef::new(id, target, target_collection, ref_type));
+        }
 
         // Insert the entity
-        manager
-            .insert(entity)
+        let id = self
+            .store
+            .insert_auto(&self.collection, entity)
             .map_err(|e| DevXError::Storage(format!("{:?}", e)))?;
 
         // Store metadata
@@ -168,13 +178,18 @@ impl NodeBuilder {
             };
 
             let edge_data = EntityData::Edge(EdgeData::new(weight));
-            let edge_id = manager.next_entity_id();
+            let edge_id = self.store.next_entity_id();
             let mut edge_entity = UnifiedEntity::new(edge_id, edge_kind, edge_data);
 
             // Add cross-refs for fast traversal
-            edge_entity.add_cross_ref(CrossRef::new(edge_id, target, RefType::RelatedTo));
+            edge_entity.add_cross_ref(CrossRef::new(
+                edge_id,
+                target,
+                self.collection.clone(),
+                RefType::RelatedTo,
+            ));
 
-            let _ = manager.insert(edge_entity);
+            let _ = self.store.insert_auto(&self.collection, edge_entity);
 
             // Add cross-ref from source node to edge
             let _ = self.store.add_cross_ref(
@@ -280,17 +295,27 @@ impl EdgeBuilder {
         let mut edge_data = EdgeData::new(self.weight);
         edge_data.properties = self.properties;
 
-        let manager = self.store.get_or_create_collection(&self.collection);
-        let id = manager.next_entity_id();
+        let id = self.store.next_entity_id();
 
         let mut entity = UnifiedEntity::new(id, kind, EntityData::Edge(edge_data));
 
         // Add cross-refs for bidirectional traversal
-        entity.add_cross_ref(CrossRef::new(id, from, RefType::DerivesFrom));
-        entity.add_cross_ref(CrossRef::new(id, to, RefType::RelatedTo));
+        entity.add_cross_ref(CrossRef::new(
+            id,
+            from,
+            self.collection.clone(),
+            RefType::DerivesFrom,
+        ));
+        entity.add_cross_ref(CrossRef::new(
+            id,
+            to,
+            self.collection.clone(),
+            RefType::RelatedTo,
+        ));
 
-        manager
-            .insert(entity)
+        let id = self
+            .store
+            .insert_auto(&self.collection, entity)
             .map_err(|e| DevXError::Storage(format!("{:?}", e)))?;
 
         // Store metadata
@@ -336,7 +361,7 @@ pub struct VectorBuilder {
     sparse: Option<Vec<(u32, f32)>>,
     content: Option<String>,
     metadata: HashMap<String, MetadataValue>,
-    links: Vec<(EntityId, RefType)>,
+    links: Vec<(EntityId, String, RefType)>,
 }
 
 impl VectorBuilder {
@@ -380,12 +405,18 @@ impl VectorBuilder {
     pub fn link_to_table(mut self, table_ref: TableRef) -> Self {
         self.metadata
             .insert("_source_table".to_string(), table_ref.to_metadata());
+        self.links.push((
+            EntityId::new(table_ref.row_id),
+            table_ref.table,
+            RefType::VectorToRow,
+        ));
         self
     }
 
     /// Link to a node
-    pub fn link_to_node(mut self, node_id: EntityId) -> Self {
-        self.links.push((node_id, RefType::DerivesFrom));
+    pub fn link_to_node(mut self, node_ref: NodeRef) -> Self {
+        self.links
+            .push((node_ref.node_id, node_ref.collection, RefType::VectorToNode));
         self
     }
 
@@ -420,18 +451,17 @@ impl VectorBuilder {
             vec_data.sparse = Some(super::super::SparseVector::new(indices, values, dimension));
         }
 
-        let manager = self.store.get_or_create_collection(&self.collection);
-        let id = manager.next_entity_id();
-
+        let id = self.store.next_entity_id();
         let mut entity = UnifiedEntity::new(id, kind, EntityData::Vector(vec_data));
 
         // Add cross-refs
-        for (target, ref_type) in self.links {
-            entity.add_cross_ref(CrossRef::new(id, target, ref_type));
+        for (target, target_collection, ref_type) in self.links {
+            entity.add_cross_ref(CrossRef::new(id, target, target_collection, ref_type));
         }
 
-        manager
-            .insert(entity)
+        let id = self
+            .store
+            .insert_auto(&self.collection, entity)
             .map_err(|e| DevXError::Storage(format!("{:?}", e)))?;
 
         // Store metadata
@@ -456,7 +486,7 @@ pub struct RowBuilder {
     columns: Vec<Value>,
     named: HashMap<String, Value>,
     metadata: HashMap<String, MetadataValue>,
-    links: Vec<(EntityId, RefType)>,
+    links: Vec<(EntityId, String, RefType)>,
 }
 
 impl RowBuilder {
@@ -490,21 +520,25 @@ impl RowBuilder {
     }
 
     /// Link to a node
-    pub fn link_to_node(mut self, node_id: EntityId) -> Self {
-        self.links.push((node_id, RefType::RowToNode));
+    pub fn link_to_node(mut self, node_ref: NodeRef) -> Self {
+        self.links
+            .push((node_ref.node_id, node_ref.collection, RefType::RowToNode));
         self
     }
 
     /// Link to a vector
-    pub fn link_to_vector(mut self, vector_id: EntityId) -> Self {
-        self.links.push((vector_id, RefType::RowToVector));
+    pub fn link_to_vector(mut self, vector_ref: VectorRef) -> Self {
+        self.links.push((
+            vector_ref.vector_id,
+            vector_ref.collection,
+            RefType::RowToVector,
+        ));
         self
     }
 
     /// Save the row
     pub fn save(self) -> Result<EntityId, DevXError> {
-        let manager = self.store.get_or_create_collection(&self.table);
-        let id = manager.next_entity_id();
+        let id = self.store.next_entity_id();
 
         let kind = EntityKind::TableRow {
             table: self.table.clone(),
@@ -517,12 +551,13 @@ impl RowBuilder {
         let mut entity = UnifiedEntity::new(id, kind, EntityData::Row(row_data));
 
         // Add cross-refs
-        for (target, ref_type) in self.links {
-            entity.add_cross_ref(CrossRef::new(id, target, ref_type));
+        for (target, target_collection, ref_type) in self.links {
+            entity.add_cross_ref(CrossRef::new(id, target, target_collection, ref_type));
         }
 
-        manager
-            .insert(entity)
+        let id = self
+            .store
+            .insert_auto(&self.table, entity)
             .map_err(|e| DevXError::Storage(format!("{:?}", e)))?;
 
         // Store metadata

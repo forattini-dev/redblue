@@ -709,6 +709,7 @@ impl FilterStep for LimitStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::json;
 
     #[test]
     fn test_predicate_eq() {

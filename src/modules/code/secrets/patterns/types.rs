@@ -2,7 +2,7 @@
 //!
 //! Contains the fundamental types used by all pattern modules.
 
-use super::super::SecretSeverity;
+use super::super::Severity;
 
 /// Categories of secrets
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,7 +52,7 @@ pub struct SecretPattern {
     /// Pattern to match (simplified regex-like)
     pub pattern: PatternMatcher,
     /// Severity if matched
-    pub severity: SecretSeverity,
+    pub severity: Severity,
     /// Keywords that must be present nearby
     pub keywords: Vec<&'static str>,
     /// Entropy check required

@@ -23,6 +23,7 @@
 /// - MD5 signatures (collision attacks)
 /// - SSLv2/SSLv3 (DROWN/POODLE)
 /// - Weak key sizes (<2048-bit RSA)
+use crate::protocols::tls12::Tls12Client;
 use crate::synergy::events::{emit, EntityRef, Event, EventType, MitreAttack};
 use std::time::Duration;
 
@@ -238,13 +239,33 @@ impl TlsScanner {
     /// Enumerate supported cipher suites for a protocol version
     fn enumerate_ciphers(
         &self,
-        _host: &str,
-        _port: u16,
+        host: &str,
+        port: u16,
         version: TlsVersion,
     ) -> Result<Vec<CipherSuite>, String> {
-        // For now, return the ciphers our implementations support
-        // TODO: Implement cipher enumeration by trying each cipher individually
-        Ok(self.get_supported_ciphers(version))
+        match version {
+            TlsVersion::TLS12 => Ok(self.enumerate_tls12_ciphers(host, port)),
+            _ => Ok(self.get_supported_ciphers(version)),
+        }
+    }
+
+    /// Enumerate TLS 1.2 supported ciphers by probing each suite individually
+    fn enumerate_tls12_ciphers(&self, host: &str, port: u16) -> Vec<CipherSuite> {
+        let mut detected = Vec::new();
+        let candidates = self.get_supported_ciphers(TlsVersion::TLS12);
+
+        for candidate in candidates {
+            let offered = [candidate.id];
+            if Tls12Client::connect_with_timeout_and_cipher_suites(host, port, self.timeout, &offered)
+                .ok()
+                .and_then(|client| client.selected_cipher_suite())
+                .is_some_and(|selected| selected == candidate.id)
+            {
+                detected.push(candidate);
+            }
+        }
+
+        detected
     }
 
     /// Get cipher suites supported by our implementation

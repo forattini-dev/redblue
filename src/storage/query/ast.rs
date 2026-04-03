@@ -32,9 +32,9 @@
 
 use std::fmt;
 
-use crate::storage::engine::distance::DistanceMetric;
+pub use crate::storage::engine::distance::DistanceMetric;
 use crate::storage::engine::graph_store::{GraphEdgeType, GraphNodeType};
-use crate::storage::engine::vector_metadata::MetadataFilter;
+pub use crate::storage::engine::vector_metadata::MetadataFilter;
 use crate::storage::schema::Value;
 
 /// Root query expression

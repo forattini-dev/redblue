@@ -309,9 +309,6 @@ impl Script for TomlScript {
             evaluator.set_var(&arg.name, value);
         }
 
-        // Keep vars for backward compatibility tracking (unused but shows intent)
-        let _vars: HashMap<String, ExprValue> = HashMap::new();
-
         // Evaluate each rule
         for rule in &self.rules {
             // Skip empty conditions (always match)

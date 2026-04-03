@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::actions::{ActionOutcome, ActionRecord, RecordPayload, Target};
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_bytes, read_string, read_varu32, write_bytes, write_string, write_varu32, DecodeError,
 };
 

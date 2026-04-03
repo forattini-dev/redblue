@@ -27,10 +27,10 @@ pub mod saas;
 pub mod social;
 pub mod types;
 
-// Re-export types for backward compatibility
+// Re-export common pattern types
 pub use types::{PatternCategory, PatternMatcher, SecretPattern};
 
-use super::SecretSeverity;
+use super::Severity;
 
 /// Get all built-in secret patterns
 ///
@@ -67,7 +67,7 @@ pub fn get_patterns_by_category(category: PatternCategory) -> Vec<SecretPattern>
 pub fn get_critical_patterns() -> Vec<SecretPattern> {
     get_all_patterns()
         .into_iter()
-        .filter(|p| p.severity >= SecretSeverity::High)
+        .filter(|p| p.severity >= Severity::High)
         .collect()
 }
 
@@ -109,7 +109,7 @@ pub fn get_pattern_stats() -> PatternStats {
 pub struct PatternStats {
     pub total: usize,
     pub by_category: std::collections::HashMap<PatternCategory, usize>,
-    pub by_severity: std::collections::HashMap<SecretSeverity, usize>,
+    pub by_severity: std::collections::HashMap<Severity, usize>,
 }
 
 #[cfg(test)]
@@ -164,7 +164,7 @@ mod tests {
         // All returned patterns should be High or Critical
         for pattern in &critical {
             assert!(
-                pattern.severity >= SecretSeverity::High,
+                pattern.severity >= Severity::High,
                 "Pattern {} should be High or Critical severity",
                 pattern.name
             );

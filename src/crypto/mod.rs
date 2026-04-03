@@ -23,7 +23,7 @@ pub mod tls13_keyschedule;
 pub mod uuid;
 pub mod x25519;
 
-// Encoding formats (legacy module)
+// Encoding formats
 pub mod encoding;
 
 // Codec system (new unified encoding/decoding)

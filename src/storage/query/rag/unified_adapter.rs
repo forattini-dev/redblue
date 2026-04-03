@@ -1,6 +1,6 @@
 //! Unified Store Adapter for RAG Engine
 //!
-//! Bridges the new UnifiedStore with the existing RAG retrieval infrastructure,
+//! Bridges the unified RedDB store with the existing RAG retrieval infrastructure,
 //! enabling queries that seamlessly combine tables, graphs, and vectors.
 
 use std::collections::HashMap;
@@ -8,9 +8,7 @@ use std::sync::Arc;
 
 use crate::storage::query::unified::ExecutionError;
 use crate::storage::schema::Value;
-use crate::storage::unified::{
-    CrossRef, EntityData, EntityId, EntityKind, RefType, UnifiedEntity, UnifiedStore,
-};
+use crate::storage::{CrossRef, EntityData, EntityId, EntityKind, RefType, Store, UnifiedEntity};
 
 use super::context::{ChunkSource, ContextChunk, RetrievalContext};
 use super::RagConfig;
@@ -110,15 +108,15 @@ pub struct UnifiedQueryStats {
     pub execution_time_us: u64,
 }
 
-/// Adapter that connects UnifiedStore to RAG queries
+/// Adapter that connects the store to RAG queries
 pub struct UnifiedStoreAdapter {
-    /// The unified store
-    store: Arc<UnifiedStore>,
+    /// The store
+    store: Arc<Store>,
 }
 
 impl UnifiedStoreAdapter {
     /// Create a new adapter for the given store
-    pub fn new(store: Arc<UnifiedStore>) -> Self {
+    pub fn new(store: Arc<Store>) -> Self {
         Self { store }
     }
 
@@ -222,11 +220,18 @@ impl UnifiedStoreAdapter {
                 }
 
                 // Expand cross-refs of matching type
-                for xref in &entity.cross_refs {
-                    if xref.ref_type == ref_type || matches!(ref_type, RefType::RelatedTo) {
+                for (target_id, link_type, target_collection) in
+                    self.store.get_refs_from(current_id)
+                {
+                    if link_type == ref_type || matches!(ref_type, RefType::RelatedTo) {
                         let mut new_path = path.clone();
-                        new_path.push(xref.clone());
-                        frontier.push((xref.target, depth + 1, new_path));
+                        new_path.push(CrossRef::new(
+                            current_id,
+                            target_id,
+                            target_collection,
+                            link_type,
+                        ));
+                        frontier.push((target_id, depth + 1, new_path));
                     }
                 }
 

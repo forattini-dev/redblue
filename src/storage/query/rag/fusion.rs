@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use super::context::{ChunkSource, ContextChunk, RetrievalContext};
 use super::EntityType;
-use crate::storage::unified::{EntityId, RefType, UnifiedStore};
+use crate::storage::{EntityId, RefType, Store};
 
 /// Configuration for context fusion
 #[derive(Debug, Clone)]
@@ -60,8 +60,8 @@ impl Default for FusionConfig {
 pub struct ContextFusion {
     /// Fusion configuration
     config: FusionConfig,
-    /// Optional unified store for cross-reference lookup
-    store: Option<Arc<UnifiedStore>>,
+    /// Optional store for cross-reference lookup
+    store: Option<Arc<Store>>,
 }
 
 impl ContextFusion {
@@ -81,8 +81,8 @@ impl ContextFusion {
         }
     }
 
-    /// Attach unified store for graph-aware operations
-    pub fn with_store(mut self, store: Arc<UnifiedStore>) -> Self {
+    /// Attach store for graph-aware operations
+    pub fn with_store(mut self, store: Arc<Store>) -> Self {
         self.store = Some(store);
         self
     }

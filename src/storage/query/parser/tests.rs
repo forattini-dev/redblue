@@ -2,6 +2,11 @@
 
 use super::*;
 use crate::storage::engine::graph_store::{GraphEdgeType, GraphNodeType};
+use crate::storage::query::ast::{
+    DistanceMetric, EdgeDirection, Filter, FusionStrategy, JoinType, MetadataFilter, Projection,
+    TableQuery, VectorSource,
+};
+use crate::storage::engine::vector_metadata::MetadataValue;
 
 #[test]
 fn test_parse_simple_select() {

@@ -58,7 +58,7 @@ fn test_process_accessor_linux() {
     let my_pid = std::process::id();
     let found = procs
         .iter()
-        .any(|p| p["pid"].as_u64() == Some(my_pid as u64));
+        .any(|p| p["pid"].as_i64() == Some(my_pid as i64));
     assert!(found, "Current PID {} not found in process list", my_pid);
 
     let result = accessor.execute("tree", &args);
@@ -79,9 +79,10 @@ fn test_network_accessor_linux() {
     let result = accessor.execute("interfaces", &args);
     assert!(result.success);
     let ifaces = result.data.unwrap();
-    assert!(ifaces.as_array().unwrap().iter().any(|i| i["name"] == "lo"
-        || i["name"] == "eth0"
-        || i["name"].as_str().unwrap().starts_with("e")));
+    assert!(ifaces.as_array().unwrap().iter().any(|i| {
+        let name = i["name"].as_str().unwrap_or("");
+        name == "lo" || name == "eth0" || name.starts_with("e")
+    }));
 }
 
 #[cfg(target_os = "linux")]

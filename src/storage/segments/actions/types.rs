@@ -4,7 +4,7 @@
 
 use std::net::IpAddr;
 
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_ip, read_string, read_varu32, read_varu64, write_ip, write_string, write_varu32,
     write_varu64, DecodeError,
 };

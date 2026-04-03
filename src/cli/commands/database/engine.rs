@@ -5,7 +5,7 @@
 //! - info: Display metadata
 //! - stats: Show cache statistics
 //! - checkpoint: Force WAL flush
-//! - migrate: Convert legacy .rdb format
+//! - checkpoint: Force WAL flush
 
 use std::fs;
 use std::path::Path;
@@ -13,7 +13,6 @@ use std::path::Path;
 use crate::cli::commands::print_help;
 use crate::cli::{output::Output, CliContext};
 use crate::storage::engine::{Database, DatabaseConfig};
-use crate::storage::QueryManager;
 
 use super::DatabaseCommand;
 
@@ -30,7 +29,6 @@ impl DatabaseCommand {
             "info" => engine_info(ctx),
             "stats" => engine_stats(ctx),
             "checkpoint" => engine_checkpoint(ctx),
-            "migrate" => engine_migrate(ctx),
             _ => {
                 Output::error(&format!("Unknown verb: {}", verb));
                 Err("Invalid verb".to_string())
@@ -289,92 +287,6 @@ fn engine_checkpoint(ctx: &CliContext) -> Result<(), String> {
 
     db.close()
         .map_err(|e| format!("Failed to close database: {}", e))?;
-
-    Ok(())
-}
-
-/// Migrate legacy .rdb format to new page-based engine
-fn engine_migrate(ctx: &CliContext) -> Result<(), String> {
-    let source_path = ctx.target.as_ref().ok_or(
-        "Missing source path.\nUsage: rb database engine migrate <legacy.rdb> --to <new.rdb>",
-    )?;
-
-    let dest_path = ctx
-        .get_flag("to")
-        .ok_or("Missing destination path. Use --to <path> to specify the output file.")?;
-
-    let source = Path::new(source_path);
-    let dest = Path::new(&dest_path);
-
-    if !source.exists() {
-        return Err(format!("Source database not found: {}", source_path));
-    }
-
-    if dest.exists() {
-        return Err(format!(
-            "Destination already exists: {}. Remove it first or choose a different path.",
-            dest_path
-        ));
-    }
-
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
-    if !is_json {
-        Output::spinner_start("Migrating database");
-    }
-
-    // Open source database via unified query manager
-    let mut legacy_db =
-        QueryManager::open(source).map_err(|e| format!("Failed to open database: {}", e))?;
-
-    // Create new engine database
-    let new_db =
-        Database::open(dest).map_err(|e| format!("Failed to create new database: {}", e))?;
-
-    // Read counts from legacy for reporting
-    let port_count = legacy_db.count_collection("ports").unwrap_or(0);
-    let dns_count = legacy_db.count_collection("dns").unwrap_or(0);
-    let subdomain_count = legacy_db.count_collection("domains").unwrap_or(0);
-    let total_records = port_count + dns_count + subdomain_count;
-
-    // Note: Full migration would require iterating through legacy records
-    // and inserting them into the new engine's tables. This is a placeholder
-    // that creates the database structure.
-
-    if !is_json {
-        Output::spinner_done();
-    }
-
-    // Close new database
-    new_db
-        .close()
-        .map_err(|e| format!("Failed to close new database: {}", e))?;
-
-    if is_json {
-        println!("{{");
-        println!("  \"status\": \"migrated\",");
-        println!(
-            "  \"source\": \"{}\",",
-            source_path.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        println!(
-            "  \"destination\": \"{}\",",
-            dest_path.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        println!("  \"records_found\": {}", total_records);
-        println!("}}");
-    } else {
-        Output::success("Migration completed");
-        Output::summary_line(&[
-            ("Source", source_path),
-            ("Destination", &dest_path),
-            ("Records found", &total_records.to_string()),
-        ]);
-        Output::warning(
-            "Note: Full data migration requires schema mapping (ports, dns, subdomains)",
-        );
-    }
 
     Ok(())
 }

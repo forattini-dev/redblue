@@ -4,8 +4,6 @@ use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::storage::records::SubdomainSource;
 use crate::storage::service::StorageService;
-// TODO: ReconTreeBuilder, TreeNode, TreeRenderer not yet implemented
-// use crate::storage::tree::{ReconTreeBuilder, TreeNode, TreeRenderer};
 
 /// List subdomains from the database
 pub fn list_subdomains(ctx: &CliContext) -> Result<(), String> {
@@ -187,11 +185,12 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
     )?;
 
     let db_path = StorageService::db_path(domain);
-    let _depth: u8 = ctx
+    let depth: usize = ctx
         .get_flag("depth")
         .unwrap_or_else(|| "5".to_string())
         .parse()
-        .unwrap_or(5);
+        .unwrap_or(5)
+        .max(1);
     let _no_color = ctx.has_flag("no-color");
 
     let mut store = StorageService::global()
@@ -202,8 +201,6 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
     Output::item("Database", &db_path.to_string_lossy());
     println!();
 
-    // TODO: ReconTreeBuilder, TreeNode, TreeRenderer not yet implemented
-    // For now, display a simple text-based representation
     let subdomains = store
         .list_subdomain_records(domain)
         .map_err(|e| format!("Failed to read subdomains: {}", e))?;
@@ -216,24 +213,20 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
 
     println!("{}  {}", "└──", domain);
 
-    // Print subdomains
-    for (i, sub) in subdomains.iter().enumerate() {
-        let prefix = if i == subdomains.len() - 1 && dns_records.is_empty() && all_ports.is_empty()
-        {
-            "   └──"
-        } else {
-            "   ├──"
-        };
-        println!(
-            "{} {} ({})",
-            prefix,
-            sub.subdomain,
-            sub.ips
-                .iter()
-                .map(|ip| ip.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    let mut lines: Vec<String> = Vec::new();
+
+    let max_subdomains = depth.min(subdomains.len());
+    for sub in subdomains.iter().take(max_subdomains) {
+        let sub_ips = sub
+            .ips
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("{} ({})", sub.subdomain, sub_ips));
+    }
+    if max_subdomains < subdomains.len() {
+        lines.push(format!("... and {} more subdomains", subdomains.len() - max_subdomains));
     }
 
     // Print DNS records summary
@@ -246,15 +239,22 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
         .filter(|r| r.record_type == crate::storage::records::DnsRecordType::MX)
         .count();
     if ns_count > 0 || mx_count > 0 {
-        println!("   ├── DNS: {} NS, {} MX records", ns_count, mx_count);
+        lines.push(format!("DNS: {} NS, {} MX records", ns_count, mx_count));
     }
 
     // Print ports summary
     if !all_ports.is_empty() {
-        println!("   └── Ports: {} discovered", all_ports.len());
+        lines.push(format!("Ports: {} discovered", all_ports.len()));
     }
 
-    Output::info("Full tree visualization coming soon (ReconTreeBuilder)");
+    for (i, line) in lines.iter().enumerate() {
+        let prefix = if i + 1 == lines.len() { "   └──" } else { "   ├──" };
+        println!("{} {}", prefix, line);
+    }
+
+    if lines.is_empty() {
+        println!("   └── No related records found");
+    }
 
     Ok(())
 }

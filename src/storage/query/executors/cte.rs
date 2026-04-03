@@ -406,8 +406,8 @@ where
 
 /// Helper to parse UNION structure for recursive CTEs
 pub fn split_union_parts(query: &QueryExpr) -> Option<(QueryExpr, QueryExpr)> {
-    // TODO: Implement when we add UNION to AST
-    // For now, recursive CTEs execute the full query each iteration
+    // UNION support is not represented in the current AST; recursive queries execute
+    // the full body expression each iteration.
     let _ = query;
     None
 }
@@ -420,6 +420,7 @@ pub fn split_union_parts(query: &QueryExpr) -> Option<(QueryExpr, QueryExpr)> {
 mod tests {
     use super::*;
     use crate::storage::query::ast::CteQueryBuilder;
+    use crate::storage::query::WithClause;
 
     fn mock_execute(
         _query: &QueryExpr,

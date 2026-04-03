@@ -1,6 +1,6 @@
 //! Threat intelligence record types
 
-use crate::storage::encoding::{read_varu32, write_varu32, DecodeError};
+use crate::storage::primitives::encoding::{read_varu32, write_varu32, DecodeError};
 
 use super::helpers::{read_optional_string, read_string, write_optional_string, write_string};
 

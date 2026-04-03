@@ -74,6 +74,9 @@ impl Command for PasswordCommand {
             Flag::new("wordlist", "Wordlist file for dictionary attack")
                 .with_short('w')
                 .with_arg("FILE"),
+            Flag::new("wordlist2", "Second wordlist file for combinator attack")
+                .with_short('W')
+                .with_arg("FILE"),
             Flag::new("mask", "Mask pattern for brute-force (e.g., ?l?l?l?d?d)")
                 .with_short('m')
                 .with_arg("PATTERN"),
@@ -104,6 +107,10 @@ impl Command for PasswordCommand {
             (
                 "Crack with wordlist",
                 "rb password hash crack hashes.txt -w rockyou.txt",
+            ),
+            (
+                "Combinator attack with two wordlists",
+                "rb password hash crack hash.txt -w words.txt -W words2.txt",
             ),
             (
                 "Crack with rules",
@@ -267,14 +274,28 @@ impl PasswordCommand {
         // Determine attack mode
         let wordlist = ctx.get_flag("wordlist");
         let mask = ctx.get_flag("mask");
+        let second_wordlist = ctx.get_flag("wordlist2");
 
-        let mode = match (&wordlist, &mask) {
-            (Some(_), Some(_)) => AttackMode::HybridDictMask,
-            (Some(_), None) => AttackMode::Dictionary,
-            (None, Some(_)) => AttackMode::Mask,
-            (None, None) => {
+        let mode = match (&wordlist, &mask, &second_wordlist) {
+            (Some(_), Some(_), None) => AttackMode::HybridDictMask,
+            (Some(_), None, Some(_)) => AttackMode::Combinator,
+            (Some(_), None, None) => AttackMode::Dictionary,
+            (None, Some(_), None) => AttackMode::Mask,
+            (None, None, Some(_)) => {
+                return Err("Invalid arguments: --wordlist2 requires --wordlist".to_string());
+            }
+            (Some(_), Some(_), Some(_)) => {
+                return Err(
+                    "Invalid arguments: choose either --wordlist + --mask (hybrid) or --wordlist + --wordlist2 (combinator)"
+                        .to_string(),
+                );
+            }
+            (None, None, None) => {
                 // Try quick crack with common passwords
                 return self.quick_crack(&hashes, ctx);
+            }
+            _ => {
+                return Err("Invalid combination of arguments".to_string());
             }
         };
 
@@ -291,6 +312,9 @@ impl PasswordCommand {
             let gen = MaskGenerator::from_pattern(m);
             Output::item("Keyspace", &format!("{}", gen.keyspace()));
         }
+        if let Some(wl2) = &second_wordlist {
+            Output::item("Second wordlist", wl2);
+        }
         println!();
 
         // Build cracker
@@ -298,6 +322,9 @@ impl PasswordCommand {
 
         if let Some(wl) = wordlist {
             cracker = cracker.wordlist(&wl);
+        }
+        if let Some(wl2) = second_wordlist {
+            cracker = cracker.second_wordlist(&wl2);
         }
         if let Some(m) = mask {
             cracker = cracker.mask(&m);

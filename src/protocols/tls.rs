@@ -9,7 +9,7 @@
 // 5. Application data exchange
 //
 // This implementation focuses on the handshake to extract certificates
-// (for the `rb web asset cert` command). Full encryption is TODO.
+// (for the `rb web asset cert` command). Full encryption support is intentionally scoped.
 
 use super::x509::X509Certificate;
 use std::io::{Read, Write};

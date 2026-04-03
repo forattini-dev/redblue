@@ -1,6 +1,6 @@
 //! String encoding helper functions for record serialization
 
-use crate::storage::encoding::{read_varu32, write_varu32, DecodeError};
+use crate::storage::primitives::encoding::{read_varu32, write_varu32, DecodeError};
 
 pub fn write_optional_string(buf: &mut Vec<u8>, value: &Option<String>) {
     match value {

@@ -1078,7 +1078,8 @@ impl PlaybookExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::PlaybookExecutor;
+    use super::*;
+    use crate::playbooks::{Playbook, PlaybookPhase, PlaybookStep};
 
     #[test]
     fn test_split_command_line_quotes() {
@@ -1110,12 +1111,6 @@ mod tests {
     fn test_split_command_line_unterminated() {
         assert!(PlaybookExecutor::split_command_line("echo \"unterminated").is_err());
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::playbooks::{Playbook, PlaybookPhase, PlaybookStep};
 
     #[test]
     fn test_executor_variable_substitution() {

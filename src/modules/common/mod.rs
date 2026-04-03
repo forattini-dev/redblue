@@ -23,12 +23,6 @@
 //! | Criticality level  | `severity`         | risk, criticality  |
 //! | Supporting proof   | `evidence`         | proof, data        |
 //!
-//! # Migration Notes
-//!
-//! Legacy types like `Finding`, `Vulnerability` exist in older modules.
-//! New code should use `SecurityFinding` from this module. The legacy types
-//! will be migrated in a future major version.
-//!
 //! # Usage
 //!
 //! ```ignore
@@ -484,8 +478,7 @@ impl<T> ScanResult<T> {
 /// Unified progress tracking trait for all scanning operations.
 ///
 /// This trait consolidates the various progress tracking implementations
-/// scattered across modules (network::scanner::ScanProgress, web::fuzzer::ProgressBar)
-/// into a single, consistent interface.
+/// scattered across modules into a single, consistent interface.
 ///
 /// # Usage
 ///

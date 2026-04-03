@@ -4,8 +4,8 @@
 //! so users don't need to enter it every time.
 //!
 //! On Linux: Uses ~/.config/redblue/keyring (encrypted with user-specific key)
-//! On macOS: Uses Keychain (TODO)
-//! On Windows: Uses Credential Manager (TODO)
+//! On macOS: Uses Keychain when available (TBD)
+//! On Windows: Uses Credential Manager when available (TBD)
 
 use std::fs;
 use std::io::{Read, Write};

@@ -186,6 +186,3 @@ pub struct HarTimings {
     pub ssl: f64,
     pub comment: Option<String>,
 }
-
-/// Alias for POST data parameter (backwards compatibility)
-pub type HarParam = HarPostDataParam;

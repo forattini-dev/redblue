@@ -8,8 +8,8 @@ This document tracks the feature parity of `redblue` against industry-standard s
 | | **Subfinder** | `rb recon domain subdomains -p` | ✅ 95% | Covers major passive sources. |
 | | **Assetfinder** | `rb recon domain subdomains` | ✅ 100% | Functional equivalent. |
 | | **theHarvester**| `rb recon domain harvest` | ✅ 100% | Harvests emails, IPs, URLs, subdomains. |
-| | **Sherlock** | `rb recon username` | ✅ 100% | Multi-platform username search. |
-| | **Maigret** | `rb recon username` | ✅ 90% | Recursive search implemented. |
+| | **Sherlock** | `rb recon identity username` | ✅ 100% | Multi-platform username search. |
+| | **Maigret** | `rb recon identity username` | ✅ 90% | Recursive search implemented. |
 | **Scanning** | **Nmap** | `rb network scan` | ✅ 80% | TCP/SYN/UDP scans, OS fingerprinting. Missing NSE depth. |
 | | **Masscan** | `rb network scan --syn` | ✅ 100% | Raw socket stateless scanning. |
 | | **MassDNS** | `rb recon domain massdns` | ✅ 100% | High-performance DNS resolution. |

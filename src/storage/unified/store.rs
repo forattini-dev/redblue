@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use super::entity::{
@@ -33,6 +34,11 @@ use super::segment::SegmentError;
 use crate::storage::engine::{BTree, BTreeError, Pager, PagerConfig};
 use crate::storage::primitives::encoding::{read_varu32, read_varu64, write_varu32, write_varu64};
 use crate::storage::schema::types::Value;
+
+const STORE_MAGIC: &[u8; 4] = b"RDST";
+const STORE_VERSION_V1: u32 = 1;
+const STORE_VERSION_V2: u32 = 2;
+const METADATA_MAGIC: &[u8; 4] = b"RDM2";
 
 // ============================================================================
 // Configuration
@@ -193,15 +199,15 @@ impl StoreStats {
 /// # Example
 ///
 /// ```ignore
-/// use redblue::storage::unified::{UnifiedStore, UnifiedEntity};
+/// use redblue::storage::{Entity, Store};
 ///
-/// let store = UnifiedStore::new();
+/// let store = Store::new();
 ///
 /// // Create a collection
 /// store.create_collection("hosts")?;
 ///
 /// // Insert an entity
-/// let entity = UnifiedEntity::table_row(1, "hosts", 1, vec![]);
+/// let entity = Entity::table_row(1, "hosts", 1, vec![]);
 /// let id = store.insert("hosts", entity)?;
 ///
 /// // Query
@@ -210,6 +216,10 @@ impl StoreStats {
 pub struct UnifiedStore {
     /// Store configuration
     config: UnifiedStoreConfig,
+    /// File format version for serialization
+    format_version: AtomicU32,
+    /// Global entity ID counter
+    next_entity_id: AtomicU64,
     /// Collections by name
     collections: RwLock<HashMap<String, Arc<SegmentManager>>>,
     /// Forward cross-references: source_id → [(target_id, ref_type, target_collection)]
@@ -228,6 +238,36 @@ impl UnifiedStore {
     /// Create a new unified store
     pub fn new() -> Self {
         Self::with_config(UnifiedStoreConfig::default())
+    }
+
+    /// Get the current storage format version
+    pub fn format_version(&self) -> u32 {
+        self.format_version.load(Ordering::SeqCst)
+    }
+
+    fn set_format_version(&self, version: u32) {
+        self.format_version.store(version, Ordering::SeqCst);
+    }
+
+    /// Allocate a global entity ID
+    pub fn next_entity_id(&self) -> EntityId {
+        EntityId::new(self.next_entity_id.fetch_add(1, Ordering::SeqCst))
+    }
+
+    fn register_entity_id(&self, id: EntityId) {
+        let candidate = id.raw().saturating_add(1);
+        let mut current = self.next_entity_id.load(Ordering::SeqCst);
+        while candidate > current {
+            match self.next_entity_id.compare_exchange(
+                current,
+                candidate,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(updated) => current = updated,
+            }
+        }
     }
 
     /// Load store from binary file
@@ -251,7 +291,7 @@ impl UnifiedStore {
         if buf.len() < 8 {
             return Err("File too small".into());
         }
-        if &buf[0..4] != b"RDST" {
+        if &buf[0..4] != STORE_MAGIC {
             return Err("Invalid magic bytes - expected RDST".into());
         }
         let mut pos = 4;
@@ -259,11 +299,12 @@ impl UnifiedStore {
         // Version check
         let version = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
         pos += 4;
-        if version != 1 {
+        if version != STORE_VERSION_V1 && version != STORE_VERSION_V2 {
             return Err(format!("Unsupported version: {}", version).into());
         }
 
-        let store = Self::new();
+        let store = Self::with_config(UnifiedStoreConfig::default());
+        store.set_format_version(version);
 
         // Read collection count
         let collection_count = read_varu32(&buf, &mut pos)
@@ -285,48 +326,45 @@ impl UnifiedStore {
 
             // Read each entity
             for _ in 0..entity_count {
-                let entity = Self::read_entity_binary(&buf, &mut pos)?;
+                let entity = Self::read_entity_binary(&buf, &mut pos, version)?;
                 store.insert_auto(&name, entity)?;
             }
         }
 
-        // Read cross-references
-        let cross_ref_count = read_varu32(&buf, &mut pos)
-            .map_err(|e| format!("Failed to read cross-ref count: {:?}", e))?;
+        if pos < buf.len() {
+            // Read cross-references section
+            let cross_ref_count = read_varu32(&buf, &mut pos)
+                .map_err(|e| format!("Failed to read cross-ref count: {:?}", e))?;
 
-        for _ in 0..cross_ref_count {
-            let source_id = read_varu64(&buf, &mut pos)
-                .map_err(|e| format!("Failed to read source_id: {:?}", e))?;
-            let target_id = read_varu64(&buf, &mut pos)
-                .map_err(|e| format!("Failed to read target_id: {:?}", e))?;
-            let ref_type_byte = buf[pos];
-            pos += 1;
-            let ref_type = RefType::from_byte(ref_type_byte);
+            for _ in 0..cross_ref_count {
+                let source_id = read_varu64(&buf, &mut pos)
+                    .map_err(|e| format!("Failed to read source_id: {:?}", e))?;
+                let target_id = read_varu64(&buf, &mut pos)
+                    .map_err(|e| format!("Failed to read target_id: {:?}", e))?;
+                let ref_type_byte = buf[pos];
+                pos += 1;
+                let ref_type = RefType::from_byte(ref_type_byte);
 
-            let coll_len = read_varu32(&buf, &mut pos)
-                .map_err(|e| format!("Failed to read collection length: {:?}", e))?
-                as usize;
-            let collection = String::from_utf8(buf[pos..pos + coll_len].to_vec())
-                .map_err(|e| format!("Invalid UTF-8 in collection: {}", e))?;
-            pos += coll_len;
+                let coll_len = read_varu32(&buf, &mut pos)
+                    .map_err(|e| format!("Failed to read collection length: {:?}", e))?
+                    as usize;
+                let collection = String::from_utf8(buf[pos..pos + coll_len].to_vec())
+                    .map_err(|e| format!("Invalid UTF-8 in collection: {}", e))?;
+                pos += coll_len;
 
-            // Add to cross-refs
-            store
-                .cross_refs
-                .write()
-                .unwrap()
-                .entry(EntityId::new(source_id))
-                .or_default()
-                .push((EntityId::new(target_id), ref_type, collection.clone()));
-
-            // Add to reverse refs
-            store
-                .reverse_refs
-                .write()
-                .unwrap()
-                .entry(EntityId::new(target_id))
-                .or_default()
-                .push((EntityId::new(source_id), ref_type, collection));
+                let source_collection = store
+                    .get_any(EntityId::new(source_id))
+                    .map(|(name, _)| name)
+                    .unwrap_or_else(|| collection.clone());
+                let _ = store.add_cross_ref(
+                    &source_collection,
+                    EntityId::new(source_id),
+                    &collection,
+                    EntityId::new(target_id),
+                    ref_type,
+                    1.0,
+                );
+            }
         }
 
         Ok(store)
@@ -342,10 +380,10 @@ impl UnifiedStore {
         let mut buf = Vec::new();
 
         // Magic bytes "RDST"
-        buf.extend_from_slice(b"RDST");
+        buf.extend_from_slice(STORE_MAGIC);
 
-        // Version (1)
-        buf.extend_from_slice(&1u32.to_le_bytes());
+        // Version (2)
+        buf.extend_from_slice(&STORE_VERSION_V2.to_le_bytes());
 
         // Get all collections
         let collections = self.collections.read().unwrap();
@@ -361,7 +399,7 @@ impl UnifiedStore {
             write_varu32(&mut buf, entities.len() as u32);
 
             for entity in entities {
-                Self::write_entity_binary(&mut buf, &entity);
+                Self::write_entity_binary(&mut buf, &entity, STORE_VERSION_V2);
             }
         }
 
@@ -380,6 +418,8 @@ impl UnifiedStore {
             }
         }
 
+        self.set_format_version(STORE_VERSION_V2);
+
         writer.write_all(&buf)?;
         writer.flush()?;
 
@@ -390,6 +430,7 @@ impl UnifiedStore {
     fn read_entity_binary(
         buf: &[u8],
         pos: &mut usize,
+        format_version: u32,
     ) -> Result<UnifiedEntity, Box<dyn std::error::Error>> {
         // Entity ID
         let id = read_varu64(buf, pos).map_err(|e| format!("Failed to read entity id: {:?}", e))?;
@@ -544,11 +585,28 @@ impl UnifiedStore {
             let target = Self::read_varu64_safe(buf, pos)?;
             let ref_type_byte = buf[*pos];
             *pos += 1;
-            cross_refs.push(CrossRef::new(
+            let (target_collection, weight, created_at) = if format_version >= STORE_VERSION_V2 {
+                let coll_len = Self::read_varu32_safe(buf, pos)?;
+                let collection = String::from_utf8(buf[*pos..*pos + coll_len].to_vec())?;
+                *pos += coll_len;
+                let weight_bytes = [buf[*pos], buf[*pos + 1], buf[*pos + 2], buf[*pos + 3]];
+                *pos += 4;
+                let weight = f32::from_le_bytes(weight_bytes);
+                let created_at = Self::read_varu64_safe(buf, pos)?;
+                (collection, weight, created_at)
+            } else {
+                (String::new(), 1.0, 0)
+            };
+
+            let mut cross_ref = CrossRef::new(
                 EntityId::new(source),
                 EntityId::new(target),
+                target_collection,
                 RefType::from_byte(ref_type_byte),
-            ));
+            );
+            cross_ref.weight = weight;
+            cross_ref.created_at = created_at;
+            cross_refs.push(cross_ref);
         }
 
         // Sequence ID
@@ -581,7 +639,7 @@ impl UnifiedStore {
     }
 
     /// Write entity to binary buffer
-    fn write_entity_binary(buf: &mut Vec<u8>, entity: &UnifiedEntity) {
+    fn write_entity_binary(buf: &mut Vec<u8>, entity: &UnifiedEntity, format_version: u32) {
         // Entity ID
         write_varu64(buf, entity.id.raw());
 
@@ -682,6 +740,12 @@ impl UnifiedStore {
             write_varu64(buf, cross_ref.source.raw());
             write_varu64(buf, cross_ref.target.raw());
             buf.push(cross_ref.ref_type.to_byte());
+            if format_version >= STORE_VERSION_V2 {
+                write_varu32(buf, cross_ref.target_collection.len() as u32);
+                buf.extend_from_slice(cross_ref.target_collection.as_bytes());
+                buf.extend_from_slice(&cross_ref.weight.to_le_bytes());
+                write_varu64(buf, cross_ref.created_at);
+            }
         }
 
         // Sequence ID
@@ -985,6 +1049,8 @@ impl UnifiedStore {
     pub fn with_config(config: UnifiedStoreConfig) -> Self {
         Self {
             config,
+            format_version: AtomicU32::new(STORE_VERSION_V2),
+            next_entity_id: AtomicU64::new(1),
             collections: RwLock::new(HashMap::new()),
             cross_refs: RwLock::new(HashMap::new()),
             reverse_refs: RwLock::new(HashMap::new()),
@@ -1023,6 +1089,8 @@ impl UnifiedStore {
 
         let store = Self {
             config: UnifiedStoreConfig::default(),
+            format_version: AtomicU32::new(STORE_VERSION_V2),
+            next_entity_id: AtomicU64::new(1),
             collections: RwLock::new(HashMap::new()),
             cross_refs: RwLock::new(HashMap::new()),
             reverse_refs: RwLock::new(HashMap::new()),
@@ -1061,6 +1129,15 @@ impl UnifiedStore {
             let content = &data[crate::storage::engine::HEADER_SIZE..];
             if content.len() >= 4 {
                 let mut pos = 0;
+                let mut format_version = STORE_VERSION_V1;
+
+                if content.len() >= 8 && &content[0..4] == METADATA_MAGIC {
+                    format_version =
+                        u32::from_le_bytes([content[4], content[5], content[6], content[7]]);
+                    pos += 8;
+                }
+
+                self.set_format_version(format_version);
 
                 // Collection count
                 let collection_count = u32::from_le_bytes([
@@ -1113,9 +1190,16 @@ impl UnifiedStore {
                                 let manager = self.get_collection(&name);
                                 while let Ok(Some((key, value))) = cursor.next() {
                                     // Deserialize entity from value bytes
-                                    if let Ok(entity) = Self::deserialize_entity(&value) {
+                                    if let Ok(entity) =
+                                        Self::deserialize_entity(&value, self.format_version())
+                                    {
                                         if let Some(m) = &manager {
-                                            let _ = m.insert(entity);
+                                            let id = entity.id;
+                                            let _ = m.insert(entity.clone());
+                                            self.register_entity_id(id);
+                                            if self.config.auto_index_refs {
+                                                self.index_cross_refs(&entity, &name);
+                                            }
                                         }
                                     }
                                 }
@@ -1128,6 +1212,76 @@ impl UnifiedStore {
                         pos += name_len + 4;
                     }
                 }
+
+                if format_version >= STORE_VERSION_V2 && pos + 4 <= content.len() {
+                    let cross_ref_count = u32::from_le_bytes([
+                        content[pos],
+                        content[pos + 1],
+                        content[pos + 2],
+                        content[pos + 3],
+                    ]) as usize;
+                    pos += 4;
+
+                    for _ in 0..cross_ref_count {
+                        if pos + 17 > content.len() {
+                            break;
+                        }
+                        let source_id = u64::from_le_bytes([
+                            content[pos],
+                            content[pos + 1],
+                            content[pos + 2],
+                            content[pos + 3],
+                            content[pos + 4],
+                            content[pos + 5],
+                            content[pos + 6],
+                            content[pos + 7],
+                        ]);
+                        pos += 8;
+                        let target_id = u64::from_le_bytes([
+                            content[pos],
+                            content[pos + 1],
+                            content[pos + 2],
+                            content[pos + 3],
+                            content[pos + 4],
+                            content[pos + 5],
+                            content[pos + 6],
+                            content[pos + 7],
+                        ]);
+                        pos += 8;
+                        let ref_type = RefType::from_byte(content[pos]);
+                        pos += 1;
+
+                        if pos + 4 > content.len() {
+                            break;
+                        }
+                        let name_len = u32::from_le_bytes([
+                            content[pos],
+                            content[pos + 1],
+                            content[pos + 2],
+                            content[pos + 3],
+                        ]) as usize;
+                        pos += 4;
+                        if pos + name_len > content.len() {
+                            break;
+                        }
+                        let target_collection =
+                            String::from_utf8_lossy(&content[pos..pos + name_len]).to_string();
+                        pos += name_len;
+
+                        let source_collection = self
+                            .get_any(EntityId::new(source_id))
+                            .map(|(name, _)| name)
+                            .unwrap_or_else(|| target_collection.clone());
+                        let _ = self.add_cross_ref(
+                            &source_collection,
+                            EntityId::new(source_id),
+                            &target_collection,
+                            EntityId::new(target_id),
+                            ref_type,
+                            1.0,
+                        );
+                    }
+                }
             }
         }
 
@@ -1135,16 +1289,16 @@ impl UnifiedStore {
     }
 
     /// Deserialize an entity from binary bytes
-    fn deserialize_entity(data: &[u8]) -> Result<UnifiedEntity, StoreError> {
+    fn deserialize_entity(data: &[u8], format_version: u32) -> Result<UnifiedEntity, StoreError> {
         let mut pos = 0;
-        Self::read_entity_binary(data, &mut pos)
+        Self::read_entity_binary(data, &mut pos, format_version)
             .map_err(|e| StoreError::Serialization(e.to_string()))
     }
 
     /// Serialize an entity to binary bytes
-    fn serialize_entity(entity: &UnifiedEntity) -> Vec<u8> {
+    fn serialize_entity(entity: &UnifiedEntity, format_version: u32) -> Vec<u8> {
         let mut buf = Vec::new();
-        Self::write_entity_binary(&mut buf, entity);
+        Self::write_entity_binary(&mut buf, entity, format_version);
         buf
     }
 
@@ -1185,7 +1339,7 @@ impl UnifiedStore {
             // Insert all entities into the B-tree
             for entity in manager.query_all(|_| true) {
                 let key = entity.id.raw().to_le_bytes();
-                let value = Self::serialize_entity(&entity);
+                let value = Self::serialize_entity(&entity, self.format_version());
 
                 // Ignore errors if key already exists (update scenario)
                 match btree.insert(&key, &value) {
@@ -1210,7 +1364,12 @@ impl UnifiedStore {
         // Write collection metadata to page 1
         let mut meta_data = Vec::with_capacity(4096);
 
-        // Collection count
+        let format_version = STORE_VERSION_V2;
+        self.set_format_version(format_version);
+
+        // Metadata header: magic + version + collection count
+        meta_data.extend_from_slice(METADATA_MAGIC);
+        meta_data.extend_from_slice(&format_version.to_le_bytes());
         meta_data.extend_from_slice(&(collection_roots.len() as u32).to_le_bytes());
 
         // Write each collection's name and B-tree root page
@@ -1221,6 +1380,20 @@ impl UnifiedStore {
             meta_data.extend_from_slice(name.as_bytes());
             // Root page ID from actual B-tree
             meta_data.extend_from_slice(&root_page.to_le_bytes());
+        }
+
+        // Write cross-reference metadata
+        let cross_refs = self.cross_refs.read().unwrap();
+        let total_refs: usize = cross_refs.values().map(|v| v.len()).sum();
+        meta_data.extend_from_slice(&(total_refs as u32).to_le_bytes());
+        for (source_id, refs) in cross_refs.iter() {
+            for (target_id, ref_type, collection) in refs {
+                meta_data.extend_from_slice(&source_id.raw().to_le_bytes());
+                meta_data.extend_from_slice(&target_id.raw().to_le_bytes());
+                meta_data.push(ref_type.to_byte());
+                meta_data.extend_from_slice(&(collection.len() as u32).to_le_bytes());
+                meta_data.extend_from_slice(collection.as_bytes());
+            }
         }
 
         // Create metadata page with Header type
@@ -1322,7 +1495,14 @@ impl UnifiedStore {
             .get_collection(collection)
             .ok_or_else(|| StoreError::CollectionNotFound(collection.to_string()))?;
 
+        let mut entity = entity;
+        if entity.id.raw() == 0 {
+            entity.id = self.next_entity_id();
+        } else {
+            self.register_entity_id(entity.id);
+        }
         let id = manager.insert(entity)?;
+        self.register_entity_id(id);
 
         // Also insert into B-tree index if pager is active
         if let Some(pager) = &self.pager {
@@ -1333,7 +1513,7 @@ impl UnifiedStore {
                     .or_insert_with(|| BTree::new(Arc::clone(pager)));
 
                 let key = id.raw().to_le_bytes();
-                let value = Self::serialize_entity(&entity);
+                let value = Self::serialize_entity(&entity, self.format_version());
                 // Ignore duplicate key errors (update scenario)
                 let _ = btree.insert(&key, &value);
             }
@@ -1356,7 +1536,14 @@ impl UnifiedStore {
         entity: UnifiedEntity,
     ) -> Result<EntityId, StoreError> {
         let manager = self.get_or_create_collection(collection);
+        let mut entity = entity;
+        if entity.id.raw() == 0 {
+            entity.id = self.next_entity_id();
+        } else {
+            self.register_entity_id(entity.id);
+        }
         let id = manager.insert(entity)?;
+        self.register_entity_id(id);
 
         // Also insert into B-tree index if pager is active
         if let Some(pager) = &self.pager {
@@ -1367,7 +1554,7 @@ impl UnifiedStore {
                     .or_insert_with(|| BTree::new(Arc::clone(pager)));
 
                 let key = id.raw().to_le_bytes();
-                let value = Self::serialize_entity(&entity);
+                let value = Self::serialize_entity(&entity, self.format_version());
                 let _ = btree.insert(&key, &value);
             }
         }
@@ -1392,7 +1579,7 @@ impl UnifiedStore {
             if let Some(btree) = btree_indices.get(collection) {
                 let key = id.raw().to_le_bytes();
                 if let Ok(Some(value)) = btree.get(&key) {
-                    if let Ok(entity) = Self::deserialize_entity(&value) {
+                    if let Ok(entity) = Self::deserialize_entity(&value, self.format_version()) {
                         return Some(entity);
                     }
                 }
@@ -1494,21 +1681,43 @@ impl UnifiedStore {
             return Err(StoreError::TooManyRefs(source_id));
         }
 
-        // Add forward reference
-        self.cross_refs
-            .write()
-            .unwrap()
-            .entry(source_id)
-            .or_default()
-            .push((target_id, ref_type, target_collection.to_string()));
+        {
+            let mut forward = self.cross_refs.write().unwrap();
+            let refs = forward.entry(source_id).or_default();
+            if !refs.iter().any(|(id, kind, coll)| {
+                *id == target_id && *kind == ref_type && coll == target_collection
+            }) {
+                refs.push((target_id, ref_type, target_collection.to_string()));
+            }
+        }
 
-        // Add reverse reference
-        self.reverse_refs
-            .write()
-            .unwrap()
-            .entry(target_id)
-            .or_default()
-            .push((source_id, ref_type, source_collection.to_string()));
+        {
+            let mut reverse = self.reverse_refs.write().unwrap();
+            let refs = reverse.entry(target_id).or_default();
+            if !refs.iter().any(|(id, kind, coll)| {
+                *id == source_id && *kind == ref_type && coll == source_collection
+            }) {
+                refs.push((source_id, ref_type, source_collection.to_string()));
+            }
+        }
+
+        if let Some(mut entity) = source_manager.get(source_id) {
+            if !entity.cross_refs.iter().any(|xref| {
+                xref.target == target_id
+                    && xref.ref_type == ref_type
+                    && xref.target_collection == target_collection
+            }) {
+                let cross_ref = CrossRef::with_weight(
+                    source_id,
+                    target_id,
+                    target_collection,
+                    ref_type,
+                    weight,
+                );
+                entity.add_cross_ref(cross_ref);
+                let _ = source_manager.update(entity);
+            }
+        }
 
         Ok(())
     }
@@ -1594,23 +1803,34 @@ impl UnifiedStore {
     /// Index cross-references from an entity
     fn index_cross_refs(&self, entity: &UnifiedEntity, collection: &str) {
         for cross_ref in &entity.cross_refs {
-            // We don't know the target collection, so we use the same collection
-            // In production, CrossRef would include target collection
-            let _ = self
-                .cross_refs
-                .write()
-                .unwrap()
-                .entry(cross_ref.source)
-                .or_default()
-                .push((cross_ref.target, cross_ref.ref_type, collection.to_string()));
+            if cross_ref.target_collection.is_empty() {
+                continue;
+            }
+            {
+                let mut forward = self.cross_refs.write().unwrap();
+                let refs = forward.entry(cross_ref.source).or_default();
+                if !refs.iter().any(|(id, kind, coll)| {
+                    *id == cross_ref.target
+                        && *kind == cross_ref.ref_type
+                        && coll == &cross_ref.target_collection
+                }) {
+                    refs.push((
+                        cross_ref.target,
+                        cross_ref.ref_type,
+                        cross_ref.target_collection.clone(),
+                    ));
+                }
+            }
 
-            let _ = self
-                .reverse_refs
-                .write()
-                .unwrap()
-                .entry(cross_ref.target)
-                .or_default()
-                .push((cross_ref.source, cross_ref.ref_type, collection.to_string()));
+            {
+                let mut reverse = self.reverse_refs.write().unwrap();
+                let refs = reverse.entry(cross_ref.target).or_default();
+                if !refs.iter().any(|(id, kind, coll)| {
+                    *id == cross_ref.source && *kind == cross_ref.ref_type && coll == collection
+                }) {
+                    refs.push((cross_ref.source, cross_ref.ref_type, collection.to_string()));
+                }
+            }
         }
     }
 
@@ -1712,8 +1932,8 @@ impl EntityBuilder {
         data: EntityData,
     ) -> Self {
         let collection_name = collection.into();
-        let manager = store.get_or_create_collection(&collection_name);
-        let id = manager.next_entity_id();
+        let _ = store.get_or_create_collection(&collection_name);
+        let id = store.next_entity_id();
 
         Self {
             store,
@@ -1741,9 +1961,18 @@ impl EntityBuilder {
     }
 
     /// Add a cross-reference
-    pub fn cross_ref(mut self, target: EntityId, ref_type: RefType) -> Self {
-        self.entity
-            .add_cross_ref(CrossRef::new(self.entity.id, target, ref_type));
+    pub fn cross_ref(
+        mut self,
+        target: EntityId,
+        target_collection: impl Into<String>,
+        ref_type: RefType,
+    ) -> Self {
+        self.entity.add_cross_ref(CrossRef::new(
+            self.entity.id,
+            target,
+            target_collection,
+            ref_type,
+        ));
         self
     }
 
@@ -1757,15 +1986,16 @@ impl EntityBuilder {
 mod tests {
     use super::*;
     use crate::storage::schema::Value;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
     #[test]
     fn test_store_basic() {
         let store = UnifiedStore::new();
         store.create_collection("hosts").unwrap();
 
-        let manager = store.get_collection("hosts").unwrap();
         let entity = UnifiedEntity::table_row(
-            manager.next_entity_id(),
+            store.next_entity_id(),
             "hosts",
             1,
             vec![Value::Text("192.168.1.1".to_string())],
@@ -1779,9 +2009,8 @@ mod tests {
     fn test_store_auto_create() {
         let store = UnifiedStore::new();
 
-        let manager = store.get_or_create_collection("new_collection");
         let entity =
-            UnifiedEntity::vector(manager.next_entity_id(), "embeddings", vec![0.1, 0.2, 0.3]);
+            UnifiedEntity::vector(store.next_entity_id(), "embeddings", vec![0.1, 0.2, 0.3]);
 
         let id = store.insert_auto("new_collection", entity).unwrap();
         assert!(store.get("new_collection", id).is_some());
@@ -1792,9 +2021,8 @@ mod tests {
         let store = UnifiedStore::new();
 
         // Create hosts collection
-        let hosts = store.get_or_create_collection("hosts");
         let host_entity = UnifiedEntity::table_row(
-            hosts.next_entity_id(),
+            store.next_entity_id(),
             "hosts",
             1,
             vec![Value::Text("192.168.1.1".to_string())],
@@ -1802,9 +2030,8 @@ mod tests {
         let host_id = store.insert_auto("hosts", host_entity).unwrap();
 
         // Create vulns collection
-        let vulns = store.get_or_create_collection("vulns");
         let vuln_entity = UnifiedEntity::table_row(
-            vulns.next_entity_id(),
+            store.next_entity_id(),
             "vulns",
             1,
             vec![Value::Text("CVE-2024-1234".to_string())],
@@ -1832,15 +2059,15 @@ mod tests {
         let store = UnifiedStore::new();
 
         // Create a chain: A → B → C
-        let coll = store.get_or_create_collection("test");
+        let _ = store.get_or_create_collection("test");
 
-        let a = UnifiedEntity::vector(coll.next_entity_id(), "v", vec![0.1]);
+        let a = UnifiedEntity::vector(store.next_entity_id(), "v", vec![0.1]);
         let a_id = store.insert_auto("test", a).unwrap();
 
-        let b = UnifiedEntity::vector(coll.next_entity_id(), "v", vec![0.2]);
+        let b = UnifiedEntity::vector(store.next_entity_id(), "v", vec![0.2]);
         let b_id = store.insert_auto("test", b).unwrap();
 
-        let c = UnifiedEntity::vector(coll.next_entity_id(), "v", vec![0.3]);
+        let c = UnifiedEntity::vector(store.next_entity_id(), "v", vec![0.3]);
         let c_id = store.insert_auto("test", c).unwrap();
 
         store
@@ -1860,19 +2087,17 @@ mod tests {
         let store = UnifiedStore::new();
 
         // Insert into multiple collections
-        let hosts = store.get_or_create_collection("hosts");
         store
             .insert_auto(
                 "hosts",
-                UnifiedEntity::table_row(hosts.next_entity_id(), "hosts", 1, vec![]),
+                UnifiedEntity::table_row(store.next_entity_id(), "hosts", 1, vec![]),
             )
             .unwrap();
 
-        let vulns = store.get_or_create_collection("vulns");
         store
             .insert_auto(
                 "vulns",
-                UnifiedEntity::table_row(vulns.next_entity_id(), "vulns", 1, vec![]),
+                UnifiedEntity::table_row(store.next_entity_id(), "vulns", 1, vec![]),
             )
             .unwrap();
 
@@ -1885,12 +2110,12 @@ mod tests {
     fn test_stats() {
         let store = UnifiedStore::new();
 
-        let coll = store.get_or_create_collection("test");
+        let _ = store.get_or_create_collection("test");
         for i in 0..5 {
             store
                 .insert_auto(
                     "test",
-                    UnifiedEntity::vector(coll.next_entity_id(), "v", vec![i as f32]),
+                    UnifiedEntity::vector(store.next_entity_id(), "v", vec![i as f32]),
                 )
                 .unwrap();
         }
@@ -1898,5 +2123,127 @@ mod tests {
         let stats = store.stats();
         assert_eq!(stats.collection_count, 1);
         assert_eq!(stats.total_entities, 5);
+    }
+
+    struct FileGuard {
+        path: PathBuf,
+    }
+
+    impl Drop for FileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn temp_path(name: &str) -> (FileGuard, PathBuf) {
+        let path =
+            std::env::temp_dir().join(format!("rb_store_{}_{}.rdb", name, std::process::id()));
+        let guard = FileGuard { path: path.clone() };
+        let _ = std::fs::remove_file(&path);
+        (guard, path)
+    }
+
+    #[test]
+    fn test_cross_refs_persist_file_mode() {
+        let (_guard, path) = temp_path("file");
+        let store = UnifiedStore::new();
+
+        let row = UnifiedEntity::table_row(
+            store.next_entity_id(),
+            "hosts",
+            1,
+            vec![Value::Text("10.0.0.1".to_string())],
+        );
+        let row_id = store.insert_auto("hosts", row).unwrap();
+
+        let node =
+            UnifiedEntity::graph_node(store.next_entity_id(), "host", "asset", HashMap::new());
+        let node_id = store.insert_auto("graph", node).unwrap();
+
+        let vector =
+            UnifiedEntity::vector(store.next_entity_id(), "embeddings", vec![0.1, 0.2, 0.3]);
+        let vector_id = store.insert_auto("embeddings", vector).unwrap();
+
+        store
+            .add_cross_ref("hosts", row_id, "graph", node_id, RefType::RowToNode, 1.0)
+            .unwrap();
+        store
+            .add_cross_ref(
+                "graph",
+                node_id,
+                "embeddings",
+                vector_id,
+                RefType::NodeToVector,
+                1.0,
+            )
+            .unwrap();
+
+        store.save_to_file(&path).unwrap();
+
+        let loaded = UnifiedStore::load_from_file(&path).unwrap();
+        let refs = loaded.get_refs_from(row_id);
+        assert!(refs.iter().any(|(id, kind, coll)| {
+            *id == node_id && *kind == RefType::RowToNode && coll == "graph"
+        }));
+
+        let graph_refs = loaded.get_refs_from(node_id);
+        assert!(graph_refs.iter().any(|(id, kind, coll)| {
+            *id == vector_id && *kind == RefType::NodeToVector && coll == "embeddings"
+        }));
+
+        let expanded = loaded.expand_refs(row_id, 2, None);
+        assert!(expanded
+            .iter()
+            .any(|(entity, depth, _)| { entity.id == node_id && *depth == 1 }));
+        assert!(expanded
+            .iter()
+            .any(|(entity, depth, _)| { entity.id == vector_id && *depth == 2 }));
+    }
+
+    #[test]
+    fn test_cross_refs_persist_paged_mode() {
+        let (_guard, path) = temp_path("paged");
+        let store = UnifiedStore::open(&path).unwrap();
+
+        let row = UnifiedEntity::table_row(store.next_entity_id(), "hosts", 1, vec![]);
+        let row_id = store.insert_auto("hosts", row).unwrap();
+
+        let node =
+            UnifiedEntity::graph_node(store.next_entity_id(), "host", "asset", HashMap::new());
+        let node_id = store.insert_auto("graph", node).unwrap();
+
+        store
+            .add_cross_ref("hosts", row_id, "graph", node_id, RefType::RowToNode, 1.0)
+            .unwrap();
+
+        store.persist().unwrap();
+
+        drop(store);
+
+        let loaded = UnifiedStore::open(&path).unwrap();
+        let refs = loaded.get_refs_from(row_id);
+        assert!(refs.iter().any(|(id, kind, coll)| {
+            *id == node_id && *kind == RefType::RowToNode && coll == "graph"
+        }));
+    }
+
+    #[test]
+    fn test_global_ids_unique_across_collections() {
+        let store = UnifiedStore::new();
+
+        let entity_a = UnifiedEntity::table_row(EntityId::new(0), "alpha", 1, vec![]);
+        let entity_b = UnifiedEntity::table_row(EntityId::new(0), "beta", 1, vec![]);
+
+        let id_a = store.insert_auto("alpha", entity_a).unwrap();
+        let id_b = store.insert_auto("beta", entity_b).unwrap();
+
+        assert_ne!(id_a, id_b);
+
+        store
+            .add_cross_ref("alpha", id_a, "beta", id_b, RefType::RelatedTo, 1.0)
+            .unwrap();
+
+        let expanded = store.expand_refs(id_a, 1, None);
+        assert!(expanded.iter().any(|(entity, _, _)| entity.id == id_b));
     }
 }

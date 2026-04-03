@@ -21,6 +21,8 @@ pub struct Http2Client {
     stream_manager: StreamManager,
     connection_window: i32,
     max_frame_size: u32,
+    enable_push: bool,
+    max_header_list_size: usize,
     settings_ack_received: bool,
 }
 
@@ -99,6 +101,8 @@ impl Http2Client {
             stream_manager: StreamManager::new(true, DEFAULT_WINDOW_SIZE as i32),
             connection_window: DEFAULT_WINDOW_SIZE as i32,
             max_frame_size: DEFAULT_MAX_FRAME_SIZE,
+            enable_push: true,
+            max_header_list_size: DEFAULT_MAX_HEADER_LIST_SIZE,
             settings_ack_received: false,
         };
 
@@ -207,6 +211,22 @@ impl Http2Client {
         self.read_response_streaming(stream_id, start_time, handler)
     }
 
+    fn enforce_header_list_size(&self, headers: &[Header]) -> Result<(), String> {
+        if self.max_header_list_size == usize::MAX {
+            return Ok(());
+        }
+
+        let total_size = headers.iter().map(|header| header.size()).sum::<usize>();
+        if total_size > self.max_header_list_size {
+            return Err(format!(
+                "Header list size {} exceeds MAX_HEADER_LIST_SIZE {}",
+                total_size, self.max_header_list_size
+            ));
+        }
+
+        Ok(())
+    }
+
     fn initiate_request(
         &mut self,
         method: &str,
@@ -297,6 +317,7 @@ impl Http2Client {
                         .decoder
                         .decode(&frame.payload)
                         .map_err(|e| format!("HPACK decode failed: {}", e))?;
+                    self.enforce_header_list_size(&headers)?;
 
                     // Extract status
                     for header in &headers {
@@ -351,6 +372,11 @@ impl Http2Client {
                 FrameType::Settings => {
                     // Handle SETTINGS frame
                     self.handle_settings_frame(&frame)?;
+                }
+                FrameType::PushPromise => {
+                    if !self.enable_push {
+                        return Err("Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string());
+                    }
                 }
 
                 FrameType::WindowUpdate => {
@@ -458,6 +484,7 @@ impl Http2Client {
                         .decoder
                         .decode(&frame.payload)
                         .map_err(|e| format!("HPACK decode failed: {}", e))?;
+                    self.enforce_header_list_size(&headers)?;
 
                     let mut status = None;
                     for header in &headers {
@@ -518,6 +545,11 @@ impl Http2Client {
                 }
                 FrameType::Settings => {
                     self.handle_settings_frame(&frame)?;
+                }
+                FrameType::PushPromise => {
+                    if !self.enable_push {
+                        return Err("Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string());
+                    }
                 }
                 FrameType::WindowUpdate => {
                     if frame.stream_id == 0 {
@@ -599,11 +631,17 @@ impl Http2Client {
             match id {
                 0x1 => {
                     // HEADER_TABLE_SIZE
-                    // TODO: Update HPACK encoder/decoder table size
+                    let new_size = value as usize;
+                    self.encoder.set_max_size(new_size);
+                    self.decoder.set_max_size(new_size);
                 }
                 0x2 => {
                     // ENABLE_PUSH
-                    // TODO: Handle server push
+                    if value != 0 && value != 1 {
+                        return Err("Invalid ENABLE_PUSH value".to_string());
+                    }
+
+                    self.enable_push = value == 1;
                 }
                 0x3 => {
                     // MAX_CONCURRENT_STREAMS
@@ -624,7 +662,7 @@ impl Http2Client {
                 }
                 0x6 => {
                     // MAX_HEADER_LIST_SIZE
-                    // TODO: Enforce header list size limit
+                    self.max_header_list_size = value as usize;
                 }
                 _ => {
                     // Unknown setting, ignore per RFC 7540
@@ -718,6 +756,7 @@ fn validate_peer_certificate_der(host: &str, der: &[u8]) -> Result<(), String> {
 
 /// Default max concurrent streams
 const DEFAULT_MAX_CONCURRENT_STREAMS: u32 = 100;
+const DEFAULT_MAX_HEADER_LIST_SIZE: usize = usize::MAX;
 
 #[cfg(test)]
 mod tests {

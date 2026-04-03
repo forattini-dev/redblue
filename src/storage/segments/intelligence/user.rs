@@ -2,7 +2,7 @@
 //!
 //! Answers: "Where does this user exist? What privileges?"
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::types::*;
 use crate::storage::segments::graph::{EdgeType, GraphSegment, NodeType};
@@ -119,10 +119,16 @@ impl<'a> UserIntelligence<'a> {
             }
         }
 
-        let services: Vec<String> = Vec::new();
+        let mut services: HashSet<String> = HashSet::new();
         let mut occurrences = Vec::new();
 
         for host in &hosts {
+            let host_services = self.services_for_host(host);
+
+            for service in &host_services {
+                services.insert(service.clone());
+            }
+
             let has_cred = credentials.iter().any(|c| {
                 if let Some(node) = self.graph.get_node(&format!("cred:{}", c)) {
                     node.out_edges.iter().any(|e| {
@@ -142,20 +148,125 @@ impl<'a> UserIntelligence<'a> {
 
             occurrences.push(UserOccurrence {
                 host: host.clone(),
-                services: vec![], // Would need more context
+                services: host_services,
                 has_credential: has_cred,
                 privilege: priv_level,
             });
         }
+
+        let mut services_accessed: Vec<String> = services.into_iter().collect();
+        services_accessed.sort();
+
+        let password_patterns = self.password_patterns(&credentials, username);
 
         Some(UserProfile {
             username: username.to_string(),
             host_occurrences: occurrences,
             known_credentials: credentials,
             privilege_summary: priv_summary,
-            password_patterns: vec![], // TODO: pattern analysis
-            services_accessed: services,
+            password_patterns,
+            services_accessed,
         })
+    }
+
+    fn services_for_host(&self, host: &str) -> Vec<String> {
+        let mut services: HashSet<String> = HashSet::new();
+        let host_id = format!("host:{}", host);
+
+        if let Some(host_node) = self.graph.get_node(&host_id) {
+            for edge in &host_node.out_edges {
+                if edge.edge_type != EdgeType::HasService {
+                    continue;
+                }
+
+                if let Some(svc_node) = self.graph.get_node(&edge.target_id) {
+                    if let Some(service) = svc_node.label.split(':').next_back() {
+                        services.insert(service.to_string());
+                    } else {
+                        services.insert(svc_node.label.clone());
+                    }
+                    continue;
+                }
+
+                let parts: Vec<&str> = edge.target_id.split(':').collect();
+                if parts.len() >= 4 {
+                    services.insert(parts[3..].join(":"));
+                } else {
+                    services.insert(edge.target_id.clone());
+                }
+            }
+        }
+
+        let mut services: Vec<String> = services.into_iter().collect();
+        services.sort();
+        services
+    }
+
+    fn password_patterns(&self, credentials: &[String], username: &str) -> Vec<String> {
+        let mut patterns: HashSet<String> = HashSet::new();
+        let username_lower = username.to_lowercase();
+
+        for credential in credentials {
+            let password = credential
+                .trim_start_matches("cred:")
+                .splitn(2, ':')
+                .nth(1)
+                .unwrap_or("");
+
+            if password.is_empty() {
+                patterns.insert("empty-password".to_string());
+                continue;
+            }
+
+            if password == username {
+                patterns.insert("username-as-password".to_string());
+            }
+            if password.eq_ignore_ascii_case(&username_lower) {
+                patterns.insert("username-based-pattern".to_string());
+            }
+            if password.len() < 8 {
+                patterns.insert("short-password".to_string());
+            }
+
+            if password.chars().all(|c| c.is_ascii_digit()) {
+                patterns.insert("numeric-only".to_string());
+            }
+            if password.chars().all(|c| c.is_ascii_alphabetic()) {
+                patterns.insert("alpha-only".to_string());
+            }
+            if password.chars().any(|c| c == '!' || c == '@' || c == '#' || c == '$' || c == '%') {
+                patterns.insert("symbol-prefixed".to_string());
+            }
+            if password.chars().any(|c| !c.is_ascii_alphanumeric()) {
+                patterns.insert("contains-symbol".to_string());
+            }
+            if password.contains("123") {
+                patterns.insert("sequential-numeric-pattern".to_string());
+            }
+
+            match PasswordStrength::analyze(password) {
+                PasswordStrength::Weak => {
+                    patterns.insert("weak-password-pattern".to_string());
+                }
+                PasswordStrength::Medium => {
+                    patterns.insert("medium-password-pattern".to_string());
+                }
+                PasswordStrength::Strong => {
+                    patterns.insert("strong-password-pattern".to_string());
+                }
+                PasswordStrength::Unknown => {}
+            }
+
+            if let Some(first) = password.chars().next() {
+                if password.chars().all(|c| c == first) {
+                    patterns.insert("repeated-char".to_string());
+                }
+            }
+        }
+
+        let mut patterns: Vec<String> = patterns.into_iter().collect();
+        patterns.sort();
+        patterns
     }
 
     /// Find all hosts where this user exists

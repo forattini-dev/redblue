@@ -153,6 +153,8 @@ impl<'a> HostIntelligence<'a> {
         };
 
         let node = self.graph.get_node(&host_id)?;
+        let pagerank_scores = self.compute_pagerank_scores();
+        let communities = self.community_assignments();
 
         Some(HostProfile {
             ip: host.trim_start_matches("host:").to_string(),
@@ -164,9 +166,159 @@ impl<'a> HostIntelligence<'a> {
             vulnerabilities: self.vulns(&host_id),
             attack_paths_in: self.count_incoming_paths(&host_id),
             attack_paths_out: self.count_outgoing_paths(&host_id),
-            pagerank: 0.0,      // TODO: implement pagerank
-            community_id: None, // TODO: implement community detection
+            pagerank: pagerank_scores.get(&host_id).copied().unwrap_or(0.0),
+            community_id: communities.get(&host_id).copied(),
         })
+    }
+
+    fn node_ids(&self) -> Vec<String> {
+        self.graph
+            .all_node_ids()
+            .iter()
+            .map(|id| (*id).clone())
+            .collect()
+    }
+
+    fn compute_pagerank_scores(&self) -> HashMap<String, f64> {
+        let nodes = self.node_ids();
+        if nodes.is_empty() {
+            return HashMap::new();
+        }
+
+        let n = nodes.len() as f64;
+        let alpha = 0.85_f64;
+        let epsilon = 1e-6_f64;
+        let max_iterations = 50_usize;
+
+        let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
+        for node_id in &nodes {
+            if let Some(node) = self.graph.get_node(node_id) {
+                outgoing.insert(
+                    node_id.clone(),
+                    node.out_edges.iter().map(|edge| edge.target_id.clone()).collect(),
+                );
+            } else {
+                outgoing.insert(node_id.clone(), Vec::new());
+            }
+        }
+
+        let mut scores: HashMap<String, f64> = nodes
+            .iter()
+            .map(|node_id| (node_id.clone(), 1.0 / n))
+            .collect();
+
+        for _ in 0..max_iterations {
+            let mut next = HashMap::new();
+            for node_id in &nodes {
+                let mut score = (1.0 - alpha) / n;
+
+                for (source_id, targets) in &outgoing {
+                    if targets.contains(node_id) {
+                        let source_score = scores.get(source_id).copied().unwrap_or(0.0);
+                        if !targets.is_empty() {
+                            score += alpha * source_score / targets.len() as f64;
+                        }
+                    }
+                }
+
+                next.insert(node_id.clone(), score);
+            }
+
+            let dangling_sum = nodes
+                .iter()
+                .filter(|id| outgoing.get(*id).map(|targets| targets.is_empty()).unwrap_or(true))
+                .filter_map(|id| scores.get(id))
+                .sum::<f64>();
+            let dangling = alpha * dangling_sum / n;
+            for score in next.values_mut() {
+                *score += dangling;
+            }
+
+            let diff: f64 = nodes
+                .iter()
+                .map(|id| {
+                    let old = scores.get(id).copied().unwrap_or(0.0);
+                    let updated = next.get(id).copied().unwrap_or(0.0);
+                    (old - updated).abs()
+                })
+                .sum();
+
+            scores = next;
+            if diff < epsilon {
+                break;
+            }
+        }
+
+        scores
+    }
+
+    fn community_assignments(&self) -> HashMap<String, u32> {
+        let nodes = self.node_ids();
+        if nodes.is_empty() {
+            return HashMap::new();
+        }
+
+        let mut labels: HashMap<String, String> = nodes
+            .iter()
+            .map(|node_id| (node_id.clone(), node_id.clone()))
+            .collect();
+
+        for _ in 0..30 {
+            let mut changed = false;
+            for node_id in &nodes {
+                let mut counts: HashMap<String, usize> = HashMap::new();
+
+                if let Some(node) = self.graph.get_node(node_id) {
+                    for edge in node.out_edges.iter().chain(node.in_edges.iter()) {
+                        if let Some(label) = labels.get(&edge.target_id) {
+                            *counts.entry(label.clone()).or_insert(0) += 1;
+                        }
+                    }
+                }
+
+                if counts.is_empty() {
+                    continue;
+                }
+
+                let best_label = counts
+                    .into_iter()
+                    .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+                    .map(|(label, _)| label);
+
+                if let Some(next_label) = best_label {
+                    if labels.get(node_id) != Some(&next_label) {
+                        labels.insert(node_id.clone(), next_label);
+                        changed = true;
+                    }
+                }
+            }
+
+            if !changed {
+                break;
+            }
+        }
+
+        let mut groups: HashMap<String, Vec<String>> = HashMap::new();
+        for (node_id, label) in labels {
+            groups.entry(label).or_default().push(node_id);
+        }
+
+        let mut ordered: Vec<(String, Vec<String>)> = groups.into_iter().collect();
+        ordered.sort_by(|a, b| {
+            b.1.len()
+                .cmp(&a.1.len())
+                .then_with(|| a.0.cmp(&b.0))
+        });
+
+        let mut assignments = HashMap::new();
+        for (index, (_label, members)) in ordered.into_iter().enumerate() {
+            let community_id = index as u32;
+            for member in members {
+                assignments.insert(member, community_id);
+            }
+        }
+
+        assignments
     }
 
     /// Resolve hostname from graph metadata

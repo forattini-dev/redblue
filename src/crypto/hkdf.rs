@@ -145,12 +145,6 @@ pub fn hkdf_expand_label(secret: &[u8; 32], label: &[u8], context: &[u8], length
     hkdf_label.push(context.len() as u8);
     hkdf_label.extend_from_slice(context);
 
-    eprintln!("HKDF Expand Label:");
-    eprintln!("  Secret: {:02x?}", secret);
-    eprintln!("  Label: {:?}", String::from_utf8_lossy(label));
-    eprintln!("  Full Label: {:?}", String::from_utf8_lossy(&full_label));
-    eprintln!("  Info (HkdfLabel): {:02x?}", hkdf_label);
-
     hkdf_expand(secret, &hkdf_label, length as usize)
 }
 

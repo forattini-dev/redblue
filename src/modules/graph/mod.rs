@@ -1252,7 +1252,9 @@ impl ShadowGraph {
     }
 
     /// Deserialize graph from bytes
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::storage::encoding::DecodeError> {
+    pub fn from_bytes(
+        bytes: &[u8],
+    ) -> Result<Self, crate::storage::primitives::encoding::DecodeError> {
         let segment = GraphSegment::deserialize(bytes)?;
         Ok(Self::from_segment(segment))
     }

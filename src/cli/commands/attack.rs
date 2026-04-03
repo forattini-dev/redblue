@@ -19,7 +19,7 @@ use crate::playbooks::{
 };
 use crate::storage::records::{PortScanRecord, PortStatus, VulnerabilityRecord};
 use crate::storage::service::StorageService;
-use crate::storage::unified::{RedDB, UnifiedEntity};
+use crate::storage::{RedDB, UnifiedEntity};
 use std::net::IpAddr;
 
 pub struct AttackCommand;
@@ -169,7 +169,7 @@ impl AttackCommand {
                 // Query ports
                 let mut ports = Vec::new();
                 if let Some(ip) = target_ip {
-                    // Query UnifiedStore
+                    // Query the RedDB store
                     let results = db
                         .query()
                         .collection("ports")
@@ -227,7 +227,7 @@ impl AttackCommand {
                 }
             }
             Err(_) => {
-                // Handle case where no DB exists yet (or legacy)
+                // Handle case where no DB exists yet
                 if is_json {
                     println!("{{");
                     println!("  \"target\": \"{}\",", target.replace('"', "\\\""));

@@ -49,7 +49,6 @@ pub mod web;
 
 // SSL/TLS Security Testing
 pub mod tls;
-
 // CT logs re-exported for backward compatibility
 pub use tls::ct_logs;
 
@@ -90,7 +89,7 @@ pub mod exploit;
 pub mod benchmark;
 
 // Protocol Monitoring
-// pub mod monitor;  // TODO: Needs implementation fixes
+pub mod monitor;
 
 // Wordlist Management
 pub mod wordlist;

@@ -1,16 +1,25 @@
 //! Main MITM Shell application
 
 use std::io;
+use std::fs;
 use std::net::SocketAddr;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::collections::HashMap;
+use std::env;
+use std::process::Command;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver, Sender, TryRecvError},
+    Arc,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::input::{key_to_action, Action, InputReader, Key, RawMode};
-use super::interceptor::{ShellEvent, ShellInterceptor};
+use super::interceptor::{InteractiveShellInterceptor, InterceptDecision, ShellEvent};
 use super::state::{DetailTab, HttpExchange, RequestFilter, ShellState, ShellViewMode};
 use super::ui::ShellUI;
 use crate::crypto::certs::ca::CertificateAuthority;
+use crate::protocols::http::{HttpClient, HttpRequest as ClientRequest};
 use crate::modules::proxy::mitm::{MitmConfig, MitmProxy};
 
 /// MITM Shell application
@@ -20,6 +29,8 @@ pub struct MitmShell {
     proxy_addr: SocketAddr,
     event_rx: Receiver<ShellEvent>,
     event_tx: Sender<ShellEvent>,
+    interceptor_enabled: Arc<AtomicBool>,
+    interceptor_decision_tx: Option<Sender<InterceptDecision>>,
     running: bool,
     _raw_mode: RawMode,
 }
@@ -36,6 +47,8 @@ impl MitmShell {
             proxy_addr,
             event_rx,
             event_tx,
+            interceptor_enabled: Arc::new(AtomicBool::new(false)),
+            interceptor_decision_tx: None,
             running: false,
             _raw_mode: raw_mode,
         })
@@ -49,7 +62,12 @@ impl MitmShell {
     /// Run the shell with proxy
     pub fn run_with_proxy(mut self, ca: CertificateAuthority) -> io::Result<()> {
         // Create interceptor
-        let interceptor = ShellInterceptor::new(self.event_tx.clone());
+        let (interceptor, decision_tx, interceptor_enabled) =
+            InteractiveShellInterceptor::new(self.event_tx.clone());
+        self.interceptor_enabled = interceptor_enabled;
+        self.interceptor_decision_tx = Some(decision_tx);
+        self.interceptor_enabled
+            .store(self.state.intercept_enabled, Ordering::Relaxed);
 
         // Create proxy config with our interceptor
         let config = MitmConfig::new(self.proxy_addr, ca)
@@ -221,6 +239,8 @@ impl MitmShell {
             }
             Action::ToggleIntercept => {
                 self.state.intercept_enabled = !self.state.intercept_enabled;
+                self.interceptor_enabled
+                    .store(self.state.intercept_enabled, Ordering::Relaxed);
             }
             Action::NextTab => {
                 self.state.detail_tab = match self.state.detail_tab {
@@ -281,18 +301,144 @@ impl MitmShell {
                 self.state.view_mode = ShellViewMode::Help;
             }
             Action::EditRequest => {
-                // TODO: Open editor for selected request
+                self.edit_selected_request();
             }
             Action::ReplayRequest => {
-                // TODO: Replay selected request
+                self.replay_selected_request();
             }
             Action::ForwardRequest => {
-                // TODO: Forward intercepted request
+                if let Some(ex) = self.state.selected_exchange_mut() {
+                    ex.was_dropped = false;
+                }
+                self.send_intercept_decision(InterceptDecision::Forward);
             }
             Action::DropRequest => {
-                // TODO: Drop intercepted request
+                if let Some(ex) = self.state.selected_exchange_mut() {
+                    ex.was_dropped = true;
+                }
+                self.send_intercept_decision(InterceptDecision::Drop);
             }
             Action::None => {}
+        }
+    }
+
+    /// Send a decision to the interactive interceptor
+    fn send_intercept_decision(&self, decision: InterceptDecision) {
+        if !self.state.intercept_enabled {
+            return;
+        }
+
+        if let Some(tx) = &self.interceptor_decision_tx {
+            let _ = tx.send(decision);
+        }
+    }
+
+    /// Open the selected request in an editor and mark it as modified
+    fn edit_selected_request(&mut self) {
+        let selected = match self.state.selected_exchange() {
+            Some(ex) => ex,
+            None => return,
+        };
+
+        let mut temp_path = env::temp_dir();
+        temp_path.push(format!("rb-proxy-{}.http", selected.id));
+
+        if fs::write(&temp_path, selected.request_raw()).is_err() {
+            return;
+        }
+
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+        let status = Command::new(editor).arg(&temp_path).status();
+        if !matches!(status, Ok(status) if status.success()) {
+            return;
+        }
+
+        let edited = match fs::read_to_string(&temp_path) {
+            Ok(data) => data,
+            Err(_) => return,
+        };
+
+        let _ = fs::remove_file(&temp_path);
+
+        if let Some(parsed) = ClientRequest::parse(edited.as_bytes()) {
+            let host = parsed.host().to_string();
+            if let Some(exchange) = self.state.selected_exchange_mut() {
+                exchange.host = host;
+                exchange.method = parsed.method;
+                exchange.path = parsed.path;
+                exchange.version = parsed.version;
+                exchange.request_headers = parsed.headers;
+                exchange.request_body = parsed.body;
+                exchange.was_modified = true;
+            }
+        } else if let Some(exchange) = self.state.selected_exchange_mut() {
+            exchange.request_body = edited.into_bytes();
+            exchange.was_modified = true;
+        }
+    }
+
+    /// Replay selected request through the HTTP client
+    fn replay_selected_request(&mut self) {
+        let selected = match self.state.selected_exchange() {
+            Some(ex) => ex.clone(),
+            None => return,
+        };
+
+        let mut path = if selected.path.starts_with("http://") || selected.path.starts_with("https://") {
+            selected.path.clone()
+        } else {
+            let normalized_path = if selected.path.starts_with('/') {
+                selected.path.clone()
+            } else {
+                format!("/{}", selected.path)
+            };
+            if selected.host.is_empty() {
+                normalized_path
+            } else {
+                format!("https://{}{}", selected.host, normalized_path)
+            }
+        };
+
+        if path.is_empty() {
+            return;
+        }
+
+        let mut request = ClientRequest::new(&selected.method, &path);
+        for (key, value) in &selected.request_headers {
+            request = request.with_header(key, value);
+        }
+        request = request.with_body(selected.request_body.clone());
+
+        let client = HttpClient::new().with_keep_alive(false);
+        let result = client.send(&request);
+
+        match result {
+            Ok(response) => {
+                self.state.update_response(
+                    selected.id,
+                    response.status_code,
+                    &response.status_text,
+                    response.headers,
+                    response.body,
+                    0,
+                );
+            }
+            Err(err) => {
+                self.state.update_response(
+                    selected.id,
+                    599,
+                    "Replay failed",
+                    HashMap::new(),
+                    err.into_bytes(),
+                    0,
+                );
+            }
+        }
+
+        if let Some(exchange) = self.state.selected_exchange_mut() {
+            if exchange.id == selected.id {
+                exchange.was_modified = true;
+            }
         }
     }
 
@@ -332,6 +478,8 @@ impl MitmShell {
                 } else {
                     self.state.intercept_enabled = !self.state.intercept_enabled;
                 }
+                self.interceptor_enabled
+                    .store(self.state.intercept_enabled, Ordering::Relaxed);
             }
             "q" | "quit" | "exit" => {
                 self.running = false;

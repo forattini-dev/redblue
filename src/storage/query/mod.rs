@@ -10,7 +10,6 @@
 //! - **executor**: Query plan execution
 //! - **similarity**: Vector similarity search integration
 //! - **modes**: Multi-mode query parsing (SQL, Gremlin, Cypher, SPARQL, Natural Language)
-//! - **legacy**: Simple key-value query interface for backward compatibility
 //!
 //! # Multi-Mode Parsing
 //!

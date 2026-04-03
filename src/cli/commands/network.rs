@@ -74,7 +74,7 @@ impl Command for NetworkCommand {
             Flag::new("size", "Packet size in bytes")
                 .with_short('s')
                 .with_default("56"),
-            Flag::new("persist", "Save host fingerprint to database (legacy)"),
+            Flag::new("persist", "Save host fingerprint to database"),
             Flag::new("db", "Database file to read host fingerprints from"),
             Flag::new("bogons", "Show all bogon ranges (IPv4 and IPv6)"),
             // Global action flags for unified intelligence layer

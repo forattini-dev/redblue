@@ -3,9 +3,12 @@
 //! Sends events to the shell for display and receives decisions for intercepted requests.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
-use std::time::Instant;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    mpsc::{self, Receiver, RecvTimeoutError, Sender},
+    Arc, Mutex,
+};
+use std::time::{Duration, Instant};
 
 use crate::modules::proxy::mitm::{HttpRequest, HttpResponse, InterceptAction, RequestInterceptor};
 
@@ -140,22 +143,45 @@ impl RequestInterceptor for ShellInterceptor {
 }
 
 /// Interactive shell interceptor - can pause and wait for user decisions
+#[derive(Debug, Clone, Copy)]
+pub enum InterceptDecision {
+    /// Continue forwarding request
+    Forward,
+    /// Drop request and send 403 to client
+    Drop,
+}
+
 pub struct InteractiveShellInterceptor {
     /// Base interceptor for events
     base: ShellInterceptor,
     /// Whether intercept mode is enabled
-    intercept_enabled: std::sync::atomic::AtomicBool,
-    // TODO: Add channel for receiving decisions from the shell
-    // decision_rx: Receiver<InterceptDecision>,
+    intercept_enabled: Arc<AtomicBool>,
+    decision_rx: Arc<Mutex<Receiver<InterceptDecision>>>,
+    decision_timeout: Duration,
 }
 
 impl InteractiveShellInterceptor {
     /// Create new interactive interceptor
-    pub fn new(event_tx: Sender<ShellEvent>) -> Self {
-        Self {
-            base: ShellInterceptor::new(event_tx),
-            intercept_enabled: std::sync::atomic::AtomicBool::new(false),
-        }
+    pub fn new(
+        event_tx: Sender<ShellEvent>,
+    ) -> (
+        Self,
+        Sender<InterceptDecision>,
+        Arc<AtomicBool>,
+    ) {
+        let intercept_enabled = Arc::new(AtomicBool::new(false));
+        let (decision_tx, decision_rx) = mpsc::channel();
+
+        (
+            Self {
+                base: ShellInterceptor::new(event_tx),
+                intercept_enabled: intercept_enabled.clone(),
+                decision_rx: Arc::new(Mutex::new(decision_rx)),
+                decision_timeout: Duration::from_secs(30),
+            },
+            decision_tx,
+            intercept_enabled,
+        )
     }
 
     /// Enable or disable intercept mode
@@ -167,12 +193,45 @@ impl InteractiveShellInterceptor {
     pub fn is_intercept_enabled(&self) -> bool {
         self.intercept_enabled.load(Ordering::Relaxed)
     }
+
+    /// Decide what to do with the current intercepted request
+    fn wait_for_decision(&self) -> InterceptDecision {
+        if !self.intercept_enabled.load(Ordering::Relaxed) {
+            return InterceptDecision::Forward;
+        }
+
+        let guard = match self.decision_rx.lock() {
+            Ok(guard) => guard,
+            Err(_) => return InterceptDecision::Forward,
+        };
+
+        match guard.recv_timeout(self.decision_timeout) {
+            Ok(decision) => decision,
+            Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => {
+                InterceptDecision::Forward
+            }
+        }
+    }
 }
 
 impl RequestInterceptor for InteractiveShellInterceptor {
     fn on_request(&self, req: &mut HttpRequest, client_addr: Option<&str>) -> InterceptAction {
-        // For now, delegate to base - full intercept logic will be added later
-        self.base.on_request(req, client_addr)
+        let action = self.base.on_request(req, client_addr);
+        if matches!(action, InterceptAction::Continue) {
+            match self.wait_for_decision() {
+                InterceptDecision::Forward => InterceptAction::Continue,
+                InterceptDecision::Drop => {
+                    let id = self.base.extract_id_from_request(req);
+                    let _ = self
+                        .base
+                        .event_tx
+                        .send(ShellEvent::RequestDropped { id });
+                    InterceptAction::Drop
+                }
+            }
+        } else {
+            action
+        }
     }
 
     fn on_response(&self, req: &HttpRequest, resp: &mut HttpResponse) -> InterceptAction {

@@ -312,6 +312,7 @@ impl WorkerPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::crew::TaskStatus;
 
     #[test]
     fn test_worker_creation() {

@@ -13,7 +13,7 @@
 //! # Examples
 //!
 //! ```ignore
-//! use redblue::storage::unified::dsl::*;
+//! use redblue::storage::dsl::*;
 //!
 //! // Vector similarity + metadata filter
 //! let results = Q::similar_to(&embedding, 10)

@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::storage::encoding::{read_varu32, write_varu32, DecodeError};
+use crate::storage::primitives::encoding::{read_varu32, write_varu32, DecodeError};
 
 use super::record::ActionRecord;
 use super::types::{ActionType, Target};

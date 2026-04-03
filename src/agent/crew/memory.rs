@@ -600,8 +600,9 @@ fn current_timestamp() -> u64 {
 // Persistence Layer - Finding <-> LootEntry Conversion
 // ═══════════════════════════════════════════════════════════════════════════
 
+use crate::storage::schema::Value;
 use crate::storage::segments::loot::{Confidence as LootConfidence, LootCategory, LootEntry};
-use crate::storage::store::Database;
+use crate::storage::RedDB;
 
 impl FindingType {
     /// Convert FindingType to LootCategory
@@ -784,16 +785,16 @@ impl Finding {
 
 impl CrewMemory {
     /// Save all findings to storage
-    pub fn save_to_storage(&self, db: &mut Database) {
+    pub fn save_to_storage(&self, db: &RedDB) {
         for finding in self.findings.values() {
             let entry = finding.to_loot_entry();
-            db.insert_loot(entry);
+            persist_loot_entry(db, &entry);
         }
     }
 
     /// Load findings from storage into memory
-    pub fn load_from_storage(&mut self, db: &mut Database) {
-        let entries = db.all_loot();
+    pub fn load_from_storage(&mut self, db: &RedDB) {
+        let entries = read_loot_entries(db);
         for entry in entries {
             // Check if entry was created by crew (has finding_type tag)
             let is_crew_finding = entry
@@ -811,31 +812,26 @@ impl CrewMemory {
     }
 
     /// Sync a single finding to storage
-    pub fn sync_finding_to_storage(&self, finding_id: &str, db: &mut Database) {
+    pub fn sync_finding_to_storage(&self, finding_id: &str, db: &RedDB) {
         if let Some(finding) = self.findings.get(finding_id) {
             let entry = finding.to_loot_entry();
-            db.insert_loot(entry);
+            persist_loot_entry(db, &entry);
         }
     }
 
     /// Load a specific finding from storage
-    pub fn load_finding_from_storage(
-        &mut self,
-        finding_id: &str,
-        db: &mut Database,
-    ) -> Option<Finding> {
-        if let Some(entry) = db.loot_by_key(finding_id) {
-            let is_crew_finding = entry
-                .metadata
-                .tags
-                .iter()
-                .any(|t| t.starts_with("finding_type:"));
+    pub fn load_finding_from_storage(&mut self, finding_id: &str, db: &RedDB) -> Option<Finding> {
+        let entry = read_loot_entry_by_key(db, finding_id)?;
+        let is_crew_finding = entry
+            .metadata
+            .tags
+            .iter()
+            .any(|t| t.starts_with("finding_type:"));
 
-            if is_crew_finding {
-                let finding = Finding::from_loot_entry(&entry);
-                self.add_finding(finding.clone());
-                return Some(finding);
-            }
+        if is_crew_finding {
+            let finding = Finding::from_loot_entry(&entry);
+            self.add_finding(finding.clone());
+            return Some(finding);
         }
         None
     }
@@ -978,11 +974,86 @@ impl CrewMemory {
     }
 
     /// Sync memory to both storage and graph
-    pub fn sync_all(&mut self, db: &mut Database, graph: &mut GraphSegment) {
+    pub fn sync_all(&mut self, db: &RedDB, graph: &mut GraphSegment) {
         // Save findings to storage
         self.save_to_storage(db);
         // Flush graph updates
         self.flush_graph_updates(graph);
+    }
+}
+
+fn persist_loot_entry(db: &RedDB, entry: &LootEntry) {
+    let existing = db
+        .query()
+        .collection("loot")
+        .where_prop("key", entry.key.clone())
+        .limit(1)
+        .execute();
+
+    if let Ok(result) = existing {
+        if !result.items.is_empty() {
+            return;
+        }
+    }
+
+    let mut node = db
+        .node("loot", "Loot")
+        .property("key", entry.key.clone())
+        .property("category", format!("{:?}", entry.category))
+        .property("status", format!("{:?}", entry.status))
+        .property("confidence", format!("{:?}", entry.confidence))
+        .property("content", entry.content.clone())
+        .property("created_at", entry.created_at)
+        .property("updated_at", entry.updated_at)
+        .property("record", Value::Blob(entry.to_bytes()));
+
+    if let Some(target) = entry.target {
+        node = node.property("target", target.to_string());
+    }
+    if let Some(source) = entry.source {
+        node = node.property("source", source.to_string());
+    }
+    if !entry.metadata.tags.is_empty() {
+        node = node.property("tags", entry.metadata.tags.join(","));
+    }
+
+    let _ = node.save();
+}
+
+fn read_loot_entries(db: &RedDB) -> Vec<LootEntry> {
+    let results = db.query().collection("loot").execute();
+    let mut entries = Vec::new();
+
+    if let Ok(result) = results {
+        for item in result.items {
+            if let Some(node) = item.entity.data.as_node() {
+                if let Some(Value::Blob(blob)) = node.get("record") {
+                    if let Ok(entry) = LootEntry::from_bytes(blob) {
+                        entries.push(entry);
+                    }
+                }
+            }
+        }
+    }
+
+    entries
+}
+
+fn read_loot_entry_by_key(db: &RedDB, key: &str) -> Option<LootEntry> {
+    let results = db
+        .query()
+        .collection("loot")
+        .where_prop("key", key)
+        .limit(1)
+        .execute()
+        .ok()?;
+
+    let item = results.items.into_iter().next()?;
+    let node = item.entity.data.as_node()?;
+    if let Some(Value::Blob(blob)) = node.get("record") {
+        LootEntry::from_bytes(blob).ok()
+    } else {
+        None
     }
 }
 
@@ -993,6 +1064,7 @@ impl CrewMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::RedDB;
 
     #[test]
     fn test_finding_creation() {
@@ -1029,6 +1101,25 @@ mod tests {
         let results = memory.search_findings("example");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].value, "example.com");
+    }
+
+    #[test]
+    fn test_memory_storage_roundtrip() {
+        let db = RedDB::new();
+        let mut memory = CrewMemory::new();
+        let finding = Finding::new(FindingType::Host, "10.0.0.1".to_string())
+            .with_source("unit")
+            .with_confidence(0.9)
+            .with_metadata("tag", "value");
+        let finding_id = finding.id.clone();
+
+        memory.add_finding(finding);
+        memory.save_to_storage(&db);
+
+        let mut loaded = CrewMemory::new();
+        loaded.load_from_storage(&db);
+
+        assert!(loaded.findings().iter().any(|f| f.id == finding_id));
     }
 
     #[test]

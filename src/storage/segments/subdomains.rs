@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_ip, read_string, read_varu32, write_ip, write_string, write_varu32, DecodeError,
 };
 use crate::storage::records::{SubdomainRecord, SubdomainSource};

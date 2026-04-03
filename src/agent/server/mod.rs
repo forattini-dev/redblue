@@ -9,14 +9,14 @@ use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, Message
 use crate::agent::ratchet::{MessageHeader, RatchetState, X25519KeyPair};
 use crate::modules::http_server::{HttpRequest, HttpResponse, HttpServer, HttpServerConfig};
 use crate::serde_json;
-use crate::storage::unified::{MetadataValue, RedDB}; // Use Modern RedDB
+use crate::storage::{MetadataValue, RedDB}; // Use Modern RedDB
 
 /// Agent C2 Server
 pub struct AgentServer {
     config: AgentServerConfig,
     clients: Arc<Mutex<HashMap<String, AgentSession>>>,
     http_server: Option<HttpServer>,
-    // Use Modern RedDB (UnifiedStore) instead of Legacy RedDb
+    // Use RedDB store for agent state
     db: Arc<RedDB>,
 }
 
@@ -277,7 +277,7 @@ impl AgentServer {
             session.last_seen = std::time::SystemTime::now();
             session.status = SessionStatus::Active;
 
-            // Persist new session to Modern RedDB (UnifiedStore)
+            // Persist new session to the RedDB store
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

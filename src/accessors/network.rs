@@ -83,10 +83,7 @@ impl NetworkAccessor {
         if ip_hex.len() == 8 {
             // IPv4
             if let Ok(ip_int) = u32::from_str_radix(ip_hex, 16) {
-                // Little endian
-                let _ip = std::net::Ipv4Addr::from(u32::from_be(ip_int)); // Actually Linux /proc is native endian, but often printed as such. Wait, it's usually machine endian.
-                                                                          // Let's assume standard behavior: bytes 3,2,1,0
-                let b = ip_int.to_ne_bytes();
+                let b = ip_int.to_le_bytes();
                 return format!(
                     "{}:{}",
                     std::net::Ipv4Addr::new(b[0], b[1], b[2], b[3]),
@@ -94,9 +91,27 @@ impl NetworkAccessor {
                 );
             }
         } else if ip_hex.len() == 32 {
-            // IPv6
-            // TODO: parsing IPv6 from proc is more complex structure
-            return format!("[ipv6]:{}", port);
+            let mut bytes = [0u8; 16];
+            for i in 0..16 {
+                let start = i * 2;
+                let end = start + 2;
+                if end > ip_hex.len() {
+                    return format!("{}:{}", ip_hex, port);
+                }
+
+                if let Ok(byte) = u8::from_str_radix(&ip_hex[start..end], 16) {
+                    bytes[i] = byte;
+                }
+            }
+
+            if bytes[..10].iter().all(|&b| b == 0) && bytes[10] == 0xFF && bytes[11] == 0xFF {
+                let ipv4 =
+                    std::net::Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15]);
+                return format!("{}:{}", ipv4, port);
+            }
+
+            let ipv6 = std::net::Ipv6Addr::from(bytes);
+            return format!("[{}]:{}", ipv6, port);
         }
 
         format!("{}:{}", ip_hex, port)

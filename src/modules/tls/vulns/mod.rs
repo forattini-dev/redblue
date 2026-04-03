@@ -39,26 +39,6 @@ pub use drown::DrownScanner;
 pub use ticketbleed::TicketbleedScanner;
 pub use renegotiation::RenegotiationScanner;
 
-// Type aliases for backward compatibility (deprecated)
-#[deprecated(note = "Use HeartbleedScanner instead")]
-pub type HeartbleedChecker = HeartbleedScanner;
-#[deprecated(note = "Use PoodleScanner instead")]
-pub type PoodleChecker = PoodleScanner;
-#[deprecated(note = "Use BeastScanner instead")]
-pub type BeastChecker = BeastScanner;
-#[deprecated(note = "Use LogjamScanner instead")]
-pub type LogjamChecker = LogjamScanner;
-#[deprecated(note = "Use RobotScanner instead")]
-pub type RobotChecker = RobotScanner;
-#[deprecated(note = "Use CcsInjectionScanner instead")]
-pub type CcsInjectionChecker = CcsInjectionScanner;
-#[deprecated(note = "Use DrownScanner instead")]
-pub type DrownChecker = DrownScanner;
-#[deprecated(note = "Use TicketbleedScanner instead")]
-pub type TicketbleedChecker = TicketbleedScanner;
-#[deprecated(note = "Use RenegotiationScanner instead")]
-pub type RenegotiationChecker = RenegotiationScanner;
-
 use crate::modules::common::Severity;
 
 /// Result of a vulnerability check
@@ -137,10 +117,6 @@ pub trait VulnScanner: Send + Sync {
     /// Scan target for vulnerability
     fn scan(&self, host: &str, port: u16) -> VulnCheckResult;
 }
-
-// Backward compatibility alias
-#[deprecated(note = "Use VulnScanner instead")]
-pub trait VulnChecker: VulnScanner {}
 
 /// TLS scanner configuration
 #[derive(Debug, Clone)]

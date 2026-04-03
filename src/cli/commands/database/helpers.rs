@@ -1,26 +1,17 @@
 //! Shared helper utilities for database commands
 
-use std::fs;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::storage::encoding::IpKey;
 use crate::storage::layout::SegmentKind;
+use crate::storage::primitives::encoding::IpKey;
 use crate::storage::records::{
     DnsRecordData, DnsRecordType, PortScanRecord, PortStatus, SubdomainRecord,
 };
 use crate::storage::service::PartitionKey;
 use crate::storage::QueryManager;
 
-/// Summary of database contents
-pub struct DbSummary {
-    pub total_records: usize,
-    pub port_scans: usize,
-    pub dns_records: usize,
-    pub subdomains: usize,
-}
-
-/// Open a RedDb database file
+/// Open a RedDB database file
 pub fn open_db(path: &Path) -> Result<QueryManager, String> {
     QueryManager::open(path)
         .map_err(|e| format!("Failed to open database {}: {}", path.display(), e))
@@ -42,44 +33,6 @@ pub fn read_dns_records(db: &mut QueryManager) -> Result<Vec<DnsRecordData>, Str
 pub fn read_subdomains(db: &mut QueryManager) -> Result<Vec<SubdomainRecord>, String> {
     db.list_subdomains_all()
         .map_err(|e| format!("Failed to read subdomains: {}", e))
-}
-
-/// Collect all .rdb files in a directory
-pub fn collect_rdb_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {}", e))?;
-
-    let mut files = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().map(|ext| ext == "rdb").unwrap_or(false) {
-            files.push(path);
-        }
-    }
-
-    files.sort();
-    Ok(files)
-}
-
-/// Read summary statistics from a database file
-pub fn read_summary(path: &Path) -> Result<DbSummary, String> {
-    let mut db = open_db(path)?;
-
-    let port_scans = db
-        .count_collection("ports")
-        .map_err(|e| format!("Failed to read port scans: {}", e))?;
-    let dns_records = db
-        .count_collection("dns")
-        .map_err(|e| format!("Failed to read DNS records: {}", e))?;
-    let subdomains = db
-        .count_collection("domains")
-        .map_err(|e| format!("Failed to read subdomains: {}", e))?;
-
-    Ok(DbSummary {
-        total_records: port_scans + dns_records + subdomains,
-        port_scans,
-        dns_records,
-        subdomains,
-    })
 }
 
 /// Get label for port status
@@ -106,24 +59,7 @@ pub fn dns_type_label(record_type: DnsRecordType) -> &'static str {
 
 /// Get label for segment kind
 pub fn segment_label(kind: SegmentKind) -> &'static str {
-    match kind {
-        SegmentKind::Ports => "ports",
-        SegmentKind::Subdomains => "subdomains",
-        SegmentKind::Whois => "whois",
-        SegmentKind::Tls => "tls",
-        SegmentKind::Dns => "dns",
-        SegmentKind::Http => "http",
-        SegmentKind::Host => "hosts",
-        SegmentKind::Proxy => "proxy",
-        SegmentKind::Mitre => "mitre",
-        SegmentKind::Ioc => "ioc",
-        SegmentKind::Vuln => "vuln",
-        SegmentKind::Sessions => "sessions",
-        SegmentKind::Playbooks => "playbooks",
-        SegmentKind::Actions => "actions",
-        SegmentKind::Traces => "traces",
-        SegmentKind::Loot => "loot",
-    }
+    kind.as_str()
 }
 
 /// Parse an IP range string (e.g., "192.168.1.1-192.168.1.255")

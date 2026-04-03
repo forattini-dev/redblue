@@ -171,6 +171,10 @@ impl HpackEncoder {
         }
     }
 
+    pub fn set_max_size(&mut self, new_max_size: usize) {
+        self.dynamic_table.set_max_size(new_max_size);
+    }
+
     /// Encode headers to HPACK format
     pub fn encode(&mut self, headers: &[Header]) -> Vec<u8> {
         let mut output = Vec::new();
@@ -243,11 +247,10 @@ impl HpackEncoder {
     }
 
     /// Encode string literal (RFC 7541 Section 5.2)
-    /// TODO: Huffman encoding (H = 0 for now, raw string)
     fn encode_string(&self, s: &str, output: &mut Vec<u8>) {
-        let bytes = s.as_bytes();
-        self.encode_integer(7, 0x00, bytes.len(), output); // H = 0 (no Huffman)
-        output.extend_from_slice(bytes);
+        let encoded = huffman::huffman_encode(s.as_bytes());
+        self.encode_integer(7, 0x80, encoded.len(), output); // H = 1 (Huffman)
+        output.extend_from_slice(&encoded);
     }
 }
 
@@ -261,6 +264,10 @@ impl HpackDecoder {
         HpackDecoder {
             dynamic_table: DynamicTable::new(max_dynamic_size),
         }
+    }
+
+    pub fn set_max_size(&mut self, new_max_size: usize) {
+        self.dynamic_table.set_max_size(new_max_size);
     }
 
     /// Decode HPACK header block
@@ -491,6 +498,16 @@ mod tests {
         assert_eq!(table.entries.len(), 2);
         assert_eq!(table.entries[0].name, "key3");
         assert_eq!(table.entries[1].name, "key2");
+    }
+
+    #[test]
+    fn test_encode_uses_huffman_flag() {
+        let mut encoder = HpackEncoder::new(4096);
+        let headers = vec![Header::new("custom-key", "custom-value")];
+
+        let encoded = encoder.encode(&headers);
+        assert!(!encoded.is_empty());
+        assert!(encoded[1] >= 0x80);
     }
 
     #[test]

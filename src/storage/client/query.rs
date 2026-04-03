@@ -1,8 +1,8 @@
-// Query interface for RedDb - RESTful operations
+// Query interface for RedDB - RESTful operations
 // Provides list, get, describe, delete operations on stored data
 
 use crate::modules::common::Severity as RecordSeverity;
-use crate::storage::encoding::DecodeError;
+use crate::storage::primitives::encoding::DecodeError;
 use crate::storage::records::{
     DnsRecordData, DnsRecordType, HostIntelRecord, HttpHeadersRecord, PortStatus,
     ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, SubdomainRecord,
@@ -10,7 +10,7 @@ use crate::storage::records::{
 };
 use crate::storage::schema::Value;
 use crate::storage::segments::actions::ActionRecord;
-use crate::storage::unified::RedDB;
+use crate::storage::RedDB;
 use std::io;
 use std::net::IpAddr;
 use std::path::Path;
@@ -25,12 +25,9 @@ impl QueryManager {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         let path_ref = path.as_ref();
 
-        // Open Modern RedDB (UnifiedStore)
+        // Open the Modern RedDB store
         let db = RedDB::open(path_ref)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-        // Label and refresh partition (Service logic kept for metadata)
-        // We skip refresh_partition for now as it inspects legacy headers
 
         Ok(Self { db })
     }
@@ -663,7 +660,7 @@ fn parse_headers(headers: &str) -> Vec<(String, String)> {
 }
 
 fn parse_subdomain_record(
-    item: crate::storage::unified::QueryResultItem,
+    item: crate::storage::QueryResultItem,
     domain_fallback: &str,
 ) -> Option<SubdomainRecord> {
     let node = item.entity.data.as_node()?;
@@ -699,7 +696,7 @@ fn parse_subdomain_record(
     })
 }
 
-fn parse_action_record(node: &crate::storage::unified::NodeData) -> Option<ActionRecord> {
+fn parse_action_record(node: &crate::storage::NodeData) -> Option<ActionRecord> {
     let bytes = match node.get("record")? {
         Value::Blob(data) => data,
         _ => return None,

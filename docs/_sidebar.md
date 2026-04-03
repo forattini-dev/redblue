@@ -120,6 +120,7 @@
   - [Integration Guide](/domains/mcp/05-integration.md)
 
 - **Utilities**
+  - [file](/domains/file.md)
   - [nc (Netcat)](/domains/nc.md)
   - [crypto (Vault)](/domains/crypto.md)
   - [wordlist](/domains/wordlist.md)

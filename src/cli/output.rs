@@ -354,17 +354,6 @@ impl ScanProgress for ProgressBar {
     }
 }
 
-// Implement fuzzer's ProgressBar trait for CLI ProgressBar
-impl crate::modules::web::fuzzer::ProgressBar for ProgressBar {
-    fn inc(&self, delta: u64) {
-        self.tick(delta);
-    }
-
-    fn finish(&self) {
-        ProgressBar::finish(self);
-    }
-}
-
 impl ProgressInner {
     fn new(label: String, total: u64, enabled: bool) -> Self {
         Self {

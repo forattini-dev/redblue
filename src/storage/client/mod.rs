@@ -14,7 +14,7 @@ use crate::storage::records::{
     TlsScanRecord, VulnerabilityRecord,
 };
 use crate::storage::service::StorageService;
-use crate::storage::unified::RedDB; // Use Modern RedDB
+use crate::storage::RedDB; // Use Modern RedDB
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -231,7 +231,7 @@ pub struct PersistenceManager {
 }
 
 impl PersistenceManager {
-    /// Create new persistence manager (legacy API for backward compatibility)
+    /// Create new persistence manager with an optional persistence override
     pub fn new(target: &str, persist: Option<bool>) -> Result<Self, String> {
         let config = PersistenceConfig {
             force_save: persist.unwrap_or(false),
@@ -270,8 +270,8 @@ impl PersistenceManager {
 
         let password_source = resolve_password(config.password.as_deref());
 
-        // Open database (UnifiedStore handles encryption internally if implemented, or we rely on file permissions for now)
-        // Note: UnifiedStore currently uses simple JSON serialization. Encryption layer needs to be ported.
+        // Open database (store handles encryption internally if implemented, or rely on file permissions for now)
+        // Note: the store currently uses simple JSON serialization. Encryption layer needs to be ported.
         let db = RedDB::open(&path).map_err(|e| format!("Failed to open database: {}", e))?;
 
         StorageService::global().ensure_target_partition(target, path.clone(), None, None);

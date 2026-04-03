@@ -210,6 +210,7 @@ fn hash_value(value: &Value, hasher: &mut DefaultHasher) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::super::engine::binding::Var;
 
     fn make_binding(pairs: &[(&str, &str)]) -> Binding {
         if pairs.is_empty() {

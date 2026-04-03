@@ -1,6 +1,6 @@
 //! JSONL (JSON Lines) Importer
 //!
-//! Imports data from JSONL (newline-delimited JSON) files into UnifiedStore.
+//! Imports data from JSONL (newline-delimited JSON) files into Store.
 //! Supports streaming import for large files.
 //!
 //! # Format
@@ -22,20 +22,13 @@
 //! let stats = importer.import_file("data.jsonl", &mut store)?;
 //! ```
 
+use crate::storage::schema::types::Value;
+use crate::storage::Store;
+use crate::storage::{EntityData, EntityKind, RowData, UnifiedEntity, VectorData};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-use crate::storage::schema::types::Value;
-use crate::storage::unified::entity::{
-    EntityData, EntityId, EntityKind, RowData, UnifiedEntity, VectorData,
-};
-use crate::storage::unified::store::UnifiedStore;
-
-/// Global counter for generating unique row IDs
-static ROW_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// JSONL import configuration
 #[derive(Debug, Clone)]
@@ -100,7 +93,7 @@ impl JsonlImporter {
     pub fn import_file<P: AsRef<Path>>(
         &self,
         path: P,
-        store: &mut UnifiedStore,
+        store: &mut Store,
     ) -> Result<ImportStats, JsonlError> {
         let file = File::open(path.as_ref()).map_err(|e| JsonlError::Io(e.to_string()))?;
         let reader = BufReader::new(file);
@@ -111,7 +104,7 @@ impl JsonlImporter {
     pub fn import_reader<R: BufRead>(
         &self,
         reader: R,
-        store: &mut UnifiedStore,
+        store: &mut Store,
     ) -> Result<ImportStats, JsonlError> {
         let start = std::time::Instant::now();
         let mut stats = ImportStats::default();
@@ -163,7 +156,7 @@ impl JsonlImporter {
     }
 
     /// Parse a single JSON line and insert into store
-    fn parse_and_insert(&self, line: &str, store: &mut UnifiedStore) -> Result<(), String> {
+    fn parse_and_insert(&self, line: &str, store: &mut Store) -> Result<(), String> {
         let json = parse_json_object(line)?;
 
         // Extract embedding if configured
@@ -204,7 +197,7 @@ impl JsonlImporter {
         }
 
         // Generate IDs
-        let entity_id = EntityId::new(ROW_ID_COUNTER.fetch_add(1, Ordering::SeqCst));
+        let entity_id = store.next_entity_id();
         let row_id = entity_id.0;
 
         // Create entity

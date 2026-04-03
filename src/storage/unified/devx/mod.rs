@@ -14,7 +14,7 @@
 //! # Quick Start
 //!
 //! ```ignore
-//! use redblue::storage::unified::RedDB;
+//! use redblue::storage::RedDB;
 //!
 //! let db = RedDB::new();
 //!

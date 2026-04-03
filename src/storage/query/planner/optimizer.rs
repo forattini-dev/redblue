@@ -331,7 +331,9 @@ fn swap_condition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::query::ast::{FieldRef, JoinCondition};
+    use crate::storage::query::ast::{
+        DistanceMetric, FieldRef, FusionStrategy, JoinCondition, Projection, TableQuery,
+    };
 
     fn make_table_query(name: &str) -> QueryExpr {
         QueryExpr::Table(TableQuery {

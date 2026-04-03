@@ -1,6 +1,6 @@
 //! Parquet File Importer
 //!
-//! Basic Parquet file reader for importing columnar data into UnifiedStore.
+//! Basic Parquet file reader for importing columnar data into Store.
 //! Implements core Parquet format parsing without external dependencies.
 //!
 //! # Supported Features
@@ -19,21 +19,16 @@
 //!
 //! For production use with complex Parquet files, consider converting to JSONL first.
 
+use crate::storage::schema::types::Value;
+use crate::storage::Store;
+use crate::storage::{EntityData, EntityKind, RowData, UnifiedEntity};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-use crate::storage::schema::types::Value;
-use crate::storage::unified::entity::{EntityData, EntityId, EntityKind, RowData, UnifiedEntity};
-use crate::storage::unified::store::UnifiedStore;
 
 /// Parquet magic bytes: "PAR1"
 const PARQUET_MAGIC: [u8; 4] = [b'P', b'A', b'R', b'1'];
-
-/// Global counter for generating unique row IDs
-static PARQUET_ROW_ID_COUNTER: AtomicU64 = AtomicU64::new(1_000_000);
 
 /// Parquet import configuration
 #[derive(Debug, Clone)]
@@ -134,7 +129,7 @@ impl ParquetReader {
     pub fn import_file<P: AsRef<Path>>(
         &self,
         path: P,
-        store: &mut UnifiedStore,
+        store: &mut Store,
     ) -> Result<ParquetImportStats, ParquetError> {
         let start = std::time::Instant::now();
         let mut file = File::open(path.as_ref()).map_err(|e| ParquetError::Io(e.to_string()))?;
@@ -222,8 +217,7 @@ impl ParquetReader {
                     }
                 }
 
-                let entity_id =
-                    EntityId::new(PARQUET_ROW_ID_COUNTER.fetch_add(1, Ordering::SeqCst));
+                let entity_id = store.next_entity_id();
                 let row_id = entity_id.0;
 
                 let row_data = RowData {

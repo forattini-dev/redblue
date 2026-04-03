@@ -14,6 +14,10 @@ use super::x509::{self, X509Certificate};
 use crate::crypto::BigInt;
 use crate::crypto::{encode_base64, md5, sha1::sha1, sha256::sha256};
 use crate::intelligence::tls_fingerprint::JA3Fingerprint;
+use crate::crypto::encoding::base64::base64_decode;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::cmp::Ordering;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Read, Write};
@@ -125,6 +129,7 @@ pub struct Tls12Client {
     // ECDHE fields
     ecdh_keypair: Option<EcdhKeyPair>,
     server_ecdh_public_key: Option<P256Point>,
+    offered_cipher_suites: Vec<u16>,
 }
 
 impl Tls12Client {
@@ -135,6 +140,15 @@ impl Tls12Client {
 
     /// Connect to the remote endpoint with a caller-provided timeout.
     pub fn connect_with_timeout(host: &str, port: u16, timeout: Duration) -> Result<Self, String> {
+        Self::connect_with_timeout_and_cipher_suites(host, port, timeout, SUPPORTED_CIPHER_SUITES)
+    }
+
+    pub fn connect_with_timeout_and_cipher_suites(
+        host: &str,
+        port: u16,
+        timeout: Duration,
+        cipher_suites: &[u16],
+    ) -> Result<Self, String> {
         let timeout = if timeout.is_zero() {
             Duration::from_millis(1)
         } else {
@@ -197,6 +211,7 @@ impl Tls12Client {
             server_public_key: None,
             ecdh_keypair: None,
             server_ecdh_public_key: None,
+            offered_cipher_suites: cipher_suites.to_vec(),
         };
 
         client.generate_client_random()?;
@@ -434,11 +449,17 @@ impl Tls12Client {
         // Session id
         message.push(0);
 
-        // Cipher suites: advertise all supported suites
-        let cipher_count = SUPPORTED_CIPHER_SUITES.len() as u16;
+        // Cipher suites: advertise offered suites
+        let cipher_suites = if self.offered_cipher_suites.is_empty() {
+            SUPPORTED_CIPHER_SUITES
+        } else {
+            self.offered_cipher_suites.as_slice()
+        };
+
+        let cipher_count = cipher_suites.len() as u16;
         let cipher_bytes = cipher_count * 2;
         message.extend_from_slice(&cipher_bytes.to_be_bytes());
-        for &cipher_suite in SUPPORTED_CIPHER_SUITES {
+        for &cipher_suite in cipher_suites {
             message.extend_from_slice(&cipher_suite.to_be_bytes());
         }
 
@@ -1185,9 +1206,15 @@ impl Tls12Client {
             return Err("Server did not present a TLS certificate".to_string());
         }
 
-        // Verify chain consistency (issuer/subject matching)
-        // Note: Full trust store validation not yet implemented
+        if self.peer_certificates.len() != self.server_cert_chain.len() {
+            return Err(
+                "Certificate chain parsed lengths do not match: chain metadata and DER payload mismatch"
+                    .to_string(),
+            );
+        }
+
         for (index, cert) in self.peer_certificates.iter().enumerate() {
+            // Verify chain consistency (issuer/subject matching)
             if index + 1 < self.peer_certificates.len() {
                 let issuer = &self.peer_certificates[index + 1];
                 if cert.issuer != issuer.subject {
@@ -1196,9 +1223,28 @@ impl Tls12Client {
                         cert.issuer, issuer.subject
                     ));
                 }
+
+                let cert_der = &self.server_cert_chain[index];
+                let (tbs, signature) = extract_tbs_and_signature(cert_der)?;
+                let issuer_key = extract_public_key_from_cert(issuer)?;
+                verify_certificate_signature(cert, &issuer_key, &tbs, &signature)?;
             }
-            // Root certificate validation against trust store: TODO
-            // For now, we verify chain structure only
+        }
+
+        if let Some(root) = self.peer_certificates.last() {
+            let root_der = self
+                .server_cert_chain
+                .last()
+                .ok_or_else(|| "Server did not provide root certificate bytes".to_string())?;
+            let (tbs, signature) = extract_tbs_and_signature(root_der)?;
+            let root_key = extract_public_key_from_cert(root)?;
+            verify_certificate_signature(root, &root_key, &tbs, &signature)?;
+
+            if !chain_has_trusted_root(root, root_der) {
+                return Err(
+                    "Root certificate is not trusted by available system trust stores".to_string(),
+                );
+            }
         }
 
         Ok(())
@@ -1763,6 +1809,164 @@ fn extract_tbs_and_signature(cert_der: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Stri
     let signature = cert_der[offset + 1..offset + bit_len].to_vec();
 
     Ok((tbs, signature))
+}
+
+#[derive(Clone)]
+struct TrustRoot {
+    cert: X509Certificate,
+    der: Vec<u8>,
+}
+
+fn chain_has_trusted_root(root: &X509Certificate, root_der: &[u8]) -> bool {
+    if !root.is_self_signed() {
+        return false;
+    }
+
+    let roots = load_system_trust_roots();
+    if roots.is_empty() {
+        return allow_untrusted_when_empty_system_store();
+    }
+
+    let root_fingerprint = sha256_fingerprint_hex(root_der);
+    for anchor in roots {
+        if anchor.cert.subject == root.subject && anchor.cert.issuer == root.issuer {
+            return true;
+        }
+
+        if sha256_fingerprint_hex(&anchor.der) == root_fingerprint {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn load_system_trust_roots() -> Vec<TrustRoot> {
+    let mut roots = Vec::new();
+
+    let mut candidate_paths = Vec::new();
+
+    if let Some(cert_file) = env::var_os("SSL_CERT_FILE") {
+        candidate_paths.push(PathBuf::from(cert_file));
+    }
+    if let Some(cert_dir) = env::var_os("SSL_CERT_DIR") {
+        candidate_paths.push(PathBuf::from(cert_dir));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        candidate_paths.push(PathBuf::from("/etc/ssl/certs/ca-certificates.crt"));
+        candidate_paths.push(PathBuf::from("/etc/ssl/cert.pem"));
+        candidate_paths.push(PathBuf::from("/etc/pki/tls/certs/ca-bundle.crt"));
+        candidate_paths.push(PathBuf::from("/usr/local/share/ca-certificates"));
+        candidate_paths.push(PathBuf::from("/usr/share/ca-certificates"));
+    }
+
+    for path in candidate_paths {
+        roots.extend(load_trust_roots_from_path(&path));
+    }
+
+    roots
+}
+
+fn load_trust_roots_from_path(path: &Path) -> Vec<TrustRoot> {
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    if path.is_dir() {
+        let mut roots = Vec::new();
+        let mut dirs = vec![path.to_path_buf()];
+        while let Some(current) = dirs.pop() {
+            let entries = match fs::read_dir(&current) {
+                Ok(entries) => entries,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+
+                let entry_path = entry.path();
+                if file_type.is_dir() {
+                    dirs.push(entry_path);
+                    continue;
+                }
+
+                if file_type.is_file() {
+                    roots.extend(parse_trust_roots_from_file(&entry_path));
+                }
+            }
+        }
+        return roots;
+    }
+
+    parse_trust_roots_from_file(path)
+}
+
+fn parse_trust_roots_from_file(path: &Path) -> Vec<TrustRoot> {
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut roots = Vec::new();
+
+    if let Ok(text) = std::str::from_utf8(&data) {
+        roots.extend(parse_trust_roots_from_pem(text));
+    }
+
+    if !data.is_empty() && roots.is_empty() {
+        if let Ok(cert) = X509Certificate::from_der(&data) {
+            roots.push(TrustRoot { cert, der: data });
+        }
+    }
+
+    roots
+}
+
+fn parse_trust_roots_from_pem(data: &str) -> Vec<TrustRoot> {
+    const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+    const END: &str = "-----END CERTIFICATE-----";
+
+    let mut roots = Vec::new();
+    let mut active = false;
+    let mut block = String::new();
+
+    for line in data.lines() {
+        if line.contains(BEGIN) {
+            active = true;
+            block.clear();
+            continue;
+        }
+
+        if line.contains(END) {
+            if active {
+                if let Ok(der) = base64_decode(&block) {
+                    if let Ok(cert) = X509Certificate::from_der(&der) {
+                        roots.push(TrustRoot { cert, der });
+                    }
+                }
+            }
+            active = false;
+            block.clear();
+            continue;
+        }
+
+        if active {
+            block.push_str(line.trim());
+        }
+    }
+
+    roots
+}
+
+fn allow_untrusted_when_empty_system_store() -> bool {
+    env::var("RB_TLS_ALLOW_EMPTY_SYSTEM_ROOTS")
+        .ok()
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

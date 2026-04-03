@@ -381,24 +381,9 @@ impl IntelIocCommand {
 
         // For now, generate some sample IOCs to export
         let mut collection = IocCollection::new();
-        let mut target = String::from("target");
-        let mut export_format = ctx.get_flag_or("export-format", "json");
-        let mut output_file: Option<String> = ctx.get_flag("file");
-
-        // Parse key=value pairs for backward compatibility
-        for arg in ctx.target.iter().chain(ctx.args.iter()) {
-            if let Some(eq_pos) = arg.find('=') {
-                let (key, value) = arg.split_at(eq_pos);
-                let value = &value[1..];
-
-                match key {
-                    "export-format" | "format" | "f" => export_format = value.to_string(),
-                    "file" => output_file = Some(value.to_string()),
-                    "target" | "t" => target = value.to_string(),
-                    _ => {}
-                }
-            }
-        }
+        let target = ctx.target.clone().unwrap_or_else(|| "target".to_string());
+        let export_format = ctx.get_flag_or("export-format", "json");
+        let output_file: Option<String> = ctx.get_flag("file");
 
         // If no output file specified, print to stdout
         let output_path = output_file.clone().unwrap_or_else(|| {

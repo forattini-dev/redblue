@@ -29,7 +29,7 @@
 //!
 //! // Build AS-REQ for AS-REP roasting (no pre-auth)
 //! let cname = PrincipalName::new(NameType::Principal, vec!["victim".into()]);
-//! let sname = PrincipalName::new(NameType::Service, vec!["krbtgt".into(), "DOMAIN.COM".into()]);
+//! let sname = PrincipalName::new(NameType::SrvInst, vec!["krbtgt".into(), "DOMAIN.COM".into()]);
 //! let realm = Realm("DOMAIN.COM".into());
 //!
 //! let req_body = KdcReqBody {
@@ -208,7 +208,7 @@ impl KerberosClient {
     pub fn asrep_roast(&self, username: &str) -> Result<RoastResult, KerberosError> {
         let cname = PrincipalName::new(NameType::Principal, vec![username.to_string()]);
         let sname = PrincipalName::new(
-            NameType::Service,
+            NameType::SrvInst,
             vec!["krbtgt".to_string(), self.realm.0.clone()],
         );
 
@@ -281,7 +281,7 @@ impl KerberosClient {
         let (service, host) = parse_spn(spn)?;
 
         let sname = PrincipalName::new(
-            NameType::Service,
+            NameType::SrvInst,
             vec![service.to_string(), host.to_string()],
         );
 
@@ -339,7 +339,7 @@ impl KerberosClient {
         };
 
         let pa_tgs_req = PaData {
-            padata_type: PaDataType::PaTgsReq,
+            padata_type: PaDataType::TgsReq,
             padata_value: ap_req.encode(),
         };
 

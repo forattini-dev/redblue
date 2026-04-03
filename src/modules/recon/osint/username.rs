@@ -67,7 +67,7 @@ impl UsernameEnumerator {
         let work_queue = Arc::new(Mutex::new(
             self.platforms
                 .iter()
-                .filter(|p| p.is_valid_username(username))
+                .filter(|p| p.validate_username(username))
                 .cloned()
                 .collect::<VecDeque<Platform>>(),
         ));
@@ -138,7 +138,7 @@ impl UsernameEnumerator {
         config: &OsintConfig,
     ) -> ProfileResult {
         let start = Instant::now();
-        let url = platform.url_for(username);
+        let url = platform.get_url(username);
 
         // Perform HTTP request
         let response = match platform.method {
@@ -342,7 +342,7 @@ mod tests {
     fn test_platform_url_generation() {
         let platforms = get_all_platforms();
         let github = platforms.iter().find(|p| p.name == "GitHub").unwrap();
-        assert_eq!(github.url_for("octocat"), "https://github.com/octocat");
+        assert_eq!(github.get_url("octocat"), "https://github.com/octocat");
     }
 
     #[test]
@@ -350,9 +350,9 @@ mod tests {
         let platforms = get_all_platforms();
         let github = platforms.iter().find(|p| p.name == "GitHub").unwrap();
 
-        assert!(github.is_valid_username("octocat"));
-        assert!(github.is_valid_username("test-user"));
-        assert!(!github.is_valid_username("")); // Too short
+        assert!(github.validate_username("octocat"));
+        assert!(github.validate_username("test-user"));
+        assert!(!github.validate_username("")); // Too short
     }
 
     #[test]

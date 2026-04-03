@@ -615,6 +615,7 @@ impl UnifiedSegment for GrowingSegment {
 mod tests {
     use super::*;
     use crate::storage::schema::Value;
+    use crate::storage::unified::MetadataValue;
 
     #[test]
     fn test_growing_segment_basic() {
@@ -715,6 +716,7 @@ mod tests {
         entity1.add_cross_ref(CrossRef::new(
             EntityId::new(1),
             EntityId::new(2),
+            "nodes",
             RefType::RowToNode,
         ));
         segment.insert(entity1).unwrap();

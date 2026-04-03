@@ -461,11 +461,6 @@ impl HttpResponse {
         })
     }
 
-    /// Alias for from_bytes (compatibility)
-    pub fn parse(data: &[u8]) -> Result<Self, String> {
-        Self::from_bytes(data)
-    }
-
     pub fn body_as_string(&self) -> String {
         String::from_utf8_lossy(&self.body).to_string()
     }

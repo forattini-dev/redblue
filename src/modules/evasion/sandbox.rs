@@ -238,7 +238,64 @@ pub fn check_low_resources() -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        // TODO: Windows resource checks using WMI or similar
+        let parse_first_u64 = |text: &str| -> Option<u64> {
+            for token in text.split(|c: char| !c.is_ascii_digit()) {
+                if token.is_empty() {
+                    continue;
+                }
+
+                if let Ok(value) = token.parse::<u64>() {
+                    return Some(value);
+                }
+            }
+
+            None
+        };
+
+        let total_memory = if let Ok(output) = std::process::Command::new("wmic")
+            .args(["OS", "get", "TotalVisibleMemorySize", "/Value"])
+            .output()
+        {
+            parse_first_u64(&String::from_utf8_lossy(&output.stdout))
+        } else {
+            None
+        };
+        if let Some(kb) = total_memory {
+            if kb < 2_000_000 {
+                return true;
+            }
+        }
+
+        let cpu_count = if let Ok(output) = std::process::Command::new("wmic")
+            .args(["cpu", "get", "NumberOfLogicalProcessors"])
+            .output()
+        {
+            parse_first_u64(&String::from_utf8_lossy(&output.stdout))
+        } else {
+            std::env::var("NUMBER_OF_PROCESSORS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+        };
+        if let Some(cpu_count) = cpu_count {
+            if cpu_count <= 1 {
+                return true;
+            }
+        }
+
+        let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+        let disk_size = if let Ok(output) = std::process::Command::new("wmic")
+            .args(["logicaldisk", "where", &format!("DeviceID='{}'", drive), "get", "Size"])
+            .output()
+        {
+            parse_first_u64(&String::from_utf8_lossy(&output.stdout))
+        } else {
+            None
+        };
+        if let Some(bytes) = disk_size {
+            if bytes < 60_000_000_000 {
+                return true;
+            }
+        }
     }
 
     false

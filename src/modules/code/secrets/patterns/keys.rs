@@ -2,7 +2,7 @@
 //!
 //! Patterns for RSA, EC, SSH, PGP, PKCS8, DSA, Age encryption keys.
 
-use super::super::SecretSeverity;
+use super::super::Severity;
 use super::types::{PatternCategory, PatternMatcher, SecretPattern};
 
 /// Get all private key patterns
@@ -15,7 +15,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "RSA Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("RSA PRIVATE KEY"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["private", "key", "rsa"],
             requires_entropy: false,
             min_length: 100,
@@ -29,7 +29,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "EC Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("EC PRIVATE KEY"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["private", "key", "ec", "ecdsa"],
             requires_entropy: false,
             min_length: 100,
@@ -43,7 +43,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "OpenSSH Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("OPENSSH PRIVATE KEY"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["ssh", "private", "key"],
             requires_entropy: false,
             min_length: 100,
@@ -57,7 +57,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "PGP Private Key Block",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("PGP PRIVATE KEY BLOCK"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["pgp", "gpg", "private", "key"],
             requires_entropy: false,
             min_length: 100,
@@ -71,7 +71,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "PKCS8 Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("PRIVATE KEY"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["private", "key", "pkcs8"],
             requires_entropy: false,
             min_length: 100,
@@ -85,7 +85,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "DSA Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("DSA PRIVATE KEY"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["dsa", "private", "key"],
             requires_entropy: false,
             min_length: 100,
@@ -99,7 +99,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Encrypted Private Key",
             category: PatternCategory::PrivateKey,
             pattern: PatternMatcher::PemBlock("ENCRYPTED PRIVATE KEY"),
-            severity: SecretSeverity::High,
+            severity: Severity::High,
             keywords: vec!["encrypted", "private", "key"],
             requires_entropy: false,
             min_length: 100,
@@ -113,7 +113,7 @@ pub fn patterns() -> Vec<SecretPattern> {
             name: "Age Secret Key",
             category: PatternCategory::CryptoKey,
             pattern: PatternMatcher::Prefix("AGE-SECRET-KEY-"),
-            severity: SecretSeverity::Critical,
+            severity: Severity::Critical,
             keywords: vec!["age", "secret", "key", "encryption"],
             requires_entropy: false,
             min_length: 60,

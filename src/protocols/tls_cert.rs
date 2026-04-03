@@ -1,4 +1,5 @@
 use super::tls::TlsClient as RawTlsClient;
+use super::tls12::Tls12Client;
 /// TLS Certificate Information Module
 ///
 /// Provides display-friendly certificate information structures and
@@ -22,11 +23,17 @@ pub struct CertificateInfo {
     pub valid_until: String,
     pub san: Vec<String>,
     pub is_self_signed: bool,
+    pub der: Vec<u8>,
 }
 
 impl CertificateInfo {
     /// Create from X509Certificate reference
     pub fn from_x509(cert: &X509Certificate) -> Self {
+        Self::from_x509_with_der(cert, &[])
+    }
+
+    /// Create from X509Certificate reference while preserving DER bytes
+    pub fn from_x509_with_der(cert: &X509Certificate, der: &[u8]) -> Self {
         let subject = format_dn(&cert.subject);
         let issuer = format_dn(&cert.issuer);
         let is_self_signed = cert.subject == cert.issuer;
@@ -63,6 +70,7 @@ impl CertificateInfo {
             valid_until,
             san,
             is_self_signed,
+            der: der.to_vec(),
         }
     }
 }
@@ -95,9 +103,27 @@ impl TlsClient {
         host: &str,
         port: u16,
     ) -> Result<Vec<CertificateInfo>, String> {
-        // Use the raw TLS client to get X509 certificates
-        let certs = RawTlsClient::get_certificates(host, port)?;
-        Ok(certs.iter().map(CertificateInfo::from).collect())
+        if let Ok(client) = Tls12Client::connect(host, port) {
+            let certs = client.peer_certificates();
+            let raw_chain = client.peer_certificate_chain();
+            if !certs.is_empty() {
+                return Ok(certs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cert)| {
+                        let der = raw_chain.get(index).cloned().unwrap_or_default();
+                        CertificateInfo::from_x509_with_der(cert, &der)
+                    })
+                    .collect());
+            }
+        }
+
+        RawTlsClient::get_certificates(host, port).map(|certs| {
+            certs
+                .into_iter()
+                .map(|cert| CertificateInfo::from_x509(&cert))
+                .collect()
+        })
     }
 
     /// Check if a certificate is not yet valid

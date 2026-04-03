@@ -136,14 +136,6 @@ pub enum NameType {
 }
 
 impl NameType {
-    // Aliases for compatibility
-    pub const SRV_HST: Self = Self::SrvInst; // NT-SRV-HST is same as NT-SRV-INST
-    pub const SERVICE: Self = Self::SrvInst; // Common alias
-    #[allow(non_upper_case_globals)]
-    pub const Service: Self = Self::SrvInst; // CamelCase alias for mod.rs compatibility
-}
-
-impl NameType {
     pub fn from_i32(v: i32) -> Option<Self> {
         match v {
             0 => Some(Self::Unknown),
@@ -203,15 +195,6 @@ pub enum PaDataType {
     PkinitKx = 147,
     SupportedEtypes = 165,
     PacOptions = 167,
-}
-
-impl PaDataType {
-    // Aliases for duplicate values
-    pub const SVR_REFERRAL_INFO: Self = Self::UseSpecifiedKvno;
-    pub const FOR_CHECK_REQS: Self = Self::S4uX509User;
-    pub const PA_TGS_REQ: Self = Self::TgsReq; // Alias for mod.rs
-    #[allow(non_upper_case_globals)]
-    pub const PaTgsReq: Self = Self::TgsReq; // CamelCase alias for mod.rs compatibility
 }
 
 impl PaDataType {

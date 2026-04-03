@@ -179,7 +179,6 @@ where
         let mut active = self.active_txns.write().unwrap();
         if let Some(mut txn) = active.remove(&txn_id) {
             txn.abort();
-            // TODO: rollback changes
             true
         } else {
             false

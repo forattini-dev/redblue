@@ -11,6 +11,15 @@
 use crate::protocols::x509::X509Certificate;
 use std::net::{IpAddr, TcpStream};
 use std::time::{Duration, Instant, SystemTime};
+#[cfg(target_os = "linux")]
+use std::os::unix::io::AsRawFd;
+
+#[cfg(target_os = "linux")]
+const TCPI_OPT_TIMESTAMPS: u8 = 1;
+#[cfg(target_os = "linux")]
+const TCPI_OPT_SACK: u8 = 2;
+#[cfg(target_os = "linux")]
+const TCPI_OPT_WSCALE: u8 = 4;
 
 /// Connection metadata extracted from handshake
 #[derive(Debug, Clone)]
@@ -291,11 +300,97 @@ impl ConnectionAnalyzer {
     /// Analyze TCP connection
     pub fn analyze_tcp(&mut self, stream: &TcpStream) -> &ConnectionIntel {
         self.intel.capture_local_details(stream);
-
-        // TODO: Extract TCP options using raw sockets
-        // For now, we can infer some from behavior
-
+        let (options, window_size, ttl) = Self::extract_tcp_options(stream);
+        self.intel.tcp_window_size = window_size;
+        self.intel.tcp_options = options;
+        self.intel.ip_ttl = ttl;
         &self.intel
+    }
+
+    #[cfg(target_os = "linux")]
+    fn extract_tcp_options(stream: &TcpStream) -> (Vec<TcpOption>, Option<u32>, Option<u8>) {
+        let mut options = Vec::new();
+        let mut window_size = None;
+        let mut ttl = None;
+
+        let fd = stream.as_raw_fd();
+
+        let mut info: libc::tcp_info = unsafe { std::mem::zeroed() };
+        let mut info_len = std::mem::size_of::<libc::tcp_info>() as libc::socklen_t;
+
+        if unsafe {
+            libc::getsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                libc::TCP_INFO,
+                &mut info as *mut _ as *mut libc::c_void,
+                &mut info_len as *mut libc::socklen_t,
+            )
+        } == 0
+        {
+            if info.tcpi_advmss > 0 {
+                options.push(TcpOption {
+                    kind: 2,
+                    value: info.tcpi_advmss.to_be_bytes().to_vec(),
+                });
+                window_size = Some(info.tcpi_advmss);
+            }
+
+            if (info.tcpi_options & TCPI_OPT_SACK) != 0 {
+                options.push(TcpOption {
+                    kind: 4,
+                    value: Vec::new(),
+                });
+            }
+
+            if (info.tcpi_options & TCPI_OPT_WSCALE) != 0 {
+                let snd_scale = (info.tcpi_snd_rcv_wscale >> 4) & 0x0f;
+                let rcv_scale = info.tcpi_snd_rcv_wscale & 0x0f;
+                options.push(TcpOption {
+                    kind: 3,
+                    value: vec![snd_scale, rcv_scale],
+                });
+            }
+
+            if (info.tcpi_options & TCPI_OPT_TIMESTAMPS) != 0 {
+                options.push(TcpOption {
+                    kind: 8,
+                    value: Vec::new(),
+                });
+            }
+
+        }
+
+        if let Ok(peer) = stream.peer_addr() {
+            let mut raw_ttl: libc::c_int = 0;
+            let mut ttl_len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+            let (level, option) = match peer {
+                std::net::SocketAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_UNICAST_HOPS),
+                _ => (libc::IPPROTO_IP, libc::IP_TTL),
+            };
+
+            if unsafe {
+                libc::getsockopt(
+                    fd,
+                    level,
+                    option,
+                    &mut raw_ttl as *mut _ as *mut libc::c_void,
+                    &mut ttl_len as *mut libc::socklen_t,
+                )
+            } == 0
+            {
+                if raw_ttl > 0 && raw_ttl <= u8::MAX as libc::c_int {
+                    ttl = Some(raw_ttl as u8);
+                }
+            }
+        }
+
+        (options, window_size, ttl)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn extract_tcp_options(_stream: &TcpStream) -> (Vec<TcpOption>, Option<u32>, Option<u8>) {
+        (Vec::new(), None, None)
     }
 
     /// Analyze TLS handshake details

@@ -3,19 +3,27 @@
 //! Shared utilities: graph loading, string truncation, timestamp generation.
 
 use crate::storage::engine::GraphStore;
+use std::path::Path;
 
 /// Load graph from path
 pub fn load_graph(path: &str) -> Result<GraphStore, String> {
     // Check if graph file exists
-    let path_obj = std::path::Path::new(path);
+    let path_obj = Path::new(path);
     if !path_obj.exists() {
         // Create empty graph for demo
         return Ok(GraphStore::new());
     }
 
-    // TODO: Load from persistent storage when implemented
-    // For now, create empty graph
-    Ok(GraphStore::new())
+    if !path_obj.is_file() {
+        return Err(format!("Graph path is not a file: {}", path));
+    }
+
+    let data = std::fs::read(path).map_err(|e| format!("Failed to read graph file: {}", e))?;
+    if data.is_empty() {
+        return Ok(GraphStore::new());
+    }
+
+    GraphStore::deserialize(&data).map_err(|e| format!("Failed to deserialize graph: {}", e))
 }
 
 /// Simple timestamp without external dependencies

@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_string, read_varu32, read_varu64, write_string, write_varu32, write_varu64, DecodeError,
 };
 

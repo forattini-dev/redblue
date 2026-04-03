@@ -1,15 +1,16 @@
+//! Secrets Detection Module
+//!
+//! Replaces: gitleaks, trufflehog, detect-secrets, git-secrets
+//!
+//! Features:
+//! - Pattern-based secret detection
+//! - Entropy analysis
+//! - Git history scanning
+//! - Multiple output formats
+//! - Custom rule support
+
 pub mod entropy;
 pub mod git;
-/// Secrets Detection Module
-///
-/// Replaces: gitleaks, trufflehog, detect-secrets, git-secrets
-///
-/// Features:
-/// - Pattern-based secret detection
-/// - Entropy analysis
-/// - Git history scanning
-/// - Multiple output formats
-/// - Custom rule support
 pub mod patterns;
 pub mod scanner;
 pub mod validator;
@@ -23,10 +24,6 @@ use std::path::PathBuf;
 
 // Use canonical Severity from common module
 use crate::modules::common::Severity;
-
-/// Type alias for backward compatibility with existing code.
-/// New code should use `common::Severity` directly.
-pub type SecretSeverity = Severity;
 
 /// A detected secret
 #[derive(Debug, Clone)]
@@ -48,7 +45,7 @@ pub struct SecretFinding {
     /// Confidence score (0.0 - 1.0)
     pub confidence: f64,
     /// Severity level
-    pub severity: SecretSeverity,
+    pub severity: Severity,
     /// Git commit hash if found in history
     pub commit: Option<String>,
     /// Author if found in git history
@@ -175,7 +172,7 @@ pub struct ScanSummary {
     /// Total secrets found
     pub secrets_found: usize,
     /// Findings by severity
-    pub by_severity: std::collections::HashMap<SecretSeverity, usize>,
+    pub by_severity: std::collections::HashMap<Severity, usize>,
     /// Findings by category
     pub by_category: std::collections::HashMap<PatternCategory, usize>,
     /// Files with secrets
@@ -204,12 +201,9 @@ impl ScanSummary {
 
     /// Risk rating based on findings
     pub fn risk_rating(&self) -> &str {
-        let critical = *self
-            .by_severity
-            .get(&SecretSeverity::Critical)
-            .unwrap_or(&0);
-        let high = *self.by_severity.get(&SecretSeverity::High).unwrap_or(&0);
-        let medium = *self.by_severity.get(&SecretSeverity::Medium).unwrap_or(&0);
+        let critical = *self.by_severity.get(&Severity::Critical).unwrap_or(&0);
+        let high = *self.by_severity.get(&Severity::High).unwrap_or(&0);
+        let medium = *self.by_severity.get(&Severity::Medium).unwrap_or(&0);
 
         if critical > 0 {
             "CRITICAL"

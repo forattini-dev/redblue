@@ -553,7 +553,7 @@ fn risk_level_str(risk: &RiskLevel) -> &'static str {
 }
 
 // ============================================================================
-// Legacy Playbook Functions
+// Playbook Functions
 // ============================================================================
 
 fn execute_show(ctx: &CliContext) -> Result<(), String> {
@@ -624,7 +624,7 @@ fn execute_show(ctx: &CliContext) -> Result<(), String> {
         return Ok(());
     }
 
-    // Fall back to legacy definitions
+    // Fall back to definition segment
     let segment = load_definitions();
 
     let playbook = segment

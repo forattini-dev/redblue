@@ -231,13 +231,6 @@ rb <domain> <resource> <verb> [target] [flags]
 | `rb recon identity email <email>` | Email lookup |
 | `rb recon identity breach <query>` | Breach check |
 
-### `recon username` - Username Search (Legacy)
-
-| Command | Description |
-|---------|-------------|
-| `rb recon username search <user>` | Search username |
-| `rb recon username check <user>` | Check availability |
-
 ---
 
 ## Network

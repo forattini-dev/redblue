@@ -243,7 +243,7 @@ impl Command for ReconCommand {
             ),
             (
                 "Search username across platforms",
-                "rb recon username search johndoe",
+                "rb recon identity username johndoe",
             ),
             (
                 "Google dorks search for domain",
@@ -313,12 +313,6 @@ impl Command for ReconCommand {
             "asn" => osint::asn(ctx),
             "breach" => breach::breach(ctx),
             "secrets" => breach::secrets(ctx),
-            "username" => {
-                Output::warning("'rb recon domain username' has moved to 'rb recon username'");
-                println!("\nUse: rb recon username search <username>");
-                println!("     rb recon username search johndoe --category coding");
-                Err("Command moved. Use 'rb recon username' instead.".to_string())
-            }
             "dorks" => social::dorks(ctx),
             "social" => social::social(ctx),
             "vuln" => vuln::vuln(ctx),
@@ -348,7 +342,6 @@ impl Command for ReconCommand {
                             "asn",
                             "breach",
                             "secrets",
-                            "username",
                             "dorks",
                             "social",
                             "vuln",

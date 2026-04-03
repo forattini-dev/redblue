@@ -473,6 +473,13 @@ impl ShellState {
             .and_then(|&idx| self.exchanges.get(idx))
     }
 
+    /// Get mutable reference to the currently selected exchange
+    pub fn selected_exchange_mut(&mut self) -> Option<&mut HttpExchange> {
+        self.update_filtered_indices();
+        let idx = self.filtered_indices.get(self.selected_idx).copied()?;
+        self.exchanges.get_mut(idx)
+    }
+
     /// Move selection up
     pub fn select_prev(&mut self) {
         if self.selected_idx > 0 {

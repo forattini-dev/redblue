@@ -4,7 +4,7 @@
 //! - Technology fingerprint data
 //! - Vulnerability correlation results
 //!
-//! Uses RedDb as the backing store.
+//! Uses RedDB as the backing store.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

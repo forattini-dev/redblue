@@ -2,7 +2,7 @@
 //!
 //! Types for capturing detailed execution traces: AttemptOutcome, Attempt, TimingInfo, ActionTrace.
 
-use crate::storage::encoding::{
+use crate::storage::primitives::encoding::{
     read_string, read_varu32, read_varu64, write_string, write_varu32, write_varu64, DecodeError,
 };
 

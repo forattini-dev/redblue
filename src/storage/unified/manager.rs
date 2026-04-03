@@ -299,8 +299,10 @@ impl SegmentManager {
                     let deleted = growing.delete(id)?;
                     if deleted {
                         self.entity_segment.write().unwrap().remove(&id);
-                        self.stats.write().unwrap().total_entities =
-                            self.stats.read().unwrap().total_entities.saturating_sub(1);
+                        {
+                            let mut stats = self.stats.write().unwrap();
+                            stats.total_entities = stats.total_entities.saturating_sub(1);
+                        }
                         self.emit(LifecycleEvent::EntityDeleted(id, seg_id));
                     }
                     return Ok(deleted);
@@ -683,7 +685,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "FIXME: test hangs - investigate manager deadlock"]
     fn test_manager_delete() {
         let manager = SegmentManager::new("test");
 

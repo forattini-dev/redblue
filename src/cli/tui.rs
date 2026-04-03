@@ -2038,9 +2038,7 @@ impl TuiApp {
             ViewMode::Vuln => {
                 self.scan_activity
                     .push("Starting vulnerability scan...".to_string());
-                // TODO: Trigger vuln scan
-                self.scan_activity
-                    .push("Vuln scan triggered (mock)".to_string());
+                self.execute_vuln_scan()?;
             }
             _ => {
                 self.scan_activity
@@ -2054,10 +2052,11 @@ impl TuiApp {
     fn handle_add_action(&mut self) -> Result<(), String> {
         match self.mode {
             ViewMode::Network => {
-                // TODO: Open input dialog to add device manually
                 self.scan_activity
-                    .push("Manual device add: not yet implemented".to_string());
-                self.scan_activity.push("Feature coming soon!".to_string());
+                    .push("Manual add mode: type target in command line as add <ip> [status]".to_string());
+                self.command_mode = true;
+                self.command_buffer.clear();
+                self.command_buffer = "add ".to_string();
             }
             _ => {}
         }
@@ -2129,26 +2128,27 @@ impl TuiApp {
             ViewMode::Network => {
                 // Enter on a network device = switch to Ports view for that IP
                 if !self.network_data.is_empty() && self.selected_row < self.network_data.len() {
-                    let device_ip = &self.network_data[self.selected_row].module;
+                    let device_ip = self.network_data[self.selected_row].module.clone();
                     self.scan_activity
                         .push(format!("Starting port scan on {}...", device_ip));
-
-                    // TODO: Actually trigger port scan
-                    // For now, just switch to Ports view
+                    self.change_target(&device_ip)?;
                     self.mode = ViewMode::Ports;
                     self.scroll_offset = 0;
                     self.selected_row = 0;
+                    self.execute_port_scan()?;
                 }
             }
             ViewMode::Ports | ViewMode::Subdomains => {
-                // TODO: Show details view
-                self.scan_activity
-                    .push("Details view not yet implemented".to_string());
+                let row = self.current_rows().get(self.selected_row).cloned();
+                if let Some(row) = row {
+                    self.push_row_details(&row);
+                }
             }
             ViewMode::Vuln | ViewMode::Mitre | ViewMode::IOC => {
-                // TODO: Show details
-                self.scan_activity
-                    .push(format!("Selected item: row {}", self.selected_row));
+                let row = self.current_rows().get(self.selected_row).cloned();
+                if let Some(row) = row {
+                    self.push_row_details(&row);
+                }
             }
             _ => {}
         }
@@ -2313,6 +2313,24 @@ impl TuiApp {
                     }
                 }
                 return Ok(());
+            }
+            "add" => {
+                if parts.len() < 2 {
+                    return Err("Usage: add <ip> [status]".to_string());
+                }
+
+                if self.mode != ViewMode::Network {
+                    return Err("Use `add` in network mode only".to_string());
+                }
+
+                let host = parts[1].trim().to_string();
+                let status = if parts.len() >= 3 {
+                    parts[2..].join(" ")
+                } else {
+                    "Manual".to_string()
+                };
+
+                self.add_network_host(host, status)?;
             }
             "run" => {
                 if parts.len() < 2 {
@@ -2598,6 +2616,8 @@ impl TuiApp {
                     .push("    scan subdomains - Subdomain enumeration".to_string());
                 self.scan_activity
                     .push("    scan network   - Network discovery".to_string());
+                self.scan_activity
+                    .push("    add <ip> [status] - Add manual network host".to_string());
                 self.scan_activity.push("  Recon:".to_string());
                 self.scan_activity
                     .push("    recon domain whois      - WHOIS lookup".to_string());
@@ -2717,6 +2737,58 @@ impl TuiApp {
             self.target.clone(),
         ];
         self.run_external_command(&args)
+    }
+
+    /// Execute vulnerability scan
+    fn execute_vuln_scan(&mut self) -> Result<(), String> {
+        let target = if self.target.starts_with("http://") || self.target.starts_with("https://") {
+            self.target.clone()
+        } else {
+            format!("http://{}", self.target)
+        };
+
+        let args = vec![
+            "recon".to_string(),
+            "domain".to_string(),
+            "vuln".to_string(),
+            target,
+        ];
+        self.run_external_command(&args)
+    }
+
+    /// Add a manual network host
+    fn add_network_host(&mut self, host: String, status: String) -> Result<(), String> {
+        if host.trim().is_empty() {
+            return Err("Host cannot be empty".to_string());
+        }
+
+        if self.network_data.iter().any(|row| row.module == host) {
+            self.scan_activity
+                .push(format!("Device {} already exists", host));
+            return Ok(());
+        }
+
+        self.network_data.push(TableRow {
+            module: host.clone(),
+            status,
+            data: "Manually added from TUI".to_string(),
+            timestamp: now_secs(),
+        });
+
+        self.network_data
+            .sort_by(|a, b| a.module.cmp(&b.module));
+
+        self.scan_activity
+            .push(format!("Added manual device: {}", host));
+        Ok(())
+    }
+
+    /// Push selected row details into activity log
+    fn push_row_details(&mut self, row: &TableRow) {
+        self.scan_activity.push(format!(
+            "Details: {} | status={} | data={}",
+            row.module, row.status, row.data
+        ));
     }
 
     // ========== Dynamic Target ==========

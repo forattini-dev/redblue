@@ -5,6 +5,7 @@
 use super::cpe::TechCategory;
 
 use crate::modules::common::Severity;
+use std::cmp::Ordering;
 
 /// Detected technology with version information
 #[derive(Debug, Clone)]
@@ -129,8 +130,6 @@ pub struct VersionRange {
 impl VersionRange {
     /// Check if a version falls within this range
     pub fn contains(&self, version: &str) -> bool {
-        // Simplified semver comparison
-        // TODO: Implement proper semver comparison
         let ver = parse_version(version);
 
         if let Some(ref start) = self.start_including {
@@ -166,15 +165,115 @@ impl VersionRange {
 }
 
 /// Parse version string into comparable tuple
-fn parse_version(version: &str) -> Vec<u32> {
-    version
-        .split(|c: char| matches!(c, '.' | '-' | '_'))
-        .filter_map(|part| {
-            // Extract leading digits from each part
-            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
-            digits.parse().ok()
+fn parse_version(version: &str) -> ParsedVersion {
+    let core_and_suffix = version.split('+').next().unwrap_or("");
+    let mut parts = core_and_suffix.splitn(2, '-');
+    let core = parts.next().unwrap_or("");
+    let prerelease = parts.next().unwrap_or("");
+
+    let core_parts = core
+        .split('.')
+        .filter_map(|segment| {
+            let normalized = segment.trim_start_matches(&['v', 'V'][..]);
+            let digits: String = normalized.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.is_empty() {
+                None
+            } else {
+                digits.parse::<u32>().ok()
+            }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let prerelease_parts = prerelease
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| {
+            if segment.chars().all(|c| c.is_ascii_digit()) {
+                Identifier::Numeric(segment.parse().unwrap_or(0))
+            } else {
+                Identifier::Alpha(segment.to_string())
+            }
+        })
+        .collect::<Vec<_>>();
+
+    ParsedVersion {
+        core: core_parts,
+        prerelease: prerelease_parts,
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ParsedVersion {
+    core: Vec<u32>,
+    prerelease: Vec<Identifier>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum Identifier {
+    Numeric(u32),
+    Alpha(String),
+}
+
+impl Ord for Identifier {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Identifier::Numeric(a), Identifier::Numeric(b)) => a.cmp(b),
+            (Identifier::Alpha(a), Identifier::Alpha(b)) => a.cmp(b),
+            (Identifier::Numeric(_), Identifier::Alpha(_)) => Ordering::Less,
+            (Identifier::Alpha(_), Identifier::Numeric(_)) => Ordering::Greater,
+        }
+    }
+}
+
+impl PartialOrd for Identifier {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ParsedVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let core_len = std::cmp::max(self.core.len(), other.core.len());
+        for i in 0..core_len {
+            let left = self.core.get(i).copied().unwrap_or(0);
+            let right = other.core.get(i).copied().unwrap_or(0);
+            match left.cmp(&right) {
+                Ordering::Equal => {}
+                diff => return diff,
+            }
+        }
+
+        match (self.prerelease.is_empty(), other.prerelease.is_empty()) {
+            (true, true) => {}
+            (true, false) => return Ordering::Greater,
+            (false, true) => return Ordering::Less,
+            (false, false) => {}
+        }
+
+        let prerelease_len = std::cmp::max(self.prerelease.len(), other.prerelease.len());
+        for i in 0..prerelease_len {
+            let left = self.prerelease.get(i);
+            let right = other.prerelease.get(i);
+
+            match (left, right) {
+                (None, None) => break,
+                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(left_id), Some(right_id)) => match left_id.cmp(right_id) {
+                    Ordering::Equal => {}
+                    diff => return diff,
+                },
+            }
+        }
+
+        Ordering::Equal
+    }
+}
+
+impl PartialOrd for ParsedVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 /// Vulnerability record from any source

@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::storage::encoding::{read_varu32, write_varu32, DecodeError};
+use crate::storage::primitives::encoding::{read_varu32, write_varu32, DecodeError};
 use crate::storage::records::{
     ProxyConnectionRecord, ProxyHttpRequestRecord, ProxyHttpResponseRecord, ProxyWebSocketRecord,
 };

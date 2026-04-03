@@ -1,9 +1,7 @@
 use crate::storage::client::{PersistenceConfig, PersistenceManager, QueryManager};
-use crate::storage::encoding::DecodeError;
-use crate::storage::layout::{FileHeader, SectionEntry, SegmentKind};
+use crate::storage::layout::SegmentKind;
 use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 use std::time::SystemTime;
@@ -368,20 +366,7 @@ impl StorageService {
 
     /// Resolve the standard database path for a target
     pub fn db_path(target: &str) -> PathBuf {
-        // Use PersistenceManager logic but avoid creating instance if possible,
-        // or just create a temporary one to resolve path.
-        // Since PersistenceManager::new might fail if config is invalid, we handle error.
-        // But better is to replicate simple path logic or expose static method in PersistenceManager.
-        // Let's assume standard location: current_dir/target.rdb or ~/.redblue/target.rdb
-        // Actually, PersistenceManager has logic for this.
-        // Let's rely on PersistenceManager::resolve_db_path if it exists or implement it.
-        // Checking src/storage/client/mod.rs ...
-        // It seems PersistenceManager::new handles it.
-
-        // For CLI tools, we usually just use target.rdb in current dir or specific logic.
-        // Let's implement a safe default here matching TuiApp logic:
-        // 1. If target ends with .rdb, use it
-        // 2. Else use target.rdb
+        // Keep the same naming convention as PersistenceManager.
 
         if target.ends_with(".json") {
             PathBuf::from(target)
@@ -391,66 +376,43 @@ impl StorageService {
     }
 
     fn inspect_segments(path: &Path) -> io::Result<Vec<SegmentKind>> {
-        let mut file = File::open(path)?;
-        let mut magic = [0u8; 4];
-        if file.read(&mut magic)? == 4 && &magic == b"RDST" {
-            let db = crate::storage::unified::RedDB::open(path)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-            let mut segments = Vec::new();
-            for collection in db.collections() {
-                let kind = match collection.as_str() {
-                    "ports" => Some(SegmentKind::Ports),
-                    "domains" => Some(SegmentKind::Subdomains),
-                    "dns" => Some(SegmentKind::Dns),
-                    "http" => Some(SegmentKind::Http),
-                    "tls" => Some(SegmentKind::Tls),
-                    "whois" => Some(SegmentKind::Whois),
-                    "hosts" => Some(SegmentKind::Host),
-                    "proxy" => Some(SegmentKind::Proxy),
-                    "mitre" => Some(SegmentKind::Mitre),
-                    "iocs" => Some(SegmentKind::Ioc),
-                    "vulns" => Some(SegmentKind::Vuln),
-                    "sessions" => Some(SegmentKind::Sessions),
-                    "playbooks" => Some(SegmentKind::Playbooks),
-                    "actions" => Some(SegmentKind::Actions),
-                    "traces" => Some(SegmentKind::Traces),
-                    "loot" => Some(SegmentKind::Loot),
-                    _ => None,
-                };
-                if let Some(kind) = kind {
-                    if !segments.contains(&kind) {
-                        segments.push(kind);
-                    }
+        let db = crate::storage::RedDB::open(path)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let mut segments = Vec::new();
+        for collection in db.collections() {
+            let kind = match collection.as_str() {
+                "ports" => Some(SegmentKind::Ports),
+                "domains" => Some(SegmentKind::Subdomains),
+                "dns" => Some(SegmentKind::Dns),
+                "http" => Some(SegmentKind::Http),
+                "tls" => Some(SegmentKind::Tls),
+                "whois" => Some(SegmentKind::Whois),
+                "hosts" => Some(SegmentKind::Host),
+                "proxy" => Some(SegmentKind::Proxy),
+                "mitre" => Some(SegmentKind::Mitre),
+                "iocs" => Some(SegmentKind::Ioc),
+                "vulns" => Some(SegmentKind::Vuln),
+                "sessions" => Some(SegmentKind::Sessions),
+                "playbooks" => Some(SegmentKind::Playbooks),
+                "actions" => Some(SegmentKind::Actions),
+                "traces" => Some(SegmentKind::Traces),
+                "loot" => Some(SegmentKind::Loot),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                if !segments.contains(&kind) {
+                    segments.push(kind);
                 }
             }
-            return Ok(segments);
         }
-
-        file.seek(SeekFrom::Start(0))?;
-        let header = FileHeader::read(&mut file).map_err(decode_err_to_io)?;
-
-        if header.section_count == 0 {
-            return Ok(vec![]);
-        }
-
-        file.seek(SeekFrom::Start(header.directory_offset))?;
-        let entry_size = SectionEntry::size_for_version(header.version);
-        let mut buf = vec![0u8; header.section_count as usize * entry_size];
-        file.read_exact(&mut buf)?;
-        let directory = SectionEntry::read_all(&buf, header.section_count as usize, header.version)
-            .map_err(decode_err_to_io)?;
-        Ok(directory.into_iter().map(|entry| entry.kind).collect())
+        Ok(segments)
     }
-}
-
-fn decode_err_to_io(err: DecodeError) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, err.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::RedDb;
+    use crate::storage::RedDB;
     use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
 
@@ -1060,7 +1022,7 @@ mod tests {
 
         // Create a real database file
         {
-            let db = RedDb::open(&path).unwrap();
+            let db = RedDB::open(&path).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
             db.node("ports", "Port")
                 .property("ip", ip.to_string())
@@ -1091,7 +1053,7 @@ mod tests {
 
         // Create database with various segments
         {
-            let db = RedDb::open(&path).unwrap();
+            let db = RedDB::open(&path).unwrap();
             let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
             db.node("ports", "Port")
                 .property("ip", ip.to_string())

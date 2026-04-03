@@ -142,14 +142,7 @@ impl FieldElement {
         }
 
         let value = FieldElement { limbs: result };
-        let p = FieldElement {
-            limbs: P256_FIELD_PRIME,
-        };
-        if value.cmp(&p) >= 0 {
-            value.sub(&p)
-        } else {
-            value
-        }
+        Self::reduce(&value.limbs)
     }
 
     /// Modular subtraction in GF(p)
@@ -244,18 +237,14 @@ impl FieldElement {
 
     /// Modular reduction modulo P-256 prime
     fn reduce(limbs: &[u64; 4]) -> FieldElement {
-        let p = FieldElement {
-            limbs: P256_FIELD_PRIME,
-        };
-        let value = FieldElement { limbs: *limbs };
-
-        // Simple subtraction-based reduction
-        // TODO: Optimize using P-256 special prime form
-        if value.cmp(&p) >= 0 {
-            value.sub(&p)
-        } else {
-            value
+        let mut bytes = [0u8; 32];
+        for (idx, limb) in limbs.iter().enumerate() {
+            let offset = (3 - idx) * 8;
+            bytes[offset..offset + 8].copy_from_slice(&limb.to_be_bytes());
         }
+        let value = BigInt::from_bytes_be(&bytes);
+        let reduced = value.modulo(Self::modulus());
+        Self::from_bigint(&reduced)
     }
 
     /// Compare two field elements

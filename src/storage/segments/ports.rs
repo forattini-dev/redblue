@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use crate::storage::encoding::{read_varu32, write_varu32, DecodeError, IpKey};
+use crate::storage::primitives::encoding::{read_varu32, write_varu32, DecodeError, IpKey};
 use crate::storage::records::{PortScanRecord, PortStatus};
 
 #[derive(Debug, Clone)]

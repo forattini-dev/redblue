@@ -127,18 +127,8 @@ impl Platform {
         true
     }
 
-    /// Alias for validate_username for API compatibility
-    pub fn is_valid_username(&self, username: &str) -> bool {
-        self.validate_username(username)
-    }
-
     /// Get the URL for a specific username
     pub fn get_url(&self, username: &str) -> String {
         self.url_pattern.replace("{username}", username)
-    }
-
-    /// Alias for get_url for API compatibility
-    pub fn url_for(&self, username: &str) -> String {
-        self.get_url(username)
     }
 }

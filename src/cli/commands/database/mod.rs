@@ -1,8 +1,7 @@
-//! Database commands - RedDb inspection, new engine operations, vector search.
+//! Database commands - RedDB inspection, new engine operations, vector search.
 //!
-//! This module provides four distinct modes for database operations:
+//! This module provides three distinct modes for database operations:
 //!
-//! - **data**: Legacy interface for querying .rdb files
 //! - **query**: Resource-first filtering (ports, dns, subdomains, etc.)
 //! - **engine**: Page-based storage engine operations
 //! - **vector**: Vector similarity search using IVF/Flat indexes
@@ -10,10 +9,6 @@
 //! # Examples
 //!
 //! ```bash
-//! # Legacy data mode
-//! rb database data query scan.rdb
-//! rb database data export scan.rdb --output results.csv
-//!
 //! # Query mode with filters
 //! rb database query ports --db scan.rdb --ip-range 192.168.1.1-192.168.1.255
 //! rb database query dns --db scan.rdb --dns-prefix mail.
@@ -30,7 +25,6 @@
 
 mod engine;
 mod helpers;
-mod legacy;
 mod query;
 mod vector;
 
@@ -41,13 +35,11 @@ use crate::cli::CliContext;
 pub use helpers::*;
 
 /// Database command modes:
-/// - `data`: legacy interface (`rb database data query file.rdb`)
 /// - `query`: resource-first query interface (`rb database query dns --db file.rdb`)
 /// - `engine`: new page-based storage engine operations
 /// - `vector`: vector similarity search
 #[derive(Clone, Copy)]
 pub enum DatabaseMode {
-    Data,
     Query,
     Engine,
     Vector,
@@ -64,7 +56,6 @@ impl DatabaseCommand {
 
     const fn mode_label(&self) -> &'static str {
         match self.mode {
-            DatabaseMode::Data => "data",
             DatabaseMode::Query => "query",
             DatabaseMode::Engine => "engine",
             DatabaseMode::Vector => "vector",
@@ -75,7 +66,6 @@ impl DatabaseCommand {
 /// Create all database command variants
 pub fn commands() -> Vec<Box<dyn Command>> {
     vec![
-        Box::new(DatabaseCommand::new(DatabaseMode::Data)),
         Box::new(DatabaseCommand::new(DatabaseMode::Query)),
         Box::new(DatabaseCommand::new(DatabaseMode::Engine)),
         Box::new(DatabaseCommand::new(DatabaseMode::Vector)),
@@ -89,7 +79,6 @@ impl Command for DatabaseCommand {
 
     fn resource(&self) -> &str {
         match self.mode {
-            DatabaseMode::Data => "data",
             DatabaseMode::Query => "query",
             DatabaseMode::Engine => "engine",
             DatabaseMode::Vector => "vector",
@@ -98,46 +87,18 @@ impl Command for DatabaseCommand {
 
     fn description(&self) -> &str {
         match self.mode {
-            DatabaseMode::Data => "Query and export binary database files (.rdb)",
-            DatabaseMode::Query => "Filter RedDb contents by dataset (ports, dns, subdomains, ...)",
-            DatabaseMode::Engine => "Page-based storage engine operations (open, info, migrate)",
+            DatabaseMode::Query => "Filter RedDB contents by dataset (ports, dns, subdomains, ...)",
+            DatabaseMode::Engine => "Page-based storage engine operations (open, info, stats)",
             DatabaseMode::Vector => "Vector similarity search using IVF/Flat indexes",
         }
     }
 
     fn routes(&self) -> Vec<Route> {
         match self.mode {
-            DatabaseMode::Data => vec![
-                Route {
-                    verb: "query",
-                    summary: "Display database contents and statistics",
-                    usage: "rb database data query <file.rdb>",
-                },
-                Route {
-                    verb: "export",
-                    summary: "Export database to CSV format",
-                    usage: "rb database data export <file.rdb> [--output file.csv]",
-                },
-                Route {
-                    verb: "list",
-                    summary: "List .rdb files in the current directory",
-                    usage: "rb database data list",
-                },
-                Route {
-                    verb: "subnets",
-                    summary: "List discovered subnets with host counts",
-                    usage: "rb database data subnets",
-                },
-                Route {
-                    verb: "doctor",
-                    summary: "Validate RedDb structure and show segment health",
-                    usage: "rb database data doctor <file.rdb>",
-                },
-            ],
             DatabaseMode::Query => vec![
                 Route {
                     verb: "summary",
-                    summary: "Show RedDb summary (size, record counts)",
+                    summary: "Show RedDB summary (size, record counts)",
                     usage: "rb database query summary --db scan.rdb",
                 },
                 Route {
@@ -198,11 +159,6 @@ impl Command for DatabaseCommand {
                     summary: "Force a WAL checkpoint to flush pending writes",
                     usage: "rb database engine checkpoint <path>",
                 },
-                Route {
-                    verb: "migrate",
-                    summary: "Migrate legacy .rdb format to new page-based engine",
-                    usage: "rb database engine migrate <legacy.rdb> --to <new.rdb>",
-                },
             ],
             DatabaseMode::Vector => vec![
                 Route {
@@ -226,12 +182,8 @@ impl Command for DatabaseCommand {
 
     fn flags(&self) -> Vec<Flag> {
         match self.mode {
-            DatabaseMode::Data => vec![
-                Flag::new("output", "Output file path for export").with_short('o'),
-                Flag::new("format", "Output format (text, json)").with_default("text"),
-            ],
             DatabaseMode::Query => vec![
-                Flag::new("db", "Path to the RedDb file to query"),
+                Flag::new("db", "Path to the RedDB file to query"),
                 Flag::new("database", "Alias for --db"),
                 Flag::new("ip-range", "Filter ports by inclusive IP range (start-end)"),
                 Flag::new(
@@ -257,7 +209,6 @@ impl Command for DatabaseCommand {
             ],
             DatabaseMode::Engine => vec![
                 Flag::new("password", "Password for encrypted database").with_short('p'),
-                Flag::new("to", "Destination path for migration"),
                 Flag::new("read-only", "Open database in read-only mode"),
                 Flag::new("format", "Output format (text, json)").with_default("text"),
             ],
@@ -279,16 +230,6 @@ impl Command for DatabaseCommand {
 
     fn examples(&self) -> Vec<(&str, &str)> {
         match self.mode {
-            DatabaseMode::Data => vec![
-                ("Query database", "rb database data query 192.168.1.1.rdb"),
-                (
-                    "Export to CSV",
-                    "rb database data export 192.168.1.1.rdb --output scan.csv",
-                ),
-                ("List databases", "rb database data list"),
-                ("List subnets", "rb database data subnets"),
-                ("Validate database", "rb database data doctor recon.rdb"),
-            ],
             DatabaseMode::Query => vec![
                 ("Summary", "rb database query summary --db recon.rdb"),
                 (
@@ -324,10 +265,6 @@ impl Command for DatabaseCommand {
                     "Force checkpoint",
                     "rb database engine checkpoint mydata.rdb",
                 ),
-                (
-                    "Migrate legacy",
-                    "rb database engine migrate old.rdb --to new.rdb",
-                ),
             ],
             DatabaseMode::Vector => vec![
                 (
@@ -345,7 +282,6 @@ impl Command for DatabaseCommand {
 
     fn execute(&self, ctx: &CliContext) -> Result<(), String> {
         match self.mode {
-            DatabaseMode::Data => self.execute_legacy(ctx),
             DatabaseMode::Query => self.execute_query(ctx),
             DatabaseMode::Engine => self.execute_engine(ctx),
             DatabaseMode::Vector => self.execute_vector(ctx),
@@ -359,10 +295,6 @@ mod tests {
 
     #[test]
     fn test_database_modes() {
-        let data_cmd = DatabaseCommand::new(DatabaseMode::Data);
-        assert_eq!(data_cmd.domain(), "database");
-        assert_eq!(data_cmd.resource(), "data");
-
         let query_cmd = DatabaseCommand::new(DatabaseMode::Query);
         assert_eq!(query_cmd.resource(), "query");
 
@@ -376,10 +308,9 @@ mod tests {
     #[test]
     fn test_commands_creates_all_modes() {
         let cmds = commands();
-        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds.len(), 3);
 
         let resources: Vec<&str> = cmds.iter().map(|c| c.resource()).collect();
-        assert!(resources.contains(&"data"));
         assert!(resources.contains(&"query"));
         assert!(resources.contains(&"engine"));
         assert!(resources.contains(&"vector"));

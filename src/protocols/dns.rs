@@ -514,11 +514,11 @@ impl DnsClient {
     }
 }
 
-// Simple random number generator for transaction IDs
+/// Cryptographically secure random u16 for DNS transaction IDs
 fn rand_u16() -> u16 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    ((now.as_secs() ^ now.subsec_nanos() as u64) & 0xFFFF) as u16
+    let mut buf = [0u8; 2];
+    crate::crypto::os_random::fill_bytes(&mut buf);
+    u16::from_ne_bytes(buf)
 }
 
 #[cfg(test)]

@@ -18,6 +18,7 @@ pub mod docs; // ✅ Documentation search and indexing
 pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
 pub mod exploit_browser; // ✅ RBB Browser Exploitation
+pub mod file; // ✅ File operations - compression, decompression, hash verification
 pub mod fuzz;
 pub mod git_exposed; // ✅ Exposed .git directory scanner
 pub mod health; // ✅ Port health monitoring (check, diff, watch)
@@ -45,7 +46,6 @@ pub mod playbook; // ✅ Playbook management - pentest methodologies
 pub mod proxy; // ✅ MITM TLS proxy - AUTHORIZED USE ONLY
 pub mod recon;
 pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email/breach
-pub mod recon_username; // ✅ Username OSINT - rb recon username <username> (legacy alias)
 pub mod report; // ✅ Report generation - pentest reports from loot and graph
 pub mod scan;
 pub mod screenshot;
@@ -100,13 +100,13 @@ impl CommandRegistry {
             Box::new(tls::TlsCommand), // TLS security testing
             Box::new(tls_intel::TlsIntelCommand), // ✅ TLS intelligence gathering
             Box::new(recon::ReconCommand),
-            Box::new(recon_username::ReconUsernameCommand), // ✅ rb recon username <username> (legacy)
             Box::new(recon_identity::ReconIdentityCommand), // ✅ rb recon identity username/email/breach
             Box::new(exploit::ExploitCommand), // ⚠️ Exploitation - privesc, lateral, persist, replicate
             Box::new(nc::NetcatCommand),       // ⚠️ Netcat - AUTHORIZED USE ONLY
             Box::new(code::CodeCommand),
             Box::new(collection::CollectCommand), // ✅ Browser collection
             Box::new(fuzz::FuzzCommand),          // ✅ Web fuzzing engine
+            Box::new(file::FileCommand),          // ✅ File operations - zip/unzip/hash
             Box::new(crypto::CryptoCommand),      // ✅ File encryption vault
             Box::new(crypto::CryptoCodecCommand), // ✅ Encoding/decoding (Base64, Hex, etc.)
             Box::new(crypto::CryptoCipherCommand), // ✅ Classical ciphers (Caesar, ROT13, etc.)
@@ -592,7 +592,8 @@ fn is_magic_scan_target(input: &str) -> bool {
             "recon",
             "intelligence", // ✅ Intelligence domain - vuln, mitre, ioc, taxii (alias: intel)
             "exploit",
-            "nc", // netcat standalone command
+            "nc",   // netcat standalone command
+            "file", // ✅ File operations - zip/unzip/hash
             "code",
             "cloud",
             "collection",

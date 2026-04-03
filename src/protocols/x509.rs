@@ -686,7 +686,7 @@ pub fn parse_x509_time(value: &str) -> Option<SystemTime> {
     }
 }
 
-/// Backward-compatible helper used by legacy TLS stacks.
+/// Helper used by older TLS stacks.
 pub fn parse_x509_certificate(data: &[u8]) -> Result<X509Certificate, String> {
     X509Certificate::from_der(data)
 }

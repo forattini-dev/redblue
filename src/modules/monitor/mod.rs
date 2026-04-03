@@ -12,8 +12,7 @@ pub mod tcp_monitor;
 pub mod udp_monitor;
 
 pub use icmp_monitor::{IcmpMonitor, IcmpHostStats, PingResult, PingStatistics};
-// TODO: Re-enable when IcmpClient is implemented
-// pub use icmp_monitor::Pinger;
+pub use icmp_monitor::Pinger;
 pub use tcp_monitor::{TcpConnection, TcpConnectionTester, TcpMonitor, TcpState, TcpStats};
 pub use udp_monitor::{UdpFlow, UdpMonitor, UdpPortTester, UdpStats};
 

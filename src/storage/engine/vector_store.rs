@@ -637,6 +637,7 @@ impl Default for VectorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::engine::MetadataValue;
 
     fn random_vector(dim: usize, seed: u64) -> Vec<f32> {
         let mut state = seed;

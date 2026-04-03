@@ -308,6 +308,6 @@ mod tests {
     #[test]
     fn test_resolve_host_ip_literal() {
         let ip = resolve_host("127.0.0.1").expect("resolve");
-        assert_eq!(ip, "127.0.0.1".parse().unwrap());
+        assert_eq!(ip, "127.0.0.1".parse::<std::net::IpAddr>().unwrap());
     }
 }

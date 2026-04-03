@@ -469,11 +469,39 @@ impl UnifiedExecutor {
                 .map(|n| n.id)
                 .collect(),
             NodeSelector::ByRow {
-                table: _,
-                row_id: _,
+                table,
+                row_id,
             } => {
-                // TODO: Implement row-based selection when table storage is integrated
-                Vec::new()
+                if let Some((table_id, row_id)) = match (table.as_str().parse::<u16>(), *row_id) {
+                    (Ok(table_id), row_id) => Some((table_id, row_id)),
+                    _ => None,
+                } {
+                    let mut ids = Vec::new();
+
+                    // Fast path: query the bidirectional graph-table index first
+                    if let Some(node_id) = self.index.get_node_for_row(table_id, row_id) {
+                        ids.push(node_id);
+                    }
+
+                    // Fallback path: for callers that don't register index mappings yet,
+                    // scan graph nodes directly by table_ref row linkage.
+                    if ids.is_empty() {
+                        ids.extend(graph.iter_nodes().filter_map(|node| {
+                            let Some(table_ref) = node.table_ref else {
+                                return None;
+                            };
+                            if table_ref.table_id == table_id && table_ref.row_id == row_id {
+                                Some(node.id)
+                            } else {
+                                None
+                            }
+                        }));
+                    }
+
+                    ids
+                } else {
+                    Vec::new()
+                }
             }
         }
     }

@@ -5,7 +5,7 @@
 use super::{
     entropy::EntropyAnalyzer,
     patterns::{get_all_patterns, PatternCategory, SecretPattern},
-    ScanSummary, ScannerConfig, SecretFinding, SecretSeverity,
+    ScanSummary, ScannerConfig, SecretFinding, Severity,
 };
 use crate::synergy::events::{emit, EntityRef, Event, EventType};
 use std::collections::VecDeque;
@@ -204,7 +204,7 @@ impl SecretsScanner {
                         column: line.find(&entropy_result.value).unwrap_or(0),
                         line_content: line.to_string(),
                         confidence: entropy_result.normalized_entropy,
-                        severity: SecretSeverity::Low,
+                        severity: Severity::Low,
                         commit: None,
                         author: None,
                         date: None,

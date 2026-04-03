@@ -410,8 +410,8 @@ impl OcspStaplingChecker {
         let _client = Tls12Client::connect_with_timeout(host, port, self.timeout)
             .map_err(|e| format!("TLS connection failed: {}", e))?;
 
-        // Check if server sent CertificateStatus message
-        // TODO: Extend Tls12Client to track OCSP stapling support
+        // Current TLS12 implementation does not parse CertificateStatus messages yet.
+        // Keep explicit negative signal until stapling parsing is implemented.
 
         Ok(StaplingResult {
             supported: false,

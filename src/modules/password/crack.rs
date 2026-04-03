@@ -306,6 +306,8 @@ pub struct Cracker {
     rules: RuleEngine,
     /// Wordlist path
     wordlist: Option<String>,
+    /// Secondary wordlist path (for combinator mode)
+    second_wordlist: Option<String>,
     /// Mask pattern for brute-force
     mask: Option<String>,
     /// Potfile path for storing cracked hashes
@@ -326,6 +328,7 @@ impl Cracker {
             format: None,
             rules: RuleEngine::new(),
             wordlist: None,
+            second_wordlist: None,
             mask: None,
             potfile: None,
             session: None,
@@ -348,6 +351,12 @@ impl Cracker {
     /// Set wordlist path
     pub fn wordlist(mut self, path: &str) -> Self {
         self.wordlist = Some(path.to_string());
+        self
+    }
+
+    /// Set secondary wordlist path
+    pub fn second_wordlist(mut self, path: &str) -> Self {
+        self.second_wordlist = Some(path.to_string());
         self
     }
 
@@ -701,6 +710,100 @@ impl Cracker {
         results
     }
 
+    /// Run combinator attack (primary + secondary wordlist concatenation)
+    pub fn attack_combinator(&mut self) -> Vec<CrackResult> {
+        let primary_path = match &self.wordlist {
+            Some(p) => p.clone(),
+            None => return Vec::new(),
+        };
+
+        let secondary_path = match &self.second_wordlist {
+            Some(p) => p.clone(),
+            None => return Vec::new(),
+        };
+
+        let secondary_file = match File::open(&secondary_path) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+
+        let secondary_reader = BufReader::new(secondary_file);
+        let secondary_words: Vec<String> = secondary_reader
+            .lines()
+            .filter_map(|line| line.ok())
+            .map(|line| line.trim().to_string())
+            .filter(|word| !word.is_empty())
+            .collect();
+
+        if secondary_words.is_empty() {
+            return Vec::new();
+        }
+
+        let primary_file = match File::open(&primary_path) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+
+        let primary_reader = BufReader::new(primary_file);
+        let mut results = Vec::new();
+        let mut attempts: u64 = 0;
+
+        for line in primary_reader.lines() {
+            let word1 = match line {
+                Ok(word) => word.trim().to_string(),
+                Err(_) => continue,
+            };
+
+            if word1.is_empty() {
+                continue;
+            }
+
+            for word2 in &secondary_words {
+                let candidate = format!("{}{}", word1, word2);
+
+                if self.rules.is_empty() {
+                    attempts += 1;
+                    let mut cracked = self.try_candidate(&candidate);
+                    for r in &mut cracked {
+                        r.attempts = attempts;
+                    }
+                    results.extend(cracked);
+                } else {
+                    let mutations = self.rules.generate(&candidate);
+                    for mutation in mutations {
+                        attempts += 1;
+
+                        let mut cracked = self.try_candidate(&mutation);
+                        for r in &mut cracked {
+                            r.attempts = attempts;
+                        }
+                        results.extend(cracked);
+
+                        if self.limit > 0 && attempts >= self.limit {
+                            break;
+                        }
+                    }
+                }
+
+                if self.cracked.len() >= self.hashes.len() || (self.limit > 0 && attempts >= self.limit)
+                {
+                    break;
+                }
+            }
+
+            if self.cracked.len() >= self.hashes.len() || (self.limit > 0 && attempts >= self.limit) {
+                break;
+            }
+        }
+
+        if let Some(session) = &mut self.session {
+            session.keyspace_processed = attempts;
+            session.cracked_count = results.len();
+        }
+
+        results
+    }
+
     /// Run the attack based on configured mode
     pub fn run(&mut self) -> (Vec<CrackResult>, CrackStats) {
         let start = Instant::now();
@@ -723,7 +826,7 @@ impl Cracker {
                 // Swap dict and mask
                 self.attack_hybrid_dict_mask() // Simplified
             }
-            AttackMode::Combinator => Vec::new(), // TODO: implement
+            AttackMode::Combinator => self.attack_combinator(),
         };
 
         let stats = CrackStats {

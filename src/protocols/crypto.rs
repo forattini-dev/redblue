@@ -437,6 +437,15 @@ mod tests {
                 .unwrap();
         assert_eq!(&digest[..], &expected[..]);
     }
+
+    #[test]
+    fn test_secure_random_initialization() {
+        let mut rng = SecureRandom::new().expect("SecureRandom init failed");
+        let mut output = [0u8; 32];
+        rng.fill_bytes(&mut output)
+            .expect("SecureRandom fill failed");
+        assert_eq!(output.len(), 32);
+    }
 }
 
 // ============================================================================
@@ -1560,16 +1569,3 @@ pub fn hkdf_sha384(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Vec<u
     hkdf_expand_sha384(&prk, info, length)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::SecureRandom;
-
-    #[test]
-    fn test_secure_random_initialization() {
-        let mut rng = SecureRandom::new().expect("SecureRandom init failed");
-        let mut output = [0u8; 32];
-        rng.fill_bytes(&mut output)
-            .expect("SecureRandom fill failed");
-        assert_eq!(output.len(), 32);
-    }
-}

@@ -1,8 +1,9 @@
 /// ICMP Monitoring and Analysis
 /// Monitor ICMP traffic, track ping/traceroute, analyze network health
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
+use crate::protocols::icmp::IcmpPinger;
 
 /// ICMP Packet Type Statistics
 #[derive(Debug, Clone, Default)]
@@ -243,21 +244,21 @@ pub struct OverallIcmpStats {
     pub type_stats: IcmpTypeStats,
 }
 
-/// Ping utility (uses existing ICMP client)
-/// TODO: Implement when IcmpClient is available in protocols/icmp.rs
-/*
+/// Ping utility wrapper around protocol ICMP pinger
 pub struct Pinger {
-    client: IcmpClient,
     timeout: Duration,
     count: usize,
+    interval: Duration,
+    packet_size: usize,
 }
 
 impl Pinger {
     pub fn new() -> Self {
         Self {
-            client: IcmpClient::new(),
             timeout: Duration::from_secs(2),
             count: 4,
+            interval: Duration::from_secs(1),
+            packet_size: 56,
         }
     }
 
@@ -271,48 +272,70 @@ impl Pinger {
         self
     }
 
+    pub fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
+        self
+    }
+
+    pub fn with_packet_size(mut self, size: usize) -> Self {
+        self.packet_size = size;
+        self
+    }
+
     /// Ping a host multiple times
     pub fn ping(&self, host: &str) -> Result<Vec<PingResult>, String> {
-        let ip: IpAddr = host
-            .parse()
-            .map_err(|_| format!("Invalid IP address: {}", host))?;
+        let ip: IpAddr = if let Ok(addr) = host.parse() {
+            addr
+        } else {
+            let mut addrs = (host, 0)
+                .to_socket_addrs()
+                .map_err(|_| format!("Failed to resolve host: {}", host))?;
+            addrs.next().map(|addr| addr.ip()).ok_or_else(|| {
+                format!("No IP addresses found for host '{}'", host)
+            })?
+        };
 
+        let mut pinger = IcmpPinger::new(ip)
+            .with_timeout(self.timeout)
+            .with_packet_size(self.packet_size);
         let mut results = Vec::new();
 
         for seq in 0..self.count {
-            let start = Instant::now();
+            let result = pinger
+                .ping_once(seq as u16)
+                .unwrap_or_else(|err| crate::protocols::icmp::PingResult {
+                    sequence: seq as u16,
+                    rtt: Duration::from_secs(0),
+                    ttl: 0,
+                    success: false,
+                    error: Some(err),
+                });
 
-            match self.client.ping(&ip.to_string()) {
-                Ok((reply_ip, ttl)) => {
-                    let rtt = start.elapsed();
-                    results.push(PingResult {
-                        host: reply_ip,
-                        sequence: seq as u16,
-                        ttl,
-                        rtt_ms: rtt.as_secs_f64() * 1000.0,
-                        success: true,
-                        error: None,
-                    });
-                }
-                Err(e) => {
-                    results.push(PingResult {
-                        host: ip,
-                        sequence: seq as u16,
-                        ttl: 0,
-                        rtt_ms: 0.0,
-                        success: false,
-                        error: Some(e),
-                    });
-                }
-            }
+            let rtt_ms = if result.success {
+                result.rtt.as_secs_f64() * 1000.0
+            } else {
+                0.0
+            };
 
-            // Wait before next ping
+            results.push(PingResult {
+                host: ip,
+                sequence: result.sequence,
+                ttl: result.ttl,
+                rtt_ms,
+                success: result.success,
+                error: result.error,
+            });
+
             if seq < self.count - 1 {
-                std::thread::sleep(Duration::from_secs(1));
+                std::thread::sleep(self.interval);
             }
         }
 
-        Ok(results)
+        if results.is_empty() {
+            Err("No ping attempts were executed".to_string())
+        } else {
+            Ok(results)
+        }
     }
 
     /// Calculate ping statistics
@@ -372,7 +395,6 @@ impl Default for Pinger {
         Self::new()
     }
 }
-*/
 
 #[derive(Debug, Clone)]
 pub struct PingStatistics {

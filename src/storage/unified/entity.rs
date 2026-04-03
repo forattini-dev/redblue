@@ -548,6 +548,8 @@ pub struct CrossRef {
     pub source: EntityId,
     /// Target entity ID
     pub target: EntityId,
+    /// Target collection name
+    pub target_collection: String,
     /// Type of reference
     pub ref_type: RefType,
     /// Reference weight/strength (0.0-1.0)
@@ -558,10 +560,16 @@ pub struct CrossRef {
 
 impl CrossRef {
     /// Create a new cross-reference
-    pub fn new(source: EntityId, target: EntityId, ref_type: RefType) -> Self {
+    pub fn new(
+        source: EntityId,
+        target: EntityId,
+        target_collection: impl Into<String>,
+        ref_type: RefType,
+    ) -> Self {
         Self {
             source,
             target,
+            target_collection: target_collection.into(),
             ref_type,
             weight: 1.0,
             created_at: std::time::SystemTime::now()
@@ -572,8 +580,14 @@ impl CrossRef {
     }
 
     /// Create with weight
-    pub fn with_weight(source: EntityId, target: EntityId, ref_type: RefType, weight: f32) -> Self {
-        let mut cr = Self::new(source, target, ref_type);
+    pub fn with_weight(
+        source: EntityId,
+        target: EntityId,
+        target_collection: impl Into<String>,
+        ref_type: RefType,
+        weight: f32,
+    ) -> Self {
+        let mut cr = Self::new(source, target, target_collection, ref_type);
         cr.weight = weight;
         cr
     }
@@ -668,24 +682,6 @@ impl RefType {
     }
 }
 
-// =============================================================================
-// Backward Compatibility: From implementations for legacy types
-// =============================================================================
-
-/// Convert from legacy schema Row type to unified RowData
-impl From<crate::storage::schema::types::Row> for RowData {
-    fn from(row: crate::storage::schema::types::Row) -> Self {
-        RowData::new(row.into_values())
-    }
-}
-
-/// Convert RowData back to legacy Row (for backward compatibility)
-impl From<RowData> for crate::storage::schema::types::Row {
-    fn from(row_data: RowData) -> Self {
-        crate::storage::schema::types::Row::new(row_data.columns)
-    }
-}
-
 /// Convert Vec<Value> to RowData
 impl From<Vec<Value>> for RowData {
     fn from(columns: Vec<Value>) -> Self {
@@ -716,16 +712,6 @@ impl From<(Vec<f32>, SparseVector)> for VectorData {
 
 // Helper trait for uniform entity creation
 impl UnifiedEntity {
-    /// Create entity from legacy Row type
-    pub fn from_row(
-        id: EntityId,
-        table: impl Into<String>,
-        row_id: u64,
-        row: crate::storage::schema::types::Row,
-    ) -> Self {
-        Self::table_row(id, table, row_id, row.into_values())
-    }
-
     /// Create a graph node entity from properties map
     pub fn from_properties(
         id: EntityId,
@@ -795,7 +781,7 @@ mod tests {
         let id1 = EntityId::new(1);
         let id2 = EntityId::new(2);
 
-        let cross_ref = CrossRef::new(id1, id2, RefType::RowToNode);
+        let cross_ref = CrossRef::new(id1, id2, "nodes", RefType::RowToNode);
         assert_eq!(cross_ref.source, id1);
         assert_eq!(cross_ref.target, id2);
         assert_eq!(cross_ref.ref_type.inverse(), Some(RefType::NodeToRow));

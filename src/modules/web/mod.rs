@@ -37,10 +37,7 @@ pub mod vuln_scanner;
 pub use cms::{CmsDetector, CmsScanConfig, CmsScanResult, CmsScanner, CmsType};
 pub use crawler::{CrawlResult, CrawledPage, CrawlerConfig, WebCrawler};
 pub use fingerprinter::WebFingerprinter;
-pub use fuzzer::{
-    DirFuzzResult, DirFuzzStats, DirectoryFuzzer, FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod,
-    ProgressBar, WebFuzzer, WordlistManager, Wordlists,
-};
+pub use fuzzer::{FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, WordlistManager};
 pub use scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 pub use scraper::{ExtractType, ExtractedValue, ScrapeConfig, ScrapeResult, ScrapeRule, Scraper};
 pub use strategies::{

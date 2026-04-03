@@ -529,6 +529,8 @@ impl NaturalExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::engine::graph_store::GraphEdgeType;
+    use crate::storage::query::ast::EdgeDirection;
 
     fn create_test_graph() -> Arc<GraphStore> {
         let graph = GraphStore::new();

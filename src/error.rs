@@ -49,7 +49,7 @@ impl fmt::Display for RedBlueError {
 
 impl std::error::Error for RedBlueError {}
 
-// Conversion from String for backward compatibility
+// Convenience conversion from String
 impl From<String> for RedBlueError {
     fn from(s: String) -> Self {
         RedBlueError::Other(s)

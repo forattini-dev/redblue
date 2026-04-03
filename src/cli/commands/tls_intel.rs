@@ -14,6 +14,10 @@ use crate::cli::{output::Output, CliContext};
 #[cfg(not(target_os = "windows"))]
 use crate::modules::network::tls::{TlsConfig, TlsStream, TlsVersion};
 #[cfg(not(target_os = "windows"))]
+use crate::storage::service::StorageService;
+#[cfg(not(target_os = "windows"))]
+use crate::storage::RedDB;
+#[cfg(not(target_os = "windows"))]
 use boring::nid::Nid;
 #[cfg(not(target_os = "windows"))]
 use boring::ssl::{SslConnector, SslMethod, SslRef, SslVerifyMode, SslVersion};
@@ -385,21 +389,23 @@ impl TlsIntelCommand {
 
         // Persist DNS cache if --persist flag is set
         if ctx.flags.contains_key("persist") {
-            let db_path = format!("{}.rbdb", host);
-            match crate::storage::store::Database::open(&db_path) {
-                Ok(mut db) => {
-                    // DNS TTL default: 300 seconds (5 minutes)
-                    let dns_record = crate::storage::records::DnsRecordData {
-                        domain: host.to_string(),
-                        record_type: crate::storage::records::DnsRecordType::A,
-                        value: first_ip.to_string(),
-                        ttl: 300,
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs() as u32,
-                    };
-                    db.insert_dns(dns_record);
+            let db_path = StorageService::db_path(&host);
+            match RedDB::open(&db_path) {
+                Ok(db) => {
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i64;
+
+                    db.node("dns", "Record")
+                        .property("domain", host.clone())
+                        .property("type", "A")
+                        .property("value", first_ip.to_string())
+                        .property("ttl", 300i64)
+                        .property("timestamp", timestamp)
+                        .save()
+                        .map_err(|e| format!("Failed to save DNS cache: {}", e))?;
+
                     if let Err(e) = db.flush() {
                         eprintln!("⚠ Warning: Failed to save DNS cache: {}", e);
                     } else {

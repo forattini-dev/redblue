@@ -15,20 +15,19 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::storage::records::{PortScanRecord, PortStatus};
-use crate::storage::store::Database;
+use crate::storage::service::StorageService;
+use crate::storage::QueryManager;
 
-/// Get the default RedDB database path (~/.redblue/scan.rdb)
+/// Get the default RedDB database path
 fn default_db_path() -> Option<PathBuf> {
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".redblue").join("scan.rdb"))
+    Some(StorageService::db_path("scan"))
 }
 
 /// Try to open the default RedDB database
-fn open_default_db() -> Option<Database> {
+fn open_default_db() -> Option<QueryManager> {
     let path = default_db_path()?;
     if path.exists() {
-        Database::open(&path).ok()
+        QueryManager::open(&path).ok()
     } else {
         None
     }
@@ -1165,7 +1164,12 @@ impl ResourceRegistry {
                 "ports" | "all" => {
                     // Try to parse target as IP and get port scan results
                     if let Some(ip) = parse_target_ip(target) {
-                        let ports: Vec<PortScanRecord> = db.ports_for_ip(ip);
+                        let ports: Vec<PortScanRecord> = db
+                            .list_port_scans()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter(|record| record.ip == ip)
+                            .collect();
                         if !ports.is_empty() {
                             let port_list: Vec<String> = ports
                                 .iter()
