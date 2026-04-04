@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 'use strict';
 
 const crypto = require('crypto');
@@ -6,9 +7,67 @@ const fsp = fs.promises;
 const https = require('https');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { execFile, spawn } = require('child_process');
 
 const DEFAULT_REPO = 'forattini-dev/redblue';
+const LOCAL_CLI_ARGS_PARSER_PATH = path.resolve(
+  __dirname,
+  '../../../tetis/libs/cli-args-parser/dist/index.js'
+);
+const WRAPPER_OPTION_TYPES = Object.freeze({
+  'asset-name': 'string',
+  'auto-download': 'boolean',
+  'binary-path': 'string',
+  channel: 'string',
+  download: 'boolean',
+  'github-token': 'string',
+  'no-verify': 'boolean',
+  repo: 'string',
+  'sdk-help': 'boolean',
+  'static-build': 'boolean',
+  'target-dir': 'string',
+  version: 'string',
+  verify: 'boolean'
+});
+const WRAPPER_OPTION_SCHEMA = Object.freeze({
+  options: {
+    'asset-name': {
+      type: 'string'
+    },
+    'auto-download': {
+      type: 'boolean',
+      aliases: ['download']
+    },
+    'binary-path': {
+      type: 'string'
+    },
+    channel: {
+      type: 'string'
+    },
+    'github-token': {
+      type: 'string'
+    },
+    repo: {
+      type: 'string'
+    },
+    'sdk-help': {
+      type: 'boolean'
+    },
+    'static-build': {
+      type: 'boolean'
+    },
+    'target-dir': {
+      type: 'string'
+    },
+    version: {
+      type: 'string'
+    },
+    verify: {
+      type: 'boolean'
+    }
+  }
+});
 
 function getDefaultBinaryName(platform = process.platform) {
   return platform === 'win32' ? 'rb.exe' : 'rb';
@@ -311,6 +370,225 @@ function spawnBinary(binaryPath, args, options = {}) {
     stdio: options.stdio || 'inherit',
     detached: options.detached === true
   });
+}
+
+function toImportSpecifier(filePath) {
+  return pathToFileURL(path.resolve(filePath)).href;
+}
+
+function getParserCandidatePaths(runtime = {}) {
+  const env = runtime.env || process.env;
+  const localParserPath = runtime.localParserPath || LOCAL_CLI_ARGS_PARSER_PATH;
+  const candidates = [];
+  const seen = new Set();
+
+  function pushCandidate(specifier) {
+    if (!specifier || seen.has(specifier)) {
+      return;
+    }
+    seen.add(specifier);
+    candidates.push(specifier);
+  }
+
+  if (env.REDBLUE_CLI_ARGS_PARSER_PATH) {
+    pushCandidate(toImportSpecifier(env.REDBLUE_CLI_ARGS_PARSER_PATH));
+  }
+
+  pushCandidate('cli-args-parser');
+
+  if (localParserPath && exists(localParserPath)) {
+    pushCandidate(toImportSpecifier(localParserPath));
+  }
+
+  return candidates;
+}
+
+async function loadCliArgsParser(runtime = {}) {
+  if (runtime.parserModule) {
+    return runtime.parserModule;
+  }
+
+  const importModule =
+    runtime.importModule ||
+    (async function defaultImport(specifier) {
+      return import(specifier);
+    });
+
+  const candidates = Array.isArray(runtime.parserCandidates)
+    ? runtime.parserCandidates.slice()
+    : getParserCandidatePaths(runtime);
+  const failures = [];
+
+  for (const specifier of candidates) {
+    try {
+      return await importModule(specifier);
+    } catch (error) {
+      failures.push(`${specifier}: ${error.message}`);
+    }
+  }
+
+  /* node:coverage disable */
+  const failureSummary = failures.length > 0 ? failures.join('; ') : 'no candidates available';
+  /* node:coverage enable */
+  throw new Error(`Unable to load cli-args-parser. Tried: ${failureSummary}`);
+}
+
+function splitWrapperArgs(argv) {
+  const rawArgs = Array.isArray(argv) ? argv.slice() : [];
+  const wrapperArgs = [];
+  let index = 0;
+
+  while (index < rawArgs.length) {
+    const token = rawArgs[index];
+
+    if (token === '--') {
+      return {
+        wrapperArgs,
+        passthroughArgs: rawArgs.slice(index + 1),
+        usedDoubleDash: true
+      };
+    }
+
+    if (!token || !token.startsWith('--')) {
+      break;
+    }
+
+    const eqIndex = token.indexOf('=');
+    const optionName = token.slice(2, eqIndex === -1 ? undefined : eqIndex);
+    const optionType = WRAPPER_OPTION_TYPES[optionName];
+
+    if (!optionType) {
+      break;
+    }
+
+    wrapperArgs.push(token);
+    index += 1;
+
+    if (optionType === 'string' && eqIndex === -1 && index < rawArgs.length) {
+      wrapperArgs.push(rawArgs[index]);
+      index += 1;
+    }
+  }
+
+  return {
+    wrapperArgs,
+    passthroughArgs: rawArgs.slice(index),
+    usedDoubleDash: false
+  };
+}
+
+async function parseWrapperArgs(argv, runtime = {}) {
+  const rawArgs = Array.isArray(argv) ? argv.slice() : [];
+  const parserModule = await loadCliArgsParser(runtime);
+  const { createParser } = parserModule;
+
+  if (typeof createParser !== 'function') {
+    throw new Error('cli-args-parser does not export createParser');
+  }
+
+  const split = splitWrapperArgs(rawArgs);
+  const parser = createParser(WRAPPER_OPTION_SCHEMA);
+  const parsed = parser.parse(split.wrapperArgs);
+
+  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+    throw new Error(parsed.errors.join('; '));
+  }
+
+  const options = parsed.options || {};
+
+  return {
+    passthroughArgs: split.passthroughArgs,
+    rawArgs,
+    resolveOptions: {
+      assetName: options['asset-name'],
+      autoDownload: options['auto-download'] === true,
+      binaryPath: options['binary-path'],
+      channel: options.channel,
+      githubToken: options['github-token'],
+      repo: options.repo,
+      staticBuild: options['static-build'] === true,
+      targetDir: options['target-dir'],
+      verify: options.verify !== false,
+      version: options.version
+    },
+    usedDoubleDash: split.usedDoubleDash,
+    wrapperOptions: {
+      sdkHelp: options['sdk-help'] === true
+    }
+  };
+}
+
+function formatWrapperHelp() {
+  return [
+    'redblue-cli wrapper',
+    '',
+    'Usage:',
+    '  rb [wrapper options] [redblue args]',
+    '  npx redblue-cli [redblue args]',
+    '  npm exec --package redblue-cli rb -- [redblue args]',
+    '',
+    'Wrapper options:',
+    '  --binary-path <path>     Use an explicit redblue binary',
+    '  --target-dir <dir>       Resolve or download the binary in this directory',
+    '  --auto-download          Download the binary if it is missing',
+    '  --channel <name>         Release channel for downloads (stable, latest, next)',
+    '  --version <tag>          Pin a release version for downloads',
+    '  --asset-name <name>      Override the release asset name',
+    '  --repo <owner/name>      Override the GitHub repository',
+    '  --github-token <token>   GitHub token for release downloads',
+    '  --static-build           Prefer static Linux assets when available',
+    '  --no-verify              Skip SHA256 verification on download',
+    '  --sdk-help               Show this wrapper help',
+    '',
+    'Notes:',
+    '  Wrapper options must come before the redblue command.',
+    '  The exact command "npx rb" only works when a package named "rb" exists or when this package is already installed and exposes the rb bin.',
+    ''
+  ].join('\n');
+}
+
+function waitForChild(child) {
+  return new Promise((resolve, reject) => {
+    child.on('error', reject);
+    /* node:coverage disable */
+    child.on('close', (code, signal) => {
+      if (signal) {
+        resolve(1);
+        return;
+      }
+      resolve(typeof code === 'number' ? code : 1);
+    });
+    /* node:coverage enable */
+  });
+}
+
+async function runCli(argv = process.argv.slice(2), runtime = {}) {
+  const stdout = runtime.stdout || process.stdout;
+  const stderr = runtime.stderr || process.stderr;
+
+  try {
+    const parsed = await parseWrapperArgs(argv, runtime);
+
+    if (parsed.wrapperOptions.sdkHelp) {
+      stdout.write(formatWrapperHelp());
+      return 0;
+    }
+
+    const binaryPath = await resolveBinary(parsed.resolveOptions);
+    /* node:coverage disable */
+    const spawnOptions = {
+      cwd: runtime.cwd || process.cwd(),
+      env: Object.assign({}, process.env, runtime.env || {}),
+      stdio: runtime.stdio || 'inherit'
+    };
+    /* node:coverage enable */
+    const child = spawnBinary(binaryPath, parsed.passthroughArgs, spawnOptions);
+
+    return waitForChild(child);
+  } catch (error) {
+    stderr.write(`redblue-cli: ${error.message}\n`);
+    return 1;
+  }
 }
 
 async function getManifest(options = {}) {
@@ -623,6 +901,7 @@ module.exports = {
   createClient,
   downloadBinary,
   getManifest,
+  runCli,
   resolveAssetName,
   resolveBinary
 };
@@ -636,20 +915,35 @@ module.exports._internal = {
   ensureObject,
   execFilePromise,
   exists,
+  formatWrapperHelp,
   findFlag,
+  getParserCandidatePaths,
   getDefaultBinaryName,
   getReleaseTag,
   invokeJson,
   invokeRaw,
   isExecutable,
   kebabToCamel,
+  loadCliArgsParser,
+  parseWrapperArgs,
   request,
   requestJson,
   requestText,
   resolveFromPath,
   sha256File,
+  splitWrapperArgs,
   spawnBinary,
+  toImportSpecifier,
+  waitForChild,
   verifyChecksum
 };
 
 module.exports.default = module.exports;
+
+/* node:coverage disable */
+if (require.main === module) {
+  runCli().then((code) => {
+    process.exitCode = code;
+  });
+}
+/* node:coverage enable */

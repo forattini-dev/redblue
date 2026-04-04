@@ -9,9 +9,11 @@ use crate::cli::CliContext;
 use crate::modules::network::broker::{Broker, BrokerConfig};
 use crate::modules::network::netcat::{IpVersion, Netcat, NetcatConfig, Protocol};
 use crate::modules::network::relay::{EndpointType, Relay, RelayConfig};
+#[cfg(unix)]
 use crate::modules::network::unix_socket::{
     UnixSocketConfig, UnixSocketManager, UnixSocketMode, UnixSocketType,
 };
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::time::Duration;
 

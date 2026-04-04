@@ -13,6 +13,9 @@ Cargo.lock
 *.swp
 *.swo
 *~
+node_modules/
+sdk/node_modules/
+sdk/package-lock.json
 
 # OS
 .DS_Store

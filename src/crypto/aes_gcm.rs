@@ -11,7 +11,28 @@
 ///
 /// ✅ ZERO DEPENDENCIES - Pure Rust implementation
 /// Replaces: aes-gcm crate, ring, openssl
+#[cfg(not(target_os = "windows"))]
 pub use crate::protocols::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
+
+#[cfg(target_os = "windows")]
+pub fn aes128_gcm_encrypt(
+    _key: &[u8; 16],
+    _iv: &[u8; 12],
+    _plaintext: &[u8],
+    _aad: &[u8],
+) -> Vec<u8> {
+    panic!("AES-128-GCM is not available on Windows builds")
+}
+
+#[cfg(target_os = "windows")]
+pub fn aes128_gcm_decrypt(
+    _key: &[u8; 16],
+    _iv: &[u8; 12],
+    _ciphertext_with_tag: &[u8],
+    _aad: &[u8],
+) -> Result<Vec<u8>, String> {
+    Err("AES-128-GCM is not available on Windows builds".to_string())
+}
 
 // S-box for SubBytes transformation (same as AES-128)
 const SBOX: [u8; 256] = [

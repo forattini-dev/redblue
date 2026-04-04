@@ -3,6 +3,7 @@ pub mod agent; // ✅ C2 Agent - server and client
 pub mod assess; // ✅ Assessment workflow - fingerprint → vuln → playbook
 pub mod attack; // ✅ Attack workflow - plan, run, playbooks
 pub mod auth_test; // ✅ Credential testing
+#[cfg(not(target_os = "windows"))]
 pub mod bench;
 pub mod binary; // ✅ Binary analysis - ELF/PE parsing, checksec, ROP gadgets
 pub mod cloud;
@@ -120,6 +121,7 @@ impl CommandRegistry {
             Box::new(deps::DepsCommand),
             Box::new(cloud::CloudCommand),
             Box::new(takeover::TakeoverCommand),
+            #[cfg(not(target_os = "windows"))]
             Box::new(bench::BenchCommand),
             Box::new(screenshot::ScreenshotCommand), // ✅ Screenshot capture
             Box::new(wordlist::WordlistCommand),     // ✅ Wordlist management

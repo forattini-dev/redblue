@@ -1,8 +1,8 @@
 # redblue
 
-> The Ultimate Security Arsenal in a Single Binary
+> The Ultimate Security Arsenal in a Single Binary, with an Optional JavaScript Wrapper
 
-**redblue** consolidates 30+ security tools into a single, self-contained executable. Zero dependencies. 100% Rust. One command to rule them all.
+**redblue** consolidates 30+ security tools into a single, self-contained executable. Zero dependencies. 100% Rust. One command to rule them all. If you need Node.js integration, the `redblue-cli` npm package wraps the same binary and exposes a JS SDK plus npm and npx workflows.
 
 ## Why redblue?
 
@@ -20,6 +20,13 @@ apt-get install nmap masscan nikto ffuf subfinder amass...
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
 # Total size: ~3MB
 # Consistent kubectl-style CLI
+```
+
+**redblue + npm approach:**
+```bash
+# Optional wrapper for Node.js projects
+npm install redblue-cli
+npx redblue-cli dns record lookup example.com --type MX
 ```
 
 ## Quick Start
@@ -125,6 +132,36 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 
 # Latest next
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
+```
+
+### npm Wrapper
+
+```bash
+# Install in a Node.js project
+npm install redblue-cli
+
+# Zero-install usage
+npx redblue-cli dns record lookup example.com --type MX
+npm exec --package redblue-cli rb -- tls security audit github.com
+
+# After install, the package exposes rb
+npx rb network ports scan 192.168.1.1 --preset common
+```
+
+```js
+const { createClient } = require('redblue-cli');
+
+(async () => {
+  const rb = await createClient({
+    autoDownload: true,
+    targetDir: '.redblue/bin'
+  });
+
+  await rb.dns.record.lookup({
+    target: 'example.com',
+    type: 'MX'
+  });
+})();
 ```
 
 ### Manual Download

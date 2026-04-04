@@ -29,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 
 No installation scripts. No dependency chains. No version conflicts. Just download and execute.
 
+Need JavaScript integration? The optional `redblue-cli` npm package wraps the same `rb` binary, supports `npx` and `npm exec`, and exposes a programmatic SDK for Node.js consumers.
+
 Every network protocol is implemented **from scratch** using only Rust's standard library. DNS, HTTP/1.1, HTTP/2, TLS 1.2, TLS 1.3, Kerberos, SSH, LDAP, SMB, and 30+ more -- all built from first principles with only `libc` as a dependency.
 
 ### At a Glance
@@ -141,6 +143,36 @@ rb playbook run web-pentest --target example.com
 
 # MCP server (for Claude AI)
 rb mcp serve
+```
+
+### JavaScript / npm Quick Start
+
+```bash
+# Run the wrapper without installing it globally
+npx redblue-cli dns record lookup example.com --type MX
+npm exec --package redblue-cli rb -- tls security audit github.com
+
+# Install the wrapper in a project
+npm install redblue-cli
+npx rb network ports scan 192.168.1.1 --preset common
+```
+
+```js
+const { createClient } = require('redblue-cli');
+
+(async () => {
+  const rb = await createClient({
+    autoDownload: true,
+    targetDir: '.redblue/bin'
+  });
+
+  const records = await rb.dns.record.lookup({
+    target: 'example.com',
+    type: 'MX'
+  });
+
+  console.log(records);
+})();
 ```
 
 ---
@@ -565,6 +597,45 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 - macOS x86_64 (Intel), aarch64 (Apple Silicon)
 - Windows x86_64
 
+### JavaScript / npm
+
+The npm package is a wrapper and SDK. It does not bundle the release binary inside the package.
+
+```bash
+# Add the wrapper to your project
+npm install redblue-cli
+
+# Run the CLI through the package name
+npx redblue-cli dns record lookup example.com --type MX
+
+# Run the rb bin exposed by the package without installing it globally
+npm exec --package redblue-cli rb -- network ports scan 192.168.1.1 --preset common
+
+# After local install, the package also exposes rb
+npx rb dns record lookup example.com --type A
+```
+
+```js
+const { createClient } = require('redblue-cli');
+
+(async () => {
+  const rb = await createClient({
+    binaryPath: '/custom/path/rb'
+  });
+
+  const audit = await rb.tls.security.audit({
+    target: 'github.com',
+    ports: '443'
+  });
+
+  console.log(audit);
+})();
+```
+
+If you want the wrapper to manage the binary for you, use `autoDownload: true` with a `targetDir`.
+
+> **Note:** the exact command `npx rb` works after `redblue-cli` is installed in the project or globally. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`.
+
 ### Build from Source
 
 ```bash
@@ -632,6 +703,8 @@ redblue is designed for:
 Full documentation available at:
 
 **[forattini-dev.github.io/redblue](https://forattini-dev.github.io/redblue/)**
+
+- JS SDK guide: [docs/guides/javascript-sdk.md](docs/guides/javascript-sdk.md)
 
 ```bash
 cd docs && npx docsify-cli serve

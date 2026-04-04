@@ -4,6 +4,7 @@ use crate::cli::commands::build_partition_attributes;
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::protocols::http::{HttpRequest, HttpResponse};
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::http2::Http2Response;
 use crate::storage::records::HttpHeadersRecord;
 use crate::storage::service::StorageService;
@@ -80,6 +81,7 @@ pub fn maybe_persist_http(
 }
 
 /// Persist HTTP/2 request/response to database
+#[cfg(not(target_os = "windows"))]
 pub fn maybe_persist_http2(
     ctx: &CliContext,
     url: &str,
@@ -149,5 +151,16 @@ pub fn maybe_persist_http2(
         }
     }
 
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn maybe_persist_http2(
+    _ctx: &CliContext,
+    _url: &str,
+    _method: &str,
+    _authority: &str,
+    _response: &(),
+) -> Result<(), String> {
     Ok(())
 }

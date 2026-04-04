@@ -11,6 +11,29 @@ rb --version
 rb help
 ```
 
+If you are using the npm wrapper:
+
+```bash
+npx redblue-cli dns record lookup example.com --type MX
+npm exec --package redblue-cli rb -- network ports scan 192.168.1.1 --preset common
+```
+
+```js
+const { createClient } = require('redblue-cli');
+
+(async () => {
+  const rb = await createClient({
+    autoDownload: true,
+    targetDir: '.redblue/bin'
+  });
+
+  await rb.dns.record.lookup({
+    target: 'example.com',
+    type: 'MX'
+  });
+})();
+```
+
 ## Basic Scanning
 
 ### Network Reconnaissance
@@ -137,4 +160,5 @@ rb network scan ports --help
 
 - [CLI Semantics](/cli-semantics.md) - Learn the command structure
 - [Domains](/domains/index.md) - Explore all capabilities
+- [JavaScript SDK Guide](/guides/javascript-sdk.md) - Use redblue from npm, npx, and Node.js
 - [Guides](/guides/) - Advanced tutorials

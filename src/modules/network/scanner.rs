@@ -803,6 +803,7 @@ pub struct AdvancedScanResult {
 
 /// Advanced multi-technique port scanner
 /// Supports SYN, FIN, NULL, XMAS, UDP, and Connect scans
+#[derive(Clone)]
 pub struct AdvancedScanner {
     target: IpAddr,
     timeout_ms: u64,
@@ -894,7 +895,9 @@ impl AdvancedScanner {
             #[cfg(not(target_family = "unix"))]
             _ => {
                 eprintln!("Raw socket scans require Unix/Linux. Falling back to connect scan.");
-                self.with_scan_type(ScanType::Connect).scan_ports(ports)
+                self.clone()
+                    .with_scan_type(ScanType::Connect)
+                    .scan_ports(ports)
             }
         }
     }

@@ -1,6 +1,7 @@
 //! Shared types and helpers for web commands
 
 use crate::cli::CliContext;
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::http2::Http2ResponseHandler;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,6 +11,7 @@ pub struct BufferingHttp2Handler {
     pub body: Vec<u8>,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl Http2ResponseHandler for BufferingHttp2Handler {
     fn on_data(&mut self, chunk: &[u8]) -> Result<(), String> {
         self.body.extend_from_slice(chunk);

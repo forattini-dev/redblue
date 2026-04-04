@@ -116,6 +116,9 @@ pub mod intel;
 #[cfg(target_os = "linux")]
 pub mod memory;
 
+// Cross-platform file/buffer hex editing infrastructure
+pub mod hex;
+
 // Password Cracking (dictionary, mask, hybrid attacks)
 pub mod password;
 

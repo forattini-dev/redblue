@@ -16,8 +16,11 @@
 //! - FIPS 186-4: Digital Signature Standard (DSS)
 
 use crate::crypto::bigint::BigInt;
+#[cfg(not(target_os = "windows"))]
 use boring::bn::{BigNum, BigNumContext};
+#[cfg(not(target_os = "windows"))]
 use boring::ec::{EcGroup, EcPoint, PointConversionForm};
+#[cfg(not(target_os = "windows"))]
 use boring::nid::Nid;
 use std::sync::OnceLock;
 
@@ -302,11 +305,13 @@ impl FieldElement {
 }
 
 impl P256Point {
+    #[cfg(not(target_os = "windows"))]
     fn curve_group() -> Result<EcGroup, String> {
         EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)
             .map_err(|e| format!("P-256 group init failed: {}", e))
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn from_openssl_point(
         group: &EcGroup,
         point: &EcPoint,
@@ -318,6 +323,7 @@ impl P256Point {
         Self::from_uncompressed_bytes_unchecked(&bytes)
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn to_openssl_point(
         &self,
         group: &EcGroup,
@@ -453,6 +459,7 @@ impl P256Point {
 
     /// Scalar multiplication: k * P using double-and-add algorithm
     pub fn scalar_mul(&self, scalar: &[u8; 32]) -> Self {
+        #[cfg(not(target_os = "windows"))]
         if let Ok(group) = Self::curve_group() {
             if let Ok(mut ctx) = BigNumContext::new() {
                 if let Ok(bn) = BigNum::from_slice(scalar) {
@@ -502,6 +509,7 @@ impl P256Point {
 
     /// Parse point from uncompressed format (0x04 || x || y)
     pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, String> {
+        #[cfg(not(target_os = "windows"))]
         if let Ok(group) = Self::curve_group() {
             let mut ctx =
                 BigNumContext::new().map_err(|e| format!("Point context init failed: {}", e))?;

@@ -6,17 +6,22 @@ use crate::cli::validator::Validator;
 use crate::cli::CliContext;
 use crate::intelligence::banner_analysis::analyze_http_server;
 use crate::protocols::http::{HttpClient, HttpRequest};
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::http2::{
     Header, Http2Dispatcher, Http2LoggingMiddleware, Http2Request, Http2Response,
 };
+#[cfg(not(target_os = "windows"))]
 use crate::protocols::tls_impersonator::TlsProfile;
 use std::fs;
+#[cfg(not(target_os = "windows"))]
 use std::sync::Arc;
 
-use super::persist::{maybe_persist_http, maybe_persist_http2};
-use super::types::{
-    collect_request_headers, escape_json, guard_plain_http, parse_https_url, BufferingHttp2Handler,
-};
+use super::persist::maybe_persist_http;
+#[cfg(not(target_os = "windows"))]
+use super::persist::maybe_persist_http2;
+use super::types::{collect_request_headers, guard_plain_http};
+#[cfg(not(target_os = "windows"))]
+use super::types::{escape_json, parse_https_url, BufferingHttp2Handler};
 
 /// Execute HTTP GET request
 pub fn get(ctx: &CliContext) -> Result<(), String> {
@@ -31,14 +36,7 @@ pub fn get(ctx: &CliContext) -> Result<(), String> {
 
     let client = HttpClient::new();
     let mut request = HttpRequest::get(url);
-    if let Some(profile_str) = ctx.get_flag("impersonate") {
-        if let Some(profile) = TlsProfile::from_str(&profile_str) {
-            request = request.with_tls_profile(profile);
-        } else {
-            Output::warning(&format!("Unknown impersonation profile: {}", profile_str));
-            Output::info("Available profiles: chrome, firefox, safari");
-        }
-    }
+    maybe_apply_impersonation(ctx, &mut request);
 
     if format == OutputFormat::Human {
         Output::spinner_start("Sending request");
@@ -165,6 +163,7 @@ pub fn get(ctx: &CliContext) -> Result<(), String> {
 }
 
 /// Execute HTTP/2 request
+#[cfg(not(target_os = "windows"))]
 pub fn http2(ctx: &CliContext) -> Result<(), String> {
     let url = ctx
         .target
@@ -231,7 +230,13 @@ pub fn http2(ctx: &CliContext) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+pub fn http2(_ctx: &CliContext) -> Result<(), String> {
+    Err("HTTP/2 requests are not available on Windows builds yet".to_string())
+}
+
 /// Render HTTP/2 response in human-readable format
+#[cfg(not(target_os = "windows"))]
 fn render_http2_response(url: &str, method: &str, response: &Http2Response) -> Result<(), String> {
     Output::success(&format!("HTTP/2 {} {}", method, url));
     Output::item("Status", &response.status.to_string());
@@ -254,6 +259,7 @@ fn render_http2_response(url: &str, method: &str, response: &Http2Response) -> R
 }
 
 /// Render HTTP/2 response as JSON
+#[cfg(not(target_os = "windows"))]
 fn render_http2_json(
     url: &str,
     method: &str,
@@ -307,14 +313,7 @@ pub fn headers(ctx: &CliContext) -> Result<(), String> {
 
     let client = HttpClient::new();
     let mut request = HttpRequest::get(url);
-    if let Some(profile_str) = ctx.get_flag("impersonate") {
-        if let Some(profile) = TlsProfile::from_str(&profile_str) {
-            request = request.with_tls_profile(profile);
-        } else {
-            Output::warning(&format!("Unknown impersonation profile: {}", profile_str));
-            Output::info("Available profiles: chrome, firefox, safari");
-        }
-    }
+    maybe_apply_impersonation(ctx, &mut request);
 
     if format == OutputFormat::Human {
         Output::spinner_start("Fetching headers");
@@ -392,4 +391,23 @@ pub fn cert(_ctx: &CliContext) -> Result<(), String> {
         "TLS certificate inspection temporarily disabled - use openssl s_client instead"
             .to_string(),
     )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn maybe_apply_impersonation(ctx: &CliContext, request: &mut HttpRequest) {
+    if let Some(profile_str) = ctx.get_flag("impersonate") {
+        if let Some(profile) = TlsProfile::from_str(&profile_str) {
+            *request = request.clone().with_tls_profile(profile);
+        } else {
+            Output::warning(&format!("Unknown impersonation profile: {}", profile_str));
+            Output::info("Available profiles: chrome, firefox, safari");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn maybe_apply_impersonation(ctx: &CliContext, _request: &mut HttpRequest) {
+    if ctx.get_flag("impersonate").is_some() {
+        Output::warning("TLS impersonation is not available on Windows builds");
+    }
 }

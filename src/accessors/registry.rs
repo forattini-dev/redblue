@@ -79,6 +79,7 @@ impl RegistryAccessor {
             ));
         }
 
+        let entry_count = values.len();
         let result = if let Some(name) = value_name {
             if values.len() == 1 {
                 AccessorResult::success(
@@ -99,7 +100,7 @@ impl RegistryAccessor {
             .insert("query-mode".to_string(), "reg-query".to_string());
         result
             .metadata
-            .insert("entry-count".to_string(), values.len().to_string());
+            .insert("entry-count".to_string(), entry_count.to_string());
         result
     }
 

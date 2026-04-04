@@ -20,23 +20,32 @@ const {
   ensureObject,
   execFilePromise,
   exists,
+  formatWrapperHelp,
   findFlag,
+  getParserCandidatePaths,
   getDefaultBinaryName,
   getReleaseTag,
   invokeJson,
   invokeRaw,
   isExecutable,
   kebabToCamel,
+  loadCliArgsParser,
+  parseWrapperArgs,
   request,
   requestJson,
   requestText,
   resolveFromPath,
+  splitWrapperArgs,
   sha256File,
   spawnBinary,
+  toImportSpecifier,
+  waitForChild,
   verifyChecksum
 } = sdk._internal;
 
 const fixtureScript = path.join(__dirname, 'fixtures', 'fake-rb.js');
+const sdkScript = path.join(__dirname, '..', 'redblue-sdk.js');
+const parserDist = '/home/cyber/Work/tetis/libs/cli-args-parser/dist/index.js';
 
 async function createFixtureBinary() {
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-fixture-'));
@@ -1024,4 +1033,346 @@ test('fallback branches for raw, spawn and proxy construction stay stable', asyn
   });
 
   assert.match(spawnedOutput, /"ok":true/);
+});
+
+test('wrapper parser helpers cover candidate resolution, prefix splitting and parse normalization', async () => {
+  const fakeParserPath = path.join(os.tmpdir(), 'cli-args-parser-fixture.mjs');
+  const importCalls = [];
+
+  await fsp.writeFile(fakeParserPath, 'export const createParser = () => ({ parse: () => ({ errors: [], options: {} }) });\n');
+
+  assert.deepEqual(splitWrapperArgs(['dns', 'record', 'lookup']), {
+    wrapperArgs: [],
+    passthroughArgs: ['dns', 'record', 'lookup'],
+    usedDoubleDash: false
+  });
+
+  assert.deepEqual(
+    splitWrapperArgs([
+      '--binary-path',
+      '/tmp/rb',
+      '--auto-download',
+      'dns',
+      'record',
+      'lookup',
+      'example.com'
+    ]),
+    {
+      wrapperArgs: ['--binary-path', '/tmp/rb', '--auto-download'],
+      passthroughArgs: ['dns', 'record', 'lookup', 'example.com'],
+      usedDoubleDash: false
+    }
+  );
+
+  assert.deepEqual(splitWrapperArgs(['--', 'dns', '--help']), {
+    wrapperArgs: [],
+    passthroughArgs: ['dns', '--help'],
+    usedDoubleDash: true
+  });
+
+  assert.deepEqual(splitWrapperArgs(['--json', 'dns', 'record']), {
+    wrapperArgs: [],
+    passthroughArgs: ['--json', 'dns', 'record'],
+    usedDoubleDash: false
+  });
+
+  assert.deepEqual(splitWrapperArgs(null), {
+    wrapperArgs: [],
+    passthroughArgs: [],
+    usedDoubleDash: false
+  });
+
+  assert.deepEqual(splitWrapperArgs(['--repo=forattini-dev/redblue', 'dns', 'record']), {
+    wrapperArgs: ['--repo=forattini-dev/redblue'],
+    passthroughArgs: ['dns', 'record'],
+    usedDoubleDash: false
+  });
+
+  const candidates = getParserCandidatePaths({
+    env: {
+      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
+    },
+    localParserPath: fakeParserPath
+  });
+  assert.deepEqual(candidates, [toImportSpecifier(fakeParserPath), 'cli-args-parser']);
+
+  const loadedFromOverride = await loadCliArgsParser({
+    env: {
+      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
+    },
+    localParserPath: null
+  });
+  assert.equal(typeof loadedFromOverride.createParser, 'function');
+
+  const loadedViaImportHook = await loadCliArgsParser({
+    localParserPath: null,
+    importModule: async (specifier) => {
+      importCalls.push(specifier);
+      if (specifier === 'cli-args-parser') {
+        throw new Error('missing package');
+      }
+      return import(specifier);
+    },
+    env: {
+      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
+    }
+  });
+  assert.equal(typeof loadedViaImportHook.createParser, 'function');
+  assert.equal(importCalls[0], toImportSpecifier(fakeParserPath));
+
+  const parserModule = { createParser() {} };
+  assert.equal(await loadCliArgsParser({ parserModule }), parserModule);
+
+  const parsed = await parseWrapperArgs(
+    [
+      '--binary-path',
+      '/tmp/rb',
+      '--target-dir',
+      '/tmp/bin',
+      '--download',
+      '--channel',
+      'next',
+      '--version',
+      '1.2.3',
+      '--repo',
+      'forattini-dev/redblue',
+      '--asset-name',
+      'rb-linux-x86_64',
+      '--github-token',
+      'ghs_secret',
+      '--static-build',
+      '--no-verify',
+      'dns',
+      'record',
+      'lookup',
+      'example.com',
+      '--type',
+      'MX'
+    ],
+    {
+      localParserPath: parserDist
+    }
+  );
+
+  assert.deepEqual(parsed.passthroughArgs, [
+    'dns',
+    'record',
+    'lookup',
+    'example.com',
+    '--type',
+    'MX'
+  ]);
+  assert.deepEqual(parsed.resolveOptions, {
+    assetName: 'rb-linux-x86_64',
+    autoDownload: true,
+    binaryPath: '/tmp/rb',
+    channel: 'next',
+    githubToken: 'ghs_secret',
+    repo: 'forattini-dev/redblue',
+    staticBuild: true,
+    targetDir: '/tmp/bin',
+    verify: false,
+    version: '1.2.3'
+  });
+  assert.equal(parsed.wrapperOptions.sdkHelp, false);
+
+  const parsedHelp = await parseWrapperArgs(['--sdk-help'], {
+    localParserPath: parserDist
+  });
+  assert.equal(parsedHelp.wrapperOptions.sdkHelp, true);
+  assert.deepEqual(parsedHelp.passthroughArgs, []);
+
+  const parsedFromStub = await parseWrapperArgs(null, {
+    parserModule: {
+      createParser() {
+        return {
+          parse() {
+            return {
+              errors: []
+            };
+          }
+        };
+      }
+    }
+  });
+  assert.deepEqual(parsedFromStub.passthroughArgs, []);
+  assert.deepEqual(parsedFromStub.resolveOptions, {
+    assetName: undefined,
+    autoDownload: false,
+    binaryPath: undefined,
+    channel: undefined,
+    githubToken: undefined,
+    repo: undefined,
+    staticBuild: false,
+    targetDir: undefined,
+    verify: true,
+    version: undefined
+  });
+
+  await assert.rejects(
+    parseWrapperArgs(['--binary-path'], { localParserPath: parserDist }),
+    /requires a value/
+  );
+
+  await assert.rejects(
+    parseWrapperArgs(['--sdk-help'], {
+      parserModule: {}
+    }),
+    /does not export createParser/
+  );
+
+  await assert.rejects(
+    loadCliArgsParser({
+      localParserPath: path.join(os.tmpdir(), 'missing-cli-parser.mjs'),
+      importModule: async () => {
+        throw new Error('boom');
+      }
+    }),
+    /Unable to load cli-args-parser/
+  );
+
+  await assert.rejects(
+    loadCliArgsParser({
+      parserCandidates: []
+    }),
+    /no candidates available/
+  );
+
+  assert.match(formatWrapperHelp(), /npx redblue-cli/);
+  assert.match(formatWrapperHelp(), /npm exec --package redblue-cli rb/);
+});
+
+test('wrapper cli execution covers help, failures, direct forwarding and main entrypoint', async () => {
+  const fixtureBinary = await createFixtureBinary();
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-cli-'));
+  const logPath = path.join(tmpDir, 'cli.log');
+
+  const stdoutChunks = [];
+  const stderrChunks = [];
+  const stdout = {
+    write(chunk) {
+      stdoutChunks.push(String(chunk));
+    }
+  };
+  const stderr = {
+    write(chunk) {
+      stderrChunks.push(String(chunk));
+    }
+  };
+
+  assert.equal(
+    await sdk.runCli(['--sdk-help'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /Wrapper options:/);
+  assert.equal(stderrChunks.join(''), '');
+
+  assert.equal(
+    await sdk.runCli(['--binary-path'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    1
+  );
+  assert.match(stderrChunks.join(''), /requires a value/);
+
+  const cliCode = await sdk.runCli(
+    ['--binary-path', fixtureBinary, 'dns', 'record', 'lookup', 'example.com', '--type', 'MX'],
+    {
+      env: {
+        RB_FAKE_LOG_PATH: logPath
+      },
+      localParserPath: parserDist,
+      stdio: 'ignore'
+    }
+  );
+  assert.equal(cliCode, 0);
+
+  const cliLog = readLogLines(logPath);
+  assert.deepEqual(cliLog[0], ['dns', 'record', 'lookup', 'example.com', '--type', 'MX']);
+
+  assert.equal(
+    await sdk.runCli(['--binary-path', fixtureBinary], {
+      cwd: tmpDir,
+      localParserPath: parserDist,
+      stdio: 'ignore'
+    }),
+    0
+  );
+
+  assert.equal(
+    await sdk.runCli(['--binary-path', process.execPath, '-e', 'process.exit(0)'], {
+      localParserPath: parserDist
+    }),
+    0
+  );
+
+  const child = spawnBinary(
+    process.execPath,
+    [
+      sdkScript,
+      '--binary-path',
+      fixtureBinary,
+      'network',
+      'ports',
+      'scan',
+      '10.0.0.9',
+      '--preset',
+      'common'
+    ],
+    {
+      env: Object.assign({}, process.env, {
+        RB_FAKE_LOG_PATH: logPath,
+        REDBLUE_CLI_ARGS_PARSER_PATH: parserDist
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  );
+
+  const cliProcessResult = await new Promise((resolve, reject) => {
+    let stdoutText = '';
+    let stderrText = '';
+    child.stdout.on('data', (chunk) => {
+      stdoutText += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderrText += chunk.toString();
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ code, stdoutText, stderrText });
+    });
+  });
+
+  assert.equal(cliProcessResult.code, 0);
+  assert.match(cliProcessResult.stdoutText, /"ok":true/);
+  assert.equal(cliProcessResult.stderrText, '');
+
+  const mainLog = readLogLines(logPath);
+  assert.deepEqual(mainLog[1], [
+    'network',
+    'ports',
+    'scan',
+    '10.0.0.9',
+    '--preset',
+    'common'
+  ]);
+
+  const waited = waitForChild(spawnBinary(process.execPath, ['-e', 'process.exit(3)']));
+  assert.equal(await waited, 3);
+
+  const signaledChild = new EventEmitter();
+  const signaledWait = waitForChild(signaledChild);
+  signaledChild.emit('close', null, 'SIGTERM');
+  assert.equal(await signaledWait, 1);
+
+  const errorChild = new EventEmitter();
+  const errorWait = waitForChild(errorChild);
+  errorChild.emit('error', new Error('boom'));
+  await assert.rejects(errorWait, /boom/);
 });

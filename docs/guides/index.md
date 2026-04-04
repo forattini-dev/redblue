@@ -8,6 +8,7 @@ Advanced tutorials and deep-dives for redblue.
 
 - **[Netcat Ultimate](/guides/netcat-ultimate.md)** - Complete netcat replacement, reverse shells, listeners
 - **[Self-Replication](/guides/self-replication.md)** - Deploy redblue binary to victim systems
+- **[JavaScript SDK & npm Wrapper](/guides/javascript-sdk.md)** - Use redblue from npm, npx, and Node.js
 
 ### Intelligence Gathering
 

@@ -7,6 +7,7 @@
 use super::asn1::Asn1Object;
 use super::crypto::{aes128_cbc_decrypt, aes128_cbc_encrypt, hmac_sha256, tls12_prf, SecureRandom};
 use super::ecdh::EcdhKeyPair;
+#[cfg(not(target_os = "windows"))]
 use super::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 use super::p256::P256Point;
 use super::rsa::RsaPublicKey;
@@ -56,11 +57,30 @@ const P256_ORDER_BYTES: [u8; 32] = [
     0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84, 0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51,
 ];
 
+#[cfg(not(target_os = "windows"))]
 const SUPPORTED_CIPHER_SUITES: &[u16] = &[
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, // Prefer ECDHE for PFS
     TLS_RSA_WITH_AES_128_GCM_SHA256,
     TLS_RSA_WITH_AES_128_CBC_SHA256,
 ];
+
+#[cfg(target_os = "windows")]
+const SUPPORTED_CIPHER_SUITES: &[u16] = &[TLS_RSA_WITH_AES_128_CBC_SHA256];
+
+#[cfg(target_os = "windows")]
+fn aes128_gcm_encrypt(_key: &[u8; 16], _iv: &[u8; 12], _plaintext: &[u8], _aad: &[u8]) -> Vec<u8> {
+    panic!("TLS AES-128-GCM is not available on Windows builds")
+}
+
+#[cfg(target_os = "windows")]
+fn aes128_gcm_decrypt(
+    _key: &[u8; 16],
+    _iv: &[u8; 12],
+    _ciphertext_with_tag: &[u8],
+    _aad: &[u8],
+) -> Result<Vec<u8>, String> {
+    Err("TLS AES-128-GCM is not available on Windows builds".to_string())
+}
 
 #[cfg(feature = "tls_debug")]
 macro_rules! tls_debug {

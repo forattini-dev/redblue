@@ -128,6 +128,7 @@
 
 - **Guides**
   - [Overview](/guides/index.md)
+  - [JavaScript SDK](/guides/javascript-sdk.md)
   - [Netcat Ultimate](/guides/netcat-ultimate.md)
   - [Passive Fingerprinting](/guides/passive-fingerprinting.md)
   - [UI Graphs](/guides/ui-graphs-integration.md)

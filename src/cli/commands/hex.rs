@@ -9,7 +9,8 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
-use crate::modules::memory::{
+use crate::modules::hex::OffsetFormat;
+use crate::modules::hex::{
     parse_hex, replace, replace_all, search_text, to_hex, BoyerMooreSearcher, DataInterpreter,
     Endian, FileSource, HexView, PagedBuffer, UndoStack, ViewSettings,
 };
@@ -210,7 +211,7 @@ impl HexCommand {
         settings.bytes_per_line = width;
         settings.show_ascii = !ctx.flags.contains_key("no-ascii");
         if ctx.flags.contains_key("decimal") {
-            settings.offset_format = crate::modules::memory::OffsetFormat::Decimal;
+            settings.offset_format = OffsetFormat::Decimal;
         }
 
         let view = HexView::with_settings(settings);

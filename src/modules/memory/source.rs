@@ -252,6 +252,7 @@ impl DataSource for FileSource {
 }
 
 /// Process memory source
+#[cfg(target_os = "linux")]
 pub struct ProcessMemorySource {
     pid: i32,
     base_addr: u64,
@@ -260,6 +261,7 @@ pub struct ProcessMemorySource {
     writable: bool,
 }
 
+#[cfg(target_os = "linux")]
 impl ProcessMemorySource {
     /// Create a source for a process memory region
     pub fn new(pid: i32, base_addr: u64, region_size: u64) -> SourceResult<Self> {
@@ -368,6 +370,7 @@ impl ProcessMemorySource {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl DataSource for ProcessMemorySource {
     fn read(&mut self, offset: u64, len: usize) -> SourceResult<Vec<u8>> {
         if offset >= self.region_size {
