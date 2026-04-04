@@ -419,8 +419,7 @@ mod tests {
 
     #[test]
     fn test_lines() {
-        static LINE_POINTS: [(f32, f32); 4] =
-            [(0.0, 0.0), (1.0, 1.0), (2.0, 0.5), (3.0, 1.5)];
+        static LINE_POINTS: [(f32, f32); 4] = [(0.0, 0.0), (1.0, 1.0), (2.0, 0.5), (3.0, 1.5)];
 
         let mut chart = Chart::new(120, 60, -1.0, 4.0);
         let shape = Shape::Lines(&LINE_POINTS);
@@ -431,8 +430,7 @@ mod tests {
 
     #[test]
     fn test_steps() {
-        static STEP_POINTS: [(f32, f32); 4] =
-            [(0.0, 0.5), (1.0, 1.2), (2.0, 0.2), (3.0, 0.9)];
+        static STEP_POINTS: [(f32, f32); 4] = [(0.0, 0.5), (1.0, 1.2), (2.0, 0.2), (3.0, 0.9)];
 
         let mut chart = Chart::new(120, 60, -1.0, 4.0);
         let shape = Shape::Steps(&STEP_POINTS);
@@ -466,5 +464,4 @@ mod tests {
         let frame = chart.frame();
         assert!(!frame.is_empty());
     }
-
 }

@@ -11,8 +11,8 @@ pub mod tcp_monitor;
 #[path = "udp-monitor.rs"]
 pub mod udp_monitor;
 
-pub use icmp_monitor::{IcmpMonitor, IcmpHostStats, PingResult, PingStatistics};
 pub use icmp_monitor::Pinger;
+pub use icmp_monitor::{IcmpHostStats, IcmpMonitor, PingResult, PingStatistics};
 pub use tcp_monitor::{TcpConnection, TcpConnectionTester, TcpMonitor, TcpState, TcpStats};
 pub use udp_monitor::{UdpFlow, UdpMonitor, UdpPortTester, UdpStats};
 

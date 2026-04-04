@@ -785,13 +785,15 @@ impl Cracker {
                     }
                 }
 
-                if self.cracked.len() >= self.hashes.len() || (self.limit > 0 && attempts >= self.limit)
+                if self.cracked.len() >= self.hashes.len()
+                    || (self.limit > 0 && attempts >= self.limit)
                 {
                     break;
                 }
             }
 
-            if self.cracked.len() >= self.hashes.len() || (self.limit > 0 && attempts >= self.limit) {
+            if self.cracked.len() >= self.hashes.len() || (self.limit > 0 && attempts >= self.limit)
+            {
                 break;
             }
         }

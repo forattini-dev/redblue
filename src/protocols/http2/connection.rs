@@ -375,7 +375,9 @@ impl Http2Client {
                 }
                 FrameType::PushPromise => {
                     if !self.enable_push {
-                        return Err("Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string());
+                        return Err(
+                            "Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string()
+                        );
                     }
                 }
 
@@ -548,7 +550,9 @@ impl Http2Client {
                 }
                 FrameType::PushPromise => {
                     if !self.enable_push {
-                        return Err("Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string());
+                        return Err(
+                            "Received PUSH_PROMISE while ENABLE_PUSH is disabled".to_string()
+                        );
                     }
                 }
                 FrameType::WindowUpdate => {

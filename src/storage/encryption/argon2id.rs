@@ -187,7 +187,8 @@ fn fill_memory_blocks(ctx: &mut Context) {
 
                     // Reference block index
                     let first_pass_first_half = t == 0 && l == 0 && i < lane_len / 2;
-                    let ref_idx = index_alpha(ctx, t, l, i, prev_idx, lane_len, first_pass_first_half);
+                    let ref_idx =
+                        index_alpha(ctx, t, l, i, prev_idx, lane_len, first_pass_first_half);
 
                     // G(prev, ref)
                     let mut curr_block = ctx.memory[prev_idx as usize]; // Clone prev
@@ -219,7 +220,11 @@ fn index_alpha(
     let lane_len = lane_len.max(1);
     let lane_offset = l * lane_len;
     let idx_in_lane = prev_idx.saturating_sub(lane_offset);
-    let index_in_lane = if lane_len > 0 { idx_in_lane % lane_len } else { 0 };
+    let index_in_lane = if lane_len > 0 {
+        idx_in_lane % lane_len
+    } else {
+        0
+    };
 
     // Mix in header and position information to derive a stable pseudo-random index.
     // For the first half of the first pass (Argon2id), we intentionally avoid data dependency.

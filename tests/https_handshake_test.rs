@@ -22,10 +22,14 @@ mod https_tests {
             .expect("Failed to establish TLS 1.2 with google.com:443");
 
         let request = b"GET / HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n";
-        stream.write_all(request).expect("Failed to write HTTP request");
+        stream
+            .write_all(request)
+            .expect("Failed to write HTTP request");
 
         let mut response = [0u8; 4096];
-        let n = stream.read(&mut response).expect("Failed to read TLS response");
+        let n = stream
+            .read(&mut response)
+            .expect("Failed to read TLS response");
         assert!(n > 0, "Received an empty response from TLS stream");
 
         let response_str = String::from_utf8_lossy(&response[..n]);
@@ -51,7 +55,11 @@ mod https_tests {
             .expect("RSA encryption should succeed");
 
         assert_eq!(encrypted.len(), 128);
-        assert_ne!(&encrypted, &vec![0u8; 128], "ciphertext should not be all zeros");
+        assert_ne!(
+            &encrypted,
+            &vec![0u8; 128],
+            "ciphertext should not be all zeros"
+        );
     }
 
     #[test]

@@ -285,7 +285,11 @@ pub fn huffman_encode(data: &[u8]) -> Vec<u8> {
             let byte_out = (bit_buffer >> bit_count) as u8;
             output.push(byte_out);
 
-            let mask = if bit_count == 0 { 0 } else { (1u64 << bit_count) - 1 };
+            let mask = if bit_count == 0 {
+                0
+            } else {
+                (1u64 << bit_count) - 1
+            };
             bit_buffer &= mask;
         }
     }

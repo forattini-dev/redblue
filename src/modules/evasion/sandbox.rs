@@ -284,7 +284,13 @@ pub fn check_low_resources() -> bool {
 
         let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
         let disk_size = if let Ok(output) = std::process::Command::new("wmic")
-            .args(["logicaldisk", "where", &format!("DeviceID='{}'", drive), "get", "Size"])
+            .args([
+                "logicaldisk",
+                "where",
+                &format!("DeviceID='{}'", drive),
+                "get",
+                "Size",
+            ])
             .output()
         {
             parse_first_u64(&String::from_utf8_lossy(&output.stdout))

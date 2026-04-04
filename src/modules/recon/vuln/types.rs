@@ -175,7 +175,10 @@ fn parse_version(version: &str) -> ParsedVersion {
         .split('.')
         .filter_map(|segment| {
             let normalized = segment.trim_start_matches(&['v', 'V'][..]);
-            let digits: String = normalized.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let digits: String = normalized
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
             if digits.is_empty() {
                 None
             } else {

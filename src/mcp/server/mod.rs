@@ -52,10 +52,9 @@ use crate::mcp::tools::{
     register_code_tools, register_core_tools, register_crypto_tools, register_database_tools,
     register_dns_tools, register_evasion_tools, register_exploit_tools, register_file_tools,
     register_fuzz_tools, register_intel_tools, register_loot_tools, register_memory_tools,
-    register_network_tools, register_password_tools, register_playbook_tools,
-    register_proxy_tools, register_recon_tools, register_report_tools, register_service_tools,
-    register_tls_tools, register_vector_tools, register_vuln_tools, register_web_tools,
-    register_wordlist_tools,
+    register_network_tools, register_password_tools, register_playbook_tools, register_proxy_tools,
+    register_recon_tools, register_report_tools, register_service_tools, register_tls_tools,
+    register_vector_tools, register_vuln_tools, register_web_tools, register_wordlist_tools,
 };
 
 pub struct McpServer {

@@ -367,8 +367,7 @@ impl PlaybookRecommender {
         }
 
         // RDP
-        if has_rdp && (pb_id == "reverse-shell-windows" || pb_id == "windows-privesc-assessment")
-        {
+        if has_rdp && (pb_id == "reverse-shell-windows" || pb_id == "windows-privesc-assessment") {
             score += 25;
             reasons.push("RDP port (3389) suggests Windows".to_string());
         }

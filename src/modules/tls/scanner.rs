@@ -256,10 +256,15 @@ impl TlsScanner {
 
         for candidate in candidates {
             let offered = [candidate.id];
-            if Tls12Client::connect_with_timeout_and_cipher_suites(host, port, self.timeout, &offered)
-                .ok()
-                .and_then(|client| client.selected_cipher_suite())
-                .is_some_and(|selected| selected == candidate.id)
+            if Tls12Client::connect_with_timeout_and_cipher_suites(
+                host,
+                port,
+                self.timeout,
+                &offered,
+            )
+            .ok()
+            .and_then(|client| client.selected_cipher_suite())
+            .is_some_and(|selected| selected == candidate.id)
             {
                 detected.push(candidate);
             }

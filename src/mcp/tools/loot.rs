@@ -14,13 +14,15 @@ pub fn register_loot_tools() -> Vec<ToolDefinition<McpServer>> {
     vec![
         ToolDefinition {
             name: "rb.loot.list",
-            description: "List all loot items (credentials, vulnerabilities, findings, services, etc.).\
+            description:
+                "List all loot items (credentials, vulnerabilities, findings, services, etc.).\
                          Optionally filter by category.",
             fields: &[
                 ToolField {
                     name: "category",
                     field_type: "string",
-                    description: "Filter by category: credential, vulnerability, finding, artifact, \
+                    description:
+                        "Filter by category: credential, vulnerability, finding, artifact, \
                                  service, endpoint, technology, task, info. Omit to list all.",
                     required: false,
                 },
@@ -35,7 +37,8 @@ pub fn register_loot_tools() -> Vec<ToolDefinition<McpServer>> {
         },
         ToolDefinition {
             name: "rb.loot.add",
-            description: "Add a loot item to the collection. Supports credentials, vulnerabilities, \
+            description:
+                "Add a loot item to the collection. Supports credentials, vulnerabilities, \
                          findings, services, and other pentest artifacts.",
             fields: &[
                 ToolField {
@@ -109,7 +112,8 @@ pub fn register_loot_tools() -> Vec<ToolDefinition<McpServer>> {
                 ToolField {
                     name: "category",
                     field_type: "string",
-                    description: "Filter by category: credential, vulnerability, finding, artifact, \
+                    description:
+                        "Filter by category: credential, vulnerability, finding, artifact, \
                                  service, endpoint, technology, task, info.",
                     required: false,
                 },
@@ -124,7 +128,8 @@ pub fn register_loot_tools() -> Vec<ToolDefinition<McpServer>> {
         },
         ToolDefinition {
             name: "rb.loot.export",
-            description: "Export all loot entries as a structured JSON summary, grouped by category \
+            description:
+                "Export all loot entries as a structured JSON summary, grouped by category \
                          with statistics.",
             fields: &[ToolField {
                 name: "category",
@@ -156,10 +161,7 @@ fn parse_category(s: &str) -> Option<LootCategory> {
 /// Format a single loot entry as a JSON value
 fn entry_to_json(entry: &LootEntry) -> JsonValue {
     let mut fields = vec![
-        (
-            "key".to_string(),
-            JsonValue::String(entry.key.clone()),
-        ),
+        ("key".to_string(), JsonValue::String(entry.key.clone())),
         (
             "category".to_string(),
             JsonValue::String(entry.category.as_str().to_string()),
@@ -187,38 +189,23 @@ fn entry_to_json(entry: &LootEntry) -> JsonValue {
     ];
 
     if let Some(ref ip) = entry.target {
-        fields.push((
-            "target".to_string(),
-            JsonValue::String(ip.to_string()),
-        ));
+        fields.push(("target".to_string(), JsonValue::String(ip.to_string())));
     }
 
     if let Some(ref username) = entry.metadata.username {
-        fields.push((
-            "username".to_string(),
-            JsonValue::String(username.clone()),
-        ));
+        fields.push(("username".to_string(), JsonValue::String(username.clone())));
     }
 
     if let Some(ref cve) = entry.metadata.cve {
-        fields.push((
-            "cve".to_string(),
-            JsonValue::String(cve.clone()),
-        ));
+        fields.push(("cve".to_string(), JsonValue::String(cve.clone())));
     }
 
     if let Some(ref url) = entry.metadata.url {
-        fields.push((
-            "url".to_string(),
-            JsonValue::String(url.clone()),
-        ));
+        fields.push(("url".to_string(), JsonValue::String(url.clone())));
     }
 
     if let Some(cvss) = entry.metadata.cvss {
-        fields.push((
-            "cvss".to_string(),
-            JsonValue::Number(cvss as f64),
-        ));
+        fields.push(("cvss".to_string(), JsonValue::Number(cvss as f64)));
     }
 
     JsonValue::object(fields)
@@ -292,7 +279,11 @@ fn tool_loot_list(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResul
         ));
     }
 
-    let mut text = format!("Loot entries ({} total, showing {}):\n", total, display_entries.len());
+    let mut text = format!(
+        "Loot entries ({} total, showing {}):\n",
+        total,
+        display_entries.len()
+    );
     for entry in &display_entries {
         text.push_str(&entry_to_text(entry));
         text.push('\n');
@@ -328,12 +319,13 @@ fn tool_loot_add(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult
         .and_then(|v| v.as_str())
         .ok_or("Missing required field: category")?;
 
-    let category = parse_category(category_str)
-        .ok_or_else(|| format!(
+    let category = parse_category(category_str).ok_or_else(|| {
+        format!(
             "Invalid category '{}'. Valid: credential, vulnerability, finding, \
              artifact, service, endpoint, technology, task, info",
             category_str
-        ))?;
+        )
+    })?;
 
     let content = args
         .get("content")
@@ -563,14 +555,8 @@ fn tool_loot_export(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
         text,
         JsonValue::object(vec![
             ("total".to_string(), JsonValue::Number(total as f64)),
-            (
-                "by_category".to_string(),
-                JsonValue::object(stats_json),
-            ),
-            (
-                "by_status".to_string(),
-                JsonValue::object(status_json),
-            ),
+            ("by_category".to_string(), JsonValue::object(stats_json)),
+            ("by_status".to_string(), JsonValue::object(status_json)),
             ("entries".to_string(), JsonValue::array(entries_json)),
         ]),
     ))

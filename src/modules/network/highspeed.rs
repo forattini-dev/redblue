@@ -70,10 +70,7 @@ impl BlackRock {
             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
             .wrapping_add(0x5851_F42D_4C95_7F2D)
             | 1;
-        let offset = seed
-            .rotate_left(17)
-            .wrapping_add(0x1405_7B7E_F767_814F)
-            & domain_mask;
+        let offset = seed.rotate_left(17).wrapping_add(0x1405_7B7E_F767_814F) & domain_mask;
         let inverse_multiplier = Self::mod_inverse_odd(multiplier);
 
         Self {
@@ -123,9 +120,7 @@ impl BlackRock {
     }
 
     fn permute(&self, x: u64) -> u64 {
-        x.wrapping_mul(self.multiplier)
-            .wrapping_add(self.offset)
-            & self.domain_mask
+        x.wrapping_mul(self.multiplier).wrapping_add(self.offset) & self.domain_mask
     }
 
     fn inverse_permute(&self, x: u64) -> u64 {

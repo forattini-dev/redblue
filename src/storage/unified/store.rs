@@ -31,8 +31,8 @@ use super::entity::{
 use super::manager::{ManagerConfig, ManagerStats, SegmentManager};
 use super::metadata::{Metadata, MetadataFilter, MetadataValue};
 use super::segment::SegmentError;
-use crate::storage::engine::{BTree, BTreeError, Pager, PagerConfig};
 use crate::storage::engine::pager::PagerError;
+use crate::storage::engine::{BTree, BTreeError, Pager, PagerConfig};
 use crate::storage::primitives::encoding::{read_varu32, read_varu64, write_varu32, write_varu64};
 use crate::storage::schema::types::Value;
 
@@ -1351,12 +1351,14 @@ impl UnifiedStore {
                             e.to_string(),
                         ))
                     })?;
-                pager.write_page(meta_page.page_id(), meta_page).map_err(|e| {
-                    StoreError::Io(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ))
-                })?;
+                pager
+                    .write_page(meta_page.page_id(), meta_page)
+                    .map_err(|e| {
+                        StoreError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        ))
+                    })?;
             }
             Err(e) => {
                 return Err(StoreError::Io(std::io::Error::new(

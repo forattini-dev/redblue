@@ -271,11 +271,7 @@ impl UdpMonitor {
 
     /// Evict oldest flow
     fn evict_oldest_flow(&mut self) {
-        if let Some((oldest_id, _)) = self
-            .flows
-            .iter()
-            .min_by_key(|(_, flow)| flow.last_activity)
-        {
+        if let Some((oldest_id, _)) = self.flows.iter().min_by_key(|(_, flow)| flow.last_activity) {
             let oldest_id = oldest_id.clone();
             self.flows.remove(&oldest_id);
         }
@@ -375,16 +371,19 @@ impl UdpPortTester {
     pub fn test_ports(&self, host: &str, ports: &[u16]) -> Vec<UdpTestResult> {
         ports
             .iter()
-            .map(|&port| self.test_port(host, port).unwrap_or_else(|e| UdpTestResult {
-                host: host.to_string(),
-                port,
-                responding: false,
-                rtt_ms: None,
-                bytes_sent: 0,
-                bytes_received: None,
-                peer_addr: None,
-                error: Some(e),
-            }))
+            .map(|&port| {
+                self.test_port(host, port)
+                    .unwrap_or_else(|e| UdpTestResult {
+                        host: host.to_string(),
+                        port,
+                        responding: false,
+                        rtt_ms: None,
+                        bytes_sent: 0,
+                        bytes_received: None,
+                        peer_addr: None,
+                        error: Some(e),
+                    })
+            })
             .collect()
     }
 }

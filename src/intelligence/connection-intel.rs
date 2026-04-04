@@ -10,9 +10,9 @@
 /// The goal: extract 10x more information than traditional tools.
 use crate::protocols::x509::X509Certificate;
 use std::net::{IpAddr, TcpStream};
-use std::time::{Duration, Instant, SystemTime};
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
+use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(target_os = "linux")]
 const TCPI_OPT_TIMESTAMPS: u8 = 1;
@@ -358,7 +358,6 @@ impl ConnectionAnalyzer {
                     value: Vec::new(),
                 });
             }
-
         }
 
         if let Ok(peer) = stream.peer_addr() {

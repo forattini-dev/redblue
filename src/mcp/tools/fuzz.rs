@@ -110,23 +110,27 @@ fn load_wordlist(path: &str) -> Result<Vec<String>, String> {
     wl.load_file(path)?;
 
     if wl.is_empty() {
-        return Err(format!("Wordlist '{}' is empty or contains no valid entries.", path));
+        return Err(format!(
+            "Wordlist '{}' is empty or contains no valid entries.",
+            path
+        ));
     }
 
     Ok(wl.words().to_vec())
 }
 
 /// Format fuzz results into JSON array
-fn results_to_json(
-    results: &[crate::modules::web::fuzzer::FuzzResult],
-) -> Vec<JsonValue> {
+fn results_to_json(results: &[crate::modules::web::fuzzer::FuzzResult]) -> Vec<JsonValue> {
     results
         .iter()
         .map(|r| {
             JsonValue::object(vec![
                 ("payload".to_string(), JsonValue::String(r.payload.clone())),
                 ("url".to_string(), JsonValue::String(r.url.clone())),
-                ("status".to_string(), JsonValue::Number(r.status_code as f64)),
+                (
+                    "status".to_string(),
+                    JsonValue::Number(r.status_code as f64),
+                ),
                 ("size".to_string(), JsonValue::Number(r.size as f64)),
                 ("words".to_string(), JsonValue::Number(r.words as f64)),
                 ("lines".to_string(), JsonValue::Number(r.lines as f64)),
@@ -164,10 +168,8 @@ fn tool_fuzz_dir(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult
         .and_then(|v| v.as_str())
         .ok_or("Missing required field: wordlist")?;
 
-    let status_filter: Option<Vec<u16>> = args
-        .get("status_filter")
-        .and_then(|v| v.as_str())
-        .map(|s| {
+    let status_filter: Option<Vec<u16>> =
+        args.get("status_filter").and_then(|v| v.as_str()).map(|s| {
             s.split(',')
                 .filter_map(|code| code.trim().parse::<u16>().ok())
                 .collect()
@@ -238,15 +240,25 @@ fn tool_fuzz_dir(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult
 
     let text = format!(
         "Directory fuzzing on {}: {} words tested, {} hits found, {} errors (RPS: {:.1})",
-        fuzz_url, word_count, filtered.len(), stats.errors, stats.rps
+        fuzz_url,
+        word_count,
+        filtered.len(),
+        stats.errors,
+        stats.rps
     );
 
     Ok(ToolResult::with_data(
         text,
         JsonValue::object(vec![
             ("url".to_string(), JsonValue::String(fuzz_url)),
-            ("wordlist".to_string(), JsonValue::String(wordlist_path.to_string())),
-            ("words_tested".to_string(), JsonValue::Number(word_count as f64)),
+            (
+                "wordlist".to_string(),
+                JsonValue::String(wordlist_path.to_string()),
+            ),
+            (
+                "words_tested".to_string(),
+                JsonValue::Number(word_count as f64),
+            ),
             ("hits".to_string(), JsonValue::Number(filtered.len() as f64)),
             ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
             ("rps".to_string(), JsonValue::Number(stats.rps)),
@@ -275,10 +287,7 @@ fn tool_fuzz_vhost(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
     let word_count = words.len();
 
     // Build vhost wordlist: prepend each word as subdomain to domain
-    let vhost_words: Vec<String> = words
-        .iter()
-        .map(|w| format!("{}.{}", w, domain))
-        .collect();
+    let vhost_words: Vec<String> = words.iter().map(|w| format!("{}.{}", w, domain)).collect();
 
     // Normalize target URL
     let base_url = if target.starts_with("http://") || target.starts_with("https://") {
@@ -320,9 +329,18 @@ fn tool_fuzz_vhost(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
         JsonValue::object(vec![
             ("target".to_string(), JsonValue::String(target.to_string())),
             ("domain".to_string(), JsonValue::String(domain.to_string())),
-            ("wordlist".to_string(), JsonValue::String(wordlist_path.to_string())),
-            ("words_tested".to_string(), JsonValue::Number(word_count as f64)),
-            ("vhosts_found".to_string(), JsonValue::Number(results.len() as f64)),
+            (
+                "wordlist".to_string(),
+                JsonValue::String(wordlist_path.to_string()),
+            ),
+            (
+                "words_tested".to_string(),
+                JsonValue::Number(word_count as f64),
+            ),
+            (
+                "vhosts_found".to_string(),
+                JsonValue::Number(results.len() as f64),
+            ),
             ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
             ("rps".to_string(), JsonValue::Number(stats.rps)),
             ("results".to_string(), JsonValue::array(results_json)),
@@ -383,10 +401,19 @@ fn tool_fuzz_param(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
         text,
         JsonValue::object(vec![
             ("url".to_string(), JsonValue::String(url.to_string())),
-            ("param_name".to_string(), JsonValue::String(param_name.to_string())),
+            (
+                "param_name".to_string(),
+                JsonValue::String(param_name.to_string()),
+            ),
             ("fuzz_url".to_string(), JsonValue::String(fuzz_url)),
-            ("wordlist".to_string(), JsonValue::String(wordlist_path.to_string())),
-            ("words_tested".to_string(), JsonValue::Number(word_count as f64)),
+            (
+                "wordlist".to_string(),
+                JsonValue::String(wordlist_path.to_string()),
+            ),
+            (
+                "words_tested".to_string(),
+                JsonValue::Number(word_count as f64),
+            ),
             ("hits".to_string(), JsonValue::Number(results.len() as f64)),
             ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
             ("rps".to_string(), JsonValue::Number(stats.rps)),

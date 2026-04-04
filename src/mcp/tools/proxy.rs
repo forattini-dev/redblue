@@ -130,7 +130,12 @@ fn tool_proxy_start(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
     let default_port = match proxy_type {
         "http" | "mitm" => 8080,
         "socks5" => 1080,
-        other => return Err(format!("Unknown proxy type '{}'. Valid: http, socks5, mitm", other)),
+        other => {
+            return Err(format!(
+                "Unknown proxy type '{}'. Valid: http, socks5, mitm",
+                other
+            ))
+        }
     };
 
     let port = args
@@ -148,7 +153,10 @@ fn tool_proxy_start(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
     let upstream = args.get("upstream").and_then(|v| v.as_str());
 
     // Build the CLI command
-    let mut cli_cmd = format!("rb proxy {} start --port {} --bind {}", proxy_type, port, bind_addr);
+    let mut cli_cmd = format!(
+        "rb proxy {} start --port {} --bind {}",
+        proxy_type, port, bind_addr
+    );
 
     if let Some(auth_str) = auth {
         cli_cmd.push_str(&format!(" --auth '{}'", auth_str));
@@ -174,10 +182,7 @@ fn tool_proxy_start(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
     };
 
     let env_example = match proxy_type {
-        "socks5" => format!(
-            "export ALL_PROXY=socks5h://{}",
-            listen_addr
-        ),
+        "socks5" => format!("export ALL_PROXY=socks5h://{}", listen_addr),
         _ => format!(
             "export HTTP_PROXY=http://{}\nexport HTTPS_PROXY=http://{}",
             listen_addr, listen_addr
@@ -224,31 +229,16 @@ fn tool_proxy_start(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
             "proxy_type".to_string(),
             JsonValue::String(proxy_type.to_string()),
         ),
-        (
-            "listen_address".to_string(),
-            JsonValue::String(listen_addr),
-        ),
+        ("listen_address".to_string(), JsonValue::String(listen_addr)),
         ("port".to_string(), JsonValue::Number(port as f64)),
         (
             "bind_address".to_string(),
             JsonValue::String(bind_addr.to_string()),
         ),
-        (
-            "proxy_url".to_string(),
-            JsonValue::String(proxy_url),
-        ),
-        (
-            "cli_command".to_string(),
-            JsonValue::String(cli_cmd),
-        ),
-        (
-            "curl_example".to_string(),
-            JsonValue::String(curl_example),
-        ),
-        (
-            "auth_enabled".to_string(),
-            JsonValue::Bool(auth.is_some()),
-        ),
+        ("proxy_url".to_string(), JsonValue::String(proxy_url)),
+        ("cli_command".to_string(), JsonValue::String(cli_cmd)),
+        ("curl_example".to_string(), JsonValue::String(curl_example)),
+        ("auth_enabled".to_string(), JsonValue::Bool(auth.is_some())),
     ];
 
     if let Some(upstream_str) = upstream {
@@ -274,10 +264,7 @@ fn tool_proxy_intercept_list(
         .map(|n| n as u16)
         .unwrap_or(8080);
 
-    let filter = args
-        .get("filter")
-        .and_then(|v| v.as_str())
-        .unwrap_or("all");
+    let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("all");
 
     let host_filter = args.get("host").and_then(|v| v.as_str());
 
@@ -319,18 +306,9 @@ fn tool_proxy_intercept_list(
 
     let mut data_fields = vec![
         ("port".to_string(), JsonValue::Number(port as f64)),
-        (
-            "filter".to_string(),
-            JsonValue::String(filter.to_string()),
-        ),
-        (
-            "list_command".to_string(),
-            JsonValue::String(full_cmd),
-        ),
-        (
-            "export_command".to_string(),
-            JsonValue::String(export_cmd),
-        ),
+        ("filter".to_string(), JsonValue::String(filter.to_string())),
+        ("list_command".to_string(), JsonValue::String(full_cmd)),
+        ("export_command".to_string(), JsonValue::String(export_cmd)),
         (
             "tracked_fields".to_string(),
             JsonValue::array(vec![
@@ -403,37 +381,70 @@ fn tool_proxy_intercept_rules(
                     ("id".to_string(), JsonValue::Number(1.0)),
                     ("action".to_string(), JsonValue::String("deny".to_string())),
                     ("source".to_string(), JsonValue::String("any".to_string())),
-                    ("destination".to_string(), JsonValue::String("127.0.0.0/8".to_string())),
+                    (
+                        "destination".to_string(),
+                        JsonValue::String("127.0.0.0/8".to_string()),
+                    ),
                     ("port".to_string(), JsonValue::String("any".to_string())),
                     ("protocol".to_string(), JsonValue::String("any".to_string())),
-                    ("description".to_string(), JsonValue::String("Prevent proxy loops".to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String("Prevent proxy loops".to_string()),
+                    ),
                 ]),
                 JsonValue::object(vec![
                     ("id".to_string(), JsonValue::Number(2.0)),
-                    ("action".to_string(), JsonValue::String("intercept".to_string())),
+                    (
+                        "action".to_string(),
+                        JsonValue::String("intercept".to_string()),
+                    ),
                     ("source".to_string(), JsonValue::String("any".to_string())),
-                    ("destination".to_string(), JsonValue::String("any".to_string())),
+                    (
+                        "destination".to_string(),
+                        JsonValue::String("any".to_string()),
+                    ),
                     ("port".to_string(), JsonValue::String("80".to_string())),
                     ("protocol".to_string(), JsonValue::String("tcp".to_string())),
-                    ("description".to_string(), JsonValue::String("Capture HTTP traffic".to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String("Capture HTTP traffic".to_string()),
+                    ),
                 ]),
                 JsonValue::object(vec![
                     ("id".to_string(), JsonValue::Number(3.0)),
-                    ("action".to_string(), JsonValue::String("intercept".to_string())),
+                    (
+                        "action".to_string(),
+                        JsonValue::String("intercept".to_string()),
+                    ),
                     ("source".to_string(), JsonValue::String("any".to_string())),
-                    ("destination".to_string(), JsonValue::String("any".to_string())),
+                    (
+                        "destination".to_string(),
+                        JsonValue::String("any".to_string()),
+                    ),
                     ("port".to_string(), JsonValue::String("443".to_string())),
                     ("protocol".to_string(), JsonValue::String("tcp".to_string())),
-                    ("description".to_string(), JsonValue::String("Capture HTTPS for MITM".to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String("Capture HTTPS for MITM".to_string()),
+                    ),
                 ]),
                 JsonValue::object(vec![
                     ("id".to_string(), JsonValue::Number(4.0)),
-                    ("action".to_string(), JsonValue::String("passthrough".to_string())),
+                    (
+                        "action".to_string(),
+                        JsonValue::String("passthrough".to_string()),
+                    ),
                     ("source".to_string(), JsonValue::String("any".to_string())),
-                    ("destination".to_string(), JsonValue::String("any".to_string())),
+                    (
+                        "destination".to_string(),
+                        JsonValue::String("any".to_string()),
+                    ),
                     ("port".to_string(), JsonValue::String("any".to_string())),
                     ("protocol".to_string(), JsonValue::String("any".to_string())),
-                    ("description".to_string(), JsonValue::String("Default passthrough".to_string())),
+                    (
+                        "description".to_string(),
+                        JsonValue::String("Default passthrough".to_string()),
+                    ),
                 ]),
             ];
 
@@ -487,10 +498,7 @@ fn tool_proxy_intercept_rules(
                     "destination".to_string(),
                     JsonValue::String(dest_str.to_string()),
                 ),
-                (
-                    "port".to_string(),
-                    JsonValue::String(port_str.to_string()),
-                ),
+                ("port".to_string(), JsonValue::String(port_str.to_string())),
                 (
                     "protocol".to_string(),
                     JsonValue::String(protocol.to_string()),
@@ -502,10 +510,7 @@ fn tool_proxy_intercept_rules(
                 data: JsonValue::object(vec![
                     ("action".to_string(), JsonValue::String(action.to_string())),
                     ("rule".to_string(), rule),
-                    (
-                        "cli_command".to_string(),
-                        JsonValue::String(cli_cmd),
-                    ),
+                    ("cli_command".to_string(), JsonValue::String(cli_cmd)),
                 ]),
             })
         }

@@ -4,9 +4,7 @@
 
 use crate::mcp::types::{ToolDefinition, ToolField, ToolResult};
 use crate::mcp::McpServer;
-use crate::modules::service::{
-    get_service_manager, ServiceConfig, ServiceStatus, ServiceType,
-};
+use crate::modules::service::{get_service_manager, ServiceConfig, ServiceStatus, ServiceType};
 use crate::utils::json::JsonValue;
 
 /// Register service management tools with the server
@@ -122,10 +120,7 @@ fn tool_service_list(_server: &mut McpServer, _args: &JsonValue) -> Result<ToolR
                 })
                 .collect();
 
-            let running = services
-                .iter()
-                .filter(|s| s.status.is_running())
-                .count();
+            let running = services.iter().filter(|s| s.status.is_running()).count();
             let stopped = services
                 .iter()
                 .filter(|s| matches!(s.status, ServiceStatus::Stopped))
@@ -146,7 +141,10 @@ fn tool_service_list(_server: &mut McpServer, _args: &JsonValue) -> Result<ToolR
             Ok(ToolResult::with_data(
                 text,
                 JsonValue::object(vec![
-                    ("count".to_string(), JsonValue::Number(services.len() as f64)),
+                    (
+                        "count".to_string(),
+                        JsonValue::Number(services.len() as f64),
+                    ),
                     ("running".to_string(), JsonValue::Number(running as f64)),
                     ("stopped".to_string(), JsonValue::Number(stopped as f64)),
                     ("failed".to_string(), JsonValue::Number(failed as f64)),
@@ -172,10 +170,7 @@ fn tool_service_install(_server: &mut McpServer, args: &JsonValue) -> Result<Too
         .ok_or("Missing required field: type")?;
 
     let custom_name = args.get("name").and_then(|v| v.as_str());
-    let port = args
-        .get("port")
-        .and_then(|v| v.as_f64())
-        .map(|p| p as u16);
+    let port = args.get("port").and_then(|v| v.as_f64()).map(|p| p as u16);
     let auto_start = args
         .get("auto_start")
         .and_then(|v| match v {
@@ -261,7 +256,10 @@ fn tool_service_install(_server: &mut McpServer, args: &JsonValue) -> Result<Too
             Ok(ToolResult::with_data(
                 text,
                 JsonValue::object(vec![
-                    ("name".to_string(), JsonValue::String(installed.name.clone())),
+                    (
+                        "name".to_string(),
+                        JsonValue::String(installed.name.clone()),
+                    ),
                     (
                         "status".to_string(),
                         JsonValue::String(installed.status.as_str().to_string()),
@@ -277,10 +275,7 @@ fn tool_service_install(_server: &mut McpServer, args: &JsonValue) -> Result<Too
                             .map(|d| JsonValue::String(d))
                             .unwrap_or(JsonValue::Null),
                     ),
-                    (
-                        "auto_start".to_string(),
-                        JsonValue::Bool(auto_start),
-                    ),
+                    ("auto_start".to_string(), JsonValue::Bool(auto_start)),
                     (
                         "service_type".to_string(),
                         JsonValue::String(service_type_str.to_string()),

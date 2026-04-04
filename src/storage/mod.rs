@@ -130,6 +130,7 @@ pub use unified::{
 
     MetadataValue,
     NodeData,
+    QueryResultItem,
     RefQueryBuilder,
     RefType,
 
@@ -171,5 +172,4 @@ pub use unified::{
     WhereClause,
     // Query DSL - Entry point for all queries
     Q as Query,
-    QueryResultItem,
 };

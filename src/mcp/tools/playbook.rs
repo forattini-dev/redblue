@@ -108,7 +108,12 @@ fn tool_playbook_list(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
             "medium" => RiskLevel::Medium,
             "high" => RiskLevel::High,
             "critical" => RiskLevel::Critical,
-            _ => return Err(format!("Invalid risk level: {}. Use: passive, low, medium, high, critical", risk)),
+            _ => {
+                return Err(format!(
+                    "Invalid risk level: {}. Use: passive, low, medium, high, critical",
+                    risk
+                ))
+            }
         };
         playbooks_by_risk(max_risk)
     } else {
@@ -146,10 +151,7 @@ fn tool_playbook_list(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                     "risk_level".to_string(),
                     JsonValue::String(p.metadata.risk_level.as_str().to_string()),
                 ),
-                (
-                    "target_types".to_string(),
-                    JsonValue::array(target_types),
-                ),
+                ("target_types".to_string(), JsonValue::array(target_types)),
                 ("tags".to_string(), JsonValue::array(tags)),
                 (
                     "steps".to_string(),
@@ -185,8 +187,7 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
         .and_then(|v| v.as_str())
         .ok_or("Missing required field: id")?;
 
-    let playbook = get_playbook(id)
-        .ok_or_else(|| format!("Playbook not found: {}", id))?;
+    let playbook = get_playbook(id).ok_or_else(|| format!("Playbook not found: {}", id))?;
 
     let steps_json: Vec<JsonValue> = playbook
         .steps
@@ -205,10 +206,7 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                 .collect();
 
             JsonValue::object(vec![
-                (
-                    "number".to_string(),
-                    JsonValue::Number(s.number as f64),
-                ),
+                ("number".to_string(), JsonValue::Number(s.number as f64)),
                 (
                     "phase".to_string(),
                     JsonValue::String(s.phase.as_str().to_string()),
@@ -329,10 +327,7 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
         .map(|fc| {
             JsonValue::object(vec![
                 ("name".to_string(), JsonValue::String(fc.name.clone())),
-                (
-                    "reason".to_string(),
-                    JsonValue::String(fc.reason.clone()),
-                ),
+                ("reason".to_string(), JsonValue::String(fc.reason.clone())),
                 (
                     "remediation".to_string(),
                     JsonValue::String(fc.remediation.clone()),
@@ -352,8 +347,14 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
     Ok(ToolResult {
         text,
         data: JsonValue::object(vec![
-            ("id".to_string(), JsonValue::String(playbook.metadata.id.clone())),
-            ("name".to_string(), JsonValue::String(playbook.metadata.name.clone())),
+            (
+                "id".to_string(),
+                JsonValue::String(playbook.metadata.id.clone()),
+            ),
+            (
+                "name".to_string(),
+                JsonValue::String(playbook.metadata.name.clone()),
+            ),
             (
                 "description".to_string(),
                 JsonValue::String(playbook.metadata.description.clone()),
@@ -362,8 +363,14 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                 "objective".to_string(),
                 JsonValue::String(playbook.metadata.objective.clone()),
             ),
-            ("author".to_string(), JsonValue::String(playbook.metadata.author.clone())),
-            ("version".to_string(), JsonValue::String(playbook.metadata.version.clone())),
+            (
+                "author".to_string(),
+                JsonValue::String(playbook.metadata.author.clone()),
+            ),
+            (
+                "version".to_string(),
+                JsonValue::String(playbook.metadata.version.clone()),
+            ),
             (
                 "risk_level".to_string(),
                 JsonValue::String(playbook.metadata.risk_level.as_str().to_string()),
@@ -379,7 +386,10 @@ fn tool_playbook_show(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                 "total_steps".to_string(),
                 JsonValue::Number(playbook.total_steps() as f64),
             ),
-            ("preconditions".to_string(), JsonValue::array(preconditions_json)),
+            (
+                "preconditions".to_string(),
+                JsonValue::array(preconditions_json),
+            ),
             ("steps".to_string(), JsonValue::array(steps_json)),
             ("kill_chain".to_string(), JsonValue::array(kill_chain_json)),
             ("evidence".to_string(), JsonValue::array(evidence_json)),
@@ -424,14 +434,8 @@ fn tool_playbook_apt_list(
             JsonValue::object(vec![
                 ("id".to_string(), JsonValue::String(id.to_string())),
                 ("name".to_string(), JsonValue::String(name.to_string())),
-                (
-                    "description".to_string(),
-                    JsonValue::String(description),
-                ),
-                (
-                    "steps".to_string(),
-                    JsonValue::Number(step_count as f64),
-                ),
+                ("description".to_string(), JsonValue::String(description)),
+                ("steps".to_string(), JsonValue::Number(step_count as f64)),
                 (
                     "techniques".to_string(),
                     JsonValue::Number(technique_count as f64),
@@ -440,7 +444,10 @@ fn tool_playbook_apt_list(
         })
         .collect();
 
-    let text = format!("Found {} APT adversary emulation playbooks", groups_json.len());
+    let text = format!(
+        "Found {} APT adversary emulation playbooks",
+        groups_json.len()
+    );
 
     Ok(ToolResult {
         text,
@@ -462,8 +469,8 @@ fn tool_playbook_apt_show(_server: &mut McpServer, args: &JsonValue) -> Result<T
         .and_then(|v| v.as_str())
         .ok_or("Missing required field: group")?;
 
-    let playbook = get_apt_playbook(group)
-        .ok_or_else(|| format!("APT playbook not found: {}", group))?;
+    let playbook =
+        get_apt_playbook(group).ok_or_else(|| format!("APT playbook not found: {}", group))?;
 
     let steps_json: Vec<JsonValue> = playbook
         .steps
@@ -476,10 +483,7 @@ fn tool_playbook_apt_show(_server: &mut McpServer, args: &JsonValue) -> Result<T
                 .collect();
 
             JsonValue::object(vec![
-                (
-                    "number".to_string(),
-                    JsonValue::Number(s.number as f64),
-                ),
+                ("number".to_string(), JsonValue::Number(s.number as f64)),
                 (
                     "phase".to_string(),
                     JsonValue::String(s.phase.as_str().to_string()),
@@ -553,8 +557,14 @@ fn tool_playbook_apt_show(_server: &mut McpServer, args: &JsonValue) -> Result<T
     Ok(ToolResult {
         text,
         data: JsonValue::object(vec![
-            ("id".to_string(), JsonValue::String(playbook.metadata.id.clone())),
-            ("name".to_string(), JsonValue::String(playbook.metadata.name.clone())),
+            (
+                "id".to_string(),
+                JsonValue::String(playbook.metadata.id.clone()),
+            ),
+            (
+                "name".to_string(),
+                JsonValue::String(playbook.metadata.name.clone()),
+            ),
             (
                 "description".to_string(),
                 JsonValue::String(playbook.metadata.description.clone()),
@@ -613,8 +623,7 @@ fn tool_playbook_run(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRe
         .map(|v| v as u8)
         .unwrap_or(1);
 
-    let playbook = get_playbook(id)
-        .ok_or_else(|| format!("Playbook not found: {}", id))?;
+    let playbook = get_playbook(id).ok_or_else(|| format!("Playbook not found: {}", id))?;
 
     // Safety check: require explicit consent for high-risk playbooks
     if playbook.metadata.risk_level.requires_consent() && !allow_intrusive && !dry_run {
@@ -654,10 +663,7 @@ fn tool_playbook_run(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRe
                 ),
                 ("success".to_string(), JsonValue::Bool(sr.success)),
                 ("skipped".to_string(), JsonValue::Bool(sr.skipped)),
-                (
-                    "status".to_string(),
-                    JsonValue::String(sr.status.clone()),
-                ),
+                ("status".to_string(), JsonValue::String(sr.status.clone())),
                 ("output".to_string(), JsonValue::array(output)),
                 (
                     "duration_secs".to_string(),
@@ -708,15 +714,24 @@ fn tool_playbook_run(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRe
     Ok(ToolResult {
         text,
         data: JsonValue::object(vec![
-            ("playbook_id".to_string(), JsonValue::String(result.playbook_id.clone())),
+            (
+                "playbook_id".to_string(),
+                JsonValue::String(result.playbook_id.clone()),
+            ),
             (
                 "playbook_name".to_string(),
                 JsonValue::String(result.playbook_name.clone()),
             ),
-            ("target".to_string(), JsonValue::String(result.target.clone())),
+            (
+                "target".to_string(),
+                JsonValue::String(result.target.clone()),
+            ),
             ("mode".to_string(), JsonValue::String(mode.to_string())),
             ("success".to_string(), JsonValue::Bool(result.success)),
-            ("summary".to_string(), JsonValue::String(result.summary.clone())),
+            (
+                "summary".to_string(),
+                JsonValue::String(result.summary.clone()),
+            ),
             (
                 "steps_completed".to_string(),
                 JsonValue::Number(result.steps_completed as f64),
@@ -737,7 +752,10 @@ fn tool_playbook_run(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRe
                 "duration_secs".to_string(),
                 JsonValue::Number(result.duration.as_secs_f64()),
             ),
-            ("step_results".to_string(), JsonValue::array(step_results_json)),
+            (
+                "step_results".to_string(),
+                JsonValue::array(step_results_json),
+            ),
             ("findings".to_string(), JsonValue::array(findings_json)),
             (
                 "findings_count".to_string(),

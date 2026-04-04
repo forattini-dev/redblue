@@ -368,7 +368,9 @@ impl AgentClient {
                 // Accept both serialized playbook JSON and playbook ID lookups.
                 let playbook_definition = serde_json::from_str::<Playbook>(&cmd.args[0])
                     .ok()
-                    .or_else(|| get_playbook(&cmd.args[0]).or_else(|| get_apt_playbook(&cmd.args[0])));
+                    .or_else(|| {
+                        get_playbook(&cmd.args[0]).or_else(|| get_apt_playbook(&cmd.args[0]))
+                    });
 
                 let Some(playbook) = playbook_definition else {
                     return AgentResponse {
@@ -389,14 +391,14 @@ impl AgentClient {
                         .unwrap_or(&"localhost".to_string()),
                 );
 
-                for arg in cmd
-                    .args
-                    .iter()
-                    .skip(if cmd.args.get(1).is_some_and(|arg| !arg.contains('=')) {
-                        2
-                    } else {
-                        1
-                    })
+                for arg in
+                    cmd.args
+                        .iter()
+                        .skip(if cmd.args.get(1).is_some_and(|arg| !arg.contains('=')) {
+                            2
+                        } else {
+                            1
+                        })
                 {
                     if let Some((k, v)) = arg.split_once('=') {
                         context.set_arg(k, v);

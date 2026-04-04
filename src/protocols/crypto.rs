@@ -1568,4 +1568,3 @@ pub fn hkdf_sha384(salt: &[u8], ikm: &[u8], info: &[u8], length: usize) -> Vec<u
     let prk = hkdf_extract_sha384(salt, ikm);
     hkdf_expand_sha384(&prk, info, length)
 }
-

@@ -193,10 +193,7 @@ fn tool_agent_info(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
                 JsonValue::String("websocket".to_string()),
             ]),
         ),
-        (
-            "authorization_required".to_string(),
-            JsonValue::Bool(true),
-        ),
+        ("authorization_required".to_string(), JsonValue::Bool(true)),
     ];
 
     if verbose {
@@ -249,10 +246,7 @@ fn tool_agent_generate(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
         .and_then(|v| v.as_f64())
         .unwrap_or(60.0);
 
-    let jitter = args
-        .get("jitter")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.1);
+    let jitter = args.get("jitter").and_then(|v| v.as_f64()).unwrap_or(0.1);
 
     let dns_domain = args.get("dns_domain").and_then(|v| v.as_str());
 
@@ -334,10 +328,7 @@ fn tool_agent_generate(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
             "transport".to_string(),
             JsonValue::String(transport.to_string()),
         ),
-        (
-            "interval_seconds".to_string(),
-            JsonValue::Number(interval),
-        ),
+        ("interval_seconds".to_string(), JsonValue::Number(interval)),
         ("jitter".to_string(), JsonValue::Number(jitter)),
         (
             "effective_min_interval".to_string(),
@@ -347,18 +338,9 @@ fn tool_agent_generate(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
             "effective_max_interval".to_string(),
             JsonValue::Number(max_interval),
         ),
-        (
-            "server_command".to_string(),
-            JsonValue::String(server_cmd),
-        ),
-        (
-            "agent_command".to_string(),
-            JsonValue::String(agent_cmd),
-        ),
-        (
-            "authorization_required".to_string(),
-            JsonValue::Bool(true),
-        ),
+        ("server_command".to_string(), JsonValue::String(server_cmd)),
+        ("agent_command".to_string(), JsonValue::String(agent_cmd)),
+        ("authorization_required".to_string(), JsonValue::Bool(true)),
     ];
 
     if let Some(domain) = dns_domain {
@@ -374,10 +356,7 @@ fn tool_agent_generate(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
     })
 }
 
-fn tool_agent_transports(
-    _server: &mut McpServer,
-    args: &JsonValue,
-) -> Result<ToolResult, String> {
+fn tool_agent_transports(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
     let specific = args.get("transport").and_then(|v| v.as_str());
 
     let http_info = TransportInfo {
@@ -404,7 +383,10 @@ fn tool_agent_transports(
             ("use_tls", "Enable TLS (recommended for production)"),
             ("tls_verify", "Verify server TLS certificates"),
             ("cert_pins", "SHA256 certificate fingerprints for pinning"),
-            ("custom_headers", "Additional HTTP headers (User-Agent, etc.)"),
+            (
+                "custom_headers",
+                "Additional HTTP headers (User-Agent, etc.)",
+            ),
         ],
         cli_example: "rb agent client start --server https://c2.example.com --transport http",
     };
@@ -542,10 +524,7 @@ fn tool_agent_transports(
             .map(|(k, v)| {
                 JsonValue::object(vec![
                     ("name".to_string(), JsonValue::String(k.to_string())),
-                    (
-                        "description".to_string(),
-                        JsonValue::String(v.to_string()),
-                    ),
+                    ("description".to_string(), JsonValue::String(v.to_string())),
                 ])
             })
             .collect();
@@ -590,10 +569,7 @@ fn tool_agent_transports(
                 "transport_count".to_string(),
                 JsonValue::Number(transports_to_show.len() as f64),
             ),
-            (
-                "transports".to_string(),
-                JsonValue::array(transports_json),
-            ),
+            ("transports".to_string(), JsonValue::array(transports_json)),
         ]),
     })
 }

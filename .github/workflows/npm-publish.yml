@@ -14,14 +14,17 @@ jobs:
   publish:
     name: Publish SDK to npm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '23'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Resolve package version
@@ -54,6 +57,12 @@ jobs:
 
       - name: Publish package
         working-directory: sdk
-        run: npm publish
+        run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published version
+        run: |
+          echo "Waiting for npm registry to update..."
+          sleep 15
+          npm view redblue-cli version

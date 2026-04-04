@@ -234,7 +234,10 @@ impl<'a> UserIntelligence<'a> {
             if password.chars().all(|c| c.is_ascii_alphabetic()) {
                 patterns.insert("alpha-only".to_string());
             }
-            if password.chars().any(|c| c == '!' || c == '@' || c == '#' || c == '$' || c == '%') {
+            if password
+                .chars()
+                .any(|c| c == '!' || c == '@' || c == '#' || c == '$' || c == '%')
+            {
                 patterns.insert("symbol-prefixed".to_string());
             }
             if password.chars().any(|c| !c.is_ascii_alphanumeric()) {

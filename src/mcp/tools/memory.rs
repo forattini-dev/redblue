@@ -151,8 +151,12 @@ fn tool_memory_scan(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
         .map(|n| n as usize)
         .unwrap_or(100);
 
-    let value_type = ValueType::from_str(type_str)
-        .ok_or_else(|| format!("Unknown value type '{}'. Valid: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64", type_str))?;
+    let value_type = ValueType::from_str(type_str).ok_or_else(|| {
+        format!(
+            "Unknown value type '{}'. Valid: i8, i16, i32, i64, u8, u16, u32, u64, f32, f64",
+            type_str
+        )
+    })?;
 
     // Build scan type from value string and type
     let scan_type = match value_type {
@@ -170,9 +174,7 @@ fn tool_memory_scan(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
         _ => {
             // Parse integer value, supporting hex prefix
             let val: i64 = if value_str.starts_with("0x") || value_str.starts_with("0X") {
-                let hex_str = value_str
-                    .trim_start_matches("0x")
-                    .trim_start_matches("0X");
+                let hex_str = value_str.trim_start_matches("0x").trim_start_matches("0X");
                 i64::from_str_radix(hex_str, 16)
                     .map_err(|_| format!("Cannot parse '{}' as hex integer", value_str))?
             } else {
@@ -185,8 +187,12 @@ fn tool_memory_scan(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
     };
 
     // Attach to process
-    let mut proc_mem = ProcessMemory::attach(pid)
-        .map_err(|e| format!("Failed to attach to PID {}: {}. Ensure you have CAP_SYS_PTRACE or root.", pid, e))?;
+    let mut proc_mem = ProcessMemory::attach(pid).map_err(|e| {
+        format!(
+            "Failed to attach to PID {}: {}. Ensure you have CAP_SYS_PTRACE or root.",
+            pid, e
+        )
+    })?;
 
     // Enumerate scannable memory regions
     let regions = parse_maps(pid)
@@ -285,13 +291,10 @@ fn tool_memory_regions(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
         .map(|n| n as i32)
         .ok_or("Missing required field: pid")?;
 
-    let filter = args
-        .get("filter")
-        .and_then(|v| v.as_str())
-        .unwrap_or("all");
+    let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("all");
 
-    let regions = parse_maps(pid)
-        .map_err(|e| format!("Failed to read /proc/{}/maps: {}", pid, e))?;
+    let regions =
+        parse_maps(pid).map_err(|e| format!("Failed to read /proc/{}/maps: {}", pid, e))?;
 
     let filtered: Vec<_> = regions
         .iter()
@@ -355,10 +358,7 @@ fn tool_memory_regions(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
         text,
         data: JsonValue::object(vec![
             ("pid".to_string(), JsonValue::Number(pid as f64)),
-            (
-                "filter".to_string(),
-                JsonValue::String(filter.to_string()),
-            ),
+            ("filter".to_string(), JsonValue::String(filter.to_string())),
             (
                 "region_count".to_string(),
                 JsonValue::Number(filtered.len() as f64),
@@ -428,7 +428,13 @@ fn tool_memory_read(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
     // Build ASCII representation (printable chars only)
     let ascii: String = bytes
         .iter()
-        .map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '.' })
+        .map(|&b| {
+            if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                '.'
+            }
+        })
         .collect();
 
     // Build hex dump lines (16 bytes per line)
@@ -438,7 +444,13 @@ fn tool_memory_read(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
         let hex_part: Vec<String> = chunk.iter().map(|b| format!("{:02x}", b)).collect();
         let ascii_part: String = chunk
             .iter()
-            .map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '.' })
+            .map(|&b| {
+                if b.is_ascii_graphic() || b == b' ' {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         hex_lines.push(format!(
             "0x{:012x}  {:48}  |{}|",
@@ -535,10 +547,7 @@ fn tool_memory_pattern(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
                     "address".to_string(),
                     JsonValue::String(format!("0x{:x}", m.address)),
                 ),
-                (
-                    "bytes".to_string(),
-                    JsonValue::String(m.bytes_hex()),
-                ),
+                ("bytes".to_string(), JsonValue::String(m.bytes_hex())),
                 (
                     "region".to_string(),
                     JsonValue::String(m.region_name.clone()),

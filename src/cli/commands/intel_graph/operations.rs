@@ -11,12 +11,12 @@
 
 use super::helpers::{chrono_lite_now, load_graph, truncate_str};
 use crate::cli::{output::Output, CliContext};
+use crate::serde_json::{from_str, Value};
 use crate::storage::engine::{
-    BetweennessCentrality, ConnectedComponents, CycleDetector, GraphEdgeType, GraphNodeType, GraphStore,
-    LabelPropagation, PageRank,
+    BetweennessCentrality, ConnectedComponents, CycleDetector, GraphEdgeType, GraphNodeType,
+    GraphStore, LabelPropagation, PageRank,
 };
 use crate::storage::query::{parse, UnifiedExecutor};
-use crate::serde_json::{from_str, Value};
 use std::path::Path;
 
 /// Graph summary command
@@ -1023,7 +1023,8 @@ fn parse_edge_type(raw: &str) -> GraphEdgeType {
 }
 
 fn parse_json_graph(content: &str) -> Result<(Vec<ImportNode>, Vec<ImportEdge>), String> {
-    let value = from_str::<Value>(content).map_err(|e| format!("Invalid JSON graph format: {}", e))?;
+    let value =
+        from_str::<Value>(content).map_err(|e| format!("Invalid JSON graph format: {}", e))?;
     let root = value.as_object().ok_or("JSON graph must be an object")?;
 
     let nodes = root
@@ -1039,7 +1040,9 @@ fn parse_json_graph(content: &str) -> Result<(Vec<ImportNode>, Vec<ImportEdge>),
     let parsed_nodes = nodes
         .iter()
         .map(|node| {
-            let node = node.as_object().ok_or("Each node entry must be an object")?;
+            let node = node
+                .as_object()
+                .ok_or("Each node entry must be an object")?;
             let id = node
                 .get("id")
                 .and_then(Value::as_str)
@@ -1066,7 +1069,9 @@ fn parse_json_graph(content: &str) -> Result<(Vec<ImportNode>, Vec<ImportEdge>),
     let parsed_edges = edges
         .iter()
         .map(|edge| {
-            let edge = edge.as_object().ok_or("Each edge entry must be an object")?;
+            let edge = edge
+                .as_object()
+                .ok_or("Each edge entry must be an object")?;
             let source = edge
                 .get("from")
                 .or_else(|| edge.get("source"))
@@ -1140,8 +1145,8 @@ fn parse_graphml_graph(content: &str) -> Result<(Vec<ImportNode>, Vec<ImportEdge
                     .find("label=\"")
                     .and_then(|_| extract_xml_attr(line, "label"))
                     .unwrap_or_else(|| id.clone());
-                let node_type = extract_xml_attr(line, "type")
-                    .unwrap_or_else(|| "host".to_string());
+                let node_type =
+                    extract_xml_attr(line, "type").unwrap_or_else(|| "host".to_string());
                 nodes.push(ImportNode {
                     id,
                     label,
@@ -1292,14 +1297,15 @@ pub fn cmd_import(ctx: &CliContext) -> Result<(), String> {
             continue;
         }
 
-        let duplicate = graph
-            .outgoing_edges(&edge.source)
-            .iter()
-            .any(|(edge_type, target, weight)| {
-                *edge_type == edge.edge_type
-                    && target == &edge.target
-                    && (*weight - edge.weight).abs() <= f32::EPSILON
-            });
+        let duplicate =
+            graph
+                .outgoing_edges(&edge.source)
+                .iter()
+                .any(|(edge_type, target, weight)| {
+                    *edge_type == edge.edge_type
+                        && target == &edge.target
+                        && (*weight - edge.weight).abs() <= f32::EPSILON
+                });
         if duplicate {
             skipped_edges += 1;
             continue;
@@ -1317,8 +1323,9 @@ pub fn cmd_import(ctx: &CliContext) -> Result<(), String> {
 
     if let Some(parent) = Path::new(db_path).parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create db directory {}: {}", parent.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!("Failed to create db directory {}: {}", parent.display(), e)
+            })?;
         }
     }
 

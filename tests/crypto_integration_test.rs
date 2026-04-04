@@ -24,13 +24,15 @@ mod crypto_integration_tests {
         }
 
         // 3. Derive master secret using PRF
-        let master_secret = prf::derive_master_secret_tls12(&pre_master, &client_random, &server_random);
+        let master_secret =
+            prf::derive_master_secret_tls12(&pre_master, &client_random, &server_random);
 
         // Verify master secret is 48 bytes
         assert_eq!(master_secret.len(), 48);
 
         // 4. Derive key material (104 bytes for AES-128-CBC-SHA256)
-        let key_material = prf::derive_keys_tls12(&master_secret, &server_random, &client_random, 104);
+        let key_material =
+            prf::derive_keys_tls12(&master_secret, &server_random, &client_random, 104);
 
         // Verify key material is correct length
         assert_eq!(key_material.len(), 104);

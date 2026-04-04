@@ -226,7 +226,10 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
         lines.push(format!("{} ({})", sub.subdomain, sub_ips));
     }
     if max_subdomains < subdomains.len() {
-        lines.push(format!("... and {} more subdomains", subdomains.len() - max_subdomains));
+        lines.push(format!(
+            "... and {} more subdomains",
+            subdomains.len() - max_subdomains
+        ));
     }
 
     // Print DNS records summary
@@ -248,7 +251,11 @@ pub fn graph(ctx: &CliContext) -> Result<(), String> {
     }
 
     for (i, line) in lines.iter().enumerate() {
-        let prefix = if i + 1 == lines.len() { "   └──" } else { "   ├──" };
+        let prefix = if i + 1 == lines.len() {
+            "   └──"
+        } else {
+            "   ├──"
+        };
         println!("{} {}", prefix, line);
     }
 

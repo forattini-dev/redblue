@@ -105,8 +105,7 @@ impl NetworkAccessor {
             }
 
             if bytes[..10].iter().all(|&b| b == 0) && bytes[10] == 0xFF && bytes[11] == 0xFF {
-                let ipv4 =
-                    std::net::Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15]);
+                let ipv4 = std::net::Ipv4Addr::new(bytes[12], bytes[13], bytes[14], bytes[15]);
                 return format!("{}:{}", ipv4, port);
             }
 

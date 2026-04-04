@@ -11,17 +11,17 @@ use super::gcm::{aes128_gcm_decrypt, aes128_gcm_encrypt};
 use super::p256::P256Point;
 use super::rsa::RsaPublicKey;
 use super::x509::{self, X509Certificate};
+use crate::crypto::encoding::base64::base64_decode;
 use crate::crypto::BigInt;
 use crate::crypto::{encode_base64, md5, sha1::sha1, sha256::sha256};
 use crate::intelligence::tls_fingerprint::JA3Fingerprint;
-use crate::crypto::encoding::base64::base64_decode;
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::cmp::Ordering;
+use std::env;
 use std::fmt::Write as FmtWrite;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -1965,7 +1965,12 @@ fn parse_trust_roots_from_pem(data: &str) -> Vec<TrustRoot> {
 fn allow_untrusted_when_empty_system_store() -> bool {
     env::var("RB_TLS_ALLOW_EMPTY_SYSTEM_ROOTS")
         .ok()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes"))
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "on" | "yes"
+            )
+        })
         .unwrap_or(false)
 }
 

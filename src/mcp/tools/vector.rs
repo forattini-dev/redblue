@@ -225,7 +225,10 @@ fn tool_tiered_create(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                         "max_binary_candidates".to_string(),
                         JsonValue::Number(config.max_binary_candidates as f64),
                     ),
-                    ("use_fp32_final".to_string(), JsonValue::Bool(config.use_fp32_final)),
+                    (
+                        "use_fp32_final".to_string(),
+                        JsonValue::Bool(config.use_fp32_final),
+                    ),
                 ]),
             ),
         ]),
@@ -280,8 +283,14 @@ fn tool_tiered_info(_server: &mut McpServer, args: &JsonValue) -> Result<ToolRes
             (
                 "storage".to_string(),
                 JsonValue::object(vec![
-                    ("fp32_bytes".to_string(), JsonValue::Number(fp32_bytes as f64)),
-                    ("int8_bytes".to_string(), JsonValue::Number(int8_bytes as f64)),
+                    (
+                        "fp32_bytes".to_string(),
+                        JsonValue::Number(fp32_bytes as f64),
+                    ),
+                    (
+                        "int8_bytes".to_string(),
+                        JsonValue::Number(int8_bytes as f64),
+                    ),
                     (
                         "binary_bytes".to_string(),
                         JsonValue::Number(binary_bytes as f64),
@@ -432,7 +441,10 @@ fn tool_int8_quantize(_server: &mut McpServer, args: &JsonValue) -> Result<ToolR
                 "scale_factor".to_string(),
                 JsonValue::Number((127.0 / max_abs) as f64),
             ),
-            ("max_abs_value".to_string(), JsonValue::Number(max_abs as f64)),
+            (
+                "max_abs_value".to_string(),
+                JsonValue::Number(max_abs as f64),
+            ),
         ]),
     })
 }

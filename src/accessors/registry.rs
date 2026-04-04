@@ -81,9 +81,13 @@ impl RegistryAccessor {
 
         let result = if let Some(name) = value_name {
             if values.len() == 1 {
-                AccessorResult::success(json!({"key": key, "value": name, "entry": values[0].clone()}))
+                AccessorResult::success(
+                    json!({"key": key, "value": name, "entry": values[0].clone()}),
+                )
             } else {
-                AccessorResult::success(json!({"key": key, "value": name, "entries": Value::Array(values)}))
+                AccessorResult::success(
+                    json!({"key": key, "value": name, "entries": Value::Array(values)}),
+                )
             }
         } else {
             AccessorResult::success(json!({"key": key, "entries": Value::Array(values)}))
@@ -93,10 +97,9 @@ impl RegistryAccessor {
         result
             .metadata
             .insert("query-mode".to_string(), "reg-query".to_string());
-        result.metadata.insert(
-            "entry-count".to_string(),
-            values.len().to_string(),
-        );
+        result
+            .metadata
+            .insert("entry-count".to_string(), values.len().to_string());
         result
     }
 

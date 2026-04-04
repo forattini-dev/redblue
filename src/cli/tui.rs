@@ -2052,8 +2052,9 @@ impl TuiApp {
     fn handle_add_action(&mut self) -> Result<(), String> {
         match self.mode {
             ViewMode::Network => {
-                self.scan_activity
-                    .push("Manual add mode: type target in command line as add <ip> [status]".to_string());
+                self.scan_activity.push(
+                    "Manual add mode: type target in command line as add <ip> [status]".to_string(),
+                );
                 self.command_mode = true;
                 self.command_buffer.clear();
                 self.command_buffer = "add ".to_string();
@@ -2775,8 +2776,7 @@ impl TuiApp {
             timestamp: now_secs(),
         });
 
-        self.network_data
-            .sort_by(|a, b| a.module.cmp(&b.module));
+        self.network_data.sort_by(|a, b| a.module.cmp(&b.module));
 
         self.scan_activity
             .push(format!("Added manual device: {}", host));

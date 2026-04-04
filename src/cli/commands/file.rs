@@ -138,12 +138,10 @@ impl FileCommand {
             .ok_or("Missing file path. Usage: rb file ops zip <format> <file>")?;
 
         match format.as_str() {
-            "gzip" | "gz" => {
-                Err(format!(
-                    "Gzip compression not yet implemented. Only decompression is available.\n\
+            "gzip" | "gz" => Err(format!(
+                "Gzip compression not yet implemented. Only decompression is available.\n\
                      Use 'rb file ops unzip' to decompress gzip files."
-                ))
-            }
+            )),
             "tar" => {
                 Err("TAR creation not yet implemented. Only reading is available.".to_string())
             }

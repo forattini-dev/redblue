@@ -468,10 +468,7 @@ impl UnifiedExecutor {
                 .into_iter()
                 .map(|n| n.id)
                 .collect(),
-            NodeSelector::ByRow {
-                table,
-                row_id,
-            } => {
+            NodeSelector::ByRow { table, row_id } => {
                 if let Some((table_id, row_id)) = match (table.as_str().parse::<u16>(), *row_id) {
                     (Ok(table_id), row_id) => Some((table_id, row_id)),
                     _ => None,

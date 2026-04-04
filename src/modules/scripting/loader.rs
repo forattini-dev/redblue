@@ -27,9 +27,13 @@ pub fn load_scripts_from_dir(path: &str) -> Result<Vec<Script>, String> {
     stack.push(root.to_path_buf());
 
     while let Some(current_dir) = stack.pop() {
-        for entry in fs::read_dir(&current_dir)
-            .map_err(|e| format!("Failed to read scripts directory '{}': {}", current_dir.display(), e))?
-        {
+        for entry in fs::read_dir(&current_dir).map_err(|e| {
+            format!(
+                "Failed to read scripts directory '{}': {}",
+                current_dir.display(),
+                e
+            )
+        })? {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let entry_path = entry.path();
 

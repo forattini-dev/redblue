@@ -120,11 +120,7 @@ impl TcpMonitor {
     }
 
     /// Track a new TCP connection
-    pub fn track_connection(
-        &mut self,
-        local_addr: SocketAddr,
-        remote_addr: SocketAddr,
-    ) -> String {
+    pub fn track_connection(&mut self, local_addr: SocketAddr, remote_addr: SocketAddr) -> String {
         let conn_id = Self::connection_id(&local_addr, &remote_addr);
 
         if !self.connections.contains_key(&conn_id) {
@@ -338,15 +334,18 @@ impl TcpConnectionTester {
     pub fn test_ports(&self, host: &str, ports: &[u16]) -> Vec<TcpTestResult> {
         ports
             .iter()
-            .map(|&port| self.test_port(host, port).unwrap_or_else(|e| TcpTestResult {
-                host: host.to_string(),
-                port,
-                open: false,
-                connect_time_ms: 0.0,
-                local_addr: None,
-                peer_addr: None,
-                error: Some(e),
-            }))
+            .map(|&port| {
+                self.test_port(host, port)
+                    .unwrap_or_else(|e| TcpTestResult {
+                        host: host.to_string(),
+                        port,
+                        open: false,
+                        connect_time_ms: 0.0,
+                        local_addr: None,
+                        peer_addr: None,
+                        error: Some(e),
+                    })
+            })
             .collect()
     }
 }

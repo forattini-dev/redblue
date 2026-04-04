@@ -1,9 +1,9 @@
+use crate::protocols::icmp::IcmpPinger;
 /// ICMP Monitoring and Analysis
 /// Monitor ICMP traffic, track ping/traceroute, analyze network health
 use std::collections::HashMap;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::time::{Duration, Instant};
-use crate::protocols::icmp::IcmpPinger;
 
 /// ICMP Packet Type Statistics
 #[derive(Debug, Clone, Default)]
@@ -63,8 +63,7 @@ impl IcmpHostStats {
 
         // Update running average
         let total_received = self.packets_received as f64;
-        self.avg_rtt_ms =
-            (self.avg_rtt_ms * (total_received - 1.0) + rtt_ms) / total_received;
+        self.avg_rtt_ms = (self.avg_rtt_ms * (total_received - 1.0) + rtt_ms) / total_received;
     }
 }
 
@@ -126,12 +125,7 @@ impl IcmpMonitor {
     }
 
     /// Track ICMP packet received
-    pub fn record_received(
-        &mut self,
-        host: IpAddr,
-        packet_type: u8,
-        rtt_ms: Option<f64>,
-    ) {
+    pub fn record_received(&mut self, host: IpAddr, packet_type: u8, rtt_ms: Option<f64>) {
         let stats = self
             .hosts
             .entry(host)
@@ -290,9 +284,10 @@ impl Pinger {
             let mut addrs = (host, 0)
                 .to_socket_addrs()
                 .map_err(|_| format!("Failed to resolve host: {}", host))?;
-            addrs.next().map(|addr| addr.ip()).ok_or_else(|| {
-                format!("No IP addresses found for host '{}'", host)
-            })?
+            addrs
+                .next()
+                .map(|addr| addr.ip())
+                .ok_or_else(|| format!("No IP addresses found for host '{}'", host))?
         };
 
         let mut pinger = IcmpPinger::new(ip)
@@ -301,15 +296,15 @@ impl Pinger {
         let mut results = Vec::new();
 
         for seq in 0..self.count {
-            let result = pinger
-                .ping_once(seq as u16)
-                .unwrap_or_else(|err| crate::protocols::icmp::PingResult {
+            let result = pinger.ping_once(seq as u16).unwrap_or_else(|err| {
+                crate::protocols::icmp::PingResult {
                     sequence: seq as u16,
                     rtt: Duration::from_secs(0),
                     ttl: 0,
                     success: false,
                     error: Some(err),
-                });
+                }
+            });
 
             let rtt_ms = if result.success {
                 result.rtt.as_secs_f64() * 1000.0
@@ -382,9 +377,9 @@ impl Pinger {
             stats.min_rtt_ms = 0.0;
         }
 
-        stats.packet_loss_percent =
-            ((stats.packets_sent - stats.packets_received) as f64 / stats.packets_sent as f64)
-                * 100.0;
+        stats.packet_loss_percent = ((stats.packets_sent - stats.packets_received) as f64
+            / stats.packets_sent as f64)
+            * 100.0;
 
         stats
     }

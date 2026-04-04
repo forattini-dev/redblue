@@ -1,4 +1,4 @@
-.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install sdk-build sdk-test sdk-coverage
+.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install sdk-build sdk-test sdk-coverage sdk-publish sdk-publish-dry-run sdk-version
 
 # Paths
 LOCAL_BIN := $(HOME)/.local/bin
@@ -29,6 +29,9 @@ help:
 	@echo "  make sdk-build  - Validate the npm SDK package"
 	@echo "  make sdk-test   - Run SDK package tests"
 	@echo "  make sdk-coverage - Run SDK package coverage with 100% thresholds"
+	@echo "  make sdk-version VERSION=0.1.1 - Set the SDK package version in sdk/package.json"
+	@echo "  make sdk-publish-dry-run VERSION=0.1.1 - Dry-run the SDK npm publish"
+	@echo "  make sdk-publish VERSION=0.1.1 - Publish the SDK package from sdk/ to npm"
 	@echo "  make embeddings - Build documentation embeddings for MCP search"
 	@echo "  make docs       - Serve documentation locally at http://localhost:3000"
 	@echo ""
@@ -219,3 +222,15 @@ sdk-test:
 
 sdk-coverage:
 	cd sdk && npm run coverage
+
+sdk-version:
+	@test -n "$(VERSION)" || (echo "Usage: make sdk-version VERSION=0.1.1" && exit 1)
+	cd sdk && npm version $(VERSION) --no-git-tag-version
+
+sdk-publish-dry-run:
+	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish-dry-run VERSION=0.1.1" && exit 1)
+	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish --dry-run
+
+sdk-publish:
+	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish VERSION=0.1.1" && exit 1)
+	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish

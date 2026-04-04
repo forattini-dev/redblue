@@ -25,6 +25,7 @@ test_results/
 # Security scan results
 scan_results/
 *.json
+!sdk/package.json
 *.csv
 *.xml
 

@@ -763,7 +763,10 @@ impl CompletionProvider {
     pub fn complete_resource(&self, uri_prefix: &str) -> Vec<Completion> {
         let mut results = Vec::new();
         let push_unique = |results: &mut Vec<Completion>, completion: Completion| {
-            if !results.iter().any(|existing| existing.value == completion.value) {
+            if !results
+                .iter()
+                .any(|existing| existing.value == completion.value)
+            {
                 results.push(completion);
             }
         };

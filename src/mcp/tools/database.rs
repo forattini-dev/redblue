@@ -8,10 +8,10 @@ use crate::mcp::McpServer;
 use crate::storage::engine::graph_store::GraphStore;
 use crate::storage::engine::graph_table_index::GraphTableIndex;
 use crate::storage::query::executors::MultiModeExecutor;
-use crate::storage::RedDB;
+use crate::storage::schema::Value;
 use crate::storage::unified::entity::{EntityData, EntityId, EntityKind};
 use crate::storage::unified::UnifiedEntity;
-use crate::storage::schema::Value;
+use crate::storage::RedDB;
 use crate::utils::json::JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -225,14 +225,8 @@ fn tool_database_query(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
                     .iter()
                     .map(|(alias, node)| {
                         let node_obj = JsonValue::object(vec![
-                            (
-                                "id".to_string(),
-                                JsonValue::String(node.id.clone()),
-                            ),
-                            (
-                                "label".to_string(),
-                                JsonValue::String(node.label.clone()),
-                            ),
+                            ("id".to_string(), JsonValue::String(node.id.clone())),
+                            ("label".to_string(), JsonValue::String(node.label.clone())),
                             (
                                 "node_type".to_string(),
                                 JsonValue::String(format!("{:?}", node.node_type)),
@@ -255,18 +249,9 @@ fn tool_database_query(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
                                 "edge_type".to_string(),
                                 JsonValue::String(format!("{:?}", edge.edge_type)),
                             ),
-                            (
-                                "from".to_string(),
-                                JsonValue::String(edge.from.clone()),
-                            ),
-                            (
-                                "to".to_string(),
-                                JsonValue::String(edge.to.clone()),
-                            ),
-                            (
-                                "weight".to_string(),
-                                JsonValue::Number(edge.weight as f64),
-                            ),
+                            ("from".to_string(), JsonValue::String(edge.from.clone())),
+                            ("to".to_string(), JsonValue::String(edge.to.clone())),
+                            ("weight".to_string(), JsonValue::Number(edge.weight as f64)),
                         ]);
                         (alias.clone(), edge_obj)
                     })
@@ -414,10 +399,7 @@ fn tool_database_node_create(
                 "collection".to_string(),
                 JsonValue::String(collection.to_string()),
             ),
-            (
-                "label".to_string(),
-                JsonValue::String(label.to_string()),
-            ),
+            ("label".to_string(), JsonValue::String(label.to_string())),
             (
                 "node_type".to_string(),
                 JsonValue::String(node_type.to_string()),
@@ -428,10 +410,7 @@ fn tool_database_node_create(
 }
 
 /// Get a node (or any entity) by ID.
-fn tool_database_node_get(
-    _server: &mut McpServer,
-    args: &JsonValue,
-) -> Result<ToolResult, String> {
+fn tool_database_node_get(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
     let id_val = args
         .get("id")
         .and_then(|v| v.as_f64())
@@ -689,10 +668,7 @@ fn entity_to_json(collection: &str, entity: &UnifiedEntity) -> JsonValue {
     // Add kind-specific metadata
     match &entity.kind {
         EntityKind::GraphNode { label, node_type } => {
-            fields.push((
-                "label".to_string(),
-                JsonValue::String(label.clone()),
-            ));
+            fields.push(("label".to_string(), JsonValue::String(label.clone())));
             fields.push((
                 "node_type".to_string(),
                 JsonValue::String(node_type.clone()),
@@ -704,32 +680,20 @@ fn entity_to_json(collection: &str, entity: &UnifiedEntity) -> JsonValue {
             to_node,
             weight,
         } => {
-            fields.push((
-                "label".to_string(),
-                JsonValue::String(label.clone()),
-            ));
+            fields.push(("label".to_string(), JsonValue::String(label.clone())));
             fields.push((
                 "from_node".to_string(),
                 JsonValue::String(from_node.clone()),
             ));
-            fields.push((
-                "to_node".to_string(),
-                JsonValue::String(to_node.clone()),
-            ));
+            fields.push(("to_node".to_string(), JsonValue::String(to_node.clone())));
             fields.push((
                 "weight".to_string(),
                 JsonValue::Number(*weight as f64 / 1000.0),
             ));
         }
         EntityKind::TableRow { table, row_id } => {
-            fields.push((
-                "table".to_string(),
-                JsonValue::String(table.clone()),
-            ));
-            fields.push((
-                "row_id".to_string(),
-                JsonValue::Number(*row_id as f64),
-            ));
+            fields.push(("table".to_string(), JsonValue::String(table.clone())));
+            fields.push(("row_id".to_string(), JsonValue::Number(*row_id as f64)));
         }
         EntityKind::Vector { collection } => {
             fields.push((
@@ -755,15 +719,8 @@ fn entity_to_json(collection: &str, entity: &UnifiedEntity) -> JsonValue {
             if let Some(named) = &row.named {
                 fields.push(("columns".to_string(), props_to_json(named)));
             }
-            let column_values: Vec<JsonValue> = row
-                .columns
-                .iter()
-                .map(value_to_json)
-                .collect();
-            fields.push((
-                "column_values".to_string(),
-                JsonValue::array(column_values),
-            ));
+            let column_values: Vec<JsonValue> = row.columns.iter().map(value_to_json).collect();
+            fields.push(("column_values".to_string(), JsonValue::array(column_values)));
         }
         EntityData::Vector(vec_data) => {
             fields.push((
@@ -771,10 +728,7 @@ fn entity_to_json(collection: &str, entity: &UnifiedEntity) -> JsonValue {
                 JsonValue::Number(vec_data.dense.len() as f64),
             ));
             if let Some(content) = &vec_data.content {
-                fields.push((
-                    "content".to_string(),
-                    JsonValue::String(content.clone()),
-                ));
+                fields.push(("content".to_string(), JsonValue::String(content.clone())));
             }
         }
     }

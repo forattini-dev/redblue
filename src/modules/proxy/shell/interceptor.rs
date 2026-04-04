@@ -162,13 +162,7 @@ pub struct InteractiveShellInterceptor {
 
 impl InteractiveShellInterceptor {
     /// Create new interactive interceptor
-    pub fn new(
-        event_tx: Sender<ShellEvent>,
-    ) -> (
-        Self,
-        Sender<InterceptDecision>,
-        Arc<AtomicBool>,
-    ) {
+    pub fn new(event_tx: Sender<ShellEvent>) -> (Self, Sender<InterceptDecision>, Arc<AtomicBool>) {
         let intercept_enabled = Arc::new(AtomicBool::new(false));
         let (decision_tx, decision_rx) = mpsc::channel();
 
@@ -222,10 +216,7 @@ impl RequestInterceptor for InteractiveShellInterceptor {
                 InterceptDecision::Forward => InterceptAction::Continue,
                 InterceptDecision::Drop => {
                     let id = self.base.extract_id_from_request(req);
-                    let _ = self
-                        .base
-                        .event_tx
-                        .send(ShellEvent::RequestDropped { id });
+                    let _ = self.base.event_tx.send(ShellEvent::RequestDropped { id });
                     InterceptAction::Drop
                 }
             }

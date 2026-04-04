@@ -195,7 +195,10 @@ impl<'a> HostIntelligence<'a> {
             if let Some(node) = self.graph.get_node(node_id) {
                 outgoing.insert(
                     node_id.clone(),
-                    node.out_edges.iter().map(|edge| edge.target_id.clone()).collect(),
+                    node.out_edges
+                        .iter()
+                        .map(|edge| edge.target_id.clone())
+                        .collect(),
                 );
             } else {
                 outgoing.insert(node_id.clone(), Vec::new());
@@ -226,7 +229,12 @@ impl<'a> HostIntelligence<'a> {
 
             let dangling_sum = nodes
                 .iter()
-                .filter(|id| outgoing.get(*id).map(|targets| targets.is_empty()).unwrap_or(true))
+                .filter(|id| {
+                    outgoing
+                        .get(*id)
+                        .map(|targets| targets.is_empty())
+                        .unwrap_or(true)
+                })
                 .filter_map(|id| scores.get(id))
                 .sum::<f64>();
             let dangling = alpha * dangling_sum / n;
@@ -304,11 +312,7 @@ impl<'a> HostIntelligence<'a> {
         }
 
         let mut ordered: Vec<(String, Vec<String>)> = groups.into_iter().collect();
-        ordered.sort_by(|a, b| {
-            b.1.len()
-                .cmp(&a.1.len())
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        ordered.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then_with(|| a.0.cmp(&b.0)));
 
         let mut assignments = HashMap::new();
         for (index, (_label, members)) in ordered.into_iter().enumerate() {

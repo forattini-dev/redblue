@@ -188,10 +188,7 @@ fn severity_stats(findings: &[Finding]) -> JsonValue {
     ])
 }
 
-fn tool_report_generate(
-    _server: &mut McpServer,
-    args: &JsonValue,
-) -> Result<ToolResult, String> {
+fn tool_report_generate(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
     let target = args
         .get("target")
         .and_then(|v| v.as_str())
@@ -224,7 +221,10 @@ fn tool_report_generate(
                     JsonValue::object(vec![
                         ("target".to_string(), JsonValue::String(target.to_string())),
                         ("format".to_string(), JsonValue::String(format.to_string())),
-                        ("source".to_string(), JsonValue::String("storage".to_string())),
+                        (
+                            "source".to_string(),
+                            JsonValue::String("storage".to_string()),
+                        ),
                         (
                             "findings_count".to_string(),
                             JsonValue::Number(report.base.findings.len() as f64),
@@ -295,7 +295,10 @@ fn tool_report_generate(
         JsonValue::object(vec![
             ("target".to_string(), JsonValue::String(target.to_string())),
             ("format".to_string(), JsonValue::String(format.to_string())),
-            ("source".to_string(), JsonValue::String("provided".to_string())),
+            (
+                "source".to_string(),
+                JsonValue::String("provided".to_string()),
+            ),
             (
                 "findings_count".to_string(),
                 JsonValue::Number(findings.len() as f64),
@@ -381,10 +384,7 @@ fn tool_report_template_list(
     ))
 }
 
-fn tool_report_summary(
-    _server: &mut McpServer,
-    args: &JsonValue,
-) -> Result<ToolResult, String> {
+fn tool_report_summary(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
     let target = args
         .get("target")
         .and_then(|v| v.as_str())
@@ -438,10 +438,7 @@ fn tool_report_summary(
                 "risk_level".to_string(),
                 JsonValue::String(risk_level.to_string()),
             ),
-            (
-                "summary".to_string(),
-                JsonValue::String(summary),
-            ),
+            ("summary".to_string(), JsonValue::String(summary)),
             ("severity_stats".to_string(), stats),
         ]),
     ))

@@ -1163,8 +1163,11 @@ impl MitmProxy {
                             }
                             InterceptAction::Replace(replacement) => {
                                 let replacement = replacement.to_bytes();
-                                config.logger
-                                    .log_response(hostname, resp.status_code, &resp.status_text);
+                                config.logger.log_response(
+                                    hostname,
+                                    resp.status_code,
+                                    &resp.status_text,
+                                );
                                 client.write_all(&replacement)?;
                                 last_request = None;
                                 continue;
@@ -1248,9 +1251,12 @@ impl MitmProxy {
 
                         match request_action {
                             InterceptAction::Continue => {
-                                config
-                                    .logger
-                                    .log_request(hostname, &req.method, &req.path, &req.version);
+                                config.logger.log_request(
+                                    hostname,
+                                    &req.method,
+                                    &req.path,
+                                    &req.version,
+                                );
 
                                 // Check for WebSocket upgrade request
                                 if req.is_websocket_upgrade() {

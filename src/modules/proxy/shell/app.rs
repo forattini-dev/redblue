@@ -1,10 +1,10 @@
 //! Main MITM Shell application
 
-use std::io;
-use std::fs;
-use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::env;
+use std::fs;
+use std::io;
+use std::net::SocketAddr;
 use std::process::Command;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,8 +19,8 @@ use super::interceptor::{InteractiveShellInterceptor, InterceptDecision, ShellEv
 use super::state::{DetailTab, HttpExchange, RequestFilter, ShellState, ShellViewMode};
 use super::ui::ShellUI;
 use crate::crypto::certs::ca::CertificateAuthority;
-use crate::protocols::http::{HttpClient, HttpRequest as ClientRequest};
 use crate::modules::proxy::mitm::{MitmConfig, MitmProxy};
+use crate::protocols::http::{HttpClient, HttpRequest as ClientRequest};
 
 /// MITM Shell application
 pub struct MitmShell {
@@ -384,20 +384,21 @@ impl MitmShell {
             None => return,
         };
 
-        let mut path = if selected.path.starts_with("http://") || selected.path.starts_with("https://") {
-            selected.path.clone()
-        } else {
-            let normalized_path = if selected.path.starts_with('/') {
+        let mut path =
+            if selected.path.starts_with("http://") || selected.path.starts_with("https://") {
                 selected.path.clone()
             } else {
-                format!("/{}", selected.path)
+                let normalized_path = if selected.path.starts_with('/') {
+                    selected.path.clone()
+                } else {
+                    format!("/{}", selected.path)
+                };
+                if selected.host.is_empty() {
+                    normalized_path
+                } else {
+                    format!("https://{}{}", selected.host, normalized_path)
+                }
             };
-            if selected.host.is_empty() {
-                normalized_path
-            } else {
-                format!("https://{}{}", selected.host, normalized_path)
-            }
-        };
 
         if path.is_empty() {
             return;

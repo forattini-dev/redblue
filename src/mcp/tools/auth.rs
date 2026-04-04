@@ -149,14 +149,21 @@ fn tool_auth_test(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResul
                 text,
                 JsonValue::object(vec![
                     ("target".to_string(), JsonValue::String(target.to_string())),
-                    ("username".to_string(), JsonValue::String(username.to_string())),
-                    ("auth_type".to_string(), JsonValue::String("basic".to_string())),
+                    (
+                        "username".to_string(),
+                        JsonValue::String(username.to_string()),
+                    ),
+                    (
+                        "auth_type".to_string(),
+                        JsonValue::String("basic".to_string()),
+                    ),
                     ("success".to_string(), JsonValue::Bool(success)),
                 ]),
             ))
         }
         "digest" => {
-            let success = crate::modules::auth::digest::DigestAuth::test(target, username, password);
+            let success =
+                crate::modules::auth::digest::DigestAuth::test(target, username, password);
 
             let text = if success {
                 format!(
@@ -175,8 +182,14 @@ fn tool_auth_test(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResul
                 text,
                 JsonValue::object(vec![
                     ("target".to_string(), JsonValue::String(target.to_string())),
-                    ("username".to_string(), JsonValue::String(username.to_string())),
-                    ("auth_type".to_string(), JsonValue::String("digest".to_string())),
+                    (
+                        "username".to_string(),
+                        JsonValue::String(username.to_string()),
+                    ),
+                    (
+                        "auth_type".to_string(),
+                        JsonValue::String("digest".to_string()),
+                    ),
                     ("success".to_string(), JsonValue::Bool(success)),
                 ]),
             ))
@@ -197,13 +210,20 @@ fn tool_auth_test(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResul
                 text,
                 JsonValue::object(vec![
                     ("target".to_string(), JsonValue::String(target.to_string())),
-                    ("username".to_string(), JsonValue::String(username.to_string())),
-                    ("auth_type".to_string(), JsonValue::String("form".to_string())),
+                    (
+                        "username".to_string(),
+                        JsonValue::String(username.to_string()),
+                    ),
+                    (
+                        "auth_type".to_string(),
+                        JsonValue::String("form".to_string()),
+                    ),
                     ("success".to_string(), JsonValue::Bool(false)),
                     (
                         "note".to_string(),
                         JsonValue::String(
-                            "Form auth requires field discovery. Use CLI for full support.".to_string(),
+                            "Form auth requires field discovery. Use CLI for full support."
+                                .to_string(),
                         ),
                     ),
                 ]),
@@ -274,9 +294,18 @@ fn tool_auth_spray(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
         text,
         JsonValue::object(vec![
             ("target".to_string(), JsonValue::String(target.to_string())),
-            ("password".to_string(), JsonValue::String(password.to_string())),
-            ("total_tested".to_string(), JsonValue::Number(tested_count as f64)),
-            ("successful".to_string(), JsonValue::Number(success_count as f64)),
+            (
+                "password".to_string(),
+                JsonValue::String(password.to_string()),
+            ),
+            (
+                "total_tested".to_string(),
+                JsonValue::Number(tested_count as f64),
+            ),
+            (
+                "successful".to_string(),
+                JsonValue::Number(success_count as f64),
+            ),
             ("results".to_string(), JsonValue::array(results)),
         ]),
     ))
@@ -323,7 +352,10 @@ fn tool_auth_brute(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
         .collect();
 
     if passwords.is_empty() {
-        return Err(format!("Wordlist '{}' contains no valid passwords.", wordlist_path));
+        return Err(format!(
+            "Wordlist '{}' contains no valid passwords.",
+            wordlist_path
+        ));
     }
 
     let mut tester = HttpAuthTester::new();
@@ -367,8 +399,14 @@ fn tool_auth_brute(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
         text,
         JsonValue::object(vec![
             ("target".to_string(), JsonValue::String(target.to_string())),
-            ("username".to_string(), JsonValue::String(username.to_string())),
-            ("wordlist".to_string(), JsonValue::String(wordlist_path.to_string())),
+            (
+                "username".to_string(),
+                JsonValue::String(username.to_string()),
+            ),
+            (
+                "wordlist".to_string(),
+                JsonValue::String(wordlist_path.to_string()),
+            ),
             ("total_tested".to_string(), JsonValue::Number(tested as f64)),
             (
                 "total_passwords".to_string(),
@@ -384,14 +422,8 @@ fn tool_auth_brute(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
                     .map(|p| JsonValue::String(p))
                     .unwrap_or(JsonValue::Null),
             ),
-            (
-                "rate_limited".to_string(),
-                JsonValue::Bool(rate_limited),
-            ),
-            (
-                "delay_ms".to_string(),
-                JsonValue::Number(delay_ms as f64),
-            ),
+            ("rate_limited".to_string(), JsonValue::Bool(rate_limited)),
+            ("delay_ms".to_string(), JsonValue::Number(delay_ms as f64)),
         ]),
     ))
 }
