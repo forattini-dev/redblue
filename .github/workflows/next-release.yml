@@ -208,7 +208,6 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Set SDK package version
-        working-directory: sdk
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
@@ -220,18 +219,15 @@ jobs:
           EOF
 
       - name: Install SDK dependencies
-        working-directory: sdk
         run: npm install --no-package-lock
 
       - name: Validate SDK package
-        working-directory: sdk
         run: |
           npm run build
           npm run coverage
           npm run pack-check
 
       - name: Publish SDK to NPM (Next)
-        working-directory: sdk
         run: npm publish --tag next --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

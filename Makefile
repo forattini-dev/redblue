@@ -29,9 +29,9 @@ help:
 	@echo "  make sdk-build  - Validate the npm SDK package"
 	@echo "  make sdk-test   - Run SDK package tests"
 	@echo "  make sdk-coverage - Run SDK package coverage with 100% thresholds"
-	@echo "  make sdk-version VERSION=0.1.1 - Set the SDK package version in sdk/package.json"
-	@echo "  make sdk-publish-dry-run VERSION=0.1.1 - Dry-run the SDK npm publish"
-	@echo "  make sdk-publish VERSION=0.1.1 - Publish the SDK package from sdk/ to npm"
+	@echo "  make sdk-version VERSION=0.1.1 - Set the root npm package version"
+	@echo "  make sdk-publish-dry-run VERSION=0.1.1 - Dry-run the root npm publish"
+	@echo "  make sdk-publish VERSION=0.1.1 - Publish the root npm package to npm"
 	@echo "  make sdk-publish-next-dry-run VERSION=0.1.1-next.123 - Dry-run the SDK npm @next publish"
 	@echo "  make sdk-publish-next VERSION=0.1.1-next.123 - Publish the SDK package to npm with the next dist-tag"
 	@echo "  make embeddings - Build documentation embeddings for MCP search"
@@ -217,30 +217,30 @@ which:
 	fi
 
 sdk-build:
-	cd sdk && npm run build && npm run pack-check
+	npm run build && npm run pack-check
 
 sdk-test:
-	cd sdk && npm test
+	npm test
 
 sdk-coverage:
-	cd sdk && npm run coverage
+	npm run coverage
 
 sdk-version:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-version VERSION=0.1.1" && exit 1)
-	cd sdk && npm version $(VERSION) --no-git-tag-version
+	npm version $(VERSION) --no-git-tag-version
 
 sdk-publish-dry-run:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish-dry-run VERSION=0.1.1" && exit 1)
-	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish --dry-run
+	npm version $(VERSION) --no-git-tag-version && npm publish --dry-run
 
 sdk-publish:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish VERSION=0.1.1" && exit 1)
-	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish
+	npm version $(VERSION) --no-git-tag-version && npm publish
 
 sdk-publish-next-dry-run:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish-next-dry-run VERSION=0.1.1-next.123" && exit 1)
-	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish --tag next --dry-run
+	npm version $(VERSION) --no-git-tag-version && npm publish --tag next --dry-run
 
 sdk-publish-next:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish-next VERSION=0.1.1-next.123" && exit 1)
-	cd sdk && npm version $(VERSION) --no-git-tag-version && npm publish --tag next
+	npm version $(VERSION) --no-git-tag-version && npm publish --tag next

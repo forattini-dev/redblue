@@ -15,6 +15,7 @@ Cargo.lock
 *~
 node_modules/
 sdk/node_modules/
+package-lock.json
 sdk/package-lock.json
 
 # OS
@@ -28,7 +29,7 @@ test_results/
 # Security scan results
 scan_results/
 *.json
-!sdk/package.json
+!package.json
 *.csv
 *.xml
 

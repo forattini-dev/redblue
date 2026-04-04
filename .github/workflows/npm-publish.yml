@@ -29,7 +29,6 @@ jobs:
 
       - name: Resolve package version
         id: version
-        working-directory: sdk
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
@@ -52,18 +51,15 @@ jobs:
           EOF
 
       - name: Install SDK dependencies
-        working-directory: sdk
         run: npm install --no-package-lock
 
       - name: Validate SDK package
-        working-directory: sdk
         run: |
           npm run build
           npm run coverage
           npm run pack-check
 
       - name: Publish package
-        working-directory: sdk
         run: npm publish --tag latest --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

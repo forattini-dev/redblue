@@ -3,28 +3,28 @@
   "version": "0.1.0",
   "description": "JavaScript SDK wrapper for the redblue CLI",
   "type": "commonjs",
-  "main": "./redblue-sdk.js",
+  "main": "./sdk/redblue-sdk.js",
   "bin": {
-    "rb": "./redblue-sdk.js",
-    "redblue-cli": "./redblue-sdk.js"
+    "rb": "./sdk/redblue-sdk.js",
+    "redblue-cli": "./sdk/redblue-sdk.js"
   },
   "exports": {
-    ".": "./redblue-sdk.js"
+    ".": "./sdk/redblue-sdk.js"
   },
   "files": [
-    "redblue-sdk.js"
+    "sdk/redblue-sdk.js"
   ],
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@9.15.0",
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/forattini-dev/redblue.git",
-    "directory": "sdk"
+    "url": "git+https://github.com/forattini-dev/redblue.git"
   },
   "bugs": {
     "url": "https://github.com/forattini-dev/redblue/issues"
@@ -44,9 +44,9 @@
     "cli-args-parser": "^1.0.7"
   },
   "scripts": {
-    "build": "node --check redblue-sdk.js",
-    "test": "node --test --test-reporter=spec test/*.test.js",
-    "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-coverage-include=redblue-sdk.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 test/*.test.js",
+    "build": "node --check sdk/redblue-sdk.js",
+    "test": "node --test --test-reporter=spec sdk/test/*.test.js",
+    "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-coverage-include=sdk/redblue-sdk.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 sdk/test/*.test.js",
     "pack-check": "npm pack --dry-run",
     "prepublishOnly": "npm run build && npm run coverage && npm run pack-check",
     "publish:npm": "npm publish --provenance",
