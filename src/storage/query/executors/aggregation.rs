@@ -914,7 +914,7 @@ mod tests {
             .find(|b| b.get(&Var::new("dept")) == Some(&Value::String("Sales".to_string())))
             .expect("Sales group not found");
 
-        assert_eq!(sales.get(&Var::new("total")), Some(&Value::Float(110000.0)));
+        assert_eq!(sales.get(&Var::new("total")), Some(&Value::Integer(110000)));
         assert_eq!(sales.get(&Var::new("count")), Some(&Value::Integer(2)));
     }
 

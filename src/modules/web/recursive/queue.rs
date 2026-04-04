@@ -476,7 +476,7 @@ impl RecursionQueue {
             return url.to_string();
         }
 
-        let (origin, base_path) = Self::parse_url(base).unwrap_or_default();
+        let (origin, base_path) = self.resolve_base_parts(base).unwrap_or_default();
 
         if url.starts_with('/') {
             // Absolute path
@@ -503,6 +503,21 @@ impl RecursionQueue {
             let dir = Self::get_directory_path(&base_path);
             format!("{}{}{}", origin, dir, url)
         }
+    }
+
+    fn resolve_base_parts(&self, base: &str) -> Option<(String, String)> {
+        if let Some(parts) = Self::parse_url(base) {
+            return Some(parts);
+        }
+
+        let origin = self.origin.clone()?;
+        let normalized = if base.starts_with('/') {
+            base.to_string()
+        } else {
+            format!("/{}", base.trim_start_matches('/'))
+        };
+
+        Some((origin, normalized))
     }
 
     /// Parse URL into origin and path

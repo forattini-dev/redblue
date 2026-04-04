@@ -48,7 +48,7 @@ impl BoyerMooreSearcher {
 
         while i < text_len {
             // Read the window to compare
-            let window_start = i - pat_len + 1;
+            let window_start = i + 1 - pat_len;
             let window = buffer.read(window_start, pat_len as usize)?;
 
             if window.len() < self.pattern.len() {

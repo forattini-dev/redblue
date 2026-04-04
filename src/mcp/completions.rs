@@ -762,6 +762,11 @@ impl CompletionProvider {
     /// Get completions for a resource URI prefix
     pub fn complete_resource(&self, uri_prefix: &str) -> Vec<Completion> {
         let mut results = Vec::new();
+        let push_unique = |results: &mut Vec<Completion>, completion: Completion| {
+            if !results.iter().any(|existing| existing.value == completion.value) {
+                results.push(completion);
+            }
+        };
 
         // If empty or just "redblue://", return top-level prefixes
         if uri_prefix.is_empty() || uri_prefix == "redblue://" {
@@ -811,17 +816,34 @@ impl CompletionProvider {
 
         // Find matching prefixes
         for prefix in &self.resource_prefixes {
-            if prefix.prefix.starts_with(uri_prefix) {
+            if uri_prefix == prefix.prefix {
+                if prefix.completions.is_empty() {
+                    push_unique(
+                        &mut results,
+                        Completion {
+                            value: prefix.prefix.clone(),
+                            description: Some(prefix.description.clone()),
+                        },
+                    );
+                } else {
+                    for completion in &prefix.completions {
+                        push_unique(&mut results, completion.clone());
+                    }
+                }
+            } else if prefix.prefix.starts_with(uri_prefix) {
                 // Prefix itself is a completion
-                results.push(Completion {
-                    value: prefix.prefix.clone(),
-                    description: Some(prefix.description.clone()),
-                });
+                push_unique(
+                    &mut results,
+                    Completion {
+                        value: prefix.prefix.clone(),
+                        description: Some(prefix.description.clone()),
+                    },
+                );
             } else if uri_prefix.starts_with(&prefix.prefix) {
                 // We're inside this prefix, return its completions
                 for completion in &prefix.completions {
                     if completion.value.starts_with(uri_prefix) {
-                        results.push(completion.clone());
+                        push_unique(&mut results, completion.clone());
                     }
                 }
             }

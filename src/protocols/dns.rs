@@ -517,8 +517,15 @@ impl DnsClient {
 /// Cryptographically secure random u16 for DNS transaction IDs
 fn rand_u16() -> u16 {
     let mut buf = [0u8; 2];
-    crate::crypto::os_random::fill_bytes(&mut buf);
-    u16::from_ne_bytes(buf)
+    if crate::crypto::os_random::fill_bytes(&mut buf).is_ok() {
+        return u16::from_ne_bytes(buf);
+    }
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    ((nanos ^ (nanos >> 16)) & 0xFFFF) as u16
 }
 
 #[cfg(test)]

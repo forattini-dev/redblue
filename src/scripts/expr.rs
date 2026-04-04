@@ -210,6 +210,12 @@ impl ExprEvaluator {
             return Ok(ExprValue::Number(n));
         }
 
+        if let Some((lhs, rhs)) = Self::split_infix(expr, "contains") {
+            let haystack = self.eval(lhs)?.as_str().to_lowercase();
+            let needle = self.eval(rhs)?.as_str().to_lowercase();
+            return Ok(ExprValue::Bool(haystack.contains(&needle)));
+        }
+
         // Function call
         if let Some(paren_pos) = expr.find('(') {
             if expr.ends_with(')') {
@@ -492,6 +498,38 @@ impl ExprEvaluator {
         }
 
         Ok(args)
+    }
+
+    fn split_infix<'a>(expr: &'a str, operator: &str) -> Option<(&'a str, &'a str)> {
+        let needle = format!(" {} ", operator);
+        let mut depth = 0;
+        let mut in_string = false;
+        let mut string_char = '\0';
+
+        for (idx, ch) in expr.char_indices() {
+            match ch {
+                '"' | '\'' if !in_string => {
+                    in_string = true;
+                    string_char = ch;
+                }
+                c if in_string && c == string_char => {
+                    in_string = false;
+                }
+                '(' if !in_string => depth += 1,
+                ')' if !in_string && depth > 0 => depth -= 1,
+                _ => {}
+            }
+
+            if depth == 0 && !in_string && expr[idx..].starts_with(&needle) {
+                let lhs = expr[..idx].trim();
+                let rhs = expr[idx + needle.len()..].trim();
+                if !lhs.is_empty() && !rhs.is_empty() {
+                    return Some((lhs, rhs));
+                }
+            }
+        }
+
+        None
     }
 
     /// Simple pattern matching (supports * and ? wildcards)

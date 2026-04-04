@@ -259,7 +259,7 @@ impl HexView {
 
     /// Format bytes as ASCII (printable characters only)
     fn format_ascii(&self, bytes: &[u8]) -> String {
-        let mut ascii: String = bytes
+        bytes
             .iter()
             .map(|&b| {
                 if b.is_ascii_graphic() || b == b' ' {
@@ -268,15 +268,7 @@ impl HexView {
                     '.'
                 }
             })
-            .collect();
-
-        // Pad incomplete lines
-        let missing = self.settings.bytes_per_line.saturating_sub(bytes.len());
-        for _ in 0..missing {
-            ascii.push(' ');
-        }
-
-        ascii
+            .collect()
     }
 
     /// Format a single line of hex output

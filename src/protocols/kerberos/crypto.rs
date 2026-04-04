@@ -628,11 +628,6 @@ impl Aes256CtsHmacSha1 {
         let mut plain_with_conf = confounder.to_vec();
         plain_with_conf.extend_from_slice(plaintext);
 
-        // Pad to block boundary if needed
-        let pad_len =
-            (Self::BLOCK_SIZE - (plain_with_conf.len() % Self::BLOCK_SIZE)) % Self::BLOCK_SIZE;
-        plain_with_conf.extend(vec![0u8; pad_len]);
-
         // Encrypt with AES-CBC-CTS
         let iv = [0u8; 16];
         let ciphertext = aes_cbc_cts_encrypt(&ke, &iv, &plain_with_conf);
@@ -745,7 +740,7 @@ fn aes_cbc_cts_encrypt(key: &[u8; 32], iv: &[u8; 16], plaintext: &[u8]) -> Vec<u
     }
 
     // CTS: encrypt all but last partial block with CBC
-    let full_blocks_len = (n_blocks * block_size).min(plaintext.len() - remainder);
+    let full_blocks_len = (n_blocks.saturating_sub(1)) * block_size;
     let mut result = aes_cbc_encrypt(key, iv, &plaintext[..full_blocks_len + block_size]);
 
     // CTS: swap last two blocks and adjust

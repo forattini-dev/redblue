@@ -7,6 +7,16 @@ use super::{Report, Severity};
 pub struct JsonExporter;
 
 impl JsonExporter {
+    fn severity_label(severity: Severity) -> &'static str {
+        match severity {
+            Severity::Critical => "Critical",
+            Severity::High => "High",
+            Severity::Medium => "Medium",
+            Severity::Low => "Low",
+            Severity::Info => "Info",
+        }
+    }
+
     /// Export report to JSON string
     pub fn export(report: &Report) -> String {
         let mut json = String::with_capacity(8192);
@@ -131,7 +141,7 @@ impl JsonExporter {
             ));
             json.push_str(&format!(
                 "      \"severity\": {},\n",
-                Self::escape_string(finding.severity.as_str())
+                Self::escape_string(Self::severity_label(finding.severity))
             ));
             json.push_str(&format!(
                 "      \"description\": {},\n",

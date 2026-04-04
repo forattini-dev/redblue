@@ -718,6 +718,11 @@ impl LinkExtractor {
     /// Check if a link should be included based on config
     fn should_include(&self, link: &ExtractedLink) -> bool {
         let url_lower = link.url.to_lowercase();
+        let allow_excluded_extension = match link.source {
+            LinkSource::Image => self.config.include_images,
+            LinkSource::Resource => self.config.include_resources,
+            _ => false,
+        };
 
         // Check exclude patterns
         for pattern in &self.config.exclude_patterns {
@@ -727,14 +732,16 @@ impl LinkExtractor {
         }
 
         // Check exclude extensions
-        if let Some(ext) = self.get_extension(&link.url) {
-            if self
-                .config
-                .exclude_extensions
-                .iter()
-                .any(|e| e.eq_ignore_ascii_case(&ext))
-            {
-                return false;
+        if !allow_excluded_extension {
+            if let Some(ext) = self.get_extension(&link.url) {
+                if self
+                    .config
+                    .exclude_extensions
+                    .iter()
+                    .any(|e| e.eq_ignore_ascii_case(&ext))
+                {
+                    return false;
+                }
             }
         }
 

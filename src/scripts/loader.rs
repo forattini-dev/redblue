@@ -623,6 +623,13 @@ impl TomlParser {
                         if let Some(last) = tables.last_mut() {
                             last.insert(key.to_string(), value);
                         }
+                    } else if Self::insert_into_array_subtable(
+                        &mut array_tables,
+                        &current_table,
+                        key,
+                        value.clone(),
+                    ) {
+                        continue;
                     } else {
                         // Regular table - ensure it exists
                         Self::ensure_table(&mut root, &current_table);
@@ -664,6 +671,29 @@ impl TomlParser {
         }
 
         Ok(root)
+    }
+
+    fn insert_into_array_subtable(
+        array_tables: &mut HashMap<String, Vec<TomlTable>>,
+        path: &[String],
+        key: &str,
+        value: TomlValue,
+    ) -> bool {
+        for prefix_len in (1..path.len()).rev() {
+            let prefix_key = path[..prefix_len].join(".");
+            if let Some(tables) = array_tables.get_mut(&prefix_key) {
+                if let Some(last) = tables.last_mut() {
+                    let subpath = &path[prefix_len..];
+                    Self::ensure_table(last, subpath);
+                    if let Some(table) = Self::get_table_mut(last, subpath) {
+                        table.insert(key.to_string(), value);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     fn ensure_table(root: &mut TomlTable, path: &[String]) {

@@ -32,6 +32,7 @@ use super::manager::{ManagerConfig, ManagerStats, SegmentManager};
 use super::metadata::{Metadata, MetadataFilter, MetadataValue};
 use super::segment::SegmentError;
 use crate::storage::engine::{BTree, BTreeError, Pager, PagerConfig};
+use crate::storage::engine::pager::PagerError;
 use crate::storage::primitives::encoding::{read_varu32, read_varu64, write_varu32, write_varu64};
 use crate::storage::schema::types::Value;
 
@@ -1268,18 +1269,34 @@ impl UnifiedStore {
                             String::from_utf8_lossy(&content[pos..pos + name_len]).to_string();
                         pos += name_len;
 
-                        let source_collection = self
-                            .get_any(EntityId::new(source_id))
-                            .map(|(name, _)| name)
-                            .unwrap_or_else(|| target_collection.clone());
-                        let _ = self.add_cross_ref(
-                            &source_collection,
-                            EntityId::new(source_id),
-                            &target_collection,
-                            EntityId::new(target_id),
-                            ref_type,
-                            1.0,
-                        );
+                        let source_id = EntityId::new(source_id);
+                        let target_id = EntityId::new(target_id);
+
+                        self.cross_refs
+                            .write()
+                            .unwrap()
+                            .entry(source_id)
+                            .or_default()
+                            .push((target_id, ref_type, target_collection.clone()));
+
+                        if let Some((collection, mut entity)) = self.get_any(source_id) {
+                            let exists = entity.cross_refs.iter().any(|xref| {
+                                xref.target == target_id
+                                    && xref.ref_type == ref_type
+                                    && xref.target_collection == target_collection
+                            });
+                            if !exists {
+                                entity.cross_refs.push(CrossRef::new(
+                                    source_id,
+                                    target_id,
+                                    target_collection.clone(),
+                                    ref_type,
+                                ));
+                                if let Some(manager) = self.get_collection(&collection) {
+                                    let _ = manager.update(entity);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1322,6 +1339,32 @@ impl UnifiedStore {
                 )));
             }
         };
+
+        match pager.read_page(1) {
+            Ok(_) => {}
+            Err(PagerError::PageNotFound(_)) => {
+                let meta_page = pager
+                    .allocate_page(crate::storage::engine::PageType::Header)
+                    .map_err(|e| {
+                        StoreError::Io(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string(),
+                        ))
+                    })?;
+                pager.write_page(meta_page.page_id(), meta_page).map_err(|e| {
+                    StoreError::Io(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ))
+                })?;
+            }
+            Err(e) => {
+                return Err(StoreError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                )));
+            }
+        }
 
         let collections = self.collections.read().unwrap();
         let mut btree_indices = self.btree_indices.write().unwrap();

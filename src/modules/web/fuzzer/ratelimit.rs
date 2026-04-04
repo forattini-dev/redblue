@@ -313,7 +313,7 @@ impl AdaptiveRateLimiter {
         if is_rate_limited && self.config.aggressive_429_backoff {
             // Immediate aggressive backoff on 429
             self.backoff_aggressive();
-        } else if error_ratio > self.config.error_threshold {
+        } else if is_error && error_ratio > self.config.error_threshold {
             // Gradual backoff on high error ratio
             self.backoff();
         } else if !is_error && self.should_recover() {

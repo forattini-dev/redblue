@@ -302,50 +302,51 @@ impl Certificate {
         if let Ok((value, _)) = Asn1Value::decode_der(data) {
             if let Asn1Value::Sequence(items) = value {
                 for item in items {
-                    if let Asn1Value::ContextSpecific { tag, value, .. } = item {
-                        match tag {
-                            2 => {
-                                // dNSName [2] IA5String
-                                if let Asn1Value::Raw(_, data) = value.as_ref() {
-                                    if let Ok(s) = String::from_utf8(data.clone()) {
-                                        names.push(GeneralName::DnsName(s));
-                                    }
-                                }
+                    let (tag, raw_value) = match item {
+                        Asn1Value::ContextSpecific { tag, value, .. } => match *value {
+                            Asn1Value::Raw(_, data) => (tag, data),
+                            Asn1Value::Ia5String(s)
+                            | Asn1Value::Utf8String(s)
+                            | Asn1Value::PrintableString(s) => (tag, s.into_bytes()),
+                            _ => continue,
+                        },
+                        Asn1Value::ContextSpecificRaw { tag, data } => (tag, data),
+                        _ => continue,
+                    };
+
+                    match tag {
+                        2 => {
+                            if let Ok(s) = String::from_utf8(raw_value) {
+                                names.push(GeneralName::DnsName(s));
                             }
-                            7 => {
-                                // iPAddress [7] OCTET STRING
-                                if let Asn1Value::Raw(_, data) = value.as_ref() {
-                                    if data.len() == 4 {
-                                        let ip = IpAddr::V4(std::net::Ipv4Addr::new(
-                                            data[0], data[1], data[2], data[3],
-                                        ));
-                                        names.push(GeneralName::IpAddress(ip));
-                                    } else if data.len() == 16 {
-                                        let mut octets = [0u8; 16];
-                                        octets.copy_from_slice(data);
-                                        let ip = IpAddr::V6(std::net::Ipv6Addr::from(octets));
-                                        names.push(GeneralName::IpAddress(ip));
-                                    }
-                                }
-                            }
-                            1 => {
-                                // rfc822Name [1] IA5String (email)
-                                if let Asn1Value::Raw(_, data) = value.as_ref() {
-                                    if let Ok(s) = String::from_utf8(data.clone()) {
-                                        names.push(GeneralName::Email(s));
-                                    }
-                                }
-                            }
-                            6 => {
-                                // uniformResourceIdentifier [6] IA5String
-                                if let Asn1Value::Raw(_, data) = value.as_ref() {
-                                    if let Ok(s) = String::from_utf8(data.clone()) {
-                                        names.push(GeneralName::Uri(s));
-                                    }
-                                }
-                            }
-                            _ => {}
                         }
+                        7 => {
+                            if raw_value.len() == 4 {
+                                let ip = IpAddr::V4(std::net::Ipv4Addr::new(
+                                    raw_value[0],
+                                    raw_value[1],
+                                    raw_value[2],
+                                    raw_value[3],
+                                ));
+                                names.push(GeneralName::IpAddress(ip));
+                            } else if raw_value.len() == 16 {
+                                let mut octets = [0u8; 16];
+                                octets.copy_from_slice(&raw_value);
+                                let ip = IpAddr::V6(std::net::Ipv6Addr::from(octets));
+                                names.push(GeneralName::IpAddress(ip));
+                            }
+                        }
+                        1 => {
+                            if let Ok(s) = String::from_utf8(raw_value) {
+                                names.push(GeneralName::Email(s));
+                            }
+                        }
+                        6 => {
+                            if let Ok(s) = String::from_utf8(raw_value) {
+                                names.push(GeneralName::Uri(s));
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }

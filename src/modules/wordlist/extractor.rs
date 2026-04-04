@@ -498,7 +498,7 @@ impl WordExtractor {
         let chars: Vec<char> = content.chars().collect();
 
         while i < chars.len() {
-            if i + 7 < chars.len() {
+            if i + 7 <= chars.len() {
                 let slice: String = chars[i..i + 7].iter().collect();
                 if slice.to_lowercase() == "<script" {
                     // Find the end of opening tag
@@ -510,7 +510,7 @@ impl WordExtractor {
                 }
             }
 
-            if i + 9 < chars.len() {
+            if i + 9 <= chars.len() {
                 let slice: String = chars[i..i + 9].iter().collect();
                 if slice.to_lowercase() == "</script>" {
                     // Process script content

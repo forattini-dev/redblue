@@ -18,10 +18,10 @@
 //! - SSH port open → ssh-credential-test
 //! - Web ports open → web-app-assessment, webshell-upload
 //! - Critical CVE → reverse-shell-*, webshell-upload
-//! - Windows detected → windows-privesc, reverse-shell-windows
+//! - Windows detected → windows-privesc-assessment, reverse-shell-windows
 //! - Linux detected → linux-privesc, reverse-shell-linux
 //! - Domain recon → external-footprint
-//! - Internal network → internal-recon, lateral-movement
+//! - Internal network → internal-network-recon, lateral-movement
 
 use super::apt_catalog::all_apt_playbooks;
 use super::catalog::all_playbooks;
@@ -284,7 +284,7 @@ impl PlaybookRecommender {
 
         // === INTERNAL NETWORK SCORING ===
         if findings.is_internal
-            && (playbook.metadata.id == "internal-recon"
+            && (playbook.metadata.id == "internal-network-recon"
                 || playbook.metadata.id == "lateral-movement")
         {
             score += 30;
@@ -360,14 +360,15 @@ impl PlaybookRecommender {
                 score += 20;
                 reasons.push("SMB suggests Windows host".to_string());
             }
-            if pb_id == "windows-privesc" {
+            if pb_id == "windows-privesc-assessment" {
                 score += 15;
                 reasons.push("SMB suggests Windows for privesc".to_string());
             }
         }
 
         // RDP
-        if has_rdp && (pb_id == "reverse-shell-windows" || pb_id == "windows-privesc") {
+        if has_rdp && (pb_id == "reverse-shell-windows" || pb_id == "windows-privesc-assessment")
+        {
             score += 25;
             reasons.push("RDP port (3389) suggests Windows".to_string());
         }
@@ -465,7 +466,7 @@ impl PlaybookRecommender {
                         score += 30;
                         reasons.push("Windows OS detected".to_string());
                     }
-                    if pb_id == "windows-privesc" {
+                    if pb_id == "windows-privesc-assessment" {
                         score += 30;
                         reasons.push("Windows detected for privilege escalation".to_string());
                     }
@@ -584,7 +585,7 @@ impl PlaybookRecommender {
                     }
                 }
                 TargetType::Internal => {
-                    if pb_id == "internal-recon" {
+                    if pb_id == "internal-network-recon" {
                         score += 40;
                         reasons.push("Internal network target".to_string());
                     }
@@ -1140,11 +1141,11 @@ mod tests {
         let win_rec = result
             .recommendations
             .iter()
-            .find(|r| r.playbook_id == "windows-privesc");
+            .find(|r| r.playbook_id == "windows-privesc-assessment");
 
         assert!(
             win_rec.is_some(),
-            "Should recommend windows-privesc for Windows host"
+            "Should recommend windows-privesc-assessment for Windows host"
         );
     }
 
@@ -1186,11 +1187,11 @@ mod tests {
         let internal_rec = result
             .recommendations
             .iter()
-            .find(|r| r.playbook_id == "internal-recon");
+            .find(|r| r.playbook_id == "internal-network-recon");
 
         assert!(
             internal_rec.is_some(),
-            "Should recommend internal-recon for internal network"
+            "Should recommend internal-network-recon for internal network"
         );
     }
 

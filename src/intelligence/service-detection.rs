@@ -106,7 +106,7 @@ pub fn detect_service(
             info.version = service_info.version;
             info.os_hint = service_info.os_hint;
             info.detection_methods.push("Banner analysis".to_string());
-            info.confidence = info.confidence.max(0.8);
+            info.confidence = info.confidence.max(service_info.confidence);
         }
     }
 

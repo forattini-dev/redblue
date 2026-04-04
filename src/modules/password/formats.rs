@@ -793,7 +793,7 @@ mod tests {
     fn test_ntlm_hash() {
         // Known NTLM hash for "password"
         let hash = ntlm_hash("password");
-        assert_eq!(hash, "A4F49C406510BDCAB6824EE7C30FD852");
+        assert_eq!(hash, "8846F7EAEE8FB117AD06BDD830B7586C");
     }
 
     #[test]

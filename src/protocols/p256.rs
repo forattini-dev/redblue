@@ -16,6 +16,9 @@
 //! - FIPS 186-4: Digital Signature Standard (DSS)
 
 use crate::crypto::bigint::BigInt;
+use boring::bn::{BigNum, BigNumContext};
+use boring::ec::{EcGroup, EcPoint, PointConversionForm};
+use boring::nid::Nid;
 use std::sync::OnceLock;
 
 /// P-256 field prime: 2^256 - 2^224 + 2^192 + 2^96 - 1
@@ -299,6 +302,35 @@ impl FieldElement {
 }
 
 impl P256Point {
+    fn curve_group() -> Result<EcGroup, String> {
+        EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)
+            .map_err(|e| format!("P-256 group init failed: {}", e))
+    }
+
+    fn from_openssl_point(
+        group: &EcGroup,
+        point: &EcPoint,
+        ctx: &mut BigNumContext,
+    ) -> Result<Self, String> {
+        let bytes = point
+            .to_bytes(group, PointConversionForm::UNCOMPRESSED, ctx)
+            .map_err(|e| format!("Point serialization failed: {}", e))?;
+        Self::from_uncompressed_bytes_unchecked(&bytes)
+    }
+
+    fn to_openssl_point(
+        &self,
+        group: &EcGroup,
+        ctx: &mut BigNumContext,
+    ) -> Result<EcPoint, String> {
+        if self.is_infinity {
+            return EcPoint::new(group).map_err(|e| format!("Point allocation failed: {}", e));
+        }
+
+        EcPoint::from_bytes(group, &self.to_uncompressed_bytes(), ctx)
+            .map_err(|e| format!("Point import failed: {}", e))
+    }
+
     /// Point at infinity (identity element)
     pub fn infinity() -> Self {
         P256Point {
@@ -421,6 +453,24 @@ impl P256Point {
 
     /// Scalar multiplication: k * P using double-and-add algorithm
     pub fn scalar_mul(&self, scalar: &[u8; 32]) -> Self {
+        if let Ok(group) = Self::curve_group() {
+            if let Ok(mut ctx) = BigNumContext::new() {
+                if let Ok(bn) = BigNum::from_slice(scalar) {
+                    if let Ok(point) = self.to_openssl_point(&group, &mut ctx) {
+                        if let Ok(mut result) = EcPoint::new(&group) {
+                            if result.mul(&group, &point, &bn, &ctx).is_ok() {
+                                if let Ok(converted) =
+                                    Self::from_openssl_point(&group, &result, &mut ctx)
+                                {
+                                    return converted;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut result = Self::infinity();
         let mut temp = *self;
 
@@ -452,6 +502,18 @@ impl P256Point {
 
     /// Parse point from uncompressed format (0x04 || x || y)
     pub fn from_uncompressed_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if let Ok(group) = Self::curve_group() {
+            let mut ctx =
+                BigNumContext::new().map_err(|e| format!("Point context init failed: {}", e))?;
+            let point = EcPoint::from_bytes(&group, bytes, &mut ctx)
+                .map_err(|e| format!("Invalid P-256 point: {}", e))?;
+            return Self::from_openssl_point(&group, &point, &mut ctx);
+        }
+
+        Self::from_uncompressed_bytes_fallback(bytes)
+    }
+
+    fn from_uncompressed_bytes_unchecked(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() != 65 {
             return Err(format!("Invalid point length: {}", bytes.len()));
         }
@@ -465,14 +527,15 @@ impl P256Point {
         x_bytes.copy_from_slice(&bytes[1..33]);
         y_bytes.copy_from_slice(&bytes[33..65]);
 
-        let x = FieldElement::from_bytes(&x_bytes);
-        let y = FieldElement::from_bytes(&y_bytes);
-
-        let point = P256Point {
-            x,
-            y,
+        Ok(P256Point {
+            x: FieldElement::from_bytes(&x_bytes),
+            y: FieldElement::from_bytes(&y_bytes),
             is_infinity: false,
-        };
+        })
+    }
+
+    fn from_uncompressed_bytes_fallback(bytes: &[u8]) -> Result<Self, String> {
+        let point = Self::from_uncompressed_bytes_unchecked(bytes)?;
 
         if !point.is_on_curve() {
             return Err("Point is not on P-256 curve".to_string());

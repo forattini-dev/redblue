@@ -3,11 +3,14 @@
 //! Stores scan progress, configuration, and state for resuming interrupted scans.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::storage::primitives::encoding::{
     read_string, read_varu32, read_varu64, write_string, write_varu32, write_varu64, DecodeError,
 };
+
+static SCAN_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ==================== Scan Type ====================
 
@@ -196,12 +199,8 @@ impl ScanState {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-
-        // Simple ID: timestamp + random suffix
-        let random: u32 = (timestamp as u32)
-            .wrapping_mul(1103515245)
-            .wrapping_add(12345);
-        format!("{:x}{:06x}", timestamp, random & 0xFFFFFF)
+        let counter = SCAN_ID_COUNTER.fetch_add(1, Ordering::Relaxed) & 0xFFFFFF;
+        format!("{:x}{:06x}", timestamp, counter)
     }
 
     /// Update checkpoint timestamp

@@ -221,7 +221,7 @@ mod tests {
     fn test_init_command_flags() {
         let cmd = InitCommand;
         let flags = cmd.flags();
-        assert_eq!(flags.len(), 2);
+        assert_eq!(flags.len(), 3);
 
         // Check --force flag
         let force_flag = flags.iter().find(|f| f.long == "force");

@@ -201,11 +201,19 @@ fn extract_target_identifier(target: &str) -> Option<String> {
         .split(['/', '?', '#'])
         .next()
         .unwrap_or(without_user);
-    let host_str = if base.starts_with('[') && base.ends_with(']') {
-        base.trim_start_matches('[').trim_end_matches(']')
-    } else if let Some(idx) = base.rfind(':') {
-        if base[idx + 1..].chars().all(|ch| ch.is_ascii_digit()) {
-            &base[..idx]
+    let host_str = if let Some(rest) = base.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            &rest[..end]
+        } else {
+            base
+        }
+    } else if base.matches(':').count() == 1 {
+        if let Some(idx) = base.rfind(':') {
+            if base[idx + 1..].chars().all(|ch| ch.is_ascii_digit()) {
+                &base[..idx]
+            } else {
+                base
+            }
         } else {
             base
         }

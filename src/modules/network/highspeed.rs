@@ -45,29 +45,43 @@ use std::time::{Duration, Instant};
 /// Complexity: O(1) per lookup
 pub struct BlackRock {
     range: u64,
-    seed: u64,
-    /// Pre-computed half-widths for Feistel rounds
-    a_bits: u32,
-    b_bits: u32,
-    a_mask: u64,
-    b_mask: u64,
+    domain_mask: u64,
+    multiplier: u64,
+    offset: u64,
+    inverse_multiplier: u64,
 }
 
 impl BlackRock {
     /// Create a new BlackRock cipher for the given range
     pub fn new(range: u64, seed: u64) -> Self {
-        // Split range into two halves for Feistel network
-        let total_bits = 64 - range.leading_zeros();
-        let a_bits = total_bits / 2;
-        let b_bits = total_bits - a_bits;
+        if range <= 1 {
+            return Self {
+                range,
+                domain_mask: 0,
+                multiplier: 1,
+                offset: 0,
+                inverse_multiplier: 1,
+            };
+        }
+
+        let domain = range.checked_next_power_of_two().unwrap_or(0);
+        let domain_mask = domain.wrapping_sub(1);
+        let multiplier = seed
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .wrapping_add(0x5851_F42D_4C95_7F2D)
+            | 1;
+        let offset = seed
+            .rotate_left(17)
+            .wrapping_add(0x1405_7B7E_F767_814F)
+            & domain_mask;
+        let inverse_multiplier = Self::mod_inverse_odd(multiplier);
 
         Self {
             range,
-            seed,
-            a_bits,
-            b_bits,
-            a_mask: (1u64 << a_bits) - 1,
-            b_mask: (1u64 << b_bits) - 1,
+            domain_mask,
+            multiplier,
+            offset,
+            inverse_multiplier,
         }
     }
 
@@ -84,7 +98,7 @@ impl BlackRock {
 
         // Keep shuffling until we get a value within range
         loop {
-            value = self.feistel_round(value);
+            value = self.permute(value);
             if value < self.range {
                 return value;
             }
@@ -101,57 +115,31 @@ impl BlackRock {
 
         // Reverse the Feistel network
         loop {
-            value = self.feistel_round_reverse(value);
+            value = self.inverse_permute(value);
             if value < self.range {
                 return value;
             }
         }
     }
 
-    /// 4-round Feistel network
-    fn feistel_round(&self, x: u64) -> u64 {
-        let mut left = x >> self.b_bits;
-        let mut right = x & self.b_mask;
-
-        // 4 rounds of Feistel
-        for round in 0..4 {
-            let f = self.round_function(right, round);
-            let new_left = right;
-            let new_right = (left ^ f) & self.a_mask;
-            left = new_left;
-            right = new_right;
-        }
-
-        (left << self.b_bits) | right
+    fn permute(&self, x: u64) -> u64 {
+        x.wrapping_mul(self.multiplier)
+            .wrapping_add(self.offset)
+            & self.domain_mask
     }
 
-    /// Reverse Feistel network
-    fn feistel_round_reverse(&self, x: u64) -> u64 {
-        let mut left = x >> self.b_bits;
-        let mut right = x & self.b_mask;
-
-        // Reverse 4 rounds
-        for round in (0..4).rev() {
-            let f = self.round_function(left, round);
-            let new_right = left;
-            let new_left = (right ^ f) & self.a_mask;
-            left = new_left;
-            right = new_right;
-        }
-
-        (left << self.b_bits) | right
+    fn inverse_permute(&self, x: u64) -> u64 {
+        x.wrapping_sub(self.offset)
+            .wrapping_mul(self.inverse_multiplier)
+            & self.domain_mask
     }
 
-    /// Round function using SipHash-like mixing
-    fn round_function(&self, value: u64, round: u32) -> u64 {
-        let mut v = value;
-        v = v.wrapping_mul(0x517cc1b727220a95);
-        v = v.wrapping_add(self.seed);
-        v = v.wrapping_add(round as u64);
-        v ^= v >> 33;
-        v = v.wrapping_mul(0xff51afd7ed558ccd);
-        v ^= v >> 33;
-        v & self.a_mask
+    fn mod_inverse_odd(value: u64) -> u64 {
+        let mut inverse = value;
+        for _ in 0..6 {
+            inverse = inverse.wrapping_mul(2u64.wrapping_sub(value.wrapping_mul(inverse)));
+        }
+        inverse
     }
 }
 

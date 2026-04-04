@@ -102,7 +102,7 @@ impl Default for SimhashConfig {
             normalize_whitespace: true,
             lowercase: true,
             strip_html: true,
-            min_content_length: 100,
+            min_content_length: 16,
         }
     }
 }

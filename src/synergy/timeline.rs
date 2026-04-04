@@ -389,7 +389,7 @@ impl Timeline {
 
                 // Source filter
                 if let Some(ref source) = query.source {
-                    if !entry.source.contains(source) {
+                    if entry.source != *source {
                         return false;
                     }
                 }

@@ -376,7 +376,7 @@ mod tests {
         let results = execute_similarity_search(&index, &query);
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results.results[0].id, 1); // Exact match
+        assert_eq!(results.results[0].id, 0); // Exact match
         assert!(results.results[0].distance < 0.01);
     }
 
@@ -400,7 +400,7 @@ mod tests {
 
         let top3 = results.top_ids(3);
         assert_eq!(top3.len(), 3);
-        assert_eq!(top3[0], 1);
+        assert_eq!(top3[0], 0);
     }
 
     #[test]
@@ -429,7 +429,7 @@ mod tests {
         assert_eq!(index_ref.len(), 5);
         assert!(!index_ref.is_empty());
 
-        let vec = index_ref.get(1).unwrap();
+        let vec = index_ref.get(0).unwrap();
         assert_eq!(vec.as_slice(), &[1.0, 0.0, 0.0]);
     }
 

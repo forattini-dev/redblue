@@ -108,18 +108,59 @@ impl ContextResolver {
 
         // Default logic based on target
         let target_lower = target.to_lowercase();
+        let host = Self::extract_host(&target_lower);
 
         // Internal/local targets can use larger wordlists
-        if target_lower.contains("localhost")
-            || target_lower.contains("127.0.0.1")
-            || target_lower.starts_with("192.168.")
-            || target_lower.starts_with("10.")
-        {
+        if Self::is_local_host(&target_lower) || Self::is_local_host(&host) {
             return WordlistSize::Large;
         }
 
         // External targets default to medium
         WordlistSize::Medium
+    }
+
+    fn extract_host(target: &str) -> String {
+        let without_scheme = target.split("://").nth(1).unwrap_or(target);
+        let without_user = without_scheme
+            .split('@')
+            .next_back()
+            .unwrap_or(without_scheme);
+        let base = without_user
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or(without_user);
+
+        if let Some(rest) = base.strip_prefix('[') {
+            if let Some(end) = rest.find(']') {
+                return rest[..end].to_string();
+            }
+        }
+
+        if base.matches(':').count() == 1 {
+            return base.split(':').next().unwrap_or(base).to_string();
+        }
+
+        base.to_string()
+    }
+
+    fn is_local_host(host: &str) -> bool {
+        if host.contains("localhost") || host.starts_with("127.") || host.starts_with("10.") {
+            return true;
+        }
+
+        if host.starts_with("192.168.") {
+            return true;
+        }
+
+        if let Some(rest) = host.strip_prefix("172.") {
+            if let Some(octet) = rest.split('.').next() {
+                if let Ok(value) = octet.parse::<u8>() {
+                    return (16..=31).contains(&value);
+                }
+            }
+        }
+
+        false
     }
 
     /// Get recommended wordlist paths for a context

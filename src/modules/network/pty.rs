@@ -265,18 +265,35 @@ impl PtyManager {
             unsafe {
                 let mut winsize: libc::winsize = std::mem::zeroed();
 
-                if libc::ioctl(stdout_fd, libc::TIOCGWINSZ, &mut winsize) < 0 {
-                    return Err("ioctl TIOCGWINSZ failed".to_string());
+                if libc::ioctl(stdout_fd, libc::TIOCGWINSZ, &mut winsize) == 0
+                    && winsize.ws_row > 0
+                    && winsize.ws_col > 0
+                {
+                    return Ok((winsize.ws_row, winsize.ws_col));
                 }
-
-                Ok((winsize.ws_row, winsize.ws_col))
             }
+
+            Ok(Self::fallback_terminal_size())
         }
 
         #[cfg(not(unix))]
         {
-            Ok((24, 80)) // Default size
+            Ok(Self::fallback_terminal_size())
         }
+    }
+
+    fn fallback_terminal_size() -> (u16, u16) {
+        let rows = std::env::var("LINES")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(24);
+        let cols = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(80);
+        (rows, cols)
     }
 
     /// Send terminal size to PTY

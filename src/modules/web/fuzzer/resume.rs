@@ -7,7 +7,10 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+static SCAN_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Unique identifier for a scan
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,11 +23,8 @@ impl ScanId {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-
-        // Simple random component using timestamp
-        let random = (timestamp % 0xFFFF) ^ ((timestamp >> 16) % 0xFFFF);
-
-        Self(format!("{:016x}{:04x}", timestamp, random))
+        let counter = SCAN_ID_COUNTER.fetch_add(1, Ordering::Relaxed) & 0xFFFFFF;
+        Self(format!("{:016x}{:06x}", timestamp, counter))
     }
 
     /// Create from an existing ID string

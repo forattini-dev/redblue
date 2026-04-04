@@ -200,6 +200,12 @@ impl Codec for Base85Codec {
 
         // Handle partial final block
         if remainder > 0 {
+            if remainder == 1 {
+                return Err(CodecError::InvalidInput(
+                    "Invalid final Base85 block length".into(),
+                ));
+            }
+
             // Pad with 'u' (84 in ASCII85) or highest Z85 char
             let pad_char = match self.variant {
                 Base85Variant::Ascii85 => b'u',
@@ -215,8 +221,7 @@ impl Codec for Base85Codec {
             let bytes = value.to_be_bytes();
 
             // Only output the bytes we actually have
-            let output_len = remainder * 4 / 5 + 1;
-            result.extend_from_slice(&bytes[..output_len.min(4)]);
+            result.extend_from_slice(&bytes[..(remainder - 1)]);
         }
 
         Ok(result)

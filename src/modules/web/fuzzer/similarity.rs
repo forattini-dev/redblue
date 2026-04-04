@@ -75,10 +75,10 @@ pub struct SimilarityConfig {
 impl Default for SimilarityConfig {
     fn default() -> Self {
         Self {
-            threshold: 3,
+            threshold: 6,
             baseline_samples: 3,
             auto_calibrate: true,
-            min_content_length: 100,
+            min_content_length: 16,
             per_status_baselines: true,
             simhash_config: SimhashConfig::default(),
         }
@@ -295,7 +295,7 @@ impl SimilarityFilter {
         // Set threshold to be slightly above the maximum baseline variance
         // This ensures baselines are considered similar while unique responses
         // are allowed through
-        self.calibrated_threshold = Some(max_distance.saturating_add(2).min(15));
+        self.calibrated_threshold = Some(max_distance.saturating_add(4).min(15));
     }
 
     /// Check if a response is similar to any baseline

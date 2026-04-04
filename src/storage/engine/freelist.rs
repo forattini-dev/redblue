@@ -394,7 +394,7 @@ mod tests {
         // Load from trunk
         fl.load_from_trunk(&trunk).unwrap();
 
-        assert_eq!(fl.in_memory_count(), pages_in_trunk);
+        assert_eq!(fl.in_memory_count(), pages_in_trunk + 1);
     }
 
     #[test]

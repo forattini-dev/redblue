@@ -473,41 +473,32 @@ pub fn parse_tcp_flags(s: &str) -> u8 {
     let mut flags = 0u8;
     let s_upper = s.to_uppercase();
 
-    if s_upper.contains("FIN") {
-        flags |= TCP_FIN;
-    }
-    if s_upper.contains("SYN") {
-        flags |= TCP_SYN;
-    }
-    if s_upper.contains("RST") {
-        flags |= TCP_RST;
-    }
-    if s_upper.contains("PSH") {
-        flags |= TCP_PSH;
-    }
-    if s_upper.contains("ACK") {
-        flags |= TCP_ACK;
-    }
-    if s_upper.contains("URG") {
-        flags |= TCP_URG;
-    }
-    if s_upper.contains("ECE") {
-        flags |= TCP_ECE;
-    }
-    if s_upper.contains("CWR") {
-        flags |= TCP_CWR;
-    }
-
-    // Also support single-letter abbreviations: SAFPRU
-    for c in s.chars() {
-        match c {
-            'S' => flags |= TCP_SYN,
-            'A' => flags |= TCP_ACK,
-            'F' => flags |= TCP_FIN,
-            'P' => flags |= TCP_PSH,
-            'R' => flags |= TCP_RST,
-            'U' => flags |= TCP_URG,
-            _ => {}
+    for token in s_upper
+        .split(|c: char| c == ',' || c == '|' || c.is_ascii_whitespace())
+        .filter(|token| !token.is_empty())
+    {
+        match token {
+            "FIN" => flags |= TCP_FIN,
+            "SYN" => flags |= TCP_SYN,
+            "RST" => flags |= TCP_RST,
+            "PSH" => flags |= TCP_PSH,
+            "ACK" => flags |= TCP_ACK,
+            "URG" => flags |= TCP_URG,
+            "ECE" => flags |= TCP_ECE,
+            "CWR" => flags |= TCP_CWR,
+            _ => {
+                for c in token.chars() {
+                    match c {
+                        'S' => flags |= TCP_SYN,
+                        'A' => flags |= TCP_ACK,
+                        'F' => flags |= TCP_FIN,
+                        'P' => flags |= TCP_PSH,
+                        'R' => flags |= TCP_RST,
+                        'U' => flags |= TCP_URG,
+                        _ => {}
+                    }
+                }
+            }
         }
     }
 
