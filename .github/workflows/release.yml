@@ -78,24 +78,6 @@ jobs:
             asset_name: rb-linux-aarch64-static
             cross: true
 
-          # macOS x86_64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            binary_name: redblue
-            asset_name: rb-macos-x86_64
-
-          # macOS ARM64 (Apple Silicon)
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            binary_name: redblue
-            asset_name: rb-macos-aarch64
-
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary_name: redblue.exe
-            asset_name: rb-windows-x86_64.exe
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -115,16 +97,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
-
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install ninja
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install nasm ninja
 
       - name: Install cross-compilation tools
         if: matrix.cross
@@ -172,10 +144,6 @@ jobs:
             arm-linux-gnueabihf-strip target/${{ matrix.target }}/release/${{ matrix.binary_name }} || true
           fi
 
-      - name: Strip binary (macOS)
-        if: runner.os == 'macOS'
-        run: strip target/${{ matrix.target }}/release/${{ matrix.binary_name }}
-
       - name: Prepare binary
         shell: bash
         run: |
@@ -184,7 +152,7 @@ jobs:
 
 
       - name: Verify Self (Smoke Test)
-        if: "!matrix.cross && runner.os != 'Windows'"
+        if: "!matrix.cross"
         shell: bash
         run: |
           # Extract hash from the generated .sha256 file (first field)
@@ -195,7 +163,7 @@ jobs:
           ./${{ matrix.asset_name }} crypto hash verify ${{ matrix.asset_name }} $HASH
 
       - name: Evasion Build Info
-        if: "!matrix.cross && runner.os != 'Windows'"
+        if: "!matrix.cross"
         shell: bash
         run: |
           echo "### Build Mutation Info"
@@ -306,19 +274,6 @@ jobs:
             curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-linux-aarch64 -o rb
             chmod +x rb
             sudo mv rb /usr/local/bin/
-
-            # macOS (Intel)
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-macos-x86_64 -o rb
-            chmod +x rb
-            sudo mv rb /usr/local/bin/
-
-            # macOS (Apple Silicon)
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-macos-aarch64 -o rb
-            chmod +x rb
-            sudo mv rb /usr/local/bin/
-
-            # Windows
-            # Download rb-windows-x86_64.exe, rename to rb.exe, add to PATH
             ```
 
             ## Verify Installation
