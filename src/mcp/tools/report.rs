@@ -7,7 +7,7 @@ use crate::mcp::types::{ToolDefinition, ToolField, ToolResult};
 use crate::mcp::McpServer;
 use crate::modules::common::Severity;
 use crate::modules::report::pentest::PentestReport;
-use crate::modules::report::{Finding, Report};
+use crate::modules::report::Finding;
 use crate::utils::json::JsonValue;
 
 /// Register report tools with the server
