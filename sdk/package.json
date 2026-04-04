@@ -1,0 +1,44 @@
+{
+  "name": "redblue-wrapper",
+  "version": "0.1.0",
+  "description": "JavaScript SDK wrapper for the redblue CLI",
+  "type": "commonjs",
+  "main": "./redblue-sdk.js",
+  "exports": {
+    ".": "./redblue-sdk.js"
+  },
+  "files": [
+    "redblue-sdk.js"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forattini-dev/redblue.git",
+    "directory": "sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/forattini-dev/redblue/issues"
+  },
+  "homepage": "https://github.com/forattini-dev/redblue",
+  "keywords": [
+    "redblue",
+    "security",
+    "cli",
+    "sdk",
+    "dns",
+    "tls",
+    "ports"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "node --check redblue-sdk.js",
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-coverage-include=redblue-sdk.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 test/*.test.js",
+    "pack-check": "npm pack --dry-run"
+  }
+}
