@@ -1,7 +1,9 @@
 use super::{Accessor, AccessorInfo, AccessorResult};
-use crate::json;
-use crate::serde_json::Value;
 use std::collections::HashMap;
+
+#[cfg(target_os = "windows")]
+use crate::serde_json::Value;
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 pub struct RegistryAccessor;

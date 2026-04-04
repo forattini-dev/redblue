@@ -384,21 +384,21 @@ impl MitmShell {
             None => return,
         };
 
-        let mut path =
-            if selected.path.starts_with("http://") || selected.path.starts_with("https://") {
+        let path = if selected.path.starts_with("http://") || selected.path.starts_with("https://")
+        {
+            selected.path.clone()
+        } else {
+            let normalized_path = if selected.path.starts_with('/') {
                 selected.path.clone()
             } else {
-                let normalized_path = if selected.path.starts_with('/') {
-                    selected.path.clone()
-                } else {
-                    format!("/{}", selected.path)
-                };
-                if selected.host.is_empty() {
-                    normalized_path
-                } else {
-                    format!("https://{}{}", selected.host, normalized_path)
-                }
+                format!("/{}", selected.path)
             };
+            if selected.host.is_empty() {
+                normalized_path
+            } else {
+                format!("https://{}{}", selected.host, normalized_path)
+            }
+        };
 
         if path.is_empty() {
             return;

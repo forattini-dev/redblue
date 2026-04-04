@@ -290,7 +290,7 @@ impl Pinger {
                 .ok_or_else(|| format!("No IP addresses found for host '{}'", host))?
         };
 
-        let mut pinger = IcmpPinger::new(ip)
+        let pinger = IcmpPinger::new(ip)
             .with_timeout(self.timeout)
             .with_packet_size(self.packet_size);
         let mut results = Vec::new();

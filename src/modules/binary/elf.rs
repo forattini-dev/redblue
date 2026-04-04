@@ -257,7 +257,7 @@ impl ElfParser {
     /// Parse ELF binary
     pub fn parse(path: PathBuf, data: Vec<u8>, format: BinaryFormat) -> BinaryResult<Binary> {
         // Validate magic
-        if data.len() < 16 || &data[0..4] != ELF_MAGIC {
+        if data.len() < 16 || data[0..4] != ELF_MAGIC {
             return Err(BinaryError::InvalidHeader("Invalid ELF magic".into()));
         }
 

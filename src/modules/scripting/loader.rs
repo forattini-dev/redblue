@@ -5,7 +5,7 @@ use super::{definitions, engine::Script, engine::ScriptStep};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Load built-in scripts
 pub fn load_builtin_scripts() -> Vec<Script> {

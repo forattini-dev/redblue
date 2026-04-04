@@ -1262,7 +1262,7 @@ pub fn cmd_import(ctx: &CliContext) -> Result<(), String> {
         .map(|s| s.as_str())
         .unwrap_or(".redblue/graph.db");
 
-    let mut graph = load_graph(db_path)?;
+    let graph = load_graph(db_path)?;
 
     let (nodes, edges) = match format.as_str() {
         "json" => parse_json_graph(&content)?,

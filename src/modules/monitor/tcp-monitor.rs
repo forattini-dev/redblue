@@ -1,7 +1,7 @@
 /// TCP Stream Monitoring and Analysis
 /// Monitor TCP connections, track states, analyze traffic patterns
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 /// TCP Connection State (RFC 793)

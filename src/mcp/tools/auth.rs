@@ -362,7 +362,7 @@ fn tool_auth_brute(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
     let mut rate_limiter = RateLimiter::new(delay_ms);
     let mut tested = 0;
     let mut found_password: Option<String> = None;
-    let mut rate_limited = false;
+    let rate_limited = false;
 
     for password in &passwords {
         rate_limiter.wait();

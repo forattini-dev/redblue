@@ -95,7 +95,7 @@ impl PeParser {
     /// Parse PE binary
     pub fn parse(path: PathBuf, data: Vec<u8>, format: BinaryFormat) -> BinaryResult<Binary> {
         // Validate DOS header
-        if data.len() < 64 || &data[0..2] != DOS_MAGIC {
+        if data.len() < 64 || data[0..2] != DOS_MAGIC {
             return Err(BinaryError::InvalidHeader("Invalid DOS header".into()));
         }
 
@@ -107,7 +107,7 @@ impl PeParser {
         ) as usize;
 
         // Validate PE signature
-        if data.len() < pe_offset + 4 || &data[pe_offset..pe_offset + 4] != PE_SIGNATURE {
+        if data.len() < pe_offset + 4 || data[pe_offset..pe_offset + 4] != PE_SIGNATURE {
             return Err(BinaryError::InvalidHeader("Invalid PE signature".into()));
         }
 
