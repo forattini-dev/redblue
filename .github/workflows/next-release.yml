@@ -120,6 +120,9 @@ jobs:
     name: Create Next Release
     needs: [check-build, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -198,6 +201,64 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup Node.js (NPM Registry)
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set SDK package version
+        working-directory: sdk
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = process.env.VERSION;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          EOF
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: npm install --no-package-lock
+
+      - name: Validate SDK package
+        working-directory: sdk
+        run: |
+          npm run build
+          npm run coverage
+          npm run pack-check
+
+      - name: Publish SDK to NPM (Next)
+        working-directory: sdk
+        run: npm publish --tag next --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published next package
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Waiting for npm registry to update..."
+          PUBLISHED_VERSION=""
+          for attempt in 1 2 3 4 5 6; do
+            PUBLISHED_VERSION=$(npm view redblue-cli@next version 2>/dev/null || true)
+            if [ "$PUBLISHED_VERSION" = "$EXPECTED_VERSION" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$PUBLISHED_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::warning::Expected next dist-tag to be $EXPECTED_VERSION but found '$PUBLISHED_VERSION'"
+          else
+            echo "Verified next dist-tag: $PUBLISHED_VERSION"
+          fi
+
+          npx -y redblue-cli@next --sdk-help >/tmp/redblue-sdk-next-help.txt
+          grep -q "redblue-cli wrapper" /tmp/redblue-sdk-next-help.txt
+
       - name: Job Summary
         run: |
           echo "## 🚀 Next Release Published" >> $GITHUB_STEP_SUMMARY
@@ -214,8 +275,13 @@ jobs:
           echo "```bash" >> $GITHUB_STEP_SUMMARY
           echo "# Install latest next" >> $GITHUB_STEP_SUMMARY
           echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash -s -- --channel next" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install npm wrapper" >> $GITHUB_STEP_SUMMARY
+          echo "npm install redblue-cli@next" >> $GITHUB_STEP_SUMMARY
+          echo "npx redblue-cli@next --sdk-help" >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- [Release Page](${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [NPM Package](https://www.npmjs.com/package/redblue-cli?activeTab=versions)" >> $GITHUB_STEP_SUMMARY

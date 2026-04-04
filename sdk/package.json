@@ -18,7 +18,8 @@
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "repository": {
     "type": "git",
@@ -48,6 +49,7 @@
     "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-coverage-include=redblue-sdk.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 test/*.test.js",
     "pack-check": "npm pack --dry-run",
     "prepublishOnly": "npm run build && npm run coverage && npm run pack-check",
-    "publish:npm": "npm publish"
+    "publish:npm": "npm publish --provenance",
+    "publish:npm:next": "npm publish --tag next --provenance"
   }
 }
