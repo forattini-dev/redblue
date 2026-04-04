@@ -115,6 +115,10 @@ impl CliContext {
 
     /// Get the output format from flags or default to human
     pub fn get_output_format(&self) -> format::OutputFormat {
+        if self.has_flag("json") || self.has_flag("j") {
+            return format::OutputFormat::Json;
+        }
+
         // Check both --output/-o and --format
         let format_str = self
             .get_flag("output")
@@ -274,6 +278,14 @@ mod tests {
     fn test_get_output_format_from_format_flag() {
         let mut ctx = CliContext::new();
         ctx.flags.insert("format".to_string(), "json".to_string());
+        let format = ctx.get_output_format();
+        assert_eq!(format, format::OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_get_output_format_from_json_flag() {
+        let mut ctx = CliContext::new();
+        ctx.flags.insert("json".to_string(), "true".to_string());
         let format = ctx.get_output_format();
         assert_eq!(format, format::OutputFormat::Json);
     }

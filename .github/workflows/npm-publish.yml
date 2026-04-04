@@ -1,0 +1,59 @@
+name: NPM Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version override (e.g. 0.1.0)'
+        required: false
+
+jobs:
+  publish:
+    name: Publish SDK to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '23'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Resolve package version
+        working-directory: sdk
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "Unable to resolve package version" >&2
+            exit 1
+          fi
+
+          VERSION="$VERSION" node - <<'EOF'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = process.env.VERSION;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          EOF
+
+      - name: Validate SDK package
+        working-directory: sdk
+        run: |
+          npm run build
+          npm run coverage
+          npm run pack-check
+
+      - name: Publish package
+        working-directory: sdk
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

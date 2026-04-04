@@ -158,6 +158,8 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
+          cp sdk/redblue-sdk.js release/redblue-sdk.js
+          shasum -a 256 release/redblue-sdk.js > release/redblue-sdk.js.sha256
           ls -la release/
 
       - name: Delete old next releases

@@ -49,6 +49,7 @@ pub mod recon_identity; // ✅ Identity OSINT - rb recon identity username/email
 pub mod report; // ✅ Report generation - pentest reports from loot and graph
 pub mod scan;
 pub mod screenshot;
+pub mod sdk; // Internal SDK bridge metadata (hidden)
 pub mod search; // ✅ Global search across all stored data
 pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
 pub mod sqli; // ✅ SQL injection testing - sqlmap-style
@@ -157,6 +158,7 @@ impl CommandRegistry {
             Box::new(init::InitCommand),       // ✅ Config init
             Box::new(config::ConfigDatabaseCommand), // ✅ Database password management
             Box::new(search::SearchCommand),   // ✅ Global search across all stored data
+            Box::new(sdk::SdkBridgeCommand),   // Internal SDK bridge metadata
             #[cfg(target_os = "linux")]
             Box::new(memory::MemoryCommand), // ✅ Process memory inspection
                                                // Box::new(monitor::MonitorCommand),  // Temporarily disabled
@@ -226,7 +228,14 @@ pub fn resources_for_domain(domain: &str) -> Vec<String> {
         .map(|indices| {
             indices
                 .iter()
-                .map(|&idx| registry.command(idx).resource().to_string())
+                .filter_map(|&idx| {
+                    let command = registry.command(idx);
+                    if command.hidden() {
+                        None
+                    } else {
+                        Some(command.resource().to_string())
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -313,6 +322,9 @@ pub trait Command: Send + Sync {
     fn resource(&self) -> &str;
     fn description(&self) -> &str;
     fn routes(&self) -> Vec<Route>;
+    fn hidden(&self) -> bool {
+        false
+    }
     fn flags(&self) -> Vec<Flag> {
         vec![]
     }
@@ -326,6 +338,7 @@ pub struct Flag {
     pub long: String,
     pub description: String,
     pub default: Option<String>,
+    pub arg: Option<String>,
 }
 
 impl Flag {
@@ -335,6 +348,7 @@ impl Flag {
             long: long.to_string(),
             description: desc.to_string(),
             default: None,
+            arg: None,
         }
     }
 
@@ -348,8 +362,8 @@ impl Flag {
         self
     }
 
-    pub fn with_arg(self, _arg: &str) -> Self {
-        // Argument metadata (for documentation only)
+    pub fn with_arg(mut self, arg: &str) -> Self {
+        self.arg = Some(arg.to_string());
         self
     }
 }
@@ -371,6 +385,9 @@ pub fn print_domain_overview(domain: &str) -> Result<(), String> {
     println!("\nResources:");
     for &idx in indices {
         let command = registry.command(idx);
+        if command.hidden() {
+            continue;
+        }
         println!("  • {}", command.resource());
     }
     println!("\nUse: rb {} <resource> help", domain);
@@ -720,6 +737,9 @@ pub fn print_all_commands() {
     // Group commands by domain
     let mut domains: HashMap<String, Vec<&dyn Command>> = HashMap::new();
     for cmd in commands.iter() {
+        if cmd.hidden() {
+            continue;
+        }
         domains
             .entry(cmd.domain().to_string())
             .or_default()

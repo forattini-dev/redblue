@@ -1,4 +1,4 @@
-.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install
+.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install sdk-build sdk-test sdk-coverage
 
 # Paths
 LOCAL_BIN := $(HOME)/.local/bin
@@ -26,6 +26,9 @@ help:
 	@echo "  make unlink     - Use GitHub-installed version (remove local symlink)"
 	@echo "  make dev        - Build release + link local binary"
 	@echo "  make which      - Show which rb binary is in use"
+	@echo "  make sdk-build  - Validate the npm SDK package"
+	@echo "  make sdk-test   - Run SDK package tests"
+	@echo "  make sdk-coverage - Run SDK package coverage with 100% thresholds"
 	@echo "  make embeddings - Build documentation embeddings for MCP search"
 	@echo "  make docs       - Serve documentation locally at http://localhost:3000"
 	@echo ""
@@ -46,8 +49,11 @@ build:
 # Build release version (optimized)
 release:
 	cargo build --release
+	@mkdir -p ./target/release
+	@cp ./sdk/redblue-sdk.js ./target/release/redblue-sdk.js
 	@echo ""
 	@echo "Release binary: ./target/release/redblue"
+	@echo "SDK wrapper:   ./target/release/redblue-sdk.js"
 	@echo "Size: $$(du -h ./target/release/redblue | cut -f1)"
 
 # Run tests
@@ -204,3 +210,12 @@ which:
 	else \
 		echo "Status: rb not installed"; \
 	fi
+
+sdk-build:
+	cd sdk && npm run build && npm run pack-check
+
+sdk-test:
+	cd sdk && npm test
+
+sdk-coverage:
+	cd sdk && npm run coverage
