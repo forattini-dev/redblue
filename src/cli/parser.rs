@@ -108,8 +108,27 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
 
     if positionals.len() > 1 {
         let arg1 = &positionals[1];
-        // Check if arg1 is a known verb
-        if RESTFUL_VERBS.contains(&arg1.as_str()) {
+        let arg2 = positionals.get(2).map(String::as_str);
+
+        // Prefer resource-first parsing when the pair matches a real command route.
+        if let (Some(domain), Some(candidate_verb)) = (ctx.domain.as_deref(), arg2) {
+            if matches_resource_first_route(domain, arg1, candidate_verb) {
+                ctx.resource = Some(arg1.clone());
+                ctx.verb = Some(candidate_verb.to_string());
+            } else if RESTFUL_VERBS.contains(&arg1.as_str()) {
+                // Pattern: domain verb resource
+                ctx.verb = Some(arg1.clone());
+                if let Some(resource) = positionals.get(2) {
+                    ctx.resource = Some(resource.clone());
+                }
+            } else {
+                // Pattern: domain resource verb (fallback)
+                ctx.resource = Some(arg1.clone());
+                if let Some(verb) = positionals.get(2) {
+                    ctx.verb = Some(verb.clone());
+                }
+            }
+        } else if RESTFUL_VERBS.contains(&arg1.as_str()) {
             // Pattern: domain verb resource
             ctx.verb = Some(arg1.clone());
             if positionals.len() > 2 {
@@ -135,6 +154,12 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
     apply_config_defaults(&mut ctx, config);
 
     Ok(ctx)
+}
+
+fn matches_resource_first_route(domain: &str, resource: &str, verb: &str) -> bool {
+    crate::cli::commands::command_for(domain, resource)
+        .map(|command| command.routes().iter().any(|route| route.verb == verb))
+        .unwrap_or(false)
 }
 
 fn apply_config_defaults(ctx: &mut CliContext, config: &crate::config::yaml::YamlConfig) {
@@ -267,6 +292,22 @@ mod tests {
         assert_eq!(ctx.verb, Some("get".to_string()));
         assert_eq!(ctx.resource, Some("asset".to_string()));
         assert_eq!(ctx.target, Some("https://example.com".to_string()));
+    }
+
+    #[test]
+    fn test_prefers_resource_first_when_route_exists() {
+        let args = vec![
+            "tls".to_string(),
+            "security".to_string(),
+            "audit".to_string(),
+            "example.com".to_string(),
+        ];
+        let ctx = parse_args(&args).unwrap();
+
+        assert_eq!(ctx.domain, Some("tls".to_string()));
+        assert_eq!(ctx.resource, Some("security".to_string()));
+        assert_eq!(ctx.verb, Some("audit".to_string()));
+        assert_eq!(ctx.target, Some("example.com".to_string()));
     }
 
     // OLD pattern fallback tests: rb [domain] [resource] [verb] [target]

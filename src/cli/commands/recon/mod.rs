@@ -57,7 +57,7 @@ impl Command for ReconCommand {
             Route {
                 verb: "subdomains",
                 summary: "Enumerate subdomains via CT logs and DNS bruteforce",
-                usage: "rb recon domain subdomains <domain> [--passive] [--threads N]",
+                usage: "rb recon domain subdomains <domain> [--passive] [--threads N] [--resolve|--validate]",
             },
             Route {
                 verb: "harvest",
@@ -189,6 +189,14 @@ impl Command for ReconCommand {
                 "filter-wildcards",
                 "Enable wildcard detection and filtering (for subdomains command)",
             ),
+            Flag::new(
+                "resolve",
+                "Re-resolve discovered subdomains and keep only those with live A/AAAA answers",
+            ),
+            Flag::new(
+                "validate",
+                "Alias for --resolve; filters output to confirmed DNS-resolving subdomains",
+            ),
             Flag::new("depth", "Maximum tree depth for graph command").with_default("5"),
             Flag::new("no-color", "Disable colored output in graph"),
         ]
@@ -206,6 +214,10 @@ impl Command for ReconCommand {
             (
                 "Passive enumeration only",
                 "rb recon domain subdomains example.com --passive",
+            ),
+            (
+                "Only confirmed DNS-resolving subdomains",
+                "rb recon domain subdomains example.com --resolve -o json",
             ),
             (
                 "Custom wordlist and threads",

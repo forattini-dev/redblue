@@ -7,8 +7,13 @@ use crate::cli::validator::Validator;
 use crate::cli::CliContext;
 use crate::modules::recon::dnsdumpster::DnsDumpsterClient;
 use crate::modules::recon::massdns::{common_subdomains, MassDnsScanner};
-use crate::modules::recon::subdomain::{load_wordlist_from_file, SubdomainEnumerator};
+use crate::modules::recon::subdomain::{
+    load_wordlist_from_file, EnumerationSource, SubdomainEnumerator, SubdomainResult,
+};
+use crate::serde_json::Value;
 use crate::storage::service::StorageService;
+use crate::utils::json::JsonValue;
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -51,46 +56,59 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
         enumerator.enumerate_all()?
     };
 
+    let validate_dns = ctx.has_flag("resolve") || ctx.has_flag("validate");
+    if validate_dns {
+        eprintln!("🔎 Validating discovered subdomains via live DNS (A/AAAA)...");
+    }
+
+    let (confirmed_results, candidate_results) = if validate_dns {
+        let confirmed = enumerator.validate_results(results.clone());
+        partition_confirmed_candidates(&results, &confirmed)
+    } else {
+        split_results_by_resolution(&results)
+    };
+
+    let display_results = if validate_dns {
+        confirmed_results.clone()
+    } else {
+        results.clone()
+    };
+
+    let persisted_to = persist_subdomain_results(
+        ctx,
+        domain,
+        &display_results,
+        if passive_only { "passive" } else { "hybrid" },
+        validate_dns,
+    )?;
+
     // JSON output
     if format == crate::cli::format::OutputFormat::Json {
-        println!("{{");
-        println!("  \"domain\": \"{}\",", domain);
-        println!("  \"count\": {},", results.len());
-        println!("  \"subdomains\": [");
-        for (i, result) in results.iter().enumerate() {
-            let comma = if i < results.len() - 1 { "," } else { "" };
-            println!("    {{");
-            println!("      \"subdomain\": \"{}\",", result.subdomain);
-            println!("      \"ips\": [");
-            for (j, ip) in result.ips.iter().enumerate() {
-                let ip_comma = if j < result.ips.len() - 1 { "," } else { "" };
-                println!("        \"{}\"{}", ip, ip_comma);
-            }
-            println!("      ],");
-            println!("      \"cname_chain\": [");
-            for (j, cname) in result.cname_chain.iter().enumerate() {
-                let cname_comma = if j < result.cname_chain.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("        \"{}\"{}", cname, cname_comma);
-            }
-            println!("      ],");
-            println!("      \"source\": \"{}\"", result.source);
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        println!(
+            "{}",
+            render_subdomains_json(
+                domain,
+                &display_results,
+                &confirmed_results,
+                &candidate_results,
+                passive_only,
+                validate_dns,
+                persisted_to.as_deref(),
+            )
+        );
         return Ok(());
     }
 
     // YAML output
     if format == crate::cli::format::OutputFormat::Yaml {
         println!("domain: {}", domain);
-        println!("count: {}", results.len());
+        println!("count: {}", display_results.len());
+        println!("total: {}", display_results.len());
+        println!("confirmed_count: {}", confirmed_results.len());
+        println!("candidate_count: {}", candidate_results.len());
+        println!("validated: {}", validate_dns);
         println!("subdomains:");
-        for result in &results {
+        for result in &display_results {
             println!("  - subdomain: {}", result.subdomain);
             println!("    ips:");
             for ip in &result.ips {
@@ -108,17 +126,37 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     }
 
     // Human output
-    if results.is_empty() {
-        Output::warning("No subdomains found");
+    if display_results.is_empty() {
+        if validate_dns && !candidate_results.is_empty() {
+            Output::warning("No confirmed subdomains found after DNS validation");
+            Output::item(
+                "Unresolved Candidates",
+                &candidate_results.len().to_string(),
+            );
+        } else {
+            Output::warning("No subdomains found");
+        }
         return Ok(());
     }
 
     Output::header("Subdomain Enumeration");
     Output::item("Target Domain", domain);
+    Output::item("Mode", if passive_only { "passive" } else { "hybrid" });
+    if validate_dns {
+        Output::item("DNS Validation", "enabled (A/AAAA only)");
+    }
     println!();
 
     println!();
-    Output::subheader(&format!("Discovered Subdomains ({})", results.len()));
+    Output::subheader(&format!(
+        "{} ({})",
+        if validate_dns {
+            "Confirmed Subdomains"
+        } else {
+            "Discovered Subdomains"
+        },
+        display_results.len()
+    ));
     println!();
 
     // Print table header
@@ -128,7 +166,7 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     );
     println!("  {}", "─".repeat(75));
 
-    for result in &results {
+    for result in &display_results {
         let ips = if result.ips.is_empty() {
             "N/A".to_string()
         } else if result.ips.len() == 1 {
@@ -151,9 +189,33 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     }
 
     println!();
-    Output::success(&format!("Found {} unique subdomains", results.len()));
+    if validate_dns {
+        Output::success(&format!(
+            "Confirmed {} subdomains; filtered {} unresolved candidates",
+            display_results.len(),
+            candidate_results.len()
+        ));
+    } else {
+        Output::success(&format!(
+            "Found {} unique subdomains",
+            display_results.len()
+        ));
+    }
 
-    // Persistence
+    if let Some(db_path) = persisted_to {
+        Output::success(&format!("Results saved to {}", db_path));
+    }
+
+    Ok(())
+}
+
+fn persist_subdomain_results(
+    ctx: &CliContext,
+    domain: &str,
+    results: &[SubdomainResult],
+    mode: &str,
+    validate_dns: bool,
+) -> Result<Option<String>, String> {
     let persist_flag = if ctx.has_flag("persist") {
         Some(true)
     } else if ctx.has_flag("no-persist") {
@@ -162,11 +224,14 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
         None
     };
 
-    let mode_value = if passive_only { "passive" } else { "hybrid" };
     let attributes = build_partition_attributes(
         ctx,
         domain,
-        [("operation", "subdomains"), ("mode", mode_value)],
+        [
+            ("operation", "subdomains"),
+            ("mode", mode),
+            ("validated", if validate_dns { "true" } else { "false" }),
+        ],
     );
     let mut pm = StorageService::global().persistence_for_target_with(
         domain,
@@ -174,24 +239,254 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
         None,
         attributes,
     )?;
-    if pm.is_enabled() {
-        for result in &results {
-            let source = map_subdomain_source(&result.source.to_string());
-            let ips: Vec<IpAddr> = result
-                .ips
-                .iter()
-                .filter_map(|ip| ip.parse::<IpAddr>().ok())
-                .collect();
+    if !pm.is_enabled() {
+        return Ok(None);
+    }
 
-            pm.add_subdomain(domain, &result.subdomain, source as u8, &ips)?;
-        }
+    for result in results {
+        let source = map_subdomain_source(&result.source.to_string());
+        let ips: Vec<IpAddr> = result
+            .ips
+            .iter()
+            .filter_map(|ip| ip.parse::<IpAddr>().ok())
+            .collect();
 
-        if let Some(db_path) = pm.commit()? {
-            Output::success(&format!("Results saved to {}", db_path.display()));
+        pm.add_subdomain(domain, &result.subdomain, source as u8, &ips)?;
+    }
+
+    Ok(pm.commit()?.map(|path| path.display().to_string()))
+}
+
+fn split_results_by_resolution(
+    results: &[SubdomainResult],
+) -> (Vec<SubdomainResult>, Vec<SubdomainResult>) {
+    let mut confirmed = Vec::new();
+    let mut candidates = Vec::new();
+
+    for result in results {
+        if result.ips.is_empty() {
+            candidates.push(result.clone());
+        } else {
+            confirmed.push(result.clone());
         }
     }
 
-    Ok(())
+    (confirmed, candidates)
+}
+
+fn partition_confirmed_candidates(
+    all_results: &[SubdomainResult],
+    confirmed_results: &[SubdomainResult],
+) -> (Vec<SubdomainResult>, Vec<SubdomainResult>) {
+    let confirmed_names: HashSet<&str> = confirmed_results
+        .iter()
+        .map(|result| result.subdomain.as_str())
+        .collect();
+
+    let mut candidates = Vec::new();
+    for result in all_results {
+        if !confirmed_names.contains(result.subdomain.as_str()) {
+            candidates.push(result.clone());
+        }
+    }
+
+    (confirmed_results.to_vec(), candidates)
+}
+
+fn render_subdomains_json(
+    domain: &str,
+    display_results: &[SubdomainResult],
+    confirmed_results: &[SubdomainResult],
+    candidate_results: &[SubdomainResult],
+    passive_only: bool,
+    validate_dns: bool,
+    persisted_to: Option<&str>,
+) -> String {
+    let json = JsonValue::object(vec![
+        ("domain".to_string(), JsonValue::String(domain.to_string())),
+        (
+            "mode".to_string(),
+            JsonValue::String(if passive_only { "passive" } else { "hybrid" }.to_string()),
+        ),
+        ("validated".to_string(), JsonValue::Bool(validate_dns)),
+        (
+            "total".to_string(),
+            JsonValue::Number(display_results.len() as f64),
+        ),
+        (
+            "count".to_string(),
+            JsonValue::Number(display_results.len() as f64),
+        ),
+        (
+            "confirmed_total".to_string(),
+            JsonValue::Number(confirmed_results.len() as f64),
+        ),
+        (
+            "candidate_total".to_string(),
+            JsonValue::Number(candidate_results.len() as f64),
+        ),
+        (
+            "subdomains".to_string(),
+            JsonValue::array(subdomain_names(display_results)),
+        ),
+        (
+            "confirmed".to_string(),
+            JsonValue::array(subdomain_names(confirmed_results)),
+        ),
+        (
+            "candidates".to_string(),
+            JsonValue::array(subdomain_names(candidate_results)),
+        ),
+        (
+            "entries".to_string(),
+            JsonValue::array(subdomain_entries(display_results)),
+        ),
+        (
+            "confirmed_entries".to_string(),
+            JsonValue::array(subdomain_entries(confirmed_results)),
+        ),
+        (
+            "candidate_entries".to_string(),
+            JsonValue::array(subdomain_entries(candidate_results)),
+        ),
+        (
+            "persisted_to".to_string(),
+            persisted_to
+                .map(|path| JsonValue::String(path.to_string()))
+                .unwrap_or(JsonValue::Null),
+        ),
+    ]);
+
+    Value::from(json).to_string_pretty()
+}
+
+fn subdomain_names(results: &[SubdomainResult]) -> Vec<JsonValue> {
+    results
+        .iter()
+        .map(|result| JsonValue::String(result.subdomain.clone()))
+        .collect()
+}
+
+fn subdomain_entries(results: &[SubdomainResult]) -> Vec<JsonValue> {
+    results
+        .iter()
+        .map(|result| {
+            JsonValue::object(vec![
+                (
+                    "subdomain".to_string(),
+                    JsonValue::String(result.subdomain.clone()),
+                ),
+                (
+                    "ips".to_string(),
+                    JsonValue::array(
+                        result
+                            .ips
+                            .iter()
+                            .map(|ip| JsonValue::String(ip.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "cname_chain".to_string(),
+                    JsonValue::array(
+                        result
+                            .cname_chain
+                            .iter()
+                            .map(|cname| JsonValue::String(cname.clone()))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "source".to_string(),
+                    JsonValue::String(render_source_label(&result.source)),
+                ),
+                (
+                    "resolved".to_string(),
+                    JsonValue::Bool(!result.ips.is_empty()),
+                ),
+            ])
+        })
+        .collect()
+}
+
+fn render_source_label(source: &EnumerationSource) -> String {
+    source.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_result(name: &str, ips: &[&str], source: EnumerationSource) -> SubdomainResult {
+        SubdomainResult {
+            subdomain: name.to_string(),
+            ips: ips.iter().map(|ip| (*ip).to_string()).collect(),
+            cname_chain: Vec::new(),
+            source,
+        }
+    }
+
+    #[test]
+    fn test_split_results_by_resolution() {
+        let results = vec![
+            sample_result(
+                "api.example.com",
+                &["1.1.1.1"],
+                EnumerationSource::CertificateTransparency,
+            ),
+            sample_result("stale.example.com", &[], EnumerationSource::HackerTarget),
+        ];
+
+        let (confirmed, candidates) = split_results_by_resolution(&results);
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(confirmed[0].subdomain, "api.example.com");
+        assert_eq!(candidates[0].subdomain, "stale.example.com");
+    }
+
+    #[test]
+    fn test_render_subdomains_json_contains_machine_friendly_lists() {
+        let display = vec![sample_result(
+            "api.example.com",
+            &["1.1.1.1"],
+            EnumerationSource::CertificateTransparency,
+        )];
+        let confirmed = display.clone();
+        let candidates = vec![sample_result(
+            "old.example.com",
+            &[],
+            EnumerationSource::HackerTarget,
+        )];
+
+        let rendered = render_subdomains_json(
+            "example.com",
+            &display,
+            &confirmed,
+            &candidates,
+            false,
+            true,
+            Some("/tmp/example.rdb"),
+        );
+        let parsed = crate::serde_json::from_str::<Value>(&rendered).unwrap();
+
+        assert_eq!(parsed["domain"].as_str(), Some("example.com"));
+        assert_eq!(parsed["validated"].as_bool(), Some(true));
+        assert_eq!(parsed["total"].as_i64(), Some(1));
+        assert_eq!(parsed["confirmed_total"].as_i64(), Some(1));
+        assert_eq!(parsed["candidate_total"].as_i64(), Some(1));
+
+        let subdomains = parsed["subdomains"].as_array().unwrap();
+        assert_eq!(subdomains.len(), 1);
+        assert_eq!(subdomains[0].as_str(), Some("api.example.com"));
+
+        let candidates_json = parsed["candidates"].as_array().unwrap();
+        assert_eq!(candidates_json.len(), 1);
+        assert_eq!(candidates_json[0].as_str(), Some("old.example.com"));
+
+        let entries = parsed["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["resolved"].as_bool(), Some(true));
+    }
 }
 
 pub fn dnsdumpster(ctx: &CliContext) -> Result<(), String> {

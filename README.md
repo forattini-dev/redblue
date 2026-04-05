@@ -95,6 +95,7 @@ rb dns-server start --hijack "*.evil.com=10.0.0.1"
 
 # Subdomain enumeration
 rb recon domain subdomains example.com --passive
+rb recon domain subdomains example.com --resolve -o json
 rb recon domain bruteforce example.com -w wordlists/subdomains.txt
 
 # Web fuzzing & security
@@ -103,7 +104,7 @@ rb web asset security http://example.com
 rb web asset crawl http://example.com --har crawl.har
 
 # TLS audit
-rb tls audit security example.com
+rb tls security audit example.com
 
 # Vulnerability intelligence
 rb intel vuln search nginx 1.18.0

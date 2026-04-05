@@ -20,6 +20,12 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+macro_rules! progressln {
+    ($($arg:tt)*) => {
+        eprintln!($($arg)*)
+    };
+}
+
 /// Subdomain enumeration result
 #[derive(Debug, Clone)]
 pub struct SubdomainResult {
@@ -131,12 +137,8 @@ impl SubdomainEnumerator {
                 })
                 .collect();
             let probe_domain = format!("{}.{}", rand_prefix, self.domain);
-            if let Ok(answers) = client.query(&probe_domain, DnsRecordType::A) {
-                for ans in answers {
-                    if let Some(ip) = ans.as_ip() {
-                        self.wildcard_ips.insert(ip);
-                    }
-                }
+            for ip in query_ip_records(&client, &probe_domain) {
+                self.wildcard_ips.insert(ip);
             }
         }
     }
@@ -176,19 +178,19 @@ impl SubdomainEnumerator {
         // Detect wildcard IPs before starting enumeration
         self.detect_wildcard_ips();
         if !self.wildcard_ips.is_empty() {
-            println!("  ℹ️ Wildcard IPs detected: {:?}", self.wildcard_ips);
+            progressln!("  ℹ️ Wildcard IPs detected: {:?}", self.wildcard_ips);
         }
 
         // ==== PHASE 1: Initial Passive Sources ====
-        println!("🔍 [Phase 1] Passive Reconnaissance");
+        progressln!("🔍 [Phase 1] Passive Reconnaissance");
 
         // 1.1 Certificate Transparency logs
-        println!("  ├─ Querying Certificate Transparency logs...");
+        progressln!("  ├─ Querying Certificate Transparency logs...");
         match self.enumerate_ct_logs() {
             Ok(ct_results) => {
                 let filtered_results = self.filter_wildcard_results(ct_results);
                 let count = filtered_results.len();
-                println!("  │  ✅ Found {} subdomains from CT logs", count);
+                progressln!("  │  ✅ Found {} subdomains from CT logs", count);
                 for result in filtered_results {
                     if all_found.insert(result.subdomain.clone()) {
                         queue.push_back(result.subdomain.clone());
@@ -196,16 +198,16 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  │  ⚠️  CT logs failed: {}", e),
+            Err(e) => progressln!("  │  ⚠️  CT logs failed: {}", e),
         }
 
         // 1.2 HackerTarget API
-        println!("  ├─ Querying HackerTarget API...");
+        progressln!("  ├─ Querying HackerTarget API...");
         match self.enumerate_hackertarget() {
             Ok(ht_results) => {
                 let filtered_results = self.filter_wildcard_results(ht_results);
                 let count = filtered_results.len();
-                println!("  │  ✅ Found {} subdomains from HackerTarget", count);
+                progressln!("  │  ✅ Found {} subdomains from HackerTarget", count);
                 for result in filtered_results {
                     if all_found.insert(result.subdomain.clone()) {
                         queue.push_back(result.subdomain.clone());
@@ -213,11 +215,11 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  │  ⚠️  HackerTarget failed: {}", e),
+            Err(e) => progressln!("  │  ⚠️  HackerTarget failed: {}", e),
         }
 
         // 1.3 AlienVault OTX
-        println!("  ├─ Querying AlienVault OTX...");
+        progressln!("  ├─ Querying AlienVault OTX...");
         match self.enumerate_alienvault_otx() {
             Ok(otx_results) => {
                 let filtered_results = self.filter_wildcard_results(otx_results);
@@ -225,7 +227,7 @@ impl SubdomainEnumerator {
                     .iter()
                     .filter(|r| !all_found.contains(&r.subdomain))
                     .count();
-                println!("  │  ✅ Found {} new subdomains from OTX", new_count);
+                progressln!("  │  ✅ Found {} new subdomains from OTX", new_count);
                 for result in filtered_results {
                     if all_found.insert(result.subdomain.clone()) {
                         queue.push_back(result.subdomain.clone());
@@ -233,11 +235,11 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  │  ⚠️  AlienVault OTX failed: {}", e),
+            Err(e) => progressln!("  │  ⚠️  AlienVault OTX failed: {}", e),
         }
 
         // 1.4 ThreatCrowd
-        println!("  ├─ Querying ThreatCrowd...");
+        progressln!("  ├─ Querying ThreatCrowd...");
         match self.enumerate_threatcrowd() {
             Ok(tc_results) => {
                 let filtered_results = self.filter_wildcard_results(tc_results);
@@ -245,7 +247,7 @@ impl SubdomainEnumerator {
                     .iter()
                     .filter(|r| !all_found.contains(&r.subdomain))
                     .count();
-                println!(
+                progressln!(
                     "  │  ✅ Found {} new subdomains from ThreatCrowd",
                     new_count
                 );
@@ -256,11 +258,11 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  │  ⚠️  ThreatCrowd failed: {}", e),
+            Err(e) => progressln!("  │  ⚠️  ThreatCrowd failed: {}", e),
         }
 
         // 1.5 Wayback Machine
-        println!("  ├─ Querying Wayback Machine...");
+        progressln!("  ├─ Querying Wayback Machine...");
         match self.enumerate_wayback() {
             Ok(wb_results) => {
                 let filtered_results = self.filter_wildcard_results(wb_results);
@@ -268,7 +270,7 @@ impl SubdomainEnumerator {
                     .iter()
                     .filter(|r| !all_found.contains(&r.subdomain))
                     .count();
-                println!("  │  ✅ Found {} new subdomains from Wayback", new_count);
+                progressln!("  │  ✅ Found {} new subdomains from Wayback", new_count);
                 for result in filtered_results {
                     if all_found.insert(result.subdomain.clone()) {
                         queue.push_back(result.subdomain.clone());
@@ -276,16 +278,16 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  │  ⚠️  Wayback Machine failed: {}", e),
+            Err(e) => progressln!("  │  ⚠️  Wayback Machine failed: {}", e),
         }
 
-        println!(
+        progressln!(
             "  └─ Phase 1 complete: {} unique subdomains discovered\n",
             all_found.len()
         );
 
         // ==== PHASE 2: Recursive Discovery Queue ====
-        println!("🔄 [Phase 2] Recursive Discovery (queue-based)");
+        progressln!("🔄 [Phase 2] Recursive Discovery (queue-based)");
 
         let mut iteration = 0;
         let max_iterations = 3; // Prevent infinite loops
@@ -293,9 +295,10 @@ impl SubdomainEnumerator {
         while !queue.is_empty() && iteration < max_iterations {
             iteration += 1;
             let queue_size = queue.len();
-            println!(
+            progressln!(
                 "  ├─ Iteration {}: Processing {} subdomains from queue",
-                iteration, queue_size
+                iteration,
+                queue_size
             );
 
             // Process current queue batch
@@ -314,7 +317,7 @@ impl SubdomainEnumerator {
 
             // Generate permutations
             let permutations = self.generate_permutations(&base_names);
-            println!("  │  ├─ Generated {} permutations", permutations.len());
+            progressln!("  │  ├─ Generated {} permutations", permutations.len());
 
             // DNS bruteforce permutations
             match self.enumerate_dns_bruteforce_with_wordlist(&permutations) {
@@ -322,7 +325,7 @@ impl SubdomainEnumerator {
                     let filtered_results = self.filter_wildcard_results(perm_results);
                     let new_count = filtered_results.len();
                     if new_count > 0 {
-                        println!(
+                        progressln!(
                             "  │  ├─ ✅ Permutations revealed {} NEW subdomains!",
                             new_count
                         );
@@ -333,22 +336,22 @@ impl SubdomainEnumerator {
                             }
                         }
                     } else {
-                        println!("  │  ├─ No new subdomains from permutations");
+                        progressln!("  │  ├─ No new subdomains from permutations");
                     }
                 }
-                Err(e) => println!("  │  ├─ ⚠️  Permutation bruteforce failed: {}", e),
+                Err(e) => progressln!("  │  ├─ ⚠️  Permutation bruteforce failed: {}", e),
             }
         }
 
         if iteration >= max_iterations {
-            println!("  └─ Stopped at max iterations ({})\n", max_iterations);
+            progressln!("  └─ Stopped at max iterations ({})\n", max_iterations);
         } else {
-            println!("  └─ Queue exhausted: no more new discoveries\n");
+            progressln!("  └─ Queue exhausted: no more new discoveries\n");
         }
 
         // ==== PHASE 3: Final Wordlist Bruteforce ====
-        println!("🔍 [Phase 3] Comprehensive DNS Bruteforce");
-        println!(
+        progressln!("🔍 [Phase 3] Comprehensive DNS Bruteforce");
+        progressln!(
             "  ├─ Using SecLists wordlist ({} entries)",
             self.wordlist.len()
         );
@@ -360,7 +363,7 @@ impl SubdomainEnumerator {
                     .iter()
                     .filter(|r| all_found.insert(r.subdomain.clone()))
                     .count();
-                println!(
+                progressln!(
                     "  └─ ✅ Found {} NEW subdomains via DNS bruteforce",
                     new_count
                 );
@@ -371,7 +374,7 @@ impl SubdomainEnumerator {
                     }
                 }
             }
-            Err(e) => println!("  └─ ⚠️  DNS bruteforce failed: {}", e),
+            Err(e) => progressln!("  └─ ⚠️  DNS bruteforce failed: {}", e),
         }
 
         // ==== FINAL: Deduplicate and Sort ====
@@ -379,7 +382,7 @@ impl SubdomainEnumerator {
         results.retain(|r| seen.insert(r.subdomain.clone()));
         results.sort_by(|a, b| a.subdomain.cmp(&b.subdomain));
 
-        println!("\n✅ Total unique subdomains discovered: {}", results.len());
+        progressln!("\n✅ Total unique subdomains discovered: {}", results.len());
 
         // Emit synergy events for cross-module integration
         emit_subdomain_events(&self.domain, &results);
@@ -662,53 +665,29 @@ impl SubdomainEnumerator {
             let wildcard_ips_filter = self.wildcard_ips.clone(); // Clone for thread
 
             let handle = thread::spawn(move || {
-                let dns_client = DnsClient::new(&resolver_addr).with_timeout(dns_timeout);
-
                 for prefix in chunk {
                     let subdomain = format!("{}.{}", prefix, domain);
 
-                    // Try to resolve the subdomain
-                    match dns_client.query(&subdomain, DnsRecordType::A) {
-                        Ok(answers) => {
-                            if !answers.is_empty() {
-                                // Extract IP addresses from DNS answers
-                                let ips: Vec<String> =
-                                    answers.iter().filter_map(|answer| answer.as_ip()).collect();
+                    let (ips, cname_chain) =
+                        resolve_candidate_for(&resolver_addr, dns_timeout, &subdomain);
 
-                                if !ips.is_empty() {
-                                    // Apply wildcard filtering
-                                    if !wildcard_ips_filter.is_empty()
-                                        && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
-                                    {
-                                        continue; // Skip if any IP matches a wildcard IP
-                                    }
-
-                                    // Check for CNAME records
-                                    let cname_chain: Vec<String> = dns_client
-                                        .query(&subdomain, DnsRecordType::CNAME)
-                                        .map(|cname_answers| {
-                                            cname_answers
-                                                .iter()
-                                                .filter_map(|a| a.as_cname())
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    let result = SubdomainResult {
-                                        subdomain: subdomain.clone(),
-                                        ips,
-                                        cname_chain,
-                                        source: EnumerationSource::DnsBruteforce,
-                                    };
-
-                                    if let Ok(mut results) = results.lock() {
-                                        results.push(result);
-                                    }
-                                }
-                            }
+                    if !ips.is_empty() {
+                        // Apply wildcard filtering
+                        if !wildcard_ips_filter.is_empty()
+                            && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
+                        {
+                            continue; // Skip if any IP matches a wildcard IP
                         }
-                        Err(_) => {
-                            // Subdomain doesn't exist, continue
+
+                        let result = SubdomainResult {
+                            subdomain: subdomain.clone(),
+                            ips,
+                            cname_chain,
+                            source: EnumerationSource::DnsBruteforce,
+                        };
+
+                        if let Ok(mut results) = results.lock() {
+                            results.push(result);
                         }
                     }
                 }
@@ -757,53 +736,29 @@ impl SubdomainEnumerator {
             let wildcard_ips_filter = self.wildcard_ips.clone(); // Clone for thread
 
             let handle = thread::spawn(move || {
-                let dns_client = DnsClient::new(&resolver_addr).with_timeout(dns_timeout);
-
                 for prefix in chunk {
                     let subdomain = format!("{}.{}", prefix, domain);
 
-                    // Try to resolve the subdomain
-                    match dns_client.query(&subdomain, DnsRecordType::A) {
-                        Ok(answers) => {
-                            if !answers.is_empty() {
-                                // Extract IP addresses from DNS answers
-                                let ips: Vec<String> =
-                                    answers.iter().filter_map(|answer| answer.as_ip()).collect();
+                    let (ips, cname_chain) =
+                        resolve_candidate_for(&resolver_addr, dns_timeout, &subdomain);
 
-                                if !ips.is_empty() {
-                                    // Apply wildcard filtering
-                                    if !wildcard_ips_filter.is_empty()
-                                        && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
-                                    {
-                                        continue; // Skip if any IP matches a wildcard IP
-                                    }
-
-                                    // Check for CNAME records
-                                    let cname_chain: Vec<String> = dns_client
-                                        .query(&subdomain, DnsRecordType::CNAME)
-                                        .map(|cname_answers| {
-                                            cname_answers
-                                                .iter()
-                                                .filter_map(|a| a.as_cname())
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    let result = SubdomainResult {
-                                        subdomain: subdomain.clone(),
-                                        ips,
-                                        cname_chain,
-                                        source: EnumerationSource::DnsBruteforce,
-                                    };
-
-                                    if let Ok(mut results) = results.lock() {
-                                        results.push(result);
-                                    }
-                                }
-                            }
+                    if !ips.is_empty() {
+                        // Apply wildcard filtering
+                        if !wildcard_ips_filter.is_empty()
+                            && ips.iter().any(|ip| wildcard_ips_filter.contains(ip))
+                        {
+                            continue; // Skip if any IP matches a wildcard IP
                         }
-                        Err(_) => {
-                            // Silently skip failed resolutions
+
+                        let result = SubdomainResult {
+                            subdomain: subdomain.clone(),
+                            ips,
+                            cname_chain,
+                            source: EnumerationSource::DnsBruteforce,
+                        };
+
+                        if let Ok(mut results) = results.lock() {
+                            results.push(result);
                         }
                     }
                 }
@@ -821,63 +776,67 @@ impl SubdomainEnumerator {
         Ok(results)
     }
 
+    /// Re-resolve discovered subdomains and keep only the ones that currently
+    /// return at least one A or AAAA record.
+    pub fn validate_results(&self, results: Vec<SubdomainResult>) -> Vec<SubdomainResult> {
+        if results.is_empty() {
+            return Vec::new();
+        }
+
+        let resolver_addr = config::get().network.dns_resolver.clone();
+        let timeout_ms = self.timeout_ms;
+        let worker_count = self.threads.max(1);
+        let chunk_size = results.len().div_ceil(worker_count);
+        let validated = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+
+        for chunk in results.chunks(chunk_size.max(1)) {
+            let chunk = chunk.to_vec();
+            let resolver_addr = resolver_addr.clone();
+            let validated = Arc::clone(&validated);
+
+            let handle = thread::spawn(move || {
+                let mut local = Vec::new();
+                for mut result in chunk {
+                    let (ips, cname_chain) =
+                        resolve_with_cname_chain_for(&resolver_addr, timeout_ms, &result.subdomain);
+                    if ips.is_empty() {
+                        continue;
+                    }
+                    result.ips = ips;
+                    result.cname_chain = cname_chain;
+                    local.push(result);
+                }
+
+                if let Ok(mut validated) = validated.lock() {
+                    validated.extend(local);
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            let _ = handle.join();
+        }
+
+        let mut validated = validated.lock().unwrap().clone();
+        validated.sort_by(|a, b| a.subdomain.cmp(&b.subdomain));
+        validated
+    }
+
     /// Resolve domain to IP addresses
     fn resolve_domain(&self, domain: &str) -> Vec<String> {
         let resolver_addr = config::get().network.dns_resolver.clone();
         let dns_client = DnsClient::new(&resolver_addr).with_timeout(self.timeout_ms);
-
-        match dns_client.query(domain, DnsRecordType::A) {
-            Ok(answers) => answers.iter().filter_map(|answer| answer.as_ip()).collect(),
-            Err(_) => Vec::new(),
-        }
+        query_ip_records(&dns_client, domain)
     }
 
     /// Resolve domain with CNAME chain following
     /// Returns (final_ips, cname_chain)
     fn resolve_with_cname_chain(&self, domain: &str) -> (Vec<String>, Vec<String>) {
         let resolver_addr = config::get().network.dns_resolver.clone();
-        let dns_client = DnsClient::new(&resolver_addr).with_timeout(self.timeout_ms);
-
-        let mut cname_chain: Vec<String> = Vec::new();
-        let mut current_domain = domain.to_string();
-        let mut visited: HashSet<String> = HashSet::new();
-        let max_cname_depth = 10; // Prevent infinite loops
-
-        // Follow CNAME chain
-        for _ in 0..max_cname_depth {
-            if visited.contains(&current_domain) {
-                break; // Circular reference detected
-            }
-            visited.insert(current_domain.clone());
-
-            // Query for CNAME records
-            match dns_client.query(&current_domain, DnsRecordType::CNAME) {
-                Ok(answers) => {
-                    let cnames: Vec<String> = answers
-                        .iter()
-                        .filter_map(|answer| answer.as_cname())
-                        .collect();
-
-                    if cnames.is_empty() {
-                        break; // No more CNAMEs, we've reached the end
-                    }
-
-                    // Take first CNAME and continue following
-                    let next_cname = cnames[0].clone();
-                    cname_chain.push(next_cname.clone());
-                    current_domain = next_cname;
-                }
-                Err(_) => break, // No CNAME found, stop
-            }
-        }
-
-        // Now resolve the final domain to IPs
-        let ips = match dns_client.query(&current_domain, DnsRecordType::A) {
-            Ok(answers) => answers.iter().filter_map(|answer| answer.as_ip()).collect(),
-            Err(_) => Vec::new(),
-        };
-
-        (ips, cname_chain)
+        resolve_with_cname_chain_for(&resolver_addr, self.timeout_ms, domain)
     }
 
     /// Split wordlist into chunks for multi-threading
@@ -967,6 +926,79 @@ impl SubdomainEnumerator {
         self.emit_to_graph(&results, None);
         Ok(results)
     }
+}
+
+fn query_ip_records(client: &DnsClient, domain: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut ips = Vec::new();
+
+    for record_type in [DnsRecordType::A, DnsRecordType::AAAA] {
+        if let Ok(answers) = client.query(domain, record_type) {
+            for answer in answers {
+                if let Some(ip) = answer.as_ip() {
+                    if seen.insert(ip.clone()) {
+                        ips.push(ip);
+                    }
+                }
+            }
+        }
+    }
+
+    ips
+}
+
+fn resolve_with_cname_chain_for(
+    resolver_addr: &str,
+    timeout_ms: u64,
+    domain: &str,
+) -> (Vec<String>, Vec<String>) {
+    let dns_client = DnsClient::new(resolver_addr).with_timeout(timeout_ms);
+    let mut cname_chain: Vec<String> = Vec::new();
+    let mut current_domain = domain.to_string();
+    let mut visited: HashSet<String> = HashSet::new();
+    let max_cname_depth = 10;
+
+    for _ in 0..max_cname_depth {
+        if visited.contains(&current_domain) {
+            break;
+        }
+        visited.insert(current_domain.clone());
+
+        match dns_client.query(&current_domain, DnsRecordType::CNAME) {
+            Ok(answers) => {
+                let cnames: Vec<String> = answers
+                    .iter()
+                    .filter_map(|answer| answer.as_cname())
+                    .collect();
+
+                if cnames.is_empty() {
+                    break;
+                }
+
+                let next_cname = cnames[0].clone();
+                cname_chain.push(next_cname.clone());
+                current_domain = next_cname;
+            }
+            Err(_) => break,
+        }
+    }
+
+    let ips = query_ip_records(&dns_client, &current_domain);
+    (ips, cname_chain)
+}
+
+fn resolve_candidate_for(
+    resolver_addr: &str,
+    timeout_ms: u64,
+    domain: &str,
+) -> (Vec<String>, Vec<String>) {
+    let dns_client = DnsClient::new(resolver_addr).with_timeout(timeout_ms);
+    let direct_ips = query_ip_records(&dns_client, domain);
+    if !direct_ips.is_empty() {
+        return (direct_ips, Vec::new());
+    }
+
+    resolve_with_cname_chain_for(resolver_addr, timeout_ms, domain)
 }
 
 /// Default wordlist for subdomain bruteforce

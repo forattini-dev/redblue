@@ -22,6 +22,8 @@ fn main() {
         }
     };
 
+    Output::set_machine_mode(ctx.get_output_format() != cli::format::OutputFormat::Human);
+
     // Enable verbose logging if --verbose flag is present
     if ctx.has_flag("verbose") || ctx.has_flag("v") {
         logger::enable_verbose();

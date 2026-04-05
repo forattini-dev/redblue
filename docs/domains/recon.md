@@ -160,6 +160,8 @@ rb recon domain subdomains <domain> [FLAGS]
 **Flags:**
 - `-p, --passive` - Passive enumeration only (Certificate Transparency logs)
 - `--filter-wildcards` - Enable wildcard detection and filtering
+- `--resolve` - Re-resolve each discovered hostname and keep only live `A`/`AAAA` answers
+- `--validate` - Alias for `--resolve`
 - `-r, --recursive` - Recursive subdomain enumeration
 - `-w, --wordlist <file>` - Custom wordlist path for DNS bruteforce
 - `-t, --threads <n>` - Number of threads for DNS bruteforce
@@ -206,6 +208,9 @@ rb recon domain subdomains example.com --recursive
 
 # JSON output with persistence
 rb recon domain subdomains example.com -o json --persist
+
+# Only confirmed DNS-resolving subdomains
+rb recon domain subdomains example.com --resolve -o json
 ```
 
 **Sample Output (Text):**
@@ -244,26 +249,52 @@ Discovered Subdomains (15)
 ```json
 {
   "domain": "example.com",
-  "count": 15,
+  "mode": "hybrid",
+  "validated": true,
+  "total": 3,
+  "confirmed_total": 3,
+  "candidate_total": 12,
   "subdomains": [
+    "www.example.com",
+    "mail.example.com",
+    "api.example.com"
+  ],
+  "confirmed": [
+    "www.example.com",
+    "mail.example.com",
+    "api.example.com"
+  ],
+  "candidates": [
+    "stale.example.com"
+  ],
+  "entries": [
     {
       "subdomain": "www.example.com",
       "ips": ["93.184.216.34"],
-      "source": "CT_LOGS"
+      "cname_chain": [],
+      "source": "CT-Logs",
+      "resolved": true
     },
     {
       "subdomain": "mail.example.com",
       "ips": ["93.184.216.35"],
-      "source": "CT_LOGS"
+      "cname_chain": [],
+      "source": "CT-Logs",
+      "resolved": true
     },
     {
       "subdomain": "api.example.com",
       "ips": ["93.184.216.36"],
-      "source": "CT_LOGS"
+      "cname_chain": [],
+      "source": "CT-Logs",
+      "resolved": true
     }
-  ]
+  ],
+  "persisted_to": "example.com.rdb"
 }
 ```
+
+When machine output is enabled (`-o json` / `-o yaml`), progress messages are emitted to `stderr` so `stdout` stays parseable.
 
 ---
 

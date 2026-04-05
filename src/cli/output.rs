@@ -19,6 +19,39 @@ struct SpinnerState {
 }
 
 static SPINNER_STATE: Mutex<Option<SpinnerState>> = Mutex::new(None);
+static MACHINE_OUTPUT: AtomicBool = AtomicBool::new(false);
+
+fn machine_output_enabled() -> bool {
+    MACHINE_OUTPUT.load(Ordering::Relaxed)
+}
+
+fn write_target(args: std::fmt::Arguments<'_>) {
+    if machine_output_enabled() {
+        let mut stderr = io::stderr();
+        let _ = stderr.write_fmt(args);
+        let _ = stderr.flush();
+    } else {
+        let mut stdout = io::stdout();
+        let _ = stdout.write_fmt(args);
+        let _ = stdout.flush();
+    }
+}
+
+macro_rules! out_print {
+    ($($arg:tt)*) => {{
+        write_target(format_args!($($arg)*));
+    }};
+}
+
+macro_rules! out_println {
+    () => {{
+        write_target(format_args!("\n"));
+    }};
+    ($($arg:tt)*) => {{
+        write_target(format_args!($($arg)*));
+        write_target(format_args!("\n"));
+    }};
+}
 
 pub struct Output;
 
@@ -38,55 +71,58 @@ impl Output {
     const MAGENTA: &'static str = "\x1b[35m";
     const CYAN: &'static str = "\x1b[36m";
 
+    pub fn set_machine_mode(enabled: bool) {
+        MACHINE_OUTPUT.store(enabled, Ordering::Relaxed);
+    }
+
     pub fn success(msg: &str) {
-        println!("{}✓{} {}", Self::GREEN, Self::RESET, msg);
+        out_println!("{}✓{} {}", Self::GREEN, Self::RESET, msg);
     }
 
     pub fn error(msg: &str) {
-        println!("{}✗{} {}", Self::RED, Self::RESET, msg);
+        out_println!("{}✗{} {}", Self::RED, Self::RESET, msg);
     }
 
     /// Raw output without any formatting or prefixes
     pub fn raw(msg: &str) {
-        println!("{}", msg);
+        out_println!("{}", msg);
     }
 
     #[allow(dead_code)]
     pub fn info(msg: &str) {
-        println!("{}ℹ{} {}", Self::BLUE, Self::RESET, msg);
+        out_println!("{}ℹ{} {}", Self::BLUE, Self::RESET, msg);
     }
 
     pub fn warning(msg: &str) {
-        println!("{}⚠{} {}", Self::YELLOW, Self::RESET, msg);
+        out_println!("{}⚠{} {}", Self::YELLOW, Self::RESET, msg);
     }
 
     /// Phase header (for multi-phase scans)
     pub fn phase(title: &str) {
-        println!("\n{}{}▸ {}{}", Self::BOLD, Self::CYAN, title, Self::RESET);
+        out_println!("\n{}{}▸ {}{}", Self::BOLD, Self::CYAN, title, Self::RESET);
     }
 
     /// Task start (with spinner simulation)
     pub fn task_start(task: &str) {
-        print!("  {}⟳{} {} ... ", Self::CYAN, Self::RESET, task);
-        io::stdout().flush().unwrap();
+        out_print!("  {}⟳{} {} ... ", Self::CYAN, Self::RESET, task);
     }
 
     /// Task done (on same line)
     pub fn task_done(result: &str) {
-        println!("{}{}{}", Self::GREEN, result, Self::RESET);
+        out_println!("{}{}{}", Self::GREEN, result, Self::RESET);
     }
 
     #[allow(dead_code)]
     pub fn step(step: usize, total: usize, msg: &str) {
-        println!("{}[{}/{}]{} {}", Self::CYAN, step, total, Self::RESET, msg);
+        out_println!("{}[{}/{}]{} {}", Self::CYAN, step, total, Self::RESET, msg);
     }
 
     pub fn header(title: &str) {
-        println!("\n{}▸ {}{}", Self::BOLD, title, Self::RESET);
+        out_println!("\n{}▸ {}{}", Self::BOLD, title, Self::RESET);
     }
 
     pub fn subheader(title: &str) {
-        println!("{}{}{}", Self::CYAN, title, Self::RESET);
+        out_println!("{}{}{}", Self::CYAN, title, Self::RESET);
     }
 
     /// Section header (alias for subheader for compatibility)
@@ -95,34 +131,34 @@ impl Output {
     }
 
     pub fn item(label: &str, value: &str) {
-        println!("  {}{:<12}{} {}", Self::DIM, label, Self::RESET, value);
+        out_println!("  {}{:<12}{} {}", Self::DIM, label, Self::RESET, value);
     }
 
     /// Compact summary line
     pub fn summary_line(items: &[(&str, &str)]) {
-        print!(" ");
+        out_print!(" ");
         for (i, (label, value)) in items.iter().enumerate() {
             if i > 0 {
-                print!(" {}|{} ", Self::DIM, Self::RESET);
+                out_print!(" {}|{} ", Self::DIM, Self::RESET);
             }
-            print!("{}{}{} {}", Self::DIM, label, Self::RESET, value);
+            out_print!("{}{}{} {}", Self::DIM, label, Self::RESET, value);
         }
-        println!();
+        out_println!();
     }
 
     pub fn table_header(cols: &[&str]) {
         let row = cols.join(" │ ");
-        println!("{}{}{}", Self::BOLD, row, Self::RESET);
-        println!("{}", "─".repeat(row.len()));
+        out_println!("{}{}{}", Self::BOLD, row, Self::RESET);
+        out_println!("{}", "─".repeat(row.len()));
     }
 
     pub fn table_row(cols: &[&str]) {
-        println!("{}", cols.join(" │ "));
+        out_println!("{}", cols.join(" │ "));
     }
 
     #[allow(dead_code)]
     pub fn json(data: &str) {
-        println!("{}", data);
+        out_println!("{}", data);
     }
 
     pub fn spinner_start(msg: &str) {
@@ -144,8 +180,7 @@ impl Output {
                 Self::RESET
             )
         };
-        print!("\r{}\x1b[K", line);
-        let _ = io::stdout().flush();
+        out_print!("\r{}\x1b[K", line);
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let thread_flag = stop_flag.clone();
@@ -170,8 +205,7 @@ impl Output {
                         Output::RESET
                     )
                 };
-                print!("\r{}\x1b[K", line);
-                let _ = io::stdout().flush();
+                out_print!("\r{}\x1b[K", line);
                 idx = (idx + 1) % frame_count;
                 thread::sleep(Duration::from_millis(60));
             }
@@ -187,7 +221,7 @@ impl Output {
 
     pub fn spinner_done() {
         if Self::stop_spinner(true).is_none() {
-            println!(" {}✓{}", Self::GREEN, Self::RESET);
+            out_println!(" {}✓{}", Self::GREEN, Self::RESET);
         }
     }
 
@@ -211,8 +245,7 @@ impl Output {
                 return;
             }
         };
-        print!("\r{}\x1b[K", line);
-        let _ = io::stdout().flush();
+        out_print!("\r{}\x1b[K", line);
     }
 
     pub fn progress_bar(label: impl Into<String>, total: u64, enabled: bool) -> ProgressBar {
@@ -220,7 +253,7 @@ impl Output {
     }
 
     pub fn dim(msg: &str) {
-        println!("{}{}{}", Self::DIM, msg, Self::RESET);
+        out_println!("{}{}{}", Self::DIM, msg, Self::RESET);
     }
 
     pub fn colorize(text: &str, color: &str) -> String {
@@ -253,11 +286,10 @@ impl Output {
                 } else {
                     format!("{} {}✓{}", message, Output::GREEN, Output::RESET)
                 };
-                print!("\r{}\x1b[K\n", line);
+                out_print!("\r{}\x1b[K\n", line);
             } else {
-                print!("\r\x1b[K");
+                out_print!("\r\x1b[K");
             }
-            let _ = io::stdout().flush();
             return Some(message);
         }
         None
@@ -334,9 +366,8 @@ impl ProgressBar {
         let total = self.inner.total.load(Ordering::Relaxed).max(1);
         self.inner.current.store(total, Ordering::Relaxed);
         self.inner.render();
-        print!(" {}✓{}", Output::GREEN, Output::RESET);
-        println!();
-        let _ = io::stdout().flush();
+        out_print!(" {}✓{}", Output::GREEN, Output::RESET);
+        out_println!();
     }
 }
 
@@ -408,7 +439,7 @@ impl ProgressInner {
             self.label.clone()
         };
 
-        print!(
+        out_print!(
             "\r{}{}{} {:>5.1}% {}/{} t={:.1}s {}",
             Output::CYAN,
             bar,
@@ -419,6 +450,5 @@ impl ProgressInner {
             elapsed,
             label
         );
-        let _ = io::stdout().flush();
     }
 }
