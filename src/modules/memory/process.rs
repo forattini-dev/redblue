@@ -161,7 +161,7 @@ impl ProcessMemory {
 
             // If we have a full word, write it directly
             if offset + word_size <= data.len() {
-                let mut word_bytes = [0u8; 8];
+                let mut word_bytes = [0u8; std::mem::size_of::<libc::c_long>()];
                 word_bytes[..word_size].copy_from_slice(&data[offset..offset + word_size]);
                 let word = libc::c_long::from_ne_bytes(word_bytes);
 

@@ -10,13 +10,13 @@ use std::ptr;
 use std::os::unix::io::AsRawFd;
 
 // Linux syscall numbers and constants
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MMAP: i64 = 9;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MUNMAP: i64 = 11;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MSYNC: i64 = 26;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const SYS_MADVISE: i64 = 28;
 #[cfg(target_os = "linux")]
 const PROT_READ: i32 = 1;
@@ -42,7 +42,7 @@ const MADV_WILLNEED: i32 = 3;
 const MADV_DONTNEED: i32 = 4;
 
 // Macro for raw syscalls (ZERO dependencies!)
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 macro_rules! syscall {
     ($num:expr, $arg1:expr, $arg2:expr) => {{
         let mut ret: i64;
@@ -96,6 +96,60 @@ macro_rules! syscall {
     }};
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+unsafe fn linux_mmap(
+    addr: *mut u8,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> isize {
+    syscall!(SYS_MMAP, addr, len, prot, flags, fd, offset) as isize
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
+unsafe fn linux_mmap(
+    addr: *mut u8,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> isize {
+    libc::mmap(addr.cast(), len, prot, flags, fd, offset as libc::off_t) as isize
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+unsafe fn linux_msync(addr: *mut u8, len: usize, flags: i32) -> i64 {
+    syscall!(SYS_MSYNC, addr, len, flags)
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
+unsafe fn linux_msync(addr: *mut u8, len: usize, flags: i32) -> i64 {
+    libc::msync(addr.cast(), len, flags) as i64
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+unsafe fn linux_madvise(addr: *mut u8, len: usize, advice: i32) -> i64 {
+    syscall!(SYS_MADVISE, addr, len, advice)
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
+unsafe fn linux_madvise(addr: *mut u8, len: usize, advice: i32) -> i64 {
+    libc::madvise(addr.cast(), len, advice) as i64
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+unsafe fn linux_munmap(addr: *mut u8, len: usize) -> i64 {
+    syscall!(SYS_MUNMAP, addr, len)
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
+unsafe fn linux_munmap(addr: *mut u8, len: usize) -> i64 {
+    libc::munmap(addr.cast(), len) as i64
+}
+
 /// Memory access advice for madvise
 #[derive(Debug, Clone, Copy)]
 pub enum MadviseAdvice {
@@ -121,15 +175,7 @@ impl MmapFile {
         let fd = file.as_raw_fd();
 
         // Direct mmap syscall (ZERO dependencies!)
-        let ptr = syscall!(
-            SYS_MMAP,
-            ptr::null_mut::<u8>(),
-            len,
-            PROT_READ,
-            MAP_SHARED,
-            fd,
-            0
-        ) as isize;
+        let ptr = unsafe { linux_mmap(ptr::null_mut::<u8>(), len, PROT_READ, MAP_SHARED, fd, 0) };
 
         if ptr == MAP_FAILED {
             return Err(io::Error::last_os_error());
@@ -147,15 +193,16 @@ impl MmapFile {
     pub fn new_mut(file: File, len: usize) -> io::Result<Self> {
         let fd = file.as_raw_fd();
 
-        let ptr = syscall!(
-            SYS_MMAP,
-            ptr::null_mut::<u8>(),
-            len,
-            PROT_READ | PROT_WRITE,
-            MAP_SHARED,
-            fd,
-            0
-        ) as isize;
+        let ptr = unsafe {
+            linux_mmap(
+                ptr::null_mut::<u8>(),
+                len,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                fd,
+                0,
+            )
+        };
 
         if ptr == MAP_FAILED {
             return Err(io::Error::last_os_error());
@@ -273,7 +320,7 @@ impl MmapFile {
             return Ok(()); // No-op for read-only
         }
 
-        let result = syscall!(SYS_MSYNC, self.ptr, self.len, MS_SYNC);
+        let result = unsafe { linux_msync(self.ptr, self.len, MS_SYNC) };
 
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -288,7 +335,7 @@ impl MmapFile {
             return Ok(()); // No-op for read-only
         }
 
-        let result = syscall!(SYS_MSYNC, self.ptr, self.len, MS_ASYNC);
+        let result = unsafe { linux_msync(self.ptr, self.len, MS_ASYNC) };
 
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -307,7 +354,7 @@ impl MmapFile {
             MadviseAdvice::DontNeed => MADV_DONTNEED,
         };
 
-        let result = syscall!(SYS_MADVISE, self.ptr, self.len, advice_flag);
+        let result = unsafe { linux_madvise(self.ptr, self.len, advice_flag) };
 
         if result < 0 {
             return Err(io::Error::last_os_error());
@@ -330,7 +377,7 @@ impl MmapFile {
 #[cfg(target_os = "linux")]
 impl Drop for MmapFile {
     fn drop(&mut self) {
-        let _ = syscall!(SYS_MUNMAP, self.ptr, self.len);
+        let _ = unsafe { linux_munmap(self.ptr, self.len) };
     }
 }
 

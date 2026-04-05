@@ -386,8 +386,8 @@ impl ProcessInjector {
         }
     }
 
-    /// Ptrace-based injection (Linux)
-    #[cfg(target_os = "linux")]
+    /// Ptrace-based injection (Linux x86_64)
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn ptrace_inject(&self, shellcode: &Shellcode) -> InjectionResult {
         use std::ffi::c_void;
 
@@ -480,6 +480,31 @@ impl ProcessInjector {
                 thread_id: Some(pid as u32),
                 base_address: Some(shellcode_addr),
             }
+        }
+    }
+
+    /// Ptrace-based injection (Linux aarch64 placeholder)
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    fn ptrace_inject(&self, _shellcode: &Shellcode) -> InjectionResult {
+        InjectionResult {
+            success: false,
+            error: Some("Ptrace injection is not yet implemented on Linux/aarch64".to_string()),
+            thread_id: None,
+            base_address: None,
+        }
+    }
+
+    /// Ptrace-based injection (other Linux architectures)
+    #[cfg(all(
+        target_os = "linux",
+        not(any(target_arch = "x86_64", target_arch = "aarch64"))
+    ))]
+    fn ptrace_inject(&self, _shellcode: &Shellcode) -> InjectionResult {
+        InjectionResult {
+            success: false,
+            error: Some("Ptrace injection is not supported on this Linux architecture".to_string()),
+            thread_id: None,
+            base_address: None,
         }
     }
 
