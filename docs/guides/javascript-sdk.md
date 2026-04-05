@@ -25,6 +25,8 @@ npm install redblue-cli
 ```bash
 npx redblue-cli dns record lookup example.com --type MX
 npm exec --package redblue-cli rb -- tls security audit github.com
+npx redblue-cli --install --print-binary-path
+npx redblue-cli --check-update
 ```
 
 ### After local install
@@ -69,7 +71,10 @@ The wrapper resolves the binary in this order:
 1. `binaryPath`
 2. `targetDir`
 3. `PATH`
-4. release download when `autoDownload: true`
+4. legacy managed install in `~/.redblue/bin`
+5. release download when `autoDownload: true`
+
+Managed wrapper installs default to `~/.local/bin`.
 
 Example with explicit binary:
 
@@ -108,12 +113,18 @@ The npm CLI wrapper understands a small set of wrapper-only flags before the red
 - `--binary-path <path>`
 - `--target-dir <dir>`
 - `--auto-download`
+- `--install`
+- `--upgrade`
+- `--check-update`
+- `--print-binary-path`
 - `--channel <stable|latest|next>`
-- `--version <tag>`
+- `--release-version <tag>`
+- `--version <tag>` as an alias for `--release-version`
 - `--asset-name <name>`
 - `--repo <owner/name>`
 - `--github-token <token>`
 - `--static-build`
+- `--force`
 - `--no-verify`
 - `--sdk-help`
 
@@ -121,7 +132,10 @@ Example:
 
 ```bash
 npx redblue-cli --auto-download --target-dir .redblue/bin dns record lookup example.com --type TXT
+npx redblue-cli --upgrade --release-version v0.1.2
 ```
+
+Use bare `rb --version` after installation when you want the real binary version instead of the wrapper release selector.
 
 ## When to Use It
 

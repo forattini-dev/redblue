@@ -33,6 +33,10 @@ npx redblue-cli dns record lookup example.com --type MX
 
 # One-shot execution with the rb bin exposed by the package
 npm exec --package redblue-cli rb -- tls security audit github.com
+
+# Let the wrapper install and update the release binary for you
+npx redblue-cli --install --print-binary-path
+npx redblue-cli --check-update
 ```
 
 After local installation, the package also exposes `rb`:
@@ -41,7 +45,7 @@ After local installation, the package also exposes `rb`:
 npx rb network ports scan 192.168.1.1 --preset common
 ```
 
-> **Note:** `redblue-cli` is the package name on npm. The exact command `npx rb` works after local or global installation. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`.
+> **Note:** `redblue-cli` is the package name on npm. The exact command `npx rb` works after local or global installation. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`. Managed wrapper installs default to `~/.local/bin` and still detect legacy installs in `~/.redblue/bin`.
 
 ## Manual Download
 

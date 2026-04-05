@@ -10,6 +10,16 @@ if (logPath) {
   fs.appendFileSync(logPath, `${JSON.stringify(args)}\n`);
 }
 
+if (args[0] === '--version') {
+  const versionText = process.env.RB_FAKE_VERSION || 'RedBlue CLI v0.1.0\n';
+  if (process.env.RB_FAKE_VERSION_STREAM === 'stderr') {
+    process.stderr.write(versionText);
+  } else {
+    process.stdout.write(versionText);
+  }
+  process.exit(0);
+}
+
 if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
   if (process.env.RB_FAKE_MANIFEST_MODE === 'empty') {
     process.exit(0);

@@ -14,32 +14,46 @@ const sdk = require('../redblue-sdk.js');
 const {
   attachRoute,
   buildInvocation,
+  checkForUpdates,
   createDomainProxy,
   defaultInstallDir,
   downloadToFile,
   ensureObject,
+  ensureInstalled,
   execFilePromise,
   exists,
+  formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
+  getBinaryInfo,
   getParserCandidatePaths,
   getDefaultBinaryName,
+  getInstalledVersion,
   getReleaseTag,
   invokeJson,
   invokeRaw,
   isExecutable,
   kebabToCamel,
+  legacyInstallDir,
   loadCliArgsParser,
+  normalizeReleaseTag,
   parseWrapperArgs,
+  parseInstalledVersion,
   request,
   requestJson,
   requestText,
   resolveFromPath,
+  resolveBinaryWithInfo,
+  resolveLegacyBinaryPath,
+  resolveManagedBinaryPath,
+  resolveManagedUpgradeDestination,
   splitWrapperArgs,
   sha256File,
   spawnBinary,
   toImportSpecifier,
+  upgradeBinary,
   waitForChild,
+  writeLine,
   verifyChecksum
 } = sdk._internal;
 
@@ -62,6 +76,16 @@ async function createFixtureBinary() {
   }
 
   return binaryPath;
+}
+
+async function installFixtureBinary(destination) {
+  const source = await createFixtureBinary();
+  await fsp.mkdir(path.dirname(destination), { recursive: true });
+  await fsp.copyFile(source, destination);
+  if (process.platform !== 'win32') {
+    await fsp.chmod(destination, 0o755);
+  }
+  return destination;
 }
 
 function readLogLines(logPath) {
@@ -154,7 +178,7 @@ async function withHttpsMock(plans, fn) {
   };
 
   try {
-    await fn();
+    return await fn();
   } finally {
     https.request = original;
   }
@@ -191,7 +215,8 @@ test('helpers handle shape, path resolution and asset names', async () => {
     process.env.PATH = originalPath;
   }
 
-  assert.equal(defaultInstallDir(), path.join(os.homedir(), '.redblue', 'bin'));
+  assert.equal(defaultInstallDir(), path.join(os.homedir(), '.local', 'bin'));
+  assert.equal(legacyInstallDir(), path.join(os.homedir(), '.redblue', 'bin'));
   assert.equal(sdk.resolveAssetName({ platform: 'linux', arch: 'x64' }), 'rb-linux-x86_64');
   assert.equal(sdk.resolveAssetName({ platform: 'linux', arch: 'arm64' }), 'rb-linux-aarch64');
   assert.equal(
@@ -209,6 +234,15 @@ test('helpers handle shape, path resolution and asset names', async () => {
     () => sdk.resolveAssetName({ platform: 'linux', arch: 'ppc64' }),
     /Unsupported redblue platform/
   );
+  assert.equal(normalizeReleaseTag('1.2.3'), 'v1.2.3');
+  assert.equal(normalizeReleaseTag('v1.2.3'), 'v1.2.3');
+  assert.equal(normalizeReleaseTag(''), null);
+  assert.equal(normalizeReleaseTag('   '), null);
+  assert.equal(parseInstalledVersion('RedBlue CLI v1.2.3'), 'v1.2.3');
+  assert.equal(parseInstalledVersion('redblue 1.2.3-next.4+abc'), 'v1.2.3-next.4+abc');
+  assert.equal(parseInstalledVersion('not-a-version'), null);
+  assert.equal(parseInstalledVersion('   '), null);
+  assert.equal(parseInstalledVersion(null), null);
 });
 
 test('request helpers, release discovery and checksum flows are covered', async () => {
@@ -328,26 +362,42 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
   const defaultNamedInstalledPath = path.join(installDir, defaultBinaryName);
   const originalPath = process.env.PATH;
 
-  await fsp.mkdir(installDir, { recursive: true });
-  await fsp.writeFile(installedPath, 'installed');
-  await fsp.chmod(installedPath, 0o755);
-
+  await installFixtureBinary(installedPath);
   assert.equal(await sdk.resolveBinary({ binaryPath: installedPath }), installedPath);
+  assert.deepEqual(await resolveBinaryWithInfo({ binaryPath: installedPath }), {
+    binaryPath: installedPath,
+    source: 'explicit'
+  });
+  assert.equal(resolveManagedBinaryPath({ targetDir: installDir, binaryName }), installedPath);
+  assert.equal(resolveManagedUpgradeDestination({ targetDir: installDir, binaryName }), installedPath);
   assert.equal(await sdk.resolveBinary({ targetDir: installDir, binaryName }), installedPath);
+  assert.deepEqual(await resolveBinaryWithInfo({ targetDir: installDir, binaryName }), {
+    binaryPath: installedPath,
+    source: 'managed'
+  });
 
   await fsp.rm(installedPath);
-  process.env.PATH = `${installDir}${path.delimiter}${originalPath || ''}`;
-  await fsp.writeFile(installedPath, 'from-path');
-  await fsp.chmod(installedPath, 0o755);
-  assert.equal(await sdk.resolveBinary({ binaryName }), installedPath);
-  process.env.PATH = originalPath;
+  try {
+    process.env.PATH = `${installDir}${path.delimiter}${originalPath || ''}`;
+    await installFixtureBinary(installedPath);
+    assert.equal(await sdk.resolveBinary({ binaryName }), installedPath);
+    assert.deepEqual(await resolveBinaryWithInfo({ binaryName }), {
+      binaryPath: installedPath,
+      source: 'path'
+    });
+  } finally {
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  }
 
-  await fsp.writeFile(defaultNamedInstalledPath, 'default-name');
-  await fsp.chmod(defaultNamedInstalledPath, 0o755);
+  await installFixtureBinary(defaultNamedInstalledPath);
+  await fsp.rm(installedPath);
   assert.equal(await sdk.resolveBinary({ targetDir: installDir }), defaultNamedInstalledPath);
   await fsp.rm(defaultNamedInstalledPath);
 
-  await fsp.rm(installedPath);
   await withHttpsMock(
     [
       { statusCode: 200, body: '{"tag_name":"v0.1.0"}' },
@@ -358,13 +408,14 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
       }
     ],
     async () => {
-      const resolved = await sdk.resolveBinary({
+      const resolved = await resolveBinaryWithInfo({
         autoDownload: true,
         targetDir: installDir,
         binaryName,
         verify: true
       });
-      assert.equal(resolved, installedPath);
+      assert.equal(resolved.binaryPath, installedPath);
+      assert.equal(resolved.source, 'downloaded');
       assert.equal(exists(installedPath), true);
     }
   );
@@ -386,6 +437,15 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
   process.env[homeKey] = homeDir;
 
   try {
+    const legacyPath = path.join(homeDir, '.redblue', 'bin', defaultBinaryName);
+    assert.equal(resolveLegacyBinaryPath({}), legacyPath);
+    await installFixtureBinary(legacyPath);
+    assert.deepEqual(await resolveBinaryWithInfo({}), {
+      binaryPath: legacyPath,
+      source: 'legacy'
+    });
+    await fsp.rm(legacyPath);
+
     await withHttpsMock(
       [
         {
@@ -407,7 +467,7 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
 
         assert.equal(
           downloaded,
-          path.join(homeDir, '.redblue', 'bin', getDefaultBinaryName(process.platform))
+          path.join(homeDir, '.local', 'bin', getDefaultBinaryName(process.platform))
         );
         assert.equal(exists(downloaded), true);
       }
@@ -419,6 +479,190 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
       process.env[homeKey] = originalHome;
     }
   }
+});
+
+test('binary lifecycle helpers cover installed versions, update checks and managed upgrades', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-version-'));
+  const managedPath = path.join(tmpDir, getDefaultBinaryName(process.platform));
+  const freshPath = path.join(tmpDir, 'fresh', getDefaultBinaryName(process.platform));
+  const upgradePath = path.join(tmpDir, 'upgrade', getDefaultBinaryName(process.platform));
+
+  await installFixtureBinary(managedPath);
+  await installFixtureBinary(upgradePath);
+
+  assert.equal(
+    await getInstalledVersion(managedPath, {
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    }),
+    'v1.2.3'
+  );
+  assert.equal(
+    await getInstalledVersion(managedPath, {
+      env: {
+        RB_FAKE_VERSION: 'RedBlue CLI v1.2.3',
+        RB_FAKE_VERSION_STREAM: 'stderr'
+      }
+    }),
+    'v1.2.3'
+  );
+  assert.equal(await getInstalledVersion(path.join(tmpDir, 'missing-rb')), null);
+
+  assert.deepEqual(
+    await getBinaryInfo({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    }),
+    {
+      binaryPath: managedPath,
+      source: 'explicit',
+      version: 'v1.2.3'
+    }
+  );
+
+  assert.deepEqual(
+    await ensureInstalled({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    }),
+    {
+      binaryPath: managedPath,
+      source: 'explicit',
+      version: 'v1.2.3',
+      changed: false
+    }
+  );
+
+  await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v1.2.4"}' }], async () => {
+    const status = await checkForUpdates({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    });
+
+    assert.equal(status.binaryPath, managedPath);
+    assert.equal(status.currentVersion, 'v1.2.3');
+    assert.equal(status.latestVersion, 'v1.2.4');
+    assert.equal(status.hasUpdate, true);
+    assert.match(formatWrapperBinaryStatus(status), /update available/);
+  });
+
+  await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v1.2.3"}' }], async () => {
+    const status = await checkForUpdates({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    });
+
+    assert.equal(status.hasUpdate, false);
+    assert.match(formatWrapperBinaryStatus(status), /up to date/);
+  });
+
+  await withHttpsMock([{ statusCode: 200, body: 'new-binary' }], async () => {
+    const installResult = await ensureInstalled({
+      binaryPath: freshPath,
+      version: 'v9.9.9',
+      assetName: 'rb-fixture',
+      verify: false
+    });
+
+    assert.equal(installResult.binaryPath, freshPath);
+    assert.equal(installResult.changed, true);
+    assert.equal(installResult.version, 'v9.9.9');
+    assert.equal(exists(freshPath), true);
+    assert.match(formatWrapperBinaryStatus(installResult), /installed/);
+  });
+
+  await withHttpsMock(
+    [
+      { statusCode: 200, body: '{"tag_name":"v8.8.8"}' },
+      { statusCode: 200, body: 'new-binary-from-release' }
+    ],
+    async () => {
+      const releaseInstallResult = await ensureInstalled({
+        binaryPath: path.join(tmpDir, 'release-install'),
+        assetName: 'rb-fixture',
+        verify: false
+      });
+
+      assert.equal(releaseInstallResult.version, 'v8.8.8');
+    }
+  );
+
+  const noUpgrade = await upgradeBinary({
+    binaryPath: managedPath,
+    version: 'v1.2.3',
+    env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+  });
+  assert.equal(noUpgrade.changed, false);
+  assert.equal(noUpgrade.previousVersion, 'v1.2.3');
+  assert.match(formatWrapperBinaryStatus(noUpgrade), /already at/);
+
+  await withHttpsMock([{ statusCode: 200, body: 'upgraded-binary' }], async () => {
+    const upgradeResult = await upgradeBinary({
+      binaryPath: upgradePath,
+      version: 'v2.0.0',
+      assetName: 'rb-fixture',
+      verify: false,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+    });
+
+    assert.equal(upgradeResult.binaryPath, upgradePath);
+    assert.equal(upgradeResult.previousVersion, 'v1.2.3');
+    assert.equal(upgradeResult.version, 'v2.0.0');
+    assert.equal(upgradeResult.changed, true);
+    assert.match(formatWrapperBinaryStatus(upgradeResult), /upgraded/);
+  });
+
+  const missingStatus = await checkForUpdates({
+    binaryPath: path.join(tmpDir, 'missing-check'),
+    version: 'v3.0.0'
+  });
+  assert.equal(missingStatus.currentVersion, null);
+  assert.equal(missingStatus.hasUpdate, true);
+  assert.match(formatWrapperBinaryStatus(missingStatus), /not installed/);
+
+  await withHttpsMock([{ statusCode: 200, body: 'upgraded-from-missing' }], async () => {
+    const upgradedMissing = await upgradeBinary({
+      binaryPath: path.join(tmpDir, 'missing-upgrade'),
+      version: 'v3.0.0',
+      assetName: 'rb-fixture',
+      verify: false
+    });
+
+    assert.equal(upgradedMissing.previousVersion, null);
+    assert.equal(upgradedMissing.changed, true);
+    assert.equal(upgradedMissing.source, 'managed');
+  });
+
+  assert.equal(
+    resolveManagedUpgradeDestination({}, {
+      binaryPath: managedPath,
+      source: 'managed'
+    }),
+    managedPath
+  );
+  assert.equal(
+    resolveManagedUpgradeDestination({}, {
+      binaryPath: managedPath,
+      source: 'path'
+    }),
+    resolveManagedBinaryPath({})
+  );
+  assert.match(
+    formatWrapperBinaryStatus({ binaryPath: managedPath, changed: false, version: 'v1.2.3' }),
+    /already installed/
+  );
+  assert.match(formatWrapperBinaryStatus({ binaryPath: managedPath, changed: true }), /installed at/);
+  assert.equal(formatWrapperBinaryStatus(null), 'redblue binary status unavailable');
+
+  const chunks = [];
+  writeLine(
+    {
+      write(chunk) {
+        chunks.push(String(chunk));
+      }
+    },
+    'hello'
+  );
+  assert.deepEqual(chunks, ['hello\n']);
 });
 
 test('exec helpers cover success, failure, spawn and route invocation building', async () => {
@@ -1076,6 +1320,18 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
     usedDoubleDash: false
   });
 
+  assert.deepEqual(splitWrapperArgs(['--version']), {
+    wrapperArgs: [],
+    passthroughArgs: ['--version'],
+    usedDoubleDash: false
+  });
+
+  assert.deepEqual(splitWrapperArgs(['--version', '1.2.3', 'dns', 'record']), {
+    wrapperArgs: ['--version', '1.2.3'],
+    passthroughArgs: ['dns', 'record'],
+    usedDoubleDash: false
+  });
+
   assert.deepEqual(splitWrapperArgs(null), {
     wrapperArgs: [],
     passthroughArgs: [],
@@ -1130,8 +1386,13 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
       '--target-dir',
       '/tmp/bin',
       '--download',
+      '--install',
+      '--upgrade',
+      '--check-update',
+      '--print-binary-path',
       '--channel',
       'next',
+      '--force',
       '--version',
       '1.2.3',
       '--repo',
@@ -1167,19 +1428,33 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
     autoDownload: true,
     binaryPath: '/tmp/rb',
     channel: 'next',
+    force: true,
     githubToken: 'ghs_secret',
     repo: 'forattini-dev/redblue',
+    releaseVersion: '1.2.3',
     staticBuild: true,
     targetDir: '/tmp/bin',
     verify: false,
     version: '1.2.3'
   });
-  assert.equal(parsed.wrapperOptions.sdkHelp, false);
+  assert.deepEqual(parsed.wrapperOptions, {
+    checkUpdate: true,
+    install: true,
+    printBinaryPath: true,
+    sdkHelp: false,
+    upgrade: true
+  });
 
   const parsedHelp = await parseWrapperArgs(['--sdk-help'], {
     localParserPath: parserDist
   });
-  assert.equal(parsedHelp.wrapperOptions.sdkHelp, true);
+  assert.deepEqual(parsedHelp.wrapperOptions, {
+    checkUpdate: false,
+    install: false,
+    printBinaryPath: false,
+    sdkHelp: true,
+    upgrade: false
+  });
   assert.deepEqual(parsedHelp.passthroughArgs, []);
 
   const parsedFromStub = await parseWrapperArgs(null, {
@@ -1201,12 +1476,21 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
     autoDownload: false,
     binaryPath: undefined,
     channel: undefined,
+    force: false,
     githubToken: undefined,
     repo: undefined,
+    releaseVersion: undefined,
     staticBuild: false,
     targetDir: undefined,
     verify: true,
     version: undefined
+  });
+  assert.deepEqual(parsedFromStub.wrapperOptions, {
+    checkUpdate: false,
+    install: false,
+    printBinaryPath: false,
+    sdkHelp: false,
+    upgrade: false
   });
 
   await assert.rejects(
@@ -1240,12 +1524,119 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
 
   assert.match(formatWrapperHelp(), /npx redblue-cli/);
   assert.match(formatWrapperHelp(), /npm exec --package redblue-cli rb/);
+  assert.match(formatWrapperHelp(), /--install/);
+  assert.match(formatWrapperHelp(), /--release-version/);
+});
+
+test('branch-only helper paths stay covered', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-branches-'));
+  const originalInstallDir = process.env.REDBLUE_INSTALL_DIR;
+  const originalLegacyInstallDir = process.env.INSTALL_DIR;
+
+  process.env.REDBLUE_INSTALL_DIR = path.join(tmpDir, 'managed-bin');
+  assert.equal(defaultInstallDir(), path.join(tmpDir, 'managed-bin'));
+  delete process.env.REDBLUE_INSTALL_DIR;
+  process.env.INSTALL_DIR = path.join(tmpDir, 'fallback-bin');
+  assert.equal(defaultInstallDir(), path.join(tmpDir, 'fallback-bin'));
+
+  if (originalInstallDir === undefined) {
+    delete process.env.REDBLUE_INSTALL_DIR;
+  } else {
+    process.env.REDBLUE_INSTALL_DIR = originalInstallDir;
+  }
+
+  if (originalLegacyInstallDir === undefined) {
+    delete process.env.INSTALL_DIR;
+  } else {
+    process.env.INSTALL_DIR = originalLegacyInstallDir;
+  }
+
+  assert.equal(await getReleaseTag({ releaseVersion: '2.0.0' }), 'v2.0.0');
+  assert.equal(resolveLegacyBinaryPath({ binaryPath: '/tmp/rb' }), null);
+  assert.equal(resolveLegacyBinaryPath({ targetDir: '/tmp/bin' }), null);
+  assert.equal(
+    resolveManagedUpgradeDestination(
+      {},
+      { binaryPath: path.join(tmpDir, 'legacy-rb'), source: 'legacy' }
+    ),
+    path.join(tmpDir, 'legacy-rb')
+  );
+
+  assert.match(
+    formatWrapperBinaryStatus({
+      latestVersion: 'v2.0.0',
+      currentVersion: null
+    }),
+    /not installed/
+  );
+  assert.match(
+    formatWrapperBinaryStatus({
+      previousVersion: 'v1.0.0',
+      changed: false,
+      binaryPath: path.join(tmpDir, 'rb')
+    }),
+    /version unknown/
+  );
+  assert.match(
+    formatWrapperBinaryStatus({
+      previousVersion: null,
+      changed: true,
+      binaryPath: path.join(tmpDir, 'rb')
+    }),
+    /version unknown/
+  );
+  assert.match(
+    formatWrapperBinaryStatus({
+      binaryPath: path.join(tmpDir, 'rb'),
+      changed: false
+    }),
+    /already installed/
+  );
+
+  assert.deepEqual(splitWrapperArgs(['--version', '--sdk-help']), {
+    wrapperArgs: [],
+    passthroughArgs: ['--version', '--sdk-help'],
+    usedDoubleDash: false
+  });
+
+  const parsedFromAliasOnly = await parseWrapperArgs(['--version', '9.9.9'], {
+    parserModule: {
+      createParser() {
+        return {
+          parse() {
+            return {
+              errors: [],
+              options: {
+                version: '9.9.9',
+                download: true
+              }
+            };
+          }
+        };
+      }
+    }
+  });
+
+  assert.equal(parsedFromAliasOnly.resolveOptions.releaseVersion, '9.9.9');
+  assert.equal(parsedFromAliasOnly.resolveOptions.version, '9.9.9');
+  assert.equal(parsedFromAliasOnly.resolveOptions.autoDownload, true);
 });
 
 test('wrapper cli execution covers help, failures, direct forwarding and main entrypoint', async () => {
   const fixtureBinary = await createFixtureBinary();
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-cli-'));
   const logPath = path.join(tmpDir, 'cli.log');
+  const installPath = path.join(tmpDir, getDefaultBinaryName(process.platform));
+  const installForwardPath = path.join(
+    tmpDir,
+    `install-forward-${getDefaultBinaryName(process.platform)}`
+  );
+  const upgradePath = path.join(tmpDir, `upgrade-${getDefaultBinaryName(process.platform)}`);
+  const upgradeForwardPath = path.join(
+    tmpDir,
+    `upgrade-forward-${getDefaultBinaryName(process.platform)}`
+  );
+  const fixtureBinaryBody = await fsp.readFile(fixtureBinary);
 
   const stdoutChunks = [];
   const stderrChunks = [];
@@ -1259,7 +1650,12 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
       stderrChunks.push(String(chunk));
     }
   };
+  const resetOutput = () => {
+    stdoutChunks.length = 0;
+    stderrChunks.length = 0;
+  };
 
+  resetOutput();
   assert.equal(
     await sdk.runCli(['--sdk-help'], {
       localParserPath: parserDist,
@@ -1271,6 +1667,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   assert.match(stdoutChunks.join(''), /Wrapper options:/);
   assert.equal(stderrChunks.join(''), '');
 
+  resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path'], {
       localParserPath: parserDist,
@@ -1281,6 +1678,177 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   );
   assert.match(stderrChunks.join(''), /requires a value/);
 
+  resetOutput();
+  assert.equal(
+    await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v0.2.0"}' }], async () =>
+      sdk.runCli(['--binary-path', fixtureBinary, '--check-update'], {
+        env: {
+          RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+        },
+        localParserPath: parserDist,
+        stdout,
+        stderr
+      })
+    ),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /update available/);
+  assert.equal(stderrChunks.join(''), '');
+
+  resetOutput();
+  assert.equal(
+    await sdk.runCli(['--binary-path', fixtureBinary, '--print-binary-path'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    0
+  );
+  assert.equal(stdoutChunks.join('').trim(), fixtureBinary);
+
+  resetOutput();
+  assert.equal(
+    await withHttpsMock([{ statusCode: 200, body: 'installed-binary' }], async () =>
+      sdk.runCli(
+        [
+          '--binary-path',
+          installPath,
+          '--install',
+          '--version',
+          'v9.9.9',
+          '--asset-name',
+          'rb-fixture',
+          '--no-verify'
+        ],
+        {
+          localParserPath: parserDist,
+          stdout,
+          stderr
+        }
+      )
+    ),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /installed at/);
+  assert.equal(exists(installPath), true);
+  assert.equal(stderrChunks.join(''), '');
+
+  await installFixtureBinary(upgradePath);
+  resetOutput();
+  assert.equal(
+    await withHttpsMock([{ statusCode: 200, body: 'upgraded-binary' }], async () =>
+      sdk.runCli(
+        [
+          '--binary-path',
+          upgradePath,
+          '--upgrade',
+          '--version',
+          'v9.9.9',
+          '--asset-name',
+          'rb-fixture',
+          '--no-verify'
+        ],
+        {
+          env: {
+            RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+          },
+          localParserPath: parserDist,
+          stdout,
+          stderr
+        }
+      )
+    ),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /upgraded at/);
+  assert.equal(stderrChunks.join(''), '');
+
+  resetOutput();
+  assert.equal(
+    await withHttpsMock([{ statusCode: 200, body: fixtureBinaryBody }], async () =>
+      sdk.runCli(
+        [
+          '--binary-path',
+          installForwardPath,
+          '--install',
+          '--version',
+          'v9.9.9',
+          '--asset-name',
+          'rb-fixture',
+          '--no-verify',
+          'dns',
+          'record',
+          'lookup',
+          'example.com'
+        ],
+        {
+          localParserPath: parserDist,
+          stdio: 'ignore',
+          stdout,
+          stderr
+        }
+      )
+    ),
+    0
+  );
+  assert.match(stderrChunks.join(''), /installed at/);
+
+  await installFixtureBinary(upgradeForwardPath);
+  resetOutput();
+  assert.equal(
+    await withHttpsMock([{ statusCode: 200, body: fixtureBinaryBody }], async () =>
+      sdk.runCli(
+        [
+          '--binary-path',
+          upgradeForwardPath,
+          '--upgrade',
+          '--version',
+          'v9.9.9',
+          '--asset-name',
+          'rb-fixture',
+          '--no-verify',
+          '--print-binary-path',
+          'dns',
+          'record',
+          'lookup',
+          'example.com'
+        ],
+        {
+          env: {
+            RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+          },
+          localParserPath: parserDist,
+          stdio: 'ignore',
+          stdout,
+          stderr
+        }
+      )
+    ),
+    0
+  );
+  assert.match(stderrChunks.join(''), /upgraded at/);
+  assert.match(stderrChunks.join(''), /redblue binary:/);
+
+  resetOutput();
+  const checkAndRunCode = await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v0.2.0"}' }], async () =>
+    sdk.runCli(
+      ['--binary-path', fixtureBinary, '--check-update', 'dns', 'record', 'lookup', 'example.com'],
+      {
+        env: {
+          RB_FAKE_LOG_PATH: logPath,
+          RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+        },
+        localParserPath: parserDist,
+        stdio: 'ignore',
+        stdout,
+        stderr
+      }
+    )
+  );
+  assert.equal(checkAndRunCode, 0);
+  assert.match(stderrChunks.join(''), /update available/);
+
+  resetOutput();
   const cliCode = await sdk.runCli(
     ['--binary-path', fixtureBinary, 'dns', 'record', 'lookup', 'example.com', '--type', 'MX'],
     {
@@ -1294,8 +1862,11 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   assert.equal(cliCode, 0);
 
   const cliLog = readLogLines(logPath);
-  assert.deepEqual(cliLog[0], ['dns', 'record', 'lookup', 'example.com', '--type', 'MX']);
+  assert.deepEqual(cliLog[0], ['--version']);
+  assert.deepEqual(cliLog[1], ['dns', 'record', 'lookup', 'example.com']);
+  assert.deepEqual(cliLog[2], ['dns', 'record', 'lookup', 'example.com', '--type', 'MX']);
 
+  resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary], {
       cwd: tmpDir,
@@ -1305,6 +1876,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     0
   );
 
+  resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', process.execPath, '-e', 'process.exit(0)'], {
       localParserPath: parserDist
@@ -1354,7 +1926,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   assert.equal(cliProcessResult.stderrText, '');
 
   const mainLog = readLogLines(logPath);
-  assert.deepEqual(mainLog[1], [
+  assert.deepEqual(mainLog[3], [
     'network',
     'ports',
     'scan',
@@ -1362,6 +1934,37 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     '--preset',
     'common'
   ]);
+
+  const versionChild = spawnBinary(
+    process.execPath,
+    [sdkScript, '--binary-path', fixtureBinary, '--version'],
+    {
+      env: Object.assign({}, process.env, {
+        RB_FAKE_VERSION: 'RedBlue CLI v0.1.0',
+        REDBLUE_CLI_ARGS_PARSER_PATH: parserDist
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  );
+
+  const versionResult = await new Promise((resolve, reject) => {
+    let stdoutText = '';
+    let stderrText = '';
+    versionChild.stdout.on('data', (chunk) => {
+      stdoutText += chunk.toString();
+    });
+    versionChild.stderr.on('data', (chunk) => {
+      stderrText += chunk.toString();
+    });
+    versionChild.on('error', reject);
+    versionChild.on('close', (code) => {
+      resolve({ code, stdoutText, stderrText });
+    });
+  });
+
+  assert.equal(versionResult.code, 0);
+  assert.match(versionResult.stdoutText, /RedBlue CLI v0.1.0/);
+  assert.equal(versionResult.stderrText, '');
 
   const waited = waitForChild(spawnBinary(process.execPath, ['-e', 'process.exit(3)']));
   assert.equal(await waited, 3);

@@ -20,13 +20,19 @@ const WRAPPER_OPTION_TYPES = Object.freeze({
   'auto-download': 'boolean',
   'binary-path': 'string',
   channel: 'string',
+  'check-update': 'boolean',
   download: 'boolean',
+  force: 'boolean',
   'github-token': 'string',
+  install: 'boolean',
   'no-verify': 'boolean',
+  'print-binary-path': 'boolean',
+  'release-version': 'string',
   repo: 'string',
   'sdk-help': 'boolean',
   'static-build': 'boolean',
   'target-dir': 'string',
+  upgrade: 'boolean',
   version: 'string',
   verify: 'boolean'
 });
@@ -45,11 +51,27 @@ const WRAPPER_OPTION_SCHEMA = Object.freeze({
     channel: {
       type: 'string'
     },
+    'check-update': {
+      type: 'boolean'
+    },
     'github-token': {
       type: 'string'
     },
+    force: {
+      type: 'boolean'
+    },
+    install: {
+      type: 'boolean'
+    },
     repo: {
       type: 'string'
+    },
+    'print-binary-path': {
+      type: 'boolean'
+    },
+    'release-version': {
+      type: 'string',
+      aliases: ['version']
     },
     'sdk-help': {
       type: 'boolean'
@@ -60,8 +82,8 @@ const WRAPPER_OPTION_SCHEMA = Object.freeze({
     'target-dir': {
       type: 'string'
     },
-    version: {
-      type: 'string'
+    upgrade: {
+      type: 'boolean'
     },
     verify: {
       type: 'boolean'
@@ -122,7 +144,29 @@ function resolveFromPath(binaryName) {
 }
 
 function defaultInstallDir() {
+  return process.env.REDBLUE_INSTALL_DIR || process.env.INSTALL_DIR || path.join(os.homedir(), '.local', 'bin');
+}
+
+function legacyInstallDir() {
   return path.join(os.homedir(), '.redblue', 'bin');
+}
+
+function resolveManagedBinaryPath(options = {}) {
+  if (options.binaryPath) {
+    return path.resolve(options.binaryPath);
+  }
+
+  const installDir = options.targetDir || defaultInstallDir();
+  const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
+  return path.resolve(installDir, binaryName);
+}
+
+function resolveLegacyBinaryPath(options = {}) {
+  if (options.binaryPath || options.targetDir) {
+    return null;
+  }
+
+  return path.resolve(legacyInstallDir(), options.binaryName || DEFAULT_BINARY_NAME);
 }
 
 function resolveAssetName(options = {}) {
@@ -203,13 +247,15 @@ async function requestText(url, options = {}) {
 
 async function getReleaseTag(options = {}) {
   const repo = options.repo || DEFAULT_REPO;
-  const githubToken = options.githubToken || process.env.GITHUB_TOKEN;
+  const githubToken =
+    options.githubToken || (options.env && options.env.GITHUB_TOKEN) || process.env.GITHUB_TOKEN;
   const headers = githubToken ? { Authorization: `Bearer ${githubToken}` } : {};
+  const requestedVersion = options.releaseVersion || options.version;
 
-  if (options.version) {
-    return String(options.version).startsWith('v')
-      ? String(options.version)
-      : `v${options.version}`;
+  if (requestedVersion) {
+    return String(requestedVersion).startsWith('v')
+      ? String(requestedVersion)
+      : `v${requestedVersion}`;
   }
 
   const channel = options.channel || 'stable';
@@ -281,9 +327,7 @@ async function verifyChecksum(filePath, checksumUrl, options = {}) {
 async function downloadBinary(options = {}) {
   const repo = options.repo || DEFAULT_REPO;
   const assetName = options.assetName || resolveAssetName(options);
-  const installDir = options.targetDir || defaultInstallDir();
-  const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
-  const destination = path.resolve(installDir, binaryName);
+  const destination = resolveManagedBinaryPath(options);
   const releaseTag = await getReleaseTag(options);
   const githubToken = options.githubToken || process.env.GITHUB_TOKEN;
   const headers = githubToken ? { Authorization: `Bearer ${githubToken}` } : {};
@@ -303,34 +347,199 @@ async function downloadBinary(options = {}) {
   return destination;
 }
 
-async function resolveBinary(options = {}) {
+async function resolveBinaryWithInfo(options = {}) {
   if (options.binaryPath) {
     const binaryPath = path.resolve(options.binaryPath);
     if (!exists(binaryPath)) {
       throw new Error(`redblue binary not found at ${binaryPath}`);
     }
-    return binaryPath;
+    return {
+      binaryPath,
+      source: 'explicit'
+    };
   }
 
-  const installDir = options.targetDir || defaultInstallDir();
   const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
-  const installedCandidate = path.resolve(installDir, binaryName);
+  const installedCandidate = resolveManagedBinaryPath(options);
   if (exists(installedCandidate)) {
-    return installedCandidate;
+    return {
+      binaryPath: installedCandidate,
+      source: 'managed'
+    };
+  }
+
+  const legacyCandidate = resolveLegacyBinaryPath(options);
+  if (legacyCandidate && exists(legacyCandidate)) {
+    return {
+      binaryPath: legacyCandidate,
+      source: 'legacy'
+    };
   }
 
   const pathCandidate = resolveFromPath(binaryName);
   if (pathCandidate) {
-    return pathCandidate;
+    return {
+      binaryPath: pathCandidate,
+      source: 'path'
+    };
   }
 
   if (options.autoDownload) {
-    return downloadBinary(options);
+    return {
+      binaryPath: await downloadBinary(options),
+      source: 'downloaded'
+    };
   }
 
   throw new Error(
     `Unable to resolve redblue binary. Set binaryPath, provide autoDownload=true, or install ${binaryName} in PATH.`
   );
+}
+
+async function resolveBinary(options = {}) {
+  const resolved = await resolveBinaryWithInfo(options);
+  return resolved.binaryPath;
+}
+
+function normalizeReleaseTag(value) {
+  if (!value) {
+    return null;
+  }
+
+  const stringValue = String(value).trim();
+  if (!stringValue) {
+    return null;
+  }
+
+  return stringValue.startsWith('v') ? stringValue : `v${stringValue}`;
+}
+
+function parseInstalledVersion(output) {
+  const text = String(output || '').trim();
+  if (!text) {
+    return null;
+  }
+
+  const match = text.match(/\bv\d+\.\d+\.\d+(?:[-+][^\s]+)?\b/);
+  if (match) {
+    return match[0];
+  }
+
+  const bare = text.match(/\b\d+\.\d+\.\d+(?:[-+][^\s]+)?\b/);
+  return bare ? `v${bare[0]}` : null;
+}
+
+async function getInstalledVersion(binaryPath, options = {}) {
+  try {
+    const result = await execFilePromise(binaryPath, ['--version'], options);
+    return parseInstalledVersion(result.stdout || result.stderr);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function getBinaryInfo(options = {}) {
+  const resolved = await resolveBinaryWithInfo(options);
+  const version = await getInstalledVersion(resolved.binaryPath, options);
+  return {
+    binaryPath: resolved.binaryPath,
+    source: resolved.source,
+    version
+  };
+}
+
+function resolveManagedUpgradeDestination(options = {}, currentInfo = null) {
+  if (options.binaryPath) {
+    return path.resolve(options.binaryPath);
+  }
+
+  if (options.targetDir) {
+    return resolveManagedBinaryPath(options);
+  }
+
+  if (currentInfo && (currentInfo.source === 'managed' || currentInfo.source === 'legacy')) {
+    return currentInfo.binaryPath;
+  }
+
+  return resolveManagedBinaryPath(options);
+}
+
+async function ensureInstalled(options = {}) {
+  try {
+    const info = await getBinaryInfo(Object.assign({}, options, { autoDownload: false }));
+    return Object.assign({ changed: false }, info);
+  } catch (_) {
+    const releaseTag = normalizeReleaseTag(options.releaseVersion || options.version) || (await getReleaseTag(options));
+    const binaryPath = await downloadBinary(
+      Object.assign({}, options, {
+        version: releaseTag
+      })
+    );
+    return {
+      binaryPath,
+      source: 'downloaded',
+      version: releaseTag,
+      changed: true
+    };
+  }
+}
+
+async function checkForUpdates(options = {}) {
+  const releaseTag = await getReleaseTag(options);
+  let current = null;
+
+  try {
+    current = await getBinaryInfo(Object.assign({}, options, { autoDownload: false }));
+  } catch (_) {
+    current = null;
+  }
+
+  return {
+    binaryPath: current ? current.binaryPath : resolveManagedBinaryPath(options),
+    currentVersion: current ? current.version : null,
+    latestVersion: releaseTag,
+    source: current ? current.source : null,
+    hasUpdate: !current || current.version !== releaseTag
+  };
+}
+
+async function upgradeBinary(options = {}) {
+  const releaseTag = await getReleaseTag(options);
+  let current = null;
+
+  try {
+    current = await getBinaryInfo(Object.assign({}, options, { autoDownload: false }));
+  } catch (_) {
+    current = null;
+  }
+
+  const destination = resolveManagedUpgradeDestination(options, current);
+  const currentVersion = current ? current.version : null;
+  const needsDownload = options.force === true || !exists(destination) || currentVersion !== releaseTag;
+
+  if (!needsDownload) {
+    return {
+      binaryPath: destination,
+      previousVersion: currentVersion,
+      version: releaseTag,
+      changed: false,
+      source: current.source
+    };
+  }
+
+  const binaryPath = await downloadBinary(
+    Object.assign({}, options, {
+      binaryPath: destination
+    })
+  );
+
+  return {
+    binaryPath,
+    previousVersion: currentVersion,
+    version: releaseTag,
+    changed: true,
+    source: current ? current.source : 'managed'
+  };
 }
 
 function execFilePromise(binaryPath, args, options = {}) {
@@ -461,6 +670,18 @@ function splitWrapperArgs(argv) {
       break;
     }
 
+    if (optionType === 'string' && eqIndex === -1) {
+      const nextToken = rawArgs[index + 1];
+      if (optionName === 'version' && (!nextToken || String(nextToken).startsWith('-'))) {
+        break;
+      }
+      if (nextToken === undefined) {
+        wrapperArgs.push(token);
+        index += 1;
+        continue;
+      }
+    }
+
     wrapperArgs.push(token);
     index += 1;
 
@@ -495,27 +716,69 @@ async function parseWrapperArgs(argv, runtime = {}) {
   }
 
   const options = parsed.options || {};
+  const releaseVersion = options['release-version'] || options.version;
 
   return {
     passthroughArgs: split.passthroughArgs,
     rawArgs,
     resolveOptions: {
       assetName: options['asset-name'],
-      autoDownload: options['auto-download'] === true,
+      autoDownload: options['auto-download'] === true || options.download === true,
       binaryPath: options['binary-path'],
       channel: options.channel,
+      force: options.force === true,
       githubToken: options['github-token'],
       repo: options.repo,
+      releaseVersion,
       staticBuild: options['static-build'] === true,
       targetDir: options['target-dir'],
       verify: options.verify !== false,
-      version: options.version
+      version: releaseVersion
     },
     usedDoubleDash: split.usedDoubleDash,
     wrapperOptions: {
-      sdkHelp: options['sdk-help'] === true
+      checkUpdate: options['check-update'] === true,
+      install: options.install === true,
+      printBinaryPath: options['print-binary-path'] === true,
+      sdkHelp: options['sdk-help'] === true,
+      upgrade: options.upgrade === true
     }
   };
+}
+
+function writeLine(stream, message) {
+  stream.write(`${message}\n`);
+}
+
+function formatWrapperBinaryStatus(result) {
+  if (result && Object.prototype.hasOwnProperty.call(result, 'latestVersion')) {
+    if (!result.currentVersion) {
+      return `redblue is not installed; latest available is ${result.latestVersion}`;
+    }
+    if (result.hasUpdate) {
+      return `redblue update available at ${result.binaryPath}: ${result.currentVersion} -> ${result.latestVersion}`;
+    }
+    return `redblue is up to date at ${result.binaryPath} (${result.currentVersion})`;
+  }
+
+  if (result && Object.prototype.hasOwnProperty.call(result, 'previousVersion')) {
+    if (!result.changed) {
+      return `redblue already at ${result.binaryPath} (${result.version || 'version unknown'})`;
+    }
+    if (result.previousVersion) {
+      return `redblue upgraded at ${result.binaryPath}: ${result.previousVersion} -> ${result.version}`;
+    }
+    return `redblue installed at ${result.binaryPath} (${result.version || 'version unknown'})`;
+  }
+
+  if (result && result.binaryPath) {
+    if (!result.changed) {
+      return `redblue already installed at ${result.binaryPath}${result.version ? ` (${result.version})` : ''}`;
+    }
+    return `redblue installed at ${result.binaryPath}${result.version ? ` (${result.version})` : ''}`;
+  }
+
+  return 'redblue binary status unavailable';
 }
 
 function formatWrapperHelp() {
@@ -529,19 +792,27 @@ function formatWrapperHelp() {
     '',
     'Wrapper options:',
     '  --binary-path <path>     Use an explicit redblue binary',
-    '  --target-dir <dir>       Resolve or download the binary in this directory',
-    '  --auto-download          Download the binary if it is missing',
+    '  --target-dir <dir>       Resolve or install the managed binary in this directory',
+    '  --auto-download          Download the binary if it is missing before command execution',
+    '  --install                Ensure the managed binary is installed',
+    '  --upgrade                Upgrade the managed binary to the requested release',
+    '  --check-update           Check the installed binary against the latest release',
+    '  --print-binary-path      Print the resolved binary path and exit',
     '  --channel <name>         Release channel for downloads (stable, latest, next)',
-    '  --version <tag>          Pin a release version for downloads',
+    '  --release-version <tag>  Pin a release version for install or upgrade',
+    '  --version <tag>          Alias for --release-version',
     '  --asset-name <name>      Override the release asset name',
     '  --repo <owner/name>      Override the GitHub repository',
     '  --github-token <token>   GitHub token for release downloads',
     '  --static-build           Prefer static Linux assets when available',
+    '  --force                  Force a reinstall when used with --upgrade',
     '  --no-verify              Skip SHA256 verification on download',
     '  --sdk-help               Show this wrapper help',
     '',
     'Notes:',
     '  Wrapper options must come before the redblue command.',
+    '  Managed installs default to ~/.local/bin and still detect legacy ~/.redblue/bin installs.',
+    '  Use "rb --version" to query the real redblue binary version after installation.',
     '  The exact command "npx rb" only works when a package named "rb" exists or when this package is already installed and exposes the rb bin.',
     ''
   ].join('\n');
@@ -568,13 +839,71 @@ async function runCli(argv = process.argv.slice(2), runtime = {}) {
 
   try {
     const parsed = await parseWrapperArgs(argv, runtime);
+    const cliOptions = Object.assign({}, parsed.resolveOptions, {
+      cwd: runtime.cwd || process.cwd(),
+      env: Object.assign({}, process.env, runtime.env || {})
+    });
 
     if (parsed.wrapperOptions.sdkHelp) {
-      stdout.write(formatWrapperHelp());
+      writeLine(stdout, formatWrapperHelp());
       return 0;
     }
 
-    const binaryPath = await resolveBinary(parsed.resolveOptions);
+    let resolvedInfo = null;
+
+    if (parsed.wrapperOptions.checkUpdate) {
+      const updateStatus = await checkForUpdates(cliOptions);
+      const updateMessage = formatWrapperBinaryStatus(updateStatus);
+
+      if (parsed.passthroughArgs.length === 0) {
+        writeLine(stdout, updateMessage);
+        return 0;
+      }
+
+      writeLine(stderr, updateMessage);
+    }
+
+    if (parsed.wrapperOptions.upgrade) {
+      const upgradeResult = await upgradeBinary(cliOptions);
+      resolvedInfo = {
+        binaryPath: upgradeResult.binaryPath,
+        source: upgradeResult.source
+      };
+
+      if (parsed.passthroughArgs.length === 0 && !parsed.wrapperOptions.printBinaryPath) {
+        writeLine(stdout, formatWrapperBinaryStatus(upgradeResult));
+        return 0;
+      }
+
+      writeLine(stderr, formatWrapperBinaryStatus(upgradeResult));
+    } else if (parsed.wrapperOptions.install) {
+      const installResult = await ensureInstalled(cliOptions);
+      resolvedInfo = {
+        binaryPath: installResult.binaryPath,
+        source: installResult.source
+      };
+
+      if (parsed.passthroughArgs.length === 0 && !parsed.wrapperOptions.printBinaryPath) {
+        writeLine(stdout, formatWrapperBinaryStatus(installResult));
+        return 0;
+      }
+
+      writeLine(stderr, formatWrapperBinaryStatus(installResult));
+    }
+
+    if (!resolvedInfo) {
+      resolvedInfo = await resolveBinaryWithInfo(cliOptions);
+    }
+
+    if (parsed.wrapperOptions.printBinaryPath) {
+      if (parsed.passthroughArgs.length === 0) {
+        writeLine(stdout, resolvedInfo.binaryPath);
+        return 0;
+      }
+      writeLine(stderr, `redblue binary: ${resolvedInfo.binaryPath}`);
+    }
+
+    const binaryPath = resolvedInfo.binaryPath;
     /* node:coverage disable */
     const spawnOptions = {
       cwd: runtime.cwd || process.cwd(),
@@ -898,43 +1227,62 @@ async function createClient(options = {}) {
 }
 
 module.exports = {
+  checkForUpdates,
   createClient,
   downloadBinary,
+  ensureInstalled,
+  getBinaryInfo,
   getManifest,
+  getInstalledVersion,
   runCli,
   resolveAssetName,
-  resolveBinary
+  resolveBinary,
+  upgradeBinary
 };
 
 module.exports._internal = {
   attachRoute,
   buildInvocation,
+  checkForUpdates,
   createDomainProxy,
   defaultInstallDir,
   downloadToFile,
+  ensureInstalled,
   ensureObject,
   execFilePromise,
   exists,
+  formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
+  getBinaryInfo,
   getParserCandidatePaths,
   getDefaultBinaryName,
+  getInstalledVersion,
   getReleaseTag,
   invokeJson,
   invokeRaw,
   isExecutable,
   kebabToCamel,
+  legacyInstallDir,
   loadCliArgsParser,
+  normalizeReleaseTag,
   parseWrapperArgs,
+  parseInstalledVersion,
   request,
   requestJson,
   requestText,
   resolveFromPath,
+  resolveBinaryWithInfo,
+  resolveLegacyBinaryPath,
+  resolveManagedBinaryPath,
+  resolveManagedUpgradeDestination,
   sha256File,
   splitWrapperArgs,
   spawnBinary,
   toImportSpecifier,
+  upgradeBinary,
   waitForChild,
+  writeLine,
   verifyChecksum
 };
 

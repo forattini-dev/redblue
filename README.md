@@ -156,6 +156,11 @@ npm exec --package redblue-cli rb -- tls security audit github.com
 # Install the wrapper in a project
 npm install redblue-cli
 npx rb network ports scan 192.168.1.1 --preset common
+
+# Let the wrapper manage the release binary
+npx redblue-cli --install --print-binary-path
+npx redblue-cli --check-update
+npx redblue-cli --upgrade --channel next
 ```
 
 ```js
@@ -633,9 +638,9 @@ const { createClient } = require('redblue-cli');
 })();
 ```
 
-If you want the wrapper to manage the binary for you, use `autoDownload: true` with a `targetDir`.
+If you want the wrapper to manage the binary for you, use `--install`, `--check-update`, or `--upgrade`. Managed installs default to `~/.local/bin`, and the wrapper still detects legacy installs in `~/.redblue/bin`. For SDK consumers, `autoDownload: true` still works and can be combined with a custom `targetDir`.
 
-> **Note:** the exact command `npx rb` works after `redblue-cli` is installed in the project or globally. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`.
+> **Note:** the exact command `npx rb` works after `redblue-cli` is installed in the project or globally. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`. Use bare `rb --version` to query the real binary version; use wrapper `--version <tag>` or `--release-version <tag>` before the command when you want to pin a release download.
 
 ### Build from Source
 
