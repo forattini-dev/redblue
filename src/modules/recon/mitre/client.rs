@@ -157,20 +157,18 @@ impl MitreClient {
 
     /// Fetch and parse ATT&CK data (uses disk cache if available)
     pub fn fetch(&mut self) -> Result<&AttackData, String> {
-        // Return memory cache if already loaded
-        if self.cache.is_some() {
-            return Ok(self.cache.as_ref().unwrap());
+        if self.cache.is_none() {
+            // Try disk cache first
+            if let Some(cached_json) = self.load_from_cache() {
+                let data = self.parse_stix_bundle(&cached_json)?;
+                self.cache = Some(data);
+            } else {
+                // Fetch from network
+                self.fetch_fresh()?;
+            }
         }
 
-        // Try disk cache first
-        if let Some(cached_json) = self.load_from_cache() {
-            let data = self.parse_stix_bundle(&cached_json)?;
-            self.cache = Some(data);
-            return Ok(self.cache.as_ref().unwrap());
-        }
-
-        // Fetch from network
-        self.fetch_fresh()
+        Ok(self.cache.as_ref().unwrap())
     }
 
     /// Force fetch ATT&CK data from network (bypasses cache)

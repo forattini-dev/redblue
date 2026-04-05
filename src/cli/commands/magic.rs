@@ -1087,7 +1087,66 @@ pub fn execute(ctx: &CliContext) -> Result<(), String> {
 mod tests {
     use super::*;
     #[cfg(not(target_os = "windows"))]
-    use crate::protocols::x509::parse_x509_time;
+    use boring::asn1::Asn1Time;
+    #[cfg(not(target_os = "windows"))]
+    use boring::bn::BigNum;
+    #[cfg(not(target_os = "windows"))]
+    use boring::hash::MessageDigest;
+    #[cfg(not(target_os = "windows"))]
+    use boring::pkey::PKey;
+    #[cfg(not(target_os = "windows"))]
+    use boring::rsa::Rsa;
+    #[cfg(not(target_os = "windows"))]
+    use boring::x509::extension::SubjectAlternativeName;
+    #[cfg(not(target_os = "windows"))]
+    use boring::x509::X509NameBuilder;
+
+    #[cfg(not(target_os = "windows"))]
+    fn make_test_localhost_cert() -> X509 {
+        let rsa = Rsa::generate(2048).expect("test rsa generation");
+        let pkey = PKey::from_rsa(rsa).expect("test pkey generation");
+
+        let mut name_builder = X509NameBuilder::new().expect("test name builder");
+        name_builder
+            .append_entry_by_nid(Nid::COMMONNAME, "localhost")
+            .expect("test common name");
+        let name = name_builder.build();
+
+        let mut builder = X509::builder().expect("test x509 builder");
+        builder.set_version(2).expect("test x509 version");
+
+        let serial = BigNum::from_u32(1)
+            .expect("test serial")
+            .to_asn1_integer()
+            .expect("test serial asn1");
+        builder
+            .set_serial_number(&serial)
+            .expect("test serial number");
+        builder.set_subject_name(&name).expect("test subject name");
+        builder.set_issuer_name(&name).expect("test issuer name");
+        builder.set_pubkey(&pkey).expect("test public key");
+
+        let not_before = Asn1Time::days_from_now(0).expect("test not before");
+        let not_after = Asn1Time::days_from_now(30).expect("test not after");
+        builder
+            .set_not_before(&not_before)
+            .expect("test set not before");
+        builder
+            .set_not_after(&not_after)
+            .expect("test set not after");
+
+        let ctx = builder.x509v3_context(None, None);
+        let san = SubjectAlternativeName::new()
+            .dns("localhost")
+            .build(&ctx)
+            .expect("test san");
+        builder.append_extension(san).expect("test append san");
+
+        builder
+            .sign(&pkey, MessageDigest::sha256())
+            .expect("test sign cert");
+        builder.build()
+    }
 
     #[test]
     fn test_magic_scan_creation() {
@@ -1102,9 +1161,8 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_magic_tls_verify_host_mismatch() {
-        let pem = include_bytes!("../../../test-certs/server.crt");
-        let cert = X509::from_pem(pem).expect("test cert parse");
-        let now = parse_x509_time("20251105000000Z").expect("valid time");
+        let cert = make_test_localhost_cert();
+        let now = std::time::SystemTime::now();
 
         let ok = MagicScan::verify_tls_certificate("localhost", &cert, now);
         assert!(ok.is_ok());

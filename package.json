@@ -41,7 +41,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "cli-args-parser": "^1.0.7"
+    "cli-args-parser": "^1.0.6"
   },
   "scripts": {
     "build": "node --check sdk/redblue-sdk.js",

@@ -306,8 +306,8 @@ fn tool_agent_generate(_server: &mut McpServer, args: &JsonValue) -> Result<Tool
          - Command queue with async response delivery",
         server_url,
         transport.to_uppercase(),
-        if dns_domain.is_some() {
-            format!(" + DNS fallback ({})", dns_domain.unwrap())
+        if let Some(domain) = dns_domain {
+            format!(" + DNS fallback ({})", domain)
         } else {
             String::new()
         },

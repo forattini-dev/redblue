@@ -270,60 +270,58 @@ impl TfIdfEngine {
 
     /// Calculate TF-IDF scores for all words
     pub fn calculate_scores(&mut self) -> &[ScoredWord] {
-        // Return cached scores if available
-        if self.cached_scores.is_some() {
-            return self.cached_scores.as_ref().unwrap();
-        }
+        if self.cached_scores.is_none() {
+            let mut scores: Vec<ScoredWord> = Vec::new();
+            let n = self.document_count as f64;
+            let max_df = (n * self.config.max_df_ratio) as usize;
 
-        let mut scores: Vec<ScoredWord> = Vec::new();
-        let n = self.document_count as f64;
-        let max_df = (n * self.config.max_df_ratio) as usize;
+            for (word, doc_set) in &self.document_frequency {
+                let doc_count = doc_set.len();
 
-        for (word, doc_set) in &self.document_frequency {
-            let doc_count = doc_set.len();
+                // Filter by document frequency
+                if doc_count < self.config.min_df {
+                    continue;
+                }
+                if doc_count > max_df {
+                    continue;
+                }
 
-            // Filter by document frequency
-            if doc_count < self.config.min_df {
-                continue;
+                let tf = self.calculate_tf(word);
+                let idf = self.calculate_idf(word);
+                let tfidf = tf * idf;
+
+                // Filter by minimum score
+                if tfidf < self.config.min_score {
+                    continue;
+                }
+
+                let total_occurrences = *self.term_frequency.get(word).unwrap_or(&0);
+
+                scores.push(ScoredWord {
+                    word: word.clone(),
+                    tf,
+                    idf,
+                    tfidf,
+                    document_count: doc_count,
+                    total_occurrences,
+                });
             }
-            if doc_count > max_df {
-                continue;
-            }
 
-            let tf = self.calculate_tf(word);
-            let idf = self.calculate_idf(word);
-            let tfidf = tf * idf;
-
-            // Filter by minimum score
-            if tfidf < self.config.min_score {
-                continue;
-            }
-
-            let total_occurrences = *self.term_frequency.get(word).unwrap_or(&0);
-
-            scores.push(ScoredWord {
-                word: word.clone(),
-                tf,
-                idf,
-                tfidf,
-                document_count: doc_count,
-                total_occurrences,
+            // Sort by TF-IDF score (descending)
+            scores.sort_by(|a, b| {
+                b.tfidf
+                    .partial_cmp(&a.tfidf)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
+
+            // Limit vocabulary size
+            if scores.len() > self.config.max_vocabulary_size {
+                scores.truncate(self.config.max_vocabulary_size);
+            }
+
+            self.cached_scores = Some(scores);
         }
 
-        // Sort by TF-IDF score (descending)
-        scores.sort_by(|a, b| {
-            b.tfidf
-                .partial_cmp(&a.tfidf)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Limit vocabulary size
-        if scores.len() > self.config.max_vocabulary_size {
-            scores.truncate(self.config.max_vocabulary_size);
-        }
-
-        self.cached_scores = Some(scores);
         self.cached_scores.as_ref().unwrap()
     }
 

@@ -668,13 +668,7 @@ impl HnswIndex {
 
         // Index state
         bytes.extend_from_slice(&(self.max_layer as u32).to_le_bytes());
-        bytes.extend_from_slice(
-            &match self.entry_point {
-                Some(ep) => ep,
-                None => u64::MAX,
-            }
-            .to_le_bytes(),
-        );
+        bytes.extend_from_slice(&self.entry_point.unwrap_or(u64::MAX).to_le_bytes());
 
         // Node count
         bytes.extend_from_slice(&(self.nodes.len() as u64).to_le_bytes());
