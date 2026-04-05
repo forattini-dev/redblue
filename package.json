@@ -1,6 +1,6 @@
 {
   "name": "redblue-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "JavaScript SDK wrapper for the redblue CLI",
   "type": "commonjs",
   "main": "./sdk/redblue-sdk.js",
