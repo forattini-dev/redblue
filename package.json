@@ -46,7 +46,7 @@
   "scripts": {
     "build": "node --check sdk/redblue-sdk.js",
     "test": "node --test --test-reporter=spec sdk/test/*.test.js",
-    "coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-coverage-include=sdk/redblue-sdk.js --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 sdk/test/*.test.js",
+    "coverage": "node scripts/check-sdk-coverage.js",
     "pack-check": "npm pack --dry-run",
     "prepublishOnly": "npm run build && npm run coverage && npm run pack-check",
     "publish:npm": "npm publish --provenance",
