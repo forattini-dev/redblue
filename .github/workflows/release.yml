@@ -297,7 +297,7 @@ jobs:
         shell: bash
         run: |
           HASH=$(cat ${{ matrix.asset_name }}.sha256 | awk '{print $1}')
-          ./${{ matrix.asset_name }} crypto vault hash verify ${{ matrix.asset_name }} $HASH
+          ./${{ matrix.asset_name }} crypto hash verify ${{ matrix.asset_name }} $HASH
 
       - name: Evasion build info
         if: "!matrix.cross"
