@@ -516,23 +516,42 @@ jobs:
         run: |
           EXPECTED_VERSION_CANONICAL="${EXPECTED_VERSION%%+*}"
 
-          echo "Waiting for npm registry to update..."
-          PUBLISHED_VERSION=""
+          echo "Waiting for npm package version to become available..."
+          VERSION_AVAILABLE=""
           for attempt in 1 2 3 4 5 6; do
-            PUBLISHED_VERSION=$(npm view redblue-cli@${NPM_TAG} version 2>/dev/null || true)
-            if [ "$PUBLISHED_VERSION" = "$EXPECTED_VERSION_CANONICAL" ]; then
+            VERSION_AVAILABLE=$(npm view redblue-cli@${EXPECTED_VERSION_CANONICAL} version 2>/dev/null || true)
+            if [ "$VERSION_AVAILABLE" = "$EXPECTED_VERSION_CANONICAL" ]; then
               break
             fi
             sleep 10
           done
 
-          if [ "$PUBLISHED_VERSION" != "$EXPECTED_VERSION_CANONICAL" ]; then
-            echo "::warning::Expected npm ${NPM_TAG} tag to be $EXPECTED_VERSION_CANONICAL but found '$PUBLISHED_VERSION'"
-          else
-            echo "Verified npm ${NPM_TAG} tag: $PUBLISHED_VERSION"
+          if [ "$VERSION_AVAILABLE" != "$EXPECTED_VERSION_CANONICAL" ]; then
+            echo "::error::Expected npm version $EXPECTED_VERSION_CANONICAL to be available but found '$VERSION_AVAILABLE'"
+            exit 1
           fi
 
-          REDBLUE_SKIP_POSTINSTALL=1 npx -y redblue-cli@${NPM_TAG} --sdk-help >/tmp/redblue-sdk-help.txt
+          echo "Verified npm package version: $VERSION_AVAILABLE"
+
+          echo "Waiting for npm dist-tag ${NPM_TAG} to converge..."
+          PUBLISHED_TAG_VERSION=""
+          for attempt in 1 2 3 4 5 6; do
+            PUBLISHED_TAG_VERSION=$(npm view redblue-cli@${NPM_TAG} version 2>/dev/null || true)
+            if [ "$PUBLISHED_TAG_VERSION" = "$EXPECTED_VERSION_CANONICAL" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$PUBLISHED_TAG_VERSION" != "$EXPECTED_VERSION_CANONICAL" ]; then
+            echo "::warning::Expected npm ${NPM_TAG} tag to be $EXPECTED_VERSION_CANONICAL but found '$PUBLISHED_TAG_VERSION'"
+          else
+            echo "Verified npm ${NPM_TAG} tag: $PUBLISHED_TAG_VERSION"
+          fi
+
+          SMOKE_DIR=$(mktemp -d)
+          cd "$SMOKE_DIR"
+          REDBLUE_SKIP_POSTINSTALL=1 npm exec --yes --package redblue-cli@${EXPECTED_VERSION_CANONICAL} -- redblue-cli --sdk-help >/tmp/redblue-sdk-help.txt
           grep -q "redblue-cli wrapper" /tmp/redblue-sdk-help.txt
 
       - name: Job summary
