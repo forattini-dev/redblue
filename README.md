@@ -17,15 +17,21 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 
 ### JavaScript / TypeScript
 
-You can consume `rb` through the npm wrapper too:
+Use `redblue-cli` to run `rb` from JavaScript/TypeScript ecosystems (npm, npx, CI and scripts).
 
 ```bash
-# project-local install (recommended for CI and apps)
+# Local install (project dependency)
 npm install redblue-cli
-npx redblue-cli dns record lookup example.com --type MX
-npm exec --package redblue-cli rb -- dns record lookup example.com --type MX
 
-# global install
+# Run through package name
+npx redblue-cli dns record lookup example.com --type MX
+
+# Explicit binary invocation (also supported by npm exec)
+npm exec --package redblue-cli rb -- dns record lookup example.com --type MX
+```
+
+```bash
+# Global install
 npm i -g redblue-cli
 rb dns record lookup example.com --type MX
 ```
