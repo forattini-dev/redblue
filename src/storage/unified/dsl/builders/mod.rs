@@ -11,10 +11,10 @@ mod text;
 mod vector;
 
 pub use crossmodal::{
-    CrossModalMatch, CrossModalWeights, JoinPhase, JoinStep, ThreeWayJoinBuilder,
+  CrossModalMatch, CrossModalWeights, JoinPhase, JoinStep, ThreeWayJoinBuilder,
 };
 pub use graph::{
-    GraphQueryBuilder, GraphStartPoint, NodePatternDsl, TraversalDirection, TraversalStep,
+  GraphQueryBuilder, GraphStartPoint, NodePatternDsl, TraversalDirection, TraversalStep,
 };
 pub use hybrid::{GraphPatternDsl, HybridQueryBuilder, QueryWeights};
 pub use refs::RefQueryBuilder;

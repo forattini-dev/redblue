@@ -19,13 +19,13 @@ pub mod serializer;
 // Re-export commonly used types
 pub use bloom::{BloomFilter, BloomFilterBuilder};
 pub use encoding::{
-    read_bytes, read_ip, read_string, read_vari32, read_vari64, read_varu32, read_varu64,
-    write_bytes, write_ip, write_string, write_vari32, write_vari64, write_varu32, write_varu64,
-    DecodeError, IpKey,
+  read_bytes, read_ip, read_string, read_vari32, read_vari64, read_varu32, read_varu64,
+  write_bytes, write_ip, write_string, write_vari32, write_vari64, write_varu32, write_varu64,
+  DecodeError, IpKey,
 };
 pub use ids::{
-    current_timestamp, next_btree_node_id, next_timestamp, next_txn_id, BTreeNodeId, EntityId,
-    HnswNodeId, PageId, SegmentId, Timestamp, TxnId, VectorId,
+  current_timestamp, next_btree_node_id, next_timestamp, next_txn_id, BTreeNodeId, EntityId,
+  HnswNodeId, PageId, SegmentId, Timestamp, TxnId, VectorId,
 };
 pub use mmap::{MadviseAdvice, MmapFile};
 pub use serializer::{Record, Serializer};

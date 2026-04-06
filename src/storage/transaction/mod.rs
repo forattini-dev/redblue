@@ -33,7 +33,7 @@ pub mod log;
 pub mod savepoint;
 
 pub use coordinator::{
-    IsolationLevel, Transaction, TransactionManager, TxnConfig, TxnError, TxnHandle, TxnState,
+  IsolationLevel, Transaction, TransactionManager, TxnConfig, TxnError, TxnHandle, TxnState,
 };
 pub use lock::{LockManager, LockMode, LockResult, LockWaiter};
 pub use log::{LogEntry, LogEntryType, TransactionLog, WalConfig};

@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_hardening_guide(args: &Args) -> String {
-    let system = get_arg(args, "system", "unknown");
-    let baseline = get_arg(args, "baseline", "CIS");
+  let system = get_arg(args, "system", "unknown");
+  let baseline = get_arg(args, "baseline", "CIS");
 
-    format!(
-        r#"# System Hardening Guide
+  format!(
+    r#"# System Hardening Guide
 
 ## System
 {system}
@@ -43,5 +43,5 @@ Generate hardening recommendations:
    # Commands to verify each setting
    ```
 "#
-    )
+  )
 }

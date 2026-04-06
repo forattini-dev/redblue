@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_pentest_report(args: &Args) -> String {
-    let findings = get_arg(args, "findings", "none");
-    let scope = get_arg(args, "scope", "not specified");
-    let format = get_arg(args, "format", "full");
+  let findings = get_arg(args, "findings", "none");
+  let scope = get_arg(args, "scope", "not specified");
+  let format = get_arg(args, "format", "full");
 
-    format!(
-        r#"# Penetration Test Report Generation
+  format!(
+    r#"# Penetration Test Report Generation
 
 ## Findings
 {findings}
@@ -55,15 +55,15 @@ Generate penetration test report:
    - Tools used
    - Raw evidence
 "#
-    )
+  )
 }
 
 pub fn gen_executive_summary(args: &Args) -> String {
-    let findings = get_arg(args, "findings", "none");
-    let audience = get_arg(args, "audience", "c-suite");
+  let findings = get_arg(args, "findings", "none");
+  let audience = get_arg(args, "audience", "c-suite");
 
-    format!(
-        r#"# Executive Summary Generation
+  format!(
+    r#"# Executive Summary Generation
 
 ## Technical Findings
 {findings}
@@ -100,15 +100,15 @@ Create an executive summary:
    - Strategic initiatives
    - Timeline
 "#
-    )
+  )
 }
 
 pub fn gen_risk_matrix(args: &Args) -> String {
-    let vulnerabilities = get_arg(args, "vulnerabilities", "none");
-    let business_context = get_arg(args, "business_context", "general");
+  let vulnerabilities = get_arg(args, "vulnerabilities", "none");
+  let business_context = get_arg(args, "business_context", "general");
 
-    format!(
-        r#"# Risk Matrix Generation
+  format!(
+    r#"# Risk Matrix Generation
 
 ## Vulnerabilities
 {vulnerabilities}
@@ -152,5 +152,5 @@ Generate a risk matrix:
    - Medium (this month)
    - Low (this quarter)
 "#
-    )
+  )
 }

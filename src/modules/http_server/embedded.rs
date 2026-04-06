@@ -6,14 +6,14 @@
 pub struct EmbeddedFiles;
 
 impl EmbeddedFiles {
-    /// Get the hook.js payload for browser exploitation
-    pub fn hook_js() -> &'static str {
-        include_str!("payloads/hook.js")
-    }
+  /// Get the hook.js payload for browser exploitation
+  pub fn hook_js() -> &'static str {
+    include_str!("payloads/hook.js")
+  }
 
-    /// Get a minimal index.html
-    pub fn index_html() -> &'static str {
-        r#"<!DOCTYPE html>
+  /// Get a minimal index.html
+  pub fn index_html() -> &'static str {
+    r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -49,11 +49,11 @@ impl EmbeddedFiles {
     </ul>
 </body>
 </html>"#
-    }
+  }
 
-    /// Get a 404 page
-    pub fn not_found_html() -> &'static str {
-        r#"<!DOCTYPE html>
+  /// Get a 404 page
+  pub fn not_found_html() -> &'static str {
+    r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -81,11 +81,11 @@ impl EmbeddedFiles {
     </div>
 </body>
 </html>"#
-    }
+  }
 
-    /// Get a directory listing template
-    pub fn directory_listing_template() -> &'static str {
-        r#"<!DOCTYPE html>
+  /// Get a directory listing template
+  pub fn directory_listing_template() -> &'static str {
+    r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -130,45 +130,41 @@ impl EmbeddedFiles {
     </table>
 </body>
 </html>"#
-    }
+  }
 
-    /// Get list of embedded file paths
-    pub fn list() -> Vec<(&'static str, &'static str)> {
-        vec![
-            ("/hook.js", "application/javascript"),
-            ("/index.html", "text/html"),
-        ]
-    }
+  /// Get list of embedded file paths
+  pub fn list() -> Vec<(&'static str, &'static str)> {
+    vec![
+      ("/hook.js", "application/javascript"),
+      ("/index.html", "text/html"),
+    ]
+  }
 
-    /// Get embedded file by path
-    pub fn get(path: &str) -> Option<(&'static str, &'static str)> {
-        match path {
-            "/hook.js" | "hook.js" => {
-                Some((Self::hook_js(), "application/javascript; charset=utf-8"))
-            }
-            "/" | "/index.html" | "index.html" => {
-                Some((Self::index_html(), "text/html; charset=utf-8"))
-            }
-            _ => None,
-        }
+  /// Get embedded file by path
+  pub fn get(path: &str) -> Option<(&'static str, &'static str)> {
+    match path {
+      "/hook.js" | "hook.js" => Some((Self::hook_js(), "application/javascript; charset=utf-8")),
+      "/" | "/index.html" | "index.html" => Some((Self::index_html(), "text/html; charset=utf-8")),
+      _ => None,
     }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_embedded_files() {
-        assert!(EmbeddedFiles::hook_js().len() > 0);
-        assert!(EmbeddedFiles::index_html().contains("<!DOCTYPE html>"));
-        assert!(EmbeddedFiles::not_found_html().contains("404"));
-    }
+  #[test]
+  fn test_embedded_files() {
+    assert!(EmbeddedFiles::hook_js().len() > 0);
+    assert!(EmbeddedFiles::index_html().contains("<!DOCTYPE html>"));
+    assert!(EmbeddedFiles::not_found_html().contains("404"));
+  }
 
-    #[test]
-    fn test_get_embedded() {
-        assert!(EmbeddedFiles::get("/hook.js").is_some());
-        assert!(EmbeddedFiles::get("/").is_some());
-        assert!(EmbeddedFiles::get("/nonexistent").is_none());
-    }
+  #[test]
+  fn test_get_embedded() {
+    assert!(EmbeddedFiles::get("/hook.js").is_some());
+    assert!(EmbeddedFiles::get("/").is_some());
+    assert!(EmbeddedFiles::get("/nonexistent").is_none());
+  }
 }

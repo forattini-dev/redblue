@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_attack_plan(args: &Args) -> String {
-    let target = get_arg(args, "target", "unknown");
-    let findings = get_arg(args, "findings", "none");
-    let objective = get_arg(args, "objective", "initial_access");
+  let target = get_arg(args, "target", "unknown");
+  let findings = get_arg(args, "findings", "none");
+  let objective = get_arg(args, "objective", "initial_access");
 
-    format!(
-        r#"# Attack Plan Generation (AUTHORIZED PENTEST ONLY)
+  format!(
+    r#"# Attack Plan Generation (AUTHORIZED PENTEST ONLY)
 
 ## Target
 {target}
@@ -52,15 +52,15 @@ Generate an attack plan with:
    - If detected
    - Emergency extraction
 "#
-    )
+  )
 }
 
 pub fn gen_exploit_suggest(args: &Args) -> String {
-    let vulnerabilities = get_arg(args, "vulnerabilities", "none");
-    let target_os = get_arg(args, "target_os", "unknown");
+  let vulnerabilities = get_arg(args, "vulnerabilities", "none");
+  let target_os = get_arg(args, "target_os", "unknown");
 
-    format!(
-        r#"# Exploit Suggestion Request
+  format!(
+    r#"# Exploit Suggestion Request
 
 ## Identified Vulnerabilities
 {vulnerabilities}
@@ -97,16 +97,16 @@ Please suggest exploits for these vulnerabilities:
    - Safe testing procedures
    - Backup and recovery
 "#
-    )
+  )
 }
 
 pub fn gen_lateral_movement(args: &Args) -> String {
-    let current_access = get_arg(args, "current_access", "unknown");
-    let network_map = get_arg(args, "network_map", "not provided");
-    let credentials = get_arg(args, "credentials", "none");
+  let current_access = get_arg(args, "current_access", "unknown");
+  let network_map = get_arg(args, "network_map", "not provided");
+  let credentials = get_arg(args, "credentials", "none");
 
-    format!(
-        r#"# Lateral Movement Planning
+  format!(
+    r#"# Lateral Movement Planning
 
 ## Current Access
 {current_access}
@@ -146,16 +146,16 @@ Plan lateral movement with:
    - Detection risks
    - Alternative paths
 "#
-    )
+  )
 }
 
 pub fn gen_persistence_analysis(args: &Args) -> String {
-    let target_os = get_arg(args, "target_os", "linux");
-    let access_level = get_arg(args, "access_level", "user");
-    let stealth = get_arg(args, "stealth", "medium");
+  let target_os = get_arg(args, "target_os", "linux");
+  let access_level = get_arg(args, "access_level", "user");
+  let stealth = get_arg(args, "stealth", "medium");
 
-    format!(
-        r#"# Persistence Mechanism Analysis
+  format!(
+    r#"# Persistence Mechanism Analysis
 
 ## Target OS
 {target_os}
@@ -193,5 +193,5 @@ Analyze persistence options:
    - Secondary persistence
    - Failsafe options
 "#
-    )
+  )
 }

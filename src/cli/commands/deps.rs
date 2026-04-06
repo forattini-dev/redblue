@@ -1,256 +1,320 @@
 /// Dependencies command - Scan dependencies for vulnerabilities
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::collection::dependencies::{DependencyScanner, VulnSeverity};
+use crate::serde_json::Value;
 
 pub struct DepsCommand;
 
 impl Command for DepsCommand {
-    fn domain(&self) -> &str {
-        "code"
-    }
+  fn domain(&self) -> &str {
+    "code"
+  }
 
-    fn resource(&self) -> &str {
-        "dependencies"
-    }
+  fn resource(&self) -> &str {
+    "dependencies"
+  }
 
-    fn description(&self) -> &str {
-        "Scan dependencies for known vulnerabilities (Snyk/npm audit replacement)"
-    }
+  fn description(&self) -> &str {
+    "Scan dependencies for known vulnerabilities (Snyk/npm audit replacement)"
+  }
 
-    fn routes(&self) -> Vec<Route> {
-        vec![Route {
-            verb: "scan",
-            summary: "Scan project dependencies for vulnerabilities",
-            usage: "rb code dependencies scan <path>",
-        }]
-    }
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
 
-    fn flags(&self) -> Vec<Flag> {
-        vec![Flag::new("output", "Output format: text or json")
-            .with_short('o')
-            .with_default("text")]
-    }
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
 
-    fn examples(&self) -> Vec<(&str, &str)> {
-        vec![
-            ("Scan current directory", "rb code dependencies scan ."),
-            (
-                "Scan specific project",
-                "rb code dependencies scan /path/to/project",
-            ),
-            (
-                "Scan with JSON output",
-                "rb code dependencies scan . --output json",
-            ),
-        ]
-    }
+  fn routes(&self) -> Vec<Route> {
+    vec![Route {
+      verb: "scan",
+      summary: "Scan project dependencies for vulnerabilities",
+      usage: "rb code dependencies scan <path>",
+    }]
+  }
 
-    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().ok_or_else(|| {
-            print_help(self);
-            "No verb provided".to_string()
-        })?;
+  fn flags(&self) -> Vec<Flag> {
+    vec![Flag::new("output", "Output format: text or json")
+      .with_short('o')
+      .with_default("text")]
+  }
 
-        match verb.as_str() {
-            "scan" => self.scan(ctx),
-            _ => {
-                Output::error(&format!("Unknown verb: {}", verb));
-                print_help(self);
-                Err("Invalid verb".to_string())
-            }
-        }
+  fn examples(&self) -> Vec<(&str, &str)> {
+    vec![
+      ("Scan current directory", "rb code dependencies scan ."),
+      (
+        "Scan specific project",
+        "rb code dependencies scan /path/to/project",
+      ),
+      (
+        "Scan with JSON output",
+        "rb code dependencies scan . --output json",
+      ),
+    ]
+  }
+
+  fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+    let verb = ctx.verb.as_ref().ok_or_else(|| {
+      print_help(self);
+      "No verb provided".to_string()
+    })?;
+
+    match verb.as_str() {
+      "scan" => self.scan(ctx),
+      _ => {
+        Output::error(&format!("Unknown verb: {}", verb));
+        print_help(self);
+        Err("Invalid verb".to_string())
+      }
     }
+  }
 }
 
 impl DepsCommand {
-    fn scan(&self, ctx: &CliContext) -> Result<(), String> {
-        let target = ctx
+  fn scan(&self, ctx: &CliContext) -> Result<(), String> {
+    let target = ctx
             .target
             .as_ref()
             .ok_or("Missing target path.\nUsage: rb code dependencies scan <PATH>\nExample: rb code dependencies scan .")?;
-
-        let format = ctx.get_output_format();
-
-        Output::header("Dependency Scanner (Snyk)");
-        Output::item("Target", target);
-        println!();
-
-        Output::spinner_start(&format!("Scanning {} for dependency files", target));
-        let scanner = DependencyScanner::new();
-        let result = scanner.scan_directory(target)?;
-        Output::spinner_done();
-
-        // JSON output
-        if format == crate::cli::format::OutputFormat::Json {
-            self.output_json(&result);
-            return Ok(());
-        }
-
-        // YAML output
-        if format == crate::cli::format::OutputFormat::Yaml {
-            self.output_yaml(&result);
-            return Ok(());
-        }
-
-        // Human-readable output
-        if result.files_scanned.is_empty() {
-            Output::warning("No dependency files found");
-            return Ok(());
-        }
-
-        Output::success(&format!(
-            "Found {} dependency files",
-            result.files_scanned.len()
-        ));
-        println!();
-
-        // Show files scanned
-        Output::subheader("Dependency Files Scanned:");
-        for file in &result.files_scanned {
-            println!("  ✓ {}", Output::colorize(file, "cyan"));
-        }
-        println!();
-
-        // Summary
-        Output::subheader(&format!(
-            "Summary: {} total dependencies, {} vulnerable",
-            result.total_dependencies, result.vulnerable_dependencies
-        ));
-        println!();
-
-        if result.vulnerabilities.is_empty() {
-            Output::success("✓ No known vulnerabilities found!");
-            return Ok(());
-        }
-
-        // Show vulnerabilities
-        Output::warning(&format!(
-            "⚠️  Found {} vulnerable dependencies",
-            result.vulnerabilities.len()
-        ));
-        println!();
-
-        // Group by severity
-        let mut critical = Vec::new();
-        let mut high = Vec::new();
-        let mut medium = Vec::new();
-        let mut low = Vec::new();
-
-        for vuln in &result.vulnerabilities {
-            match vuln.severity {
-                VulnSeverity::Critical => critical.push(vuln),
-                VulnSeverity::High => high.push(vuln),
-                VulnSeverity::Medium => medium.push(vuln),
-                VulnSeverity::Low => low.push(vuln),
-            }
-        }
-
-        // Display vulnerabilities by severity
-        if !critical.is_empty() {
-            self.display_vulnerabilities("CRITICAL", &critical, "red");
-        }
-        if !high.is_empty() {
-            self.display_vulnerabilities("HIGH", &high, "red");
-        }
-        if !medium.is_empty() {
-            self.display_vulnerabilities("MEDIUM", &medium, "yellow");
-        }
-        if !low.is_empty() {
-            self.display_vulnerabilities("LOW", &low, "blue");
-        }
-
-        println!();
-        Output::warning("⚠️  Run 'npm audit fix' or update packages to resolve vulnerabilities");
-
-        Ok(())
+    if !ctx.wants_machine_output() {
+      Output::header("Dependency Scanner (Snyk)");
+      Output::item("Target", target);
+      println!();
     }
 
-    fn display_vulnerabilities(
-        &self,
-        severity: &str,
-        vulns: &[&crate::modules::collection::dependencies::Vulnerability],
-        color: &str,
-    ) {
-        println!("\n{} Severity:", Output::colorize(severity, color));
-
-        for vuln in vulns {
-            println!(
-                "  • {} ({})",
-                Output::colorize(&vuln.package_name, "cyan"),
-                vuln.affected_version
-            );
-
-            if let Some(cve) = &vuln.cve_id {
-                println!("    CVE: {}", Output::colorize(cve, "blue"));
-            }
-
-            println!("    {}", vuln.title);
-
-            if let Some(fixed) = &vuln.fixed_version {
-                println!("    Fix: Upgrade to {}", Output::colorize(fixed, "green"));
-            }
-
-            println!();
-        }
+    if !ctx.wants_machine_output() {
+      Output::spinner_start(&format!("Scanning {} for dependency files", target));
+    }
+    let scanner = DependencyScanner::new();
+    let result = scanner.scan_directory(target)?;
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
     }
 
-    fn output_json(&self, result: &crate::modules::collection::dependencies::DependencyScanResult) {
-        let vulnerabilities: Vec<_> = result
-            .vulnerabilities
-            .iter()
-            .map(|vuln| {
-                json!({
-                    "package": vuln.package_name.clone(),
-                    "affected_version": vuln.affected_version.clone(),
-                    "severity": vuln.severity.as_str(),
-                    "cve_id": vuln.cve_id.clone(),
-                    "title": vuln.title.clone(),
-                    "fixed_version": vuln.fixed_version.clone()
-                })
-            })
-            .collect();
-        Output::json_value(&json!({
-            "total_dependencies": result.total_dependencies,
-            "vulnerable_dependencies": result.vulnerable_dependencies,
-            "files_scanned": result.files_scanned.clone(),
-            "vulnerabilities": vulnerabilities
-        }));
+    let payload = Self::scan_payload(&result);
+    if render::render_machine_output_with_yaml(ctx, "rb code dependencies scan", &payload, || {
+      self.output_yaml(&result);
+      Ok(())
+    })? {
+      return Ok(());
     }
 
-    fn output_yaml(&self, result: &crate::modules::collection::dependencies::DependencyScanResult) {
-        println!("total_dependencies: {}", result.total_dependencies);
-        println!(
-            "vulnerable_dependencies: {}",
-            result.vulnerable_dependencies
-        );
-        println!("files_scanned:");
-
-        for file in &result.files_scanned {
-            println!("  - \"{}\"", file.replace('"', "\\\""));
-        }
-
-        println!("vulnerabilities:");
-
-        for vuln in &result.vulnerabilities {
-            println!("  - package: {}", vuln.package_name);
-            println!("    affected_version: {}", vuln.affected_version);
-            println!("    severity: {}", vuln.severity.as_str());
-
-            if let Some(cve) = &vuln.cve_id {
-                println!("    cve_id: {}", cve);
-            } else {
-                println!("    cve_id: null");
-            }
-
-            println!("    title: \"{}\"", vuln.title.replace('"', "\\\""));
-
-            if let Some(fixed) = &vuln.fixed_version {
-                println!("    fixed_version: {}", fixed);
-            } else {
-                println!("    fixed_version: null");
-            }
-        }
+    // Human-readable output
+    if result.files_scanned.is_empty() {
+      Output::warning("No dependency files found");
+      return Ok(());
     }
+
+    Output::success(&format!(
+      "Found {} dependency files",
+      result.files_scanned.len()
+    ));
+    println!();
+
+    // Show files scanned
+    Output::subheader("Dependency Files Scanned:");
+    for file in &result.files_scanned {
+      println!("  ✓ {}", Output::colorize(file, "cyan"));
+    }
+    println!();
+
+    // Summary
+    Output::subheader(&format!(
+      "Summary: {} total dependencies, {} vulnerable",
+      result.total_dependencies, result.vulnerable_dependencies
+    ));
+    println!();
+
+    if result.vulnerabilities.is_empty() {
+      Output::success("✓ No known vulnerabilities found!");
+      return Ok(());
+    }
+
+    // Show vulnerabilities
+    Output::warning(&format!(
+      "⚠️  Found {} vulnerable dependencies",
+      result.vulnerabilities.len()
+    ));
+    println!();
+
+    // Group by severity
+    let mut critical = Vec::new();
+    let mut high = Vec::new();
+    let mut medium = Vec::new();
+    let mut low = Vec::new();
+
+    for vuln in &result.vulnerabilities {
+      match vuln.severity {
+        VulnSeverity::Critical => critical.push(vuln),
+        VulnSeverity::High => high.push(vuln),
+        VulnSeverity::Medium => medium.push(vuln),
+        VulnSeverity::Low => low.push(vuln),
+      }
+    }
+
+    // Display vulnerabilities by severity
+    if !critical.is_empty() {
+      self.display_vulnerabilities("CRITICAL", &critical, "red");
+    }
+    if !high.is_empty() {
+      self.display_vulnerabilities("HIGH", &high, "red");
+    }
+    if !medium.is_empty() {
+      self.display_vulnerabilities("MEDIUM", &medium, "yellow");
+    }
+    if !low.is_empty() {
+      self.display_vulnerabilities("LOW", &low, "blue");
+    }
+
+    println!();
+    Output::warning("⚠️  Run 'npm audit fix' or update packages to resolve vulnerabilities");
+
+    Ok(())
+  }
+
+  fn display_vulnerabilities(
+    &self,
+    severity: &str,
+    vulns: &[&crate::modules::collection::dependencies::Vulnerability],
+    color: &str,
+  ) {
+    println!("\n{} Severity:", Output::colorize(severity, color));
+
+    for vuln in vulns {
+      println!(
+        "  • {} ({})",
+        Output::colorize(&vuln.package_name, "cyan"),
+        vuln.affected_version
+      );
+
+      if let Some(cve) = &vuln.cve_id {
+        println!("    CVE: {}", Output::colorize(cve, "blue"));
+      }
+
+      println!("    {}", vuln.title);
+
+      if let Some(fixed) = &vuln.fixed_version {
+        println!("    Fix: Upgrade to {}", Output::colorize(fixed, "green"));
+      }
+
+      println!();
+    }
+  }
+
+  fn scan_payload(
+    result: &crate::modules::collection::dependencies::DependencyScanResult,
+  ) -> Value {
+    let vulnerabilities: Vec<_> = result
+      .vulnerabilities
+      .iter()
+      .map(|vuln| {
+        json!({
+            "package": vuln.package_name.clone(),
+            "affected_version": vuln.affected_version.clone(),
+            "severity": vuln.severity.as_str(),
+            "cve_id": vuln.cve_id.clone(),
+            "title": vuln.title.clone(),
+            "fixed_version": vuln.fixed_version.clone()
+        })
+      })
+      .collect();
+    json!({
+      "total_dependencies": result.total_dependencies,
+      "vulnerable_dependencies": result.vulnerable_dependencies,
+      "files_scanned": result.files_scanned.clone(),
+      "vulnerabilities": vulnerabilities
+    })
+  }
+
+  fn output_yaml(&self, result: &crate::modules::collection::dependencies::DependencyScanResult) {
+    println!("total_dependencies: {}", result.total_dependencies);
+    println!(
+      "vulnerable_dependencies: {}",
+      result.vulnerable_dependencies
+    );
+    println!("files_scanned:");
+
+    for file in &result.files_scanned {
+      println!("  - \"{}\"", file.replace('"', "\\\""));
+    }
+
+    println!("vulnerabilities:");
+
+    for vuln in &result.vulnerabilities {
+      println!("  - package: {}", vuln.package_name);
+      println!("    affected_version: {}", vuln.affected_version);
+      println!("    severity: {}", vuln.severity.as_str());
+
+      if let Some(cve) = &vuln.cve_id {
+        println!("    cve_id: {}", cve);
+      } else {
+        println!("    cve_id: null");
+      }
+
+      println!("    title: \"{}\"", vuln.title.replace('"', "\\\""));
+
+      if let Some(fixed) = &vuln.fixed_version {
+        println!("    fixed_version: {}", fixed);
+      } else {
+        println!("    fixed_version: null");
+      }
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::collection::dependencies::{DependencyScanResult, Vulnerability};
+
+  #[test]
+  fn scan_payload_includes_summary_and_vulnerabilities() {
+    let result = DependencyScanResult {
+      total_dependencies: 42,
+      vulnerable_dependencies: 1,
+      files_scanned: vec!["package.json".to_string()],
+      vulnerabilities: vec![Vulnerability {
+        package_name: "left-pad".to_string(),
+        affected_version: "<1.3.0".to_string(),
+        severity: VulnSeverity::High,
+        cve_id: Some("CVE-2099-0001".to_string()),
+        title: "Example vulnerability".to_string(),
+        fixed_version: Some("1.3.0".to_string()),
+      }],
+    };
+
+    let payload = DepsCommand::scan_payload(&result);
+    let object = payload.as_object().expect("payload should be an object");
+    let vulnerabilities = object
+      .get("vulnerabilities")
+      .and_then(Value::as_array)
+      .expect("vulnerabilities should be an array");
+
+    assert_eq!(
+      object.get("total_dependencies").and_then(Value::as_i64),
+      Some(42)
+    );
+    assert_eq!(
+      object
+        .get("vulnerable_dependencies")
+        .and_then(Value::as_i64),
+      Some(1)
+    );
+    assert_eq!(vulnerabilities.len(), 1);
+  }
 }

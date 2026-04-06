@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_threat_model(args: &Args) -> String {
-    let system = get_arg(args, "system", "unknown system");
-    let assets = get_arg(args, "assets", "not specified");
-    let threat_actors = get_arg(args, "threat_actors", "general");
+  let system = get_arg(args, "system", "unknown system");
+  let assets = get_arg(args, "assets", "not specified");
+  let threat_actors = get_arg(args, "threat_actors", "general");
 
-    format!(
-        r#"# Threat Modeling Request
+  format!(
+    r#"# Threat Modeling Request
 
 ## System Description
 {system}
@@ -47,16 +47,16 @@ Create a threat model using STRIDE:
    - Monitoring requirements
    - Incident response considerations
 "#
-    )
+  )
 }
 
 pub fn gen_incident_response(args: &Args) -> String {
-    let incident_type = get_arg(args, "incident_type", "unknown");
-    let indicators = get_arg(args, "indicators", "none provided");
-    let affected_systems = get_arg(args, "affected_systems", "unknown");
+  let incident_type = get_arg(args, "incident_type", "unknown");
+  let indicators = get_arg(args, "indicators", "none provided");
+  let affected_systems = get_arg(args, "affected_systems", "unknown");
 
-    format!(
-        r#"# Incident Response Guidance
+  format!(
+    r#"# Incident Response Guidance
 
 ## Incident Type
 {incident_type}
@@ -102,15 +102,15 @@ Guide incident response:
    - Gap identification
    - Improvement recommendations
 "#
-    )
+  )
 }
 
 pub fn gen_detection_rules(args: &Args) -> String {
-    let threat = get_arg(args, "threat", "unknown threat");
-    let format = get_arg(args, "format", "sigma");
+  let threat = get_arg(args, "threat", "unknown threat");
+  let format = get_arg(args, "format", "sigma");
 
-    format!(
-        r#"# Detection Rule Generation
+  format!(
+    r#"# Detection Rule Generation
 
 ## Threat to Detect
 {threat}
@@ -147,5 +147,5 @@ Generate detection rules:
    - Threshold tuning
    - Exclusion patterns
 "#
-    )
+  )
 }

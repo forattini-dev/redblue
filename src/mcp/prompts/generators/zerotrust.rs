@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_zero_trust_assessment(args: &Args) -> String {
-    let current_state = get_arg(args, "current_state", "not provided");
-    let maturity = get_arg(args, "maturity", "developing");
+  let current_state = get_arg(args, "current_state", "not provided");
+  let maturity = get_arg(args, "maturity", "developing");
 
-    format!(
-        r#"# Zero Trust Architecture Assessment
+  format!(
+    r#"# Zero Trust Architecture Assessment
 
 ## Current State
 {current_state}
@@ -84,15 +84,15 @@ Assess Zero Trust maturity and roadmap:
    - Low effort/high impact
    - Foundation building
 "#
-    )
+  )
 }
 
 pub fn gen_identity_security(args: &Args) -> String {
-    let provider = get_arg(args, "provider", "unknown");
-    let scope = get_arg(args, "scope", "full");
+  let provider = get_arg(args, "provider", "unknown");
+  let scope = get_arg(args, "scope", "full");
 
-    format!(
-        r#"# Identity & Access Management Security Review
+  format!(
+    r#"# Identity & Access Management Security Review
 
 ## Identity Provider
 {provider}
@@ -161,15 +161,15 @@ Review IAM security:
    - Process improvements
    - Technology additions
 "#
-    )
+  )
 }
 
 pub fn gen_microsegmentation(args: &Args) -> String {
-    let environment = get_arg(args, "environment", "hybrid");
-    let workloads = get_arg(args, "workloads", "mixed");
+  let environment = get_arg(args, "environment", "hybrid");
+  let workloads = get_arg(args, "workloads", "mixed");
 
-    format!(
-        r#"# Microsegmentation Strategy
+  format!(
+    r#"# Microsegmentation Strategy
 
 ## Environment
 {environment}
@@ -240,15 +240,15 @@ Design microsegmentation strategy:
    - Performance impact
    - Operational overhead
 "#
-    )
+  )
 }
 
 pub fn gen_sase_assessment(args: &Args) -> String {
-    let current_tools = get_arg(args, "current_tools", "not provided");
-    let requirements = get_arg(args, "requirements", "general");
+  let current_tools = get_arg(args, "current_tools", "not provided");
+  let requirements = get_arg(args, "requirements", "general");
 
-    format!(
-        r#"# SASE (Secure Access Service Edge) Assessment
+  format!(
+    r#"# SASE (Secure Access Service Edge) Assessment
 
 ## Current Security Tools
 {current_tools}
@@ -324,5 +324,5 @@ Assess SASE readiness and strategy:
    - Vendor shortlist
    - Implementation roadmap
 "#
-    )
+  )
 }

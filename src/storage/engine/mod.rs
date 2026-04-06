@@ -70,47 +70,47 @@ pub use pager::{Pager, PagerConfig};
 
 // Graph algorithms
 pub use algorithms::{
-    BetweennessCentrality,
-    BetweennessResult,
-    ClosenessCentrality,
-    ClosenessResult,
-    ClusteringCoefficient,
-    ClusteringResult,
-    CommunitiesResult,
-    Community,
-    Component,
-    ComponentsResult,
-    ConnectedComponents,
-    Cycle,
-    CycleDetector,
-    CyclesResult,
-    // Additional centrality algorithms
-    DegreeCentrality,
-    DegreeCentralityResult,
-    EigenvectorCentrality,
-    EigenvectorResult,
-    HITSResult,
-    LabelPropagation,
-    Louvain,
-    LouvainResult,
-    // Core algorithms
-    PageRank,
-    PageRankResult,
-    PersonalizedPageRank,
-    SCCResult,
-    // Community detection
-    StronglyConnectedComponents,
-    TriangleCounting,
-    TriangleResult,
-    WCCResult,
-    WeaklyConnectedComponents,
-    HITS,
+  BetweennessCentrality,
+  BetweennessResult,
+  ClosenessCentrality,
+  ClosenessResult,
+  ClusteringCoefficient,
+  ClusteringResult,
+  CommunitiesResult,
+  Community,
+  Component,
+  ComponentsResult,
+  ConnectedComponents,
+  Cycle,
+  CycleDetector,
+  CyclesResult,
+  // Additional centrality algorithms
+  DegreeCentrality,
+  DegreeCentralityResult,
+  EigenvectorCentrality,
+  EigenvectorResult,
+  HITSResult,
+  LabelPropagation,
+  Louvain,
+  LouvainResult,
+  // Core algorithms
+  PageRank,
+  PageRankResult,
+  PersonalizedPageRank,
+  SCCResult,
+  // Community detection
+  StronglyConnectedComponents,
+  TriangleCounting,
+  TriangleResult,
+  WCCResult,
+  WeaklyConnectedComponents,
+  HITS,
 };
 
 // Path finding algorithms
 pub use pathfinding::{
-    AStar, AllPathsResult, AllShortestPaths, BellmanFord, BellmanFordResult, Dijkstra,
-    KShortestPaths, Path, ShortestPathResult, BFS, DFS,
+  AStar, AllPathsResult, AllShortestPaths, BellmanFord, BellmanFordResult, Dijkstra,
+  KShortestPaths, Path, ShortestPathResult, BFS, DFS,
 };
 
 // Graph emitter for module integration
@@ -118,32 +118,32 @@ pub use emitter::{EmitterStats, GraphEmitter, ScanResult, ServiceResult};
 
 // Vector storage
 pub use distance::{
-    cosine_distance, distance, dot_product, inner_product_distance, l2, l2_norm, l2_squared,
-    normalize, normalized, Distance, DistanceMetric, DistanceResult,
+  cosine_distance, distance, dot_product, inner_product_distance, l2, l2_norm, l2_squared,
+  normalize, normalized, Distance, DistanceMetric, DistanceResult,
 };
 pub use hnsw::{Bitset, HnswConfig, HnswIndex, HnswStats, NodeId};
 pub use vector_metadata::{MetadataEntry, MetadataFilter, MetadataStore, MetadataValue};
 pub use vector_store::{
-    SearchResult, SegmentConfig, SegmentId, SegmentState, VectorCollection, VectorId,
-    VectorSegment, VectorStore, VectorStoreError,
+  SearchResult, SegmentConfig, SegmentId, SegmentState, VectorCollection, VectorId, VectorSegment,
+  VectorStore, VectorStoreError,
 };
 
 // Unified cross-storage index
 pub use unified_index::{
-    CrossRef, RowKey as TableRowKey, StorageRef, UnifiedIndex, UnifiedIndexStats, VectorKey,
+  CrossRef, RowKey as TableRowKey, StorageRef, UnifiedIndex, UnifiedIndexStats, VectorKey,
 };
 
 // Graph projections
 pub use projection::{
-    AggregationStrategy, EdgeFilter, GraphProjection, NodeFilter, ProjectedNode, ProjectionBuilder,
-    ProjectionStats, PropertyProjection,
+  AggregationStrategy, EdgeFilter, GraphProjection, NodeFilter, ProjectedNode, ProjectionBuilder,
+  ProjectionStats, PropertyProjection,
 };
 
 // Hybrid search (dense + sparse)
 pub use hybrid::{
-    dbsf_fusion, linear_fusion, reciprocal_rank_fusion, BM25Config, ExactMatchReranker,
-    FusionMethod, HybridQueryBuilder, HybridResult, HybridSearch, Reranker, RerankerPipeline,
-    SparseIndex, SparseResult,
+  dbsf_fusion, linear_fusion, reciprocal_rank_fusion, BM25Config, ExactMatchReranker, FusionMethod,
+  HybridQueryBuilder, HybridResult, HybridSearch, Reranker, RerankerPipeline, SparseIndex,
+  SparseResult,
 };
 
 // IVF (Inverted File Index) for approximate search
@@ -160,6 +160,6 @@ pub use int8_quantize::{dot_product_i8_f32_simd, dot_product_i8_simd, Int8Index,
 
 // Tiered search pipeline (binary → int8 → fp32)
 pub use tiered_search::{
-    MemoryConstraint, MemoryLimitError, TieredIndex, TieredIndexBuilder, TieredMemoryStats,
-    TieredSearchConfig, TieredSearchResult,
+  MemoryConstraint, MemoryLimitError, TieredIndex, TieredIndexBuilder, TieredMemoryStats,
+  TieredSearchConfig, TieredSearchResult,
 };

@@ -1,142 +1,165 @@
 /// Init command - Generate configuration file with all defaults
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 
 pub struct InitCommand;
 
 impl Command for InitCommand {
-    fn domain(&self) -> &str {
-        "config"
-    }
+  fn domain(&self) -> &str {
+    "config"
+  }
 
-    fn resource(&self) -> &str {
-        "init"
-    }
+  fn resource(&self) -> &str {
+    "init"
+  }
 
-    fn description(&self) -> &str {
-        "Initialize redblue configuration file with all defaults"
-    }
+  fn description(&self) -> &str {
+    "Initialize redblue configuration file with all defaults"
+  }
 
-    fn routes(&self) -> Vec<Route> {
-        vec![Route {
-            verb: "create",
-            summary: "Create .redblue.yaml config file in current directory",
-            usage: "rb config init create",
-        }]
-    }
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
 
-    fn flags(&self) -> Vec<Flag> {
-        vec![
-            Flag::new("force", "Overwrite existing config file").with_short('f'),
-            Flag::new("output", "Output file path")
-                .with_short('o')
-                .with_default(".redblue.yaml"),
-            Flag::new("format", "Output format (text, json)").with_default("text"),
-        ]
-    }
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
 
-    fn examples(&self) -> Vec<(&str, &str)> {
-        vec![
-            (
-                "Create config in current directory",
-                "rb config init create",
-            ),
-            ("Overwrite existing config", "rb config init create --force"),
-            (
-                "Create with custom name",
-                "rb config init create --output my-config.yaml",
-            ),
-        ]
-    }
+  fn routes(&self) -> Vec<Route> {
+    vec![Route {
+      verb: "create",
+      summary: "Create .redblue.yaml config file in current directory",
+      usage: "rb config init create",
+    }]
+  }
 
-    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().ok_or_else(|| {
-            print_help(self);
-            "No verb provided".to_string()
-        })?;
+  fn flags(&self) -> Vec<Flag> {
+    vec![
+      Flag::new("force", "Overwrite existing config file").with_short('f'),
+      Flag::new("path", "Config file path")
+        .with_short('p')
+        .with_default(".redblue.yaml"),
+    ]
+  }
 
-        match verb.as_str() {
-            "create" => self.create_config(ctx),
-            _ => {
-                Output::error(&format!("Unknown verb: {}", verb));
-                Output::info("Available verb: create");
-                Err("Invalid verb".to_string())
-            }
-        }
+  fn examples(&self) -> Vec<(&str, &str)> {
+    vec![
+      (
+        "Create config in current directory",
+        "rb config init create",
+      ),
+      ("Overwrite existing config", "rb config init create --force"),
+      (
+        "Create with custom name",
+        "rb config init create --path my-config.yaml",
+      ),
+    ]
+  }
+
+  fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+    let verb = ctx.verb.as_ref().ok_or_else(|| {
+      print_help(self);
+      "No verb provided".to_string()
+    })?;
+
+    match verb.as_str() {
+      "create" => self.create_config(ctx),
+      _ => {
+        Output::error(&format!("Unknown verb: {}", verb));
+        Output::info("Available verb: create");
+        Err("Invalid verb".to_string())
+      }
     }
+  }
 }
 
 impl InitCommand {
-    fn create_config(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+  fn create_config(&self, ctx: &CliContext) -> Result<(), String> {
+    let output_path = ctx
+      .get_flag("path")
+      .or_else(|| ctx.get_flag("output"))
+      .unwrap_or_else(|| ".redblue.yaml".to_string());
 
-        let output_path = ctx
-            .get_flag("output")
-            .unwrap_or_else(|| ".redblue.yaml".to_string());
+    let path = PathBuf::from(&output_path);
+    let force = ctx.has_flag("force");
 
-        let path = PathBuf::from(&output_path);
-        let force = ctx.has_flag("force");
-
-        // Check if file exists
-        if path.exists() && !force {
-            if is_json {
-                Output::json_value(&json!({
-                    "success": false,
-                    "error": "file_exists",
-                    "path": path.display().to_string(),
-                    "message": "Use --force to overwrite"
-                }));
-                return Err("Config file already exists".to_string());
-            }
-            return Err(format!(
-                "Config file already exists: {}\nUse --force to overwrite",
-                path.display()
-            ));
-        }
-
-        if !is_json {
-            Output::header("RedBlue Configuration Generator");
-            Output::info(&format!("Creating config file: {}", path.display()));
-        }
-
-        let config_content = generate_full_config();
-
-        fs::write(&path, &config_content)
-            .map_err(|e| format!("Failed to write config file: {}", e))?;
-
-        if is_json {
-            Output::json_value(&json!({
-                "success": true,
-                "action": "create_config",
-                "path": path.display().to_string(),
-                "force": force,
-                "size_bytes": config_content.len()
-            }));
-            return Ok(());
-        }
-
-        Output::success(&format!("✓ Config file created: {}", path.display()));
-        println!();
-        Output::info("Edit this file to customize your redblue settings");
-        Output::info("Key features:");
-        Output::info(
-            "  • auto_persist: true   → Automatically save all scan results to .rdb files",
-        );
-        Output::info("  • threads: 50          → Adjust for faster/slower scans");
-        Output::info("  • preset: aggressive   → Use scanning presets");
-        println!();
-        Output::info("All commands will now use these settings by default");
-
-        Ok(())
+    // Check if file exists
+    if path.exists() && !force {
+      let payload = Self::create_error_payload(&path, "file_exists", "Use --force to overwrite");
+      if render::render_machine_output(ctx, "rb config init create", &payload)? {
+        return Err("Config file already exists".to_string());
+      }
+      return Err(format!(
+        "Config file already exists: {}\nUse --force to overwrite",
+        path.display()
+      ));
     }
+
+    if !ctx.wants_machine_output() {
+      Output::header("RedBlue Configuration Generator");
+      Output::info(&format!("Creating config file: {}", path.display()));
+    }
+
+    let config_content = generate_full_config();
+
+    fs::write(&path, &config_content).map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    let payload = Self::create_success_payload(&path, force, config_content.len());
+    if render::render_machine_output(ctx, "rb config init create", &payload)? {
+      return Ok(());
+    }
+
+    Output::success(&format!("✓ Config file created: {}", path.display()));
+    println!();
+    Output::info("Edit this file to customize your redblue settings");
+    Output::info("Key features:");
+    Output::info("  • auto_persist: true   → Automatically save all scan results to .rdb files");
+    Output::info("  • threads: 50          → Adjust for faster/slower scans");
+    Output::info("  • preset: aggressive   → Use scanning presets");
+    println!();
+    Output::info("All commands will now use these settings by default");
+
+    Ok(())
+  }
+
+  fn create_error_payload(path: &PathBuf, error: &str, message: &str) -> Value {
+    json!({
+      "success": false,
+      "error": error,
+      "path": path.display().to_string(),
+      "message": message
+    })
+  }
+
+  fn create_success_payload(path: &PathBuf, force: bool, size_bytes: usize) -> Value {
+    json!({
+      "success": true,
+      "action": "create_config",
+      "path": path.display().to_string(),
+      "force": force,
+      "size_bytes": size_bytes
+    })
+  }
 }
 
 fn generate_full_config() -> String {
-    r#"# RedBlue Configuration File
+  r#"# RedBlue Configuration File
 # Place this file as .redblue.yaml in your working directory
 # All values shown are the default settings
 
@@ -175,333 +198,333 @@ wordlists:
 # - Action commands (scan, lookup, whois) perform active operations
 # ============================================================================
 "#
-    .to_string()
+  .to_string()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::crypto::uuid::Uuid;
-    use std::collections::HashMap;
+  use super::*;
+  use crate::crypto::uuid::Uuid;
+  use std::collections::HashMap;
 
-    #[test]
-    fn test_init_command_domain() {
-        let cmd = InitCommand;
-        assert_eq!(cmd.domain(), "config");
+  #[test]
+  fn test_init_command_domain() {
+    let cmd = InitCommand;
+    assert_eq!(cmd.domain(), "config");
+  }
+
+  #[test]
+  fn test_init_command_resource() {
+    let cmd = InitCommand;
+    assert_eq!(cmd.resource(), "init");
+  }
+
+  #[test]
+  fn test_init_command_description() {
+    let cmd = InitCommand;
+    assert!(!cmd.description().is_empty());
+    assert!(cmd.description().contains("config"));
+  }
+
+  #[test]
+  fn test_init_command_routes() {
+    let cmd = InitCommand;
+    let routes = cmd.routes();
+    assert_eq!(routes.len(), 1);
+    assert_eq!(routes[0].verb, "create");
+    assert!(routes[0].summary.contains("config"));
+  }
+
+  #[test]
+  fn test_init_command_flags() {
+    let cmd = InitCommand;
+    let flags = cmd.flags();
+    assert_eq!(flags.len(), 2);
+
+    // Check --force flag
+    let force_flag = flags.iter().find(|f| f.long == "force");
+    assert!(force_flag.is_some());
+    assert_eq!(force_flag.unwrap().short, Some('f'));
+
+    // Check --path flag
+    let path_flag = flags.iter().find(|f| f.long == "path");
+    assert!(path_flag.is_some());
+    assert_eq!(path_flag.unwrap().short, Some('p'));
+    assert_eq!(
+      path_flag.unwrap().default,
+      Some(".redblue.yaml".to_string())
+    );
+  }
+
+  #[test]
+  fn test_init_command_examples() {
+    let cmd = InitCommand;
+    let examples = cmd.examples();
+    assert!(!examples.is_empty());
+    // Verify examples contain rb config commands
+    for (desc, cmd) in &examples {
+      assert!(!desc.is_empty());
+      assert!(cmd.contains("rb config init"));
     }
+  }
 
-    #[test]
-    fn test_init_command_resource() {
-        let cmd = InitCommand;
-        assert_eq!(cmd.resource(), "init");
-    }
+  #[test]
+  fn test_generate_full_config_content() {
+    let config = generate_full_config();
 
-    #[test]
-    fn test_init_command_description() {
-        let cmd = InitCommand;
-        assert!(!cmd.description().is_empty());
-        assert!(cmd.description().contains("config"));
-    }
+    // Verify key configuration sections exist
+    assert!(config.contains("auto_persist: true"));
+    assert!(config.contains("output: human"));
+    assert!(config.contains("threads: 50"));
+    assert!(config.contains("rate_limit: 0"));
+    assert!(config.contains("wordlists:"));
+    assert!(config.contains("subdomains:"));
+    assert!(config.contains("directories:"));
+    assert!(config.contains("parameters:"));
+  }
 
-    #[test]
-    fn test_init_command_routes() {
-        let cmd = InitCommand;
-        let routes = cmd.routes();
-        assert_eq!(routes.len(), 1);
-        assert_eq!(routes[0].verb, "create");
-        assert!(routes[0].summary.contains("config"));
-    }
+  #[test]
+  fn test_generate_full_config_is_valid_yaml_structure() {
+    let config = generate_full_config();
 
-    #[test]
-    fn test_init_command_flags() {
-        let cmd = InitCommand;
-        let flags = cmd.flags();
-        assert_eq!(flags.len(), 3);
+    // Verify it looks like valid YAML (not parsing, just structure)
+    assert!(config.starts_with('#')); // Comments first
+    assert!(config.contains(':')); // Has key-value pairs
+    assert!(!config.contains('\t')); // No tabs (YAML best practice)
+  }
 
-        // Check --force flag
-        let force_flag = flags.iter().find(|f| f.long == "force");
-        assert!(force_flag.is_some());
-        assert_eq!(force_flag.unwrap().short, Some('f'));
+  #[test]
+  fn test_generate_full_config_comments() {
+    let config = generate_full_config();
 
-        // Check --output flag
-        let output_flag = flags.iter().find(|f| f.long == "output");
-        assert!(output_flag.is_some());
-        assert_eq!(output_flag.unwrap().short, Some('o'));
-        assert_eq!(
-            output_flag.unwrap().default,
-            Some(".redblue.yaml".to_string())
-        );
-    }
+    // Verify helpful comments are present
+    assert!(config.contains("# RedBlue Configuration File"));
+    assert!(config.contains("NOTES:"));
+    assert!(config.contains("Command-line flags always override"));
+  }
 
-    #[test]
-    fn test_init_command_examples() {
-        let cmd = InitCommand;
-        let examples = cmd.examples();
-        assert!(!examples.is_empty());
-        // Verify examples contain rb config commands
-        for (desc, cmd) in &examples {
-            assert!(!desc.is_empty());
-            assert!(cmd.contains("rb config init"));
-        }
-    }
+  #[test]
+  fn test_execute_no_verb() {
+    let cmd = InitCommand;
+    let ctx = CliContext {
+      raw: vec!["config".to_string(), "init".to_string()],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: None,
+      target: None,
+      args: vec![],
+      flags: HashMap::new(),
+    };
 
-    #[test]
-    fn test_generate_full_config_content() {
-        let config = generate_full_config();
+    let result = cmd.execute(&ctx);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("No verb provided"));
+  }
 
-        // Verify key configuration sections exist
-        assert!(config.contains("auto_persist: true"));
-        assert!(config.contains("output: human"));
-        assert!(config.contains("threads: 50"));
-        assert!(config.contains("rate_limit: 0"));
-        assert!(config.contains("wordlists:"));
-        assert!(config.contains("subdomains:"));
-        assert!(config.contains("directories:"));
-        assert!(config.contains("parameters:"));
-    }
+  #[test]
+  fn test_execute_invalid_verb() {
+    let cmd = InitCommand;
+    let ctx = CliContext {
+      raw: vec![
+        "config".to_string(),
+        "init".to_string(),
+        "invalid".to_string(),
+      ],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: Some("invalid".to_string()),
+      target: None,
+      args: vec![],
+      flags: HashMap::new(),
+    };
 
-    #[test]
-    fn test_generate_full_config_is_valid_yaml_structure() {
-        let config = generate_full_config();
+    let result = cmd.execute(&ctx);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("Invalid verb"));
+  }
 
-        // Verify it looks like valid YAML (not parsing, just structure)
-        assert!(config.starts_with('#')); // Comments first
-        assert!(config.contains(':')); // Has key-value pairs
-        assert!(!config.contains('\t')); // No tabs (YAML best practice)
-    }
+  #[test]
+  fn test_create_config_in_temp_dir() {
+    let cmd = InitCommand;
 
-    #[test]
-    fn test_generate_full_config_comments() {
-        let config = generate_full_config();
+    // Create a unique temp directory
+    let unique_id = Uuid::new_v4();
+    let temp_dir = std::env::temp_dir()
+      .join("redblue_init_tests")
+      .join(format!("create_{}", unique_id));
+    fs::create_dir_all(&temp_dir).unwrap();
 
-        // Verify helpful comments are present
-        assert!(config.contains("# RedBlue Configuration File"));
-        assert!(config.contains("NOTES:"));
-        assert!(config.contains("Command-line flags always override"));
-    }
+    let config_path = temp_dir.join("test-config.yaml");
+    let mut flags = HashMap::new();
+    flags.insert(
+      "output".to_string(),
+      config_path.to_string_lossy().to_string(),
+    );
 
-    #[test]
-    fn test_execute_no_verb() {
-        let cmd = InitCommand;
-        let ctx = CliContext {
-            raw: vec!["config".to_string(), "init".to_string()],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: None,
-            target: None,
-            args: vec![],
-            flags: HashMap::new(),
-        };
+    let ctx = CliContext {
+      raw: vec![
+        "config".to_string(),
+        "init".to_string(),
+        "create".to_string(),
+      ],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: Some("create".to_string()),
+      target: None,
+      args: vec![],
+      flags,
+    };
 
-        let result = cmd.execute(&ctx);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("No verb provided"));
-    }
+    let result = cmd.execute(&ctx);
+    assert!(result.is_ok(), "Failed to create config: {:?}", result);
 
-    #[test]
-    fn test_execute_invalid_verb() {
-        let cmd = InitCommand;
-        let ctx = CliContext {
-            raw: vec![
-                "config".to_string(),
-                "init".to_string(),
-                "invalid".to_string(),
-            ],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: Some("invalid".to_string()),
-            target: None,
-            args: vec![],
-            flags: HashMap::new(),
-        };
+    // Verify file was created
+    assert!(config_path.exists());
 
-        let result = cmd.execute(&ctx);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid verb"));
-    }
+    // Verify content
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("auto_persist:"));
+    assert!(content.contains("threads:"));
 
-    #[test]
-    fn test_create_config_in_temp_dir() {
-        let cmd = InitCommand;
+    // Cleanup
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
 
-        // Create a unique temp directory
-        let unique_id = Uuid::new_v4();
-        let temp_dir = std::env::temp_dir()
-            .join("redblue_init_tests")
-            .join(format!("create_{}", unique_id));
-        fs::create_dir_all(&temp_dir).unwrap();
+  #[test]
+  fn test_create_config_file_exists_no_force() {
+    let cmd = InitCommand;
 
-        let config_path = temp_dir.join("test-config.yaml");
-        let mut flags = HashMap::new();
-        flags.insert(
-            "output".to_string(),
-            config_path.to_string_lossy().to_string(),
-        );
+    // Create a unique temp directory
+    let unique_id = Uuid::new_v4();
+    let temp_dir = std::env::temp_dir()
+      .join("redblue_init_tests")
+      .join(format!("exists_{}", unique_id));
+    fs::create_dir_all(&temp_dir).unwrap();
 
-        let ctx = CliContext {
-            raw: vec![
-                "config".to_string(),
-                "init".to_string(),
-                "create".to_string(),
-            ],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: Some("create".to_string()),
-            target: None,
-            args: vec![],
-            flags,
-        };
+    let config_path = temp_dir.join("existing.yaml");
 
-        let result = cmd.execute(&ctx);
-        assert!(result.is_ok(), "Failed to create config: {:?}", result);
+    // Create existing file
+    fs::write(&config_path, "existing content").unwrap();
 
-        // Verify file was created
-        assert!(config_path.exists());
+    let mut flags = HashMap::new();
+    flags.insert(
+      "output".to_string(),
+      config_path.to_string_lossy().to_string(),
+    );
 
-        // Verify content
-        let content = fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("auto_persist:"));
-        assert!(content.contains("threads:"));
+    let ctx = CliContext {
+      raw: vec![
+        "config".to_string(),
+        "init".to_string(),
+        "create".to_string(),
+      ],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: Some("create".to_string()),
+      target: None,
+      args: vec![],
+      flags,
+    };
 
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
-    }
+    let result = cmd.execute(&ctx);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("already exists"));
 
-    #[test]
-    fn test_create_config_file_exists_no_force() {
-        let cmd = InitCommand;
+    // Verify original file is unchanged
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert_eq!(content, "existing content");
 
-        // Create a unique temp directory
-        let unique_id = Uuid::new_v4();
-        let temp_dir = std::env::temp_dir()
-            .join("redblue_init_tests")
-            .join(format!("exists_{}", unique_id));
-        fs::create_dir_all(&temp_dir).unwrap();
+    // Cleanup
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
 
-        let config_path = temp_dir.join("existing.yaml");
+  #[test]
+  fn test_create_config_file_exists_with_force() {
+    let cmd = InitCommand;
 
-        // Create existing file
-        fs::write(&config_path, "existing content").unwrap();
+    // Create a unique temp directory
+    let unique_id = Uuid::new_v4();
+    let temp_dir = std::env::temp_dir()
+      .join("redblue_init_tests")
+      .join(format!("force_{}", unique_id));
+    fs::create_dir_all(&temp_dir).unwrap();
 
-        let mut flags = HashMap::new();
-        flags.insert(
-            "output".to_string(),
-            config_path.to_string_lossy().to_string(),
-        );
+    let config_path = temp_dir.join("forced.yaml");
 
-        let ctx = CliContext {
-            raw: vec![
-                "config".to_string(),
-                "init".to_string(),
-                "create".to_string(),
-            ],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: Some("create".to_string()),
-            target: None,
-            args: vec![],
-            flags,
-        };
+    // Create existing file
+    fs::write(&config_path, "old content").unwrap();
 
-        let result = cmd.execute(&ctx);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("already exists"));
+    let mut flags = HashMap::new();
+    flags.insert(
+      "output".to_string(),
+      config_path.to_string_lossy().to_string(),
+    );
+    flags.insert("force".to_string(), "true".to_string());
 
-        // Verify original file is unchanged
-        let content = fs::read_to_string(&config_path).unwrap();
-        assert_eq!(content, "existing content");
+    let ctx = CliContext {
+      raw: vec![
+        "config".to_string(),
+        "init".to_string(),
+        "create".to_string(),
+      ],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: Some("create".to_string()),
+      target: None,
+      args: vec![],
+      flags,
+    };
 
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
-    }
+    let result = cmd.execute(&ctx);
+    assert!(result.is_ok());
 
-    #[test]
-    fn test_create_config_file_exists_with_force() {
-        let cmd = InitCommand;
+    // Verify file was overwritten
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("auto_persist:"));
+    assert!(!content.contains("old content"));
 
-        // Create a unique temp directory
-        let unique_id = Uuid::new_v4();
-        let temp_dir = std::env::temp_dir()
-            .join("redblue_init_tests")
-            .join(format!("force_{}", unique_id));
-        fs::create_dir_all(&temp_dir).unwrap();
+    // Cleanup
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
 
-        let config_path = temp_dir.join("forced.yaml");
+  #[test]
+  fn test_create_config_default_output() {
+    let cmd = InitCommand;
 
-        // Create existing file
-        fs::write(&config_path, "old content").unwrap();
+    // Create a unique temp directory and use it as current dir
+    let unique_id = Uuid::new_v4();
+    let temp_dir = std::env::temp_dir()
+      .join("redblue_init_tests")
+      .join(format!("default_{}", unique_id));
+    fs::create_dir_all(&temp_dir).unwrap();
 
-        let mut flags = HashMap::new();
-        flags.insert(
-            "output".to_string(),
-            config_path.to_string_lossy().to_string(),
-        );
-        flags.insert("force".to_string(), "true".to_string());
+    // Use explicit path for testing (can't reliably change cwd in tests)
+    let config_path = temp_dir.join(".redblue.yaml");
+    let mut flags = HashMap::new();
+    flags.insert(
+      "output".to_string(),
+      config_path.to_string_lossy().to_string(),
+    );
 
-        let ctx = CliContext {
-            raw: vec![
-                "config".to_string(),
-                "init".to_string(),
-                "create".to_string(),
-            ],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: Some("create".to_string()),
-            target: None,
-            args: vec![],
-            flags,
-        };
+    let ctx = CliContext {
+      raw: vec![
+        "config".to_string(),
+        "init".to_string(),
+        "create".to_string(),
+      ],
+      domain: Some("config".to_string()),
+      resource: Some("init".to_string()),
+      verb: Some("create".to_string()),
+      target: None,
+      args: vec![],
+      flags,
+    };
 
-        let result = cmd.execute(&ctx);
-        assert!(result.is_ok());
+    let result = cmd.execute(&ctx);
+    assert!(result.is_ok());
+    assert!(config_path.exists());
 
-        // Verify file was overwritten
-        let content = fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("auto_persist:"));
-        assert!(!content.contains("old content"));
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_create_config_default_output() {
-        let cmd = InitCommand;
-
-        // Create a unique temp directory and use it as current dir
-        let unique_id = Uuid::new_v4();
-        let temp_dir = std::env::temp_dir()
-            .join("redblue_init_tests")
-            .join(format!("default_{}", unique_id));
-        fs::create_dir_all(&temp_dir).unwrap();
-
-        // Use explicit path for testing (can't reliably change cwd in tests)
-        let config_path = temp_dir.join(".redblue.yaml");
-        let mut flags = HashMap::new();
-        flags.insert(
-            "output".to_string(),
-            config_path.to_string_lossy().to_string(),
-        );
-
-        let ctx = CliContext {
-            raw: vec![
-                "config".to_string(),
-                "init".to_string(),
-                "create".to_string(),
-            ],
-            domain: Some("config".to_string()),
-            resource: Some("init".to_string()),
-            verb: Some("create".to_string()),
-            target: None,
-            args: vec![],
-            flags,
-        };
-
-        let result = cmd.execute(&ctx);
-        assert!(result.is_ok());
-        assert!(config_path.exists());
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
-    }
+    // Cleanup
+    let _ = fs::remove_dir_all(&temp_dir);
+  }
 }

@@ -26,5 +26,5 @@ mod svg;
 
 pub use layout::{ForceLayout, LayoutConfig, LayoutEdge, Position};
 pub use svg::{
-    EdgeStyle, NodeStyle, PathHighlight, RenderEdge, RenderNode, SvgConfig, SvgRenderer,
+  EdgeStyle, NodeStyle, PathHighlight, RenderEdge, RenderNode, SvgConfig, SvgRenderer,
 };

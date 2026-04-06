@@ -7,8 +7,8 @@ pub mod filter_rank;
 pub mod stats;
 
 pub use decorrelate::{
-    CorrelationOp, CorrelationPredicate, DecorrelationBlocker, DecorrelationStrategy, Decorrelator,
-    RewriteJoinType, SubqueryAnalysis, SubqueryKind, SubqueryRewrite,
+  CorrelationOp, CorrelationPredicate, DecorrelationBlocker, DecorrelationStrategy, Decorrelator,
+  RewriteJoinType, SubqueryAnalysis, SubqueryKind, SubqueryRewrite,
 };
 pub use filter_rank::{FilterRanker, RankedFilter, RankingConfig};
 pub use stats::{ColumnStats, StatsCollector, TableStats};

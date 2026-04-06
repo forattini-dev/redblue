@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_network_segmentation(args: &Args) -> String {
-    let topology = get_arg(args, "topology", "not provided");
-    let zones = get_arg(args, "zones", "not defined");
+  let topology = get_arg(args, "topology", "not provided");
+  let zones = get_arg(args, "zones", "not defined");
 
-    format!(
-        r#"# Network Segmentation Analysis
+  format!(
+    r#"# Network Segmentation Analysis
 
 ## Network Topology
 {topology}
@@ -77,15 +77,15 @@ Analyze network segmentation:
    +---------------+
    ```
 "#
-    )
+  )
 }
 
 pub fn gen_firewall_review(args: &Args) -> String {
-    let rules = get_arg(args, "rules", "not provided");
-    let vendor = get_arg(args, "vendor", "generic");
+  let rules = get_arg(args, "rules", "not provided");
+  let vendor = get_arg(args, "vendor", "generic");
 
-    format!(
-        r#"# Firewall Rule Set Review
+  format!(
+    r#"# Firewall Rule Set Review
 
 ## Rules Configuration
 {rules}
@@ -143,15 +143,15 @@ Review firewall rules for security issues:
    - Baseline traffic
    - Anomaly detection
 "#
-    )
+  )
 }
 
 pub fn gen_vpn_security(args: &Args) -> String {
-    let config = get_arg(args, "config", "not provided");
-    let protocol = get_arg(args, "protocol", "ipsec");
+  let config = get_arg(args, "config", "not provided");
+  let protocol = get_arg(args, "protocol", "ipsec");
 
-    format!(
-        r#"# VPN Security Assessment
+  format!(
+    r#"# VPN Security Assessment
 
 ## VPN Configuration
 {config}
@@ -219,5 +219,5 @@ Assess VPN security configuration:
    # Recommended configuration
    ```
 "#
-    )
+  )
 }

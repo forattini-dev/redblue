@@ -18,8 +18,8 @@ pub mod vhosts;
 pub use context::ContextResolver;
 pub use extractor::{ExtractionResult, ExtractorBuilder, ExtractorConfig, WordExtractor};
 pub use manager::{
-    LearnedWord, MutationRule, WordlistConfig, WordlistContext, WordlistFilter, WordlistIterator,
-    WordlistManager, WordlistRequest, WordlistSize,
+  LearnedWord, MutationRule, WordlistConfig, WordlistContext, WordlistFilter, WordlistIterator,
+  WordlistManager, WordlistRequest, WordlistSize,
 };
 pub use tfidf::{Document, IncrementalLearner, ScoredWord, TfIdfBuilder, TfIdfConfig, TfIdfEngine};
 pub use vhosts::{VHostCategory, VHostWordlist, CLOUD_MODERN, COMMON_VHOSTS, PENTEST_FOCUSED};

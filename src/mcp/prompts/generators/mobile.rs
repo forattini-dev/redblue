@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_mobile_security(args: &Args) -> String {
-    let platform = get_arg(args, "platform", "both");
-    let app_name = get_arg(args, "app_name", "unknown");
-    let scope = get_arg(args, "scope", "full");
+  let platform = get_arg(args, "platform", "both");
+  let app_name = get_arg(args, "app_name", "unknown");
+  let scope = get_arg(args, "scope", "full");
 
-    format!(
-        r#"# Mobile Application Security Assessment
+  format!(
+    r#"# Mobile Application Security Assessment
 
 ## Platform
 {platform}
@@ -82,15 +82,15 @@ Perform mobile security assessment (OWASP MASTG/MASVS):
    - objection commands
    - Static analysis findings
 "#
-    )
+  )
 }
 
 pub fn gen_android_security(args: &Args) -> String {
-    let apk = get_arg(args, "apk", "unknown");
-    let manifest = get_arg(args, "manifest", "not provided");
+  let apk = get_arg(args, "apk", "unknown");
+  let manifest = get_arg(args, "manifest", "not provided");
 
-    format!(
-        r#"# Android Security Testing
+  format!(
+    r#"# Android Security Testing
 
 ## APK
 {apk}
@@ -161,15 +161,15 @@ Perform Android-specific security testing:
    - Manifest changes
    - Storage hardening
 "#
-    )
+  )
 }
 
 pub fn gen_ios_security(args: &Args) -> String {
-    let ipa = get_arg(args, "ipa", "unknown");
-    let entitlements = get_arg(args, "entitlements", "not provided");
+  let ipa = get_arg(args, "ipa", "unknown");
+  let entitlements = get_arg(args, "entitlements", "not provided");
 
-    format!(
-        r#"# iOS Security Testing
+  format!(
+    r#"# iOS Security Testing
 
 ## IPA/Bundle
 {ipa}
@@ -244,5 +244,5 @@ Perform iOS-specific security testing:
     - Entitlement fixes
     - Keychain hardening
 "#
-    )
+  )
 }

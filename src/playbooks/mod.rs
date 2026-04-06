@@ -105,13 +105,13 @@ pub mod types;
 
 pub use apt_catalog::{all_apt_playbooks, get_apt_playbook, list_apt_groups};
 pub use catalog::{
-    all_chains, all_playbooks, get_chain, get_playbook, playbooks_by_risk, playbooks_by_tag,
-    playbooks_for_target,
+  all_chains, all_playbooks, get_chain, get_playbook, playbooks_by_risk, playbooks_by_tag,
+  playbooks_for_target,
 };
 pub use executor::PlaybookExecutor;
 pub use recommender::{
-    findings_from_planner_input, recommend_from_attack_plan, recommend_playbooks, DetectedOS,
-    PlaybookRecommendation, PlaybookRecommender, RecommendationResult, RecommendationSummary,
-    ReconFindings,
+  findings_from_planner_input, recommend_from_attack_plan, recommend_playbooks, DetectedOS,
+  PlaybookRecommendation, PlaybookRecommender, RecommendationResult, RecommendationSummary,
+  ReconFindings,
 };
 pub use types::*;

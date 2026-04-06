@@ -42,139 +42,139 @@ use super::graph::GraphSegment;
 
 /// Unified intelligence interface providing all 10 perspectives
 pub struct Intelligence<'a> {
-    graph: &'a GraphSegment,
+  graph: &'a GraphSegment,
 }
 
 impl<'a> Intelligence<'a> {
-    pub fn new(graph: &'a GraphSegment) -> Self {
-        Self { graph }
-    }
+  pub fn new(graph: &'a GraphSegment) -> Self {
+    Self { graph }
+  }
 
-    /// Host-centric intelligence
-    pub fn host(&self) -> HostIntelligence<'a> {
-        HostIntelligence::new(self.graph)
-    }
+  /// Host-centric intelligence
+  pub fn host(&self) -> HostIntelligence<'a> {
+    HostIntelligence::new(self.graph)
+  }
 
-    /// Credential-centric intelligence
-    pub fn credential(&self) -> CredentialIntelligence<'a> {
-        CredentialIntelligence::new(self.graph)
-    }
+  /// Credential-centric intelligence
+  pub fn credential(&self) -> CredentialIntelligence<'a> {
+    CredentialIntelligence::new(self.graph)
+  }
 
-    /// User-centric intelligence
-    pub fn user(&self) -> UserIntelligence<'a> {
-        UserIntelligence::new(self.graph)
-    }
+  /// User-centric intelligence
+  pub fn user(&self) -> UserIntelligence<'a> {
+    UserIntelligence::new(self.graph)
+  }
 
-    /// Service-centric intelligence
-    pub fn service(&self) -> ServiceIntelligence<'a> {
-        ServiceIntelligence::new(self.graph)
-    }
+  /// Service-centric intelligence
+  pub fn service(&self) -> ServiceIntelligence<'a> {
+    ServiceIntelligence::new(self.graph)
+  }
 
-    /// Vulnerability-centric intelligence
-    pub fn vuln(&self) -> VulnIntelligence<'a> {
-        VulnIntelligence::new(self.graph)
-    }
+  /// Vulnerability-centric intelligence
+  pub fn vuln(&self) -> VulnIntelligence<'a> {
+    VulnIntelligence::new(self.graph)
+  }
 
-    /// Technology-centric intelligence
-    pub fn tech(&self) -> TechIntelligence<'a> {
-        TechIntelligence::new(self.graph)
-    }
+  /// Technology-centric intelligence
+  pub fn tech(&self) -> TechIntelligence<'a> {
+    TechIntelligence::new(self.graph)
+  }
 
-    /// Network topology intelligence
-    pub fn network(&self) -> NetworkIntelligence<'a> {
-        NetworkIntelligence::new(self.graph)
-    }
+  /// Network topology intelligence
+  pub fn network(&self) -> NetworkIntelligence<'a> {
+    NetworkIntelligence::new(self.graph)
+  }
 
-    /// Path-finding intelligence
-    pub fn path(&self) -> PathIntelligence<'a> {
-        PathIntelligence::new(self.graph)
-    }
+  /// Path-finding intelligence
+  pub fn path(&self) -> PathIntelligence<'a> {
+    PathIntelligence::new(self.graph)
+  }
 
-    /// Domain/DNS intelligence
-    pub fn domain(&self) -> DomainIntelligence<'a> {
-        DomainIntelligence::new(self.graph)
-    }
+  /// Domain/DNS intelligence
+  pub fn domain(&self) -> DomainIntelligence<'a> {
+    DomainIntelligence::new(self.graph)
+  }
 
-    /// Certificate intelligence
-    pub fn cert(&self) -> CertIntelligence<'a> {
-        CertIntelligence::new(self.graph)
-    }
+  /// Certificate intelligence
+  pub fn cert(&self) -> CertIntelligence<'a> {
+    CertIntelligence::new(self.graph)
+  }
 
-    /// Get graph statistics summary
-    pub fn summary(&self) -> IntelligenceSummary {
-        let nodes = self.graph.node_count();
-        let edges = self.graph.edge_count();
-        let edge_counts = self.graph.count_edges_by_type();
+  /// Get graph statistics summary
+  pub fn summary(&self) -> IntelligenceSummary {
+    let nodes = self.graph.node_count();
+    let edges = self.graph.edge_count();
+    let edge_counts = self.graph.count_edges_by_type();
 
-        IntelligenceSummary {
-            total_nodes: nodes,
-            total_edges: edges,
-            hosts: self.graph.nodes_of_type(super::graph::NodeType::Host).len(),
-            services: self
-                .graph
-                .nodes_of_type(super::graph::NodeType::Service)
-                .len(),
-            credentials: self
-                .graph
-                .nodes_of_type(super::graph::NodeType::Credential)
-                .len(),
-            vulnerabilities: self
-                .graph
-                .nodes_of_type(super::graph::NodeType::Vulnerability)
-                .len(),
-            technologies: self
-                .graph
-                .nodes_of_type(super::graph::NodeType::Technology)
-                .len(),
-            endpoints: self
-                .graph
-                .nodes_of_type(super::graph::NodeType::Endpoint)
-                .len(),
-            edge_counts,
-        }
+    IntelligenceSummary {
+      total_nodes: nodes,
+      total_edges: edges,
+      hosts: self.graph.nodes_of_type(super::graph::NodeType::Host).len(),
+      services: self
+        .graph
+        .nodes_of_type(super::graph::NodeType::Service)
+        .len(),
+      credentials: self
+        .graph
+        .nodes_of_type(super::graph::NodeType::Credential)
+        .len(),
+      vulnerabilities: self
+        .graph
+        .nodes_of_type(super::graph::NodeType::Vulnerability)
+        .len(),
+      technologies: self
+        .graph
+        .nodes_of_type(super::graph::NodeType::Technology)
+        .len(),
+      endpoints: self
+        .graph
+        .nodes_of_type(super::graph::NodeType::Endpoint)
+        .len(),
+      edge_counts,
     }
+  }
 }
 
 /// Summary statistics for the intelligence graph
 #[derive(Debug, Clone)]
 pub struct IntelligenceSummary {
-    pub total_nodes: usize,
-    pub total_edges: usize,
-    pub hosts: usize,
-    pub services: usize,
-    pub credentials: usize,
-    pub vulnerabilities: usize,
-    pub technologies: usize,
-    pub endpoints: usize,
-    pub edge_counts: std::collections::HashMap<super::graph::EdgeType, usize>,
+  pub total_nodes: usize,
+  pub total_edges: usize,
+  pub hosts: usize,
+  pub services: usize,
+  pub credentials: usize,
+  pub vulnerabilities: usize,
+  pub technologies: usize,
+  pub endpoints: usize,
+  pub edge_counts: std::collections::HashMap<super::graph::EdgeType, usize>,
 }
 
 impl IntelligenceSummary {
-    /// Format as a display string
-    pub fn display(&self) -> String {
-        let mut s = String::new();
-        s.push_str("┌─────────────────────────────────────────────────────────────────┐\n");
-        s.push_str("│  INTELLIGENCE SUMMARY                                           │\n");
-        s.push_str("├─────────────────────────────────────────────────────────────────┤\n");
-        s.push_str(&format!(
-            "│  Total Nodes: {:<8}  Total Edges: {:<8}                 │\n",
-            self.total_nodes, self.total_edges
-        ));
-        s.push_str("│                                                                 │\n");
-        s.push_str("│  NODE TYPES:                                                    │\n");
-        s.push_str(&format!(
-            "│    • Hosts: {:<10}  • Services: {:<10}              │\n",
-            self.hosts, self.services
-        ));
-        s.push_str(&format!(
-            "│    • Credentials: {:<4}  • Vulnerabilities: {:<4}          │\n",
-            self.credentials, self.vulnerabilities
-        ));
-        s.push_str(&format!(
-            "│    • Technologies: {:<3}  • Endpoints: {:<4}                │\n",
-            self.technologies, self.endpoints
-        ));
-        s.push_str("└─────────────────────────────────────────────────────────────────┘\n");
-        s
-    }
+  /// Format as a display string
+  pub fn display(&self) -> String {
+    let mut s = String::new();
+    s.push_str("┌─────────────────────────────────────────────────────────────────┐\n");
+    s.push_str("│  INTELLIGENCE SUMMARY                                           │\n");
+    s.push_str("├─────────────────────────────────────────────────────────────────┤\n");
+    s.push_str(&format!(
+      "│  Total Nodes: {:<8}  Total Edges: {:<8}                 │\n",
+      self.total_nodes, self.total_edges
+    ));
+    s.push_str("│                                                                 │\n");
+    s.push_str("│  NODE TYPES:                                                    │\n");
+    s.push_str(&format!(
+      "│    • Hosts: {:<10}  • Services: {:<10}              │\n",
+      self.hosts, self.services
+    ));
+    s.push_str(&format!(
+      "│    • Credentials: {:<4}  • Vulnerabilities: {:<4}          │\n",
+      self.credentials, self.vulnerabilities
+    ));
+    s.push_str(&format!(
+      "│    • Technologies: {:<3}  • Endpoints: {:<4}                │\n",
+      self.technologies, self.endpoints
+    ));
+    s.push_str("└─────────────────────────────────────────────────────────────────┘\n");
+    s
+  }
 }

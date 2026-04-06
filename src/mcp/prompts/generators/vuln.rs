@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_vuln_assessment(args: &Args) -> String {
-    let target = get_arg(args, "target", "unknown");
-    let scan_data = get_arg(args, "scan_data", "none provided");
+  let target = get_arg(args, "target", "unknown");
+  let scan_data = get_arg(args, "scan_data", "none provided");
 
-    format!(
-        r#"# Vulnerability Assessment Request
+  format!(
+    r#"# Vulnerability Assessment Request
 
 ## Target
 {target}
@@ -47,15 +47,15 @@ Please perform a vulnerability assessment. Include:
    - How vulnerabilities chain together
    - Most likely attack paths
 "#
-    )
+  )
 }
 
 pub fn gen_cve_analysis(args: &Args) -> String {
-    let cve_id = get_arg(args, "cve_id", "CVE-XXXX-XXXXX");
-    let context = get_arg(args, "context", "general");
+  let cve_id = get_arg(args, "cve_id", "CVE-XXXX-XXXXX");
+  let context = get_arg(args, "context", "general");
 
-    format!(
-        r#"# CVE Deep Analysis Request
+  format!(
+    r#"# CVE Deep Analysis Request
 
 ## CVE ID
 {cve_id}
@@ -102,15 +102,15 @@ Please provide deep analysis of this CVE:
    - Workarounds if no patch
    - Timeline recommendations
 "#
-    )
+  )
 }
 
 pub fn gen_patch_priority(args: &Args) -> String {
-    let vulns = get_arg(args, "vulns", "none listed");
-    let environment = get_arg(args, "environment", "production");
+  let vulns = get_arg(args, "vulns", "none listed");
+  let environment = get_arg(args, "environment", "production");
 
-    format!(
-        r#"# Patch Prioritization Request
+  format!(
+    r#"# Patch Prioritization Request
 
 ## Vulnerabilities
 {vulns}
@@ -146,5 +146,5 @@ Please prioritize these patches using a risk-based approach:
    - Testing recommendations
    - Rollback procedures
 "#
-    )
+  )
 }

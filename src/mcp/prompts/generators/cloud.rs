@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_cloud_audit(args: &Args) -> String {
-    let provider = get_arg(args, "provider", "aws");
-    let scope = get_arg(args, "scope", "full");
-    let compliance = get_arg(args, "compliance", "cis");
+  let provider = get_arg(args, "provider", "aws");
+  let scope = get_arg(args, "scope", "full");
+  let compliance = get_arg(args, "compliance", "cis");
 
-    format!(
-        r#"# Cloud Infrastructure Security Audit
+  format!(
+    r#"# Cloud Infrastructure Security Audit
 
 ## Cloud Provider
 {provider}
@@ -65,15 +65,15 @@ Perform comprehensive cloud security audit:
    - Immediate actions required
    - Remediation priority
 "#
-    )
+  )
 }
 
 pub fn gen_aws_security(args: &Args) -> String {
-    let account_id = get_arg(args, "account_id", "unknown");
-    let services = get_arg(args, "services", "all");
+  let account_id = get_arg(args, "account_id", "unknown");
+  let services = get_arg(args, "services", "all");
 
-    format!(
-        r#"# AWS Security Assessment
+  format!(
+    r#"# AWS Security Assessment
 
 ## AWS Account
 {account_id}
@@ -135,15 +135,15 @@ Perform AWS-specific security assessment:
    | Finding | Severity | AWS Service | Remediation |
    |---------|----------|-------------|-------------|
 "#
-    )
+  )
 }
 
 pub fn gen_azure_security(args: &Args) -> String {
-    let subscription = get_arg(args, "subscription", "unknown");
-    let focus = get_arg(args, "focus", "full");
+  let subscription = get_arg(args, "subscription", "unknown");
+  let focus = get_arg(args, "focus", "full");
 
-    format!(
-        r#"# Azure Security Assessment
+  format!(
+    r#"# Azure Security Assessment
 
 ## Azure Subscription
 {subscription}
@@ -206,15 +206,15 @@ Perform Azure-specific security assessment:
    | Finding | Severity | Azure Service | Remediation |
    |---------|----------|---------------|-------------|
 "#
-    )
+  )
 }
 
 pub fn gen_gcp_security(args: &Args) -> String {
-    let project = get_arg(args, "project", "unknown");
-    let services = get_arg(args, "services", "all");
+  let project = get_arg(args, "project", "unknown");
+  let services = get_arg(args, "services", "all");
 
-    format!(
-        r#"# GCP Security Assessment
+  format!(
+    r#"# GCP Security Assessment
 
 ## GCP Project
 {project}
@@ -276,15 +276,15 @@ Perform GCP-specific security assessment:
    | Finding | Severity | GCP Service | Remediation |
    |---------|----------|-------------|-------------|
 "#
-    )
+  )
 }
 
 pub fn gen_s3_audit(args: &Args) -> String {
-    let bucket = get_arg(args, "bucket", "*");
-    let deep_scan = get_arg(args, "deep_scan", "false");
+  let bucket = get_arg(args, "bucket", "*");
+  let deep_scan = get_arg(args, "deep_scan", "false");
 
-    format!(
-        r#"# AWS S3 Bucket Security Audit
+  format!(
+    r#"# AWS S3 Bucket Security Audit
 
 ## Target Bucket(s)
 {bucket}
@@ -343,5 +343,5 @@ Perform S3 bucket security audit:
    aws s3api put-bucket-encryption --bucket <bucket> ...
    ```
 "#
-    )
+  )
 }

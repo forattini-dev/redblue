@@ -17,8 +17,8 @@ pub use completions::{Completion, CompletionProvider, CompletionRef};
 pub use logging::{LogEntry, LogLevel, LoggingContext, McpLogger};
 pub use prompts::{Prompt, PromptRegistry, PromptResult};
 pub use resources::{
-    Resource, ResourceContent, ResourceEvent, ResourceEventType, ResourceRegistry,
-    ResourceSubscription, ResourceTemplate, SubscriptionManager,
+  Resource, ResourceContent, ResourceEvent, ResourceEventType, ResourceRegistry,
+  ResourceSubscription, ResourceTemplate, SubscriptionManager,
 };
 pub use sampling::{SamplingContext, SamplingRequest, SamplingScenarios};
 pub use server::McpServer;

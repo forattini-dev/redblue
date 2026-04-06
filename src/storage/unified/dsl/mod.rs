@@ -49,10 +49,9 @@ mod tests;
 // Re-exports
 pub use builders::TextSearchBuilder;
 pub use builders::{
-    CrossModalWeights, GraphPatternDsl, GraphQueryBuilder, GraphStartPoint, HybridQueryBuilder,
-    JoinPhase, JoinStep, NodePatternDsl, QueryWeights, RefQueryBuilder, ScanQueryBuilder,
-    SortOrder, TableQueryBuilder, ThreeWayJoinBuilder, TraversalDirection, TraversalStep,
-    VectorQueryBuilder,
+  CrossModalWeights, GraphPatternDsl, GraphQueryBuilder, GraphStartPoint, HybridQueryBuilder,
+  JoinPhase, JoinStep, NodePatternDsl, QueryWeights, RefQueryBuilder, ScanQueryBuilder, SortOrder,
+  TableQueryBuilder, ThreeWayJoinBuilder, TraversalDirection, TraversalStep, VectorQueryBuilder,
 };
 pub use filters::{Filter, FilterAcceptor, FilterOp, FilterValue, WhereClause};
 pub use helpers::cosine_similarity;
@@ -84,65 +83,65 @@ use super::entity::{EntityId, RefType};
 pub struct Q;
 
 impl Q {
-    /// Start a vector similarity query
-    pub fn similar_to(vector: &[f32], k: usize) -> VectorQueryBuilder {
-        VectorQueryBuilder::new(vector.to_vec(), k)
-    }
+  /// Start a vector similarity query
+  pub fn similar_to(vector: &[f32], k: usize) -> VectorQueryBuilder {
+    VectorQueryBuilder::new(vector.to_vec(), k)
+  }
 
-    /// Start a query from a specific graph node
-    pub fn from_node(label: impl Into<String>) -> GraphQueryBuilder {
-        GraphQueryBuilder::from_node(label)
-    }
+  /// Start a query from a specific graph node
+  pub fn from_node(label: impl Into<String>) -> GraphQueryBuilder {
+    GraphQueryBuilder::from_node(label)
+  }
 
-    /// Start a query from a specific entity by ID
-    pub fn from_id(id: EntityId) -> GraphQueryBuilder {
-        GraphQueryBuilder::from_id(id)
-    }
+  /// Start a query from a specific entity by ID
+  pub fn from_id(id: EntityId) -> GraphQueryBuilder {
+    GraphQueryBuilder::from_id(id)
+  }
 
-    /// Query a specific table/collection
-    pub fn table(name: impl Into<String>) -> TableQueryBuilder {
-        TableQueryBuilder::new(name)
-    }
+  /// Query a specific table/collection
+  pub fn table(name: impl Into<String>) -> TableQueryBuilder {
+    TableQueryBuilder::new(name)
+  }
 
-    /// Shorthand for collection query
-    pub fn collection(name: impl Into<String>) -> TableQueryBuilder {
-        TableQueryBuilder::new(name)
-    }
+  /// Shorthand for collection query
+  pub fn collection(name: impl Into<String>) -> TableQueryBuilder {
+    TableQueryBuilder::new(name)
+  }
 
-    /// Query all entities in a collection
-    pub fn all_in(collection: impl Into<String>) -> ScanQueryBuilder {
-        ScanQueryBuilder::new(collection)
-    }
+  /// Query all entities in a collection
+  pub fn all_in(collection: impl Into<String>) -> ScanQueryBuilder {
+    ScanQueryBuilder::new(collection)
+  }
 
-    /// Find entities by cross-reference
-    pub fn refs_from(id: EntityId, ref_type: RefType) -> RefQueryBuilder {
-        RefQueryBuilder::new(id, ref_type)
-    }
+  /// Find entities by cross-reference
+  pub fn refs_from(id: EntityId, ref_type: RefType) -> RefQueryBuilder {
+    RefQueryBuilder::new(id, ref_type)
+  }
 
-    /// Text search across all indexed content
-    pub fn text_search(query: impl Into<String>) -> TextSearchBuilder {
-        TextSearchBuilder::new(query)
-    }
+  /// Text search across all indexed content
+  pub fn text_search(query: impl Into<String>) -> TextSearchBuilder {
+    TextSearchBuilder::new(query)
+  }
 
-    /// Hybrid query combining multiple modes
-    pub fn hybrid() -> HybridQueryBuilder {
-        HybridQueryBuilder::new()
-    }
+  /// Hybrid query combining multiple modes
+  pub fn hybrid() -> HybridQueryBuilder {
+    HybridQueryBuilder::new()
+  }
 
-    /// Three-way cross-modal JOIN
-    ///
-    /// Efficiently chains queries across Vector → Graph → Table (or any order).
-    ///
-    /// # Example
-    /// ```ignore
-    /// // Find CVEs similar to vector, traverse to affected hosts, get host records
-    /// let results = Q::cross_modal()
-    ///     .start_vector(&cve_embedding, 10)
-    ///     .traverse("AFFECTS", 2)
-    ///     .join_table("hosts")
-    ///     .execute(&store)?;
-    /// ```
-    pub fn cross_modal() -> ThreeWayJoinBuilder {
-        ThreeWayJoinBuilder::new()
-    }
+  /// Three-way cross-modal JOIN
+  ///
+  /// Efficiently chains queries across Vector → Graph → Table (or any order).
+  ///
+  /// # Example
+  /// ```ignore
+  /// // Find CVEs similar to vector, traverse to affected hosts, get host records
+  /// let results = Q::cross_modal()
+  ///     .start_vector(&cve_embedding, 10)
+  ///     .traverse("AFFECTS", 2)
+  ///     .join_table("hosts")
+  ///     .execute(&store)?;
+  /// ```
+  pub fn cross_modal() -> ThreeWayJoinBuilder {
+    ThreeWayJoinBuilder::new()
+  }
 }

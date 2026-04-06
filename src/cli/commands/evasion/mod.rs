@@ -47,27 +47,27 @@ pub(crate) const YELLOW: &str = "\x1b[33m";
 pub(crate) const RESET: &str = "\x1b[0m";
 
 pub(crate) fn colored(text: &str, color: &str) -> String {
-    format!("{}{}{}", color, text, RESET)
+  format!("{}{}{}", color, text, RESET)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::modules::evasion::obfuscate;
+  use crate::modules::evasion::obfuscate;
 
-    #[test]
-    fn test_xor_roundtrip() {
-        let original = "test string";
-        let key = 0x42;
-        let obfuscated = obfuscate::xor_obfuscate(original, key);
-        let recovered = obfuscate::xor_deobfuscate(&obfuscated, key);
-        assert_eq!(original, recovered);
-    }
+  #[test]
+  fn test_xor_roundtrip() {
+    let original = "test string";
+    let key = 0x42;
+    let obfuscated = obfuscate::xor_obfuscate(original, key);
+    let recovered = obfuscate::xor_deobfuscate(&obfuscated, key);
+    assert_eq!(original, recovered);
+  }
 
-    #[test]
-    fn test_base64_roundtrip() {
-        let original = b"test data";
-        let encoded = obfuscate::base64_encode(original);
-        let decoded = obfuscate::base64_decode(&encoded).unwrap();
-        assert_eq!(original.to_vec(), decoded);
-    }
+  #[test]
+  fn test_base64_roundtrip() {
+    let original = b"test data";
+    let encoded = obfuscate::base64_encode(original);
+    let decoded = obfuscate::base64_decode(&encoded).unwrap();
+    assert_eq!(original.to_vec(), decoded);
+  }
 }

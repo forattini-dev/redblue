@@ -18,7 +18,7 @@ use crate::scripts::FindingSeverity;
 /// Aliases: FIN7, GOLD NIAGARA, ITG14, Carbon Spider, ELBRUS
 /// Techniques: 67
 pub fn fin7() -> Playbook {
-    Playbook::new("fin7", "FIN7 Adversary Emulation")
+  Playbook::new("fin7", "FIN7 Adversary Emulation")
         .with_description("FIN7 is a financially-motivated threat group that has been active since 2013. FIN7 has targeted the retail, restaurant, hospitalit...")
         .with_objective("Emulate FIN7 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -144,7 +144,7 @@ pub fn fin7() -> Playbook {
 /// Aliases: Scattered Spider, Roasted 0ktapus, Octo Tempest, Storm-0875, UNC3944
 /// Techniques: 64
 pub fn scattered_spider() -> Playbook {
-    Playbook::new("scattered-spider", "Scattered Spider Adversary Emulation")
+  Playbook::new("scattered-spider", "Scattered Spider Adversary Emulation")
         .with_description("Scattered Spider is a native English-speaking cybercriminal group active since at least 2022. (Citation: CrowdStrike Scattered Spi...")
         .with_objective("Emulate Scattered Spider TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)

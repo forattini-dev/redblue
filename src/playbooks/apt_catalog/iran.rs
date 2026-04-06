@@ -18,7 +18,7 @@ use crate::scripts::FindingSeverity;
 /// Aliases: MuddyWater, Earth Vetala, MERCURY, Static Kitten, Seedworm
 /// Techniques: 58
 pub fn muddywater() -> Playbook {
-    Playbook::new("muddywater", "MuddyWater Adversary Emulation")
+  Playbook::new("muddywater", "MuddyWater Adversary Emulation")
         .with_description("MuddyWater is a cyber espionage group assessed to be a subordinate element within Iran's Ministry of Intelligence and Security (MO...")
         .with_objective("Emulate MuddyWater TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -144,7 +144,7 @@ pub fn muddywater() -> Playbook {
 /// Aliases: OilRig, COBALT GYPSY, IRN2, APT34, Helix Kitten
 /// Techniques: 76
 pub fn oilrig() -> Playbook {
-    Playbook::new("oilrig", "OilRig Adversary Emulation")
+  Playbook::new("oilrig", "OilRig Adversary Emulation")
         .with_description("OilRig is a suspected Iranian threat group that has targeted Middle Eastern and international victims since at least 2014. The gro...")
         .with_objective("Emulate OilRig TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)

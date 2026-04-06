@@ -13,35 +13,54 @@ const sdk = require('../redblue-sdk.js');
 
 const {
   attachRoute,
+  buildDomainCatalog,
+  buildManifestCliSchema,
+  buildJsonCliArgs,
   buildInvocation,
   checkForUpdates,
+  createManifestCLI,
   createDomainProxy,
+  createRouteIndex,
   defaultInstallDir,
   downloadToFile,
   ensureObject,
   ensureInstalled,
   execFilePromise,
   exists,
+  formatManifestHelpSummary,
   formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
+  findRouteInvocation,
   getBinaryInfo,
   getParserCandidatePaths,
   getDefaultBinaryName,
   getInstalledVersion,
   getReleaseTag,
+  hasLongFlag,
   invokeJson,
   invokeRaw,
   isExecutable,
   kebabToCamel,
   legacyInstallDir,
   loadCliArgsParser,
+  looksLikeCanonicalCommandArgs,
+  normalizeCliArgv,
   normalizeReleaseTag,
+  normalizeTokenSelector,
+  normalizeRouteSelector,
   parseWrapperArgs,
   parseInstalledVersion,
   request,
   requestJson,
   requestText,
+  routeInvocationMeta,
+  resolveMachineOutput,
+  routeIdentifier,
+  runJson,
+  suggestCommandTokens,
+  suggestRouteCommands,
+  validateManifestCommandArgs,
   resolveFromPath,
   resolveBinaryWithInfo,
   resolveLegacyBinaryPath,
@@ -1034,7 +1053,17 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
   );
 
   const manifestInfo = await sdk.getManifest({ binaryPath: fixtureBinary });
-  assert.equal(manifestInfo.manifest.commands.length, 3);
+  assert.equal(manifestInfo.manifest.schema_version, 1);
+  assert.equal(Array.isArray(manifestInfo.manifest.domains), true);
+  assert.equal(manifestInfo.manifest.commands.length, 4);
+  const cliSchema = buildManifestCliSchema(manifestInfo.manifest);
+  assert.equal(cliSchema.name, 'rb');
+  assert.equal(cliSchema.commands.dns.commands.record.commands.lookup.description, 'Lookup DNS records');
+  assert.equal(cliSchema.options.json.type, 'boolean');
+  assert.equal(cliSchema.options.json.short, 'j');
+  assert.equal(cliSchema.options.output.type, 'string');
+  assert.equal(cliSchema.options.output.short, 'o');
+  assert.equal(cliSchema.options.format.type, 'string');
 
   await assert.rejects(
     sdk.getManifest({
@@ -1051,23 +1080,151 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
     }),
     /Failed to parse redblue SDK manifest JSON/
   );
+
+  const runJsonResult = await runJson(['dns', 'record', 'lookup', 'example.com'], {
+    binaryPath: fixtureBinary
+  });
+  assert.equal(runJsonResult.ok, true);
+  assert.deepEqual(runJsonResult.argv, [
+    'dns',
+    'record',
+    'lookup',
+    'example.com',
+    '--json',
+    '--format',
+    'json'
+  ]);
+
+  assert.equal(
+    await runJson(['dns', 'record', 'lookup', 'example.com'], {
+      binaryPath: fixtureBinary,
+      env: { RB_FAKE_ROUTE_MODE: 'empty' }
+    }),
+    null
+  );
+
+  await assert.rejects(
+    runJson(['dns', 'record', 'lookup', 'example.com'], {
+      binaryPath: fixtureBinary,
+      env: { RB_FAKE_ROUTE_MODE: 'invalid-json' }
+    }),
+    /did not emit valid JSON/
+  );
+
+  await assert.rejects(() => runJson('dns'), /CLI argv must be an array of strings/);
+
+  const manifestCli = await createManifestCLI(
+    {
+      binaryPath: fixtureBinary
+    },
+    {
+      localParserPath: parserDist
+    }
+  );
+  const parsedCli = manifestCli.parse(['dns', 'record', 'lookup', 'example.com', '--type', 'MX']);
+  assert.deepEqual(parsedCli.command, ['dns', 'record', 'lookup']);
+  assert.equal(parsedCli.positional.target, 'example.com');
+  assert.equal(parsedCli.options.type, 'MX');
+  const parsedGlobal = manifestCli.parse(['dns', 'record', 'lookup', 'example.com', '--json']);
+  assert.equal(parsedGlobal.options.json, true);
+  assert.equal(
+    (await validateManifestCommandArgs(
+      ['dns', 'record', 'lookup', 'example.com'],
+      { binaryPath: fixtureBinary },
+      { localParserPath: parserDist }
+    )).command.join('/'),
+    'dns/record/lookup'
+  );
+  await assert.rejects(
+    validateManifestCommandArgs(
+      ['dns', 'record', 'missing'],
+      { binaryPath: fixtureBinary },
+      { localParserPath: parserDist }
+    ),
+    /Unknown command: dns record missing[\s\S]*rb dns record lookup/
+  );
 });
 
-test('createDomainProxy, attachRoute and createClient execute dns, tls and ports namespaces with forced json', async () => {
+test('createDomainProxy, attachRoute and createClient execute dns, tls, ports and system namespaces with forced json', async () => {
   const fixtureBinary = await createFixtureBinary();
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-client-'));
   const logPath = path.join(tmpDir, 'invocations.log');
 
   const manifestInfo = await sdk.getManifest({ binaryPath: fixtureBinary });
+  assert.equal(
+    routeIdentifier(manifestInfo.manifest.commands[0], manifestInfo.manifest.commands[0].routes[0]),
+    'dns/record/lookup'
+  );
+  assert.equal(
+    resolveMachineOutput(
+      manifestInfo.manifest.commands[0],
+      manifestInfo.manifest.commands[0].routes[0]
+    ).preferred_flag,
+    'format'
+  );
   const proxy = createDomainProxy(fixtureBinary, manifestInfo.manifest, {
     env: {
       RB_FAKE_LOG_PATH: logPath
     }
   });
+  const routeIndex = createRouteIndex(proxy);
+  const domainCatalog = buildDomainCatalog(manifestInfo.manifest);
 
   assert.equal(typeof proxy.dns.record.lookup, 'function');
+  assert.equal(typeof proxy.dns.rec.lookup, 'function');
   assert.equal(typeof proxy.tls.security.audit, 'function');
+  assert.equal(typeof proxy.tls.sec.audit, 'function');
   assert.equal(typeof proxy.network.ports.scan, 'function');
+  assert.equal(typeof proxy.n.ports.scan, 'function');
+  assert.equal(typeof proxy.system.host.inspect, 'function');
+  assert.equal(typeof proxy.sys.machine.inspect, 'function');
+  assert.equal(typeof routeIndex['dns/record/lookup'], 'function');
+  assert.equal(typeof routeIndex['system/host/inspect'], 'function');
+  assert.equal(Array.isArray(domainCatalog), true);
+  assert.equal(looksLikeCanonicalCommandArgs(['dns', 'record', 'lookup']), true);
+  assert.equal(looksLikeCanonicalCommandArgs(['-e', 'console.log(1)']), false);
+  assert.equal(domainCatalog[0].name, 'dns');
+  assert.equal(hasLongFlag(['--json'], 'json'), true);
+  assert.equal(hasLongFlag(['--format=json'], 'format'), true);
+  assert.equal(hasLongFlag(['--type', 'MX'], 'json'), false);
+  assert.equal(findRouteInvocation(routeIndex, manifestInfo.manifest, 'dns/record/lookup'), routeIndex['dns/record/lookup']);
+  assert.equal(findRouteInvocation(routeIndex, manifestInfo.manifest, 'n/ports/scan'), routeIndex['network/ports/scan']);
+  assert.equal(findRouteInvocation(routeIndex, manifestInfo.manifest, ['tls', 'sec', 'audit']), routeIndex['tls/security/audit']);
+  assert.equal(findRouteInvocation(routeIndex, manifestInfo.manifest, 'sys/machine/inventory'), routeIndex['system/host/inspect']);
+  assert.equal(routeInvocationMeta(routeIndex, manifestInfo.manifest, ['dns', 'record', 'lookup']).route.verb, 'lookup');
+  assert.equal(routeInvocationMeta(routeIndex, manifestInfo.manifest, ['dns']), null);
+  assert.deepEqual(buildJsonCliArgs(['dns', 'record', 'lookup', 'example.com'], routeIndex, manifestInfo.manifest), [
+    'dns',
+    'record',
+    'lookup',
+    'example.com',
+    '--json',
+    '--format',
+    'json'
+  ]);
+  assert.deepEqual(normalizeCliArgv(['dns', 'record', 'lookup']), ['dns', 'record', 'lookup']);
+  assert.equal(normalizeRouteSelector('dns.record.lookup').join('/'), 'dns/record/lookup');
+  assert.equal(normalizeTokenSelector('dns record lookup example.com').join('/'), 'dns/record/lookup/example.com');
+  assert.throws(() => normalizeRouteSelector('dns record'), /domain\/resource\/verb/);
+  assert.deepEqual(suggestCommandTokens(manifestInfo.manifest, []), {
+    stage: 'domain',
+    suggestions: ['dns', 'tls', 'network', 'system']
+  });
+  assert.deepEqual(suggestCommandTokens(manifestInfo.manifest, ['dns', 'rec']), {
+    stage: 'resource',
+    suggestions: ['record']
+  });
+  assert.deepEqual(suggestCommandTokens(manifestInfo.manifest, 'tls sec aud'), {
+    stage: 'verb',
+    suggestions: ['audit']
+  });
+  assert.deepEqual(suggestCommandTokens(manifestInfo.manifest, ['sys', 'mach']), {
+    stage: 'resource',
+    suggestions: ['host']
+  });
+  assert.deepEqual(suggestRouteCommands(manifestInfo.manifest, 'tls security audti', 2), [
+    'rb tls security audit'
+  ]);
 
   const container = {};
   attachRoute(
@@ -1094,12 +1251,44 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls and ports
   const dns = await client.dns.record.lookup({ target: 'example.com', type: 'MX' });
   const tls = await client.tls.security.audit({ target: 'example.com', ports: '443' });
   const ports = await client.network.ports.scan({ target: '10.0.0.1', preset: 'common' });
+  const system = await client.system.host.inspect();
 
   assert.equal(dns.ok, true);
   assert.equal(tls.ok, true);
   assert.equal(ports.ok, true);
+  assert.equal(system.ok, true);
+  assert.equal(typeof client.n.ports.scan, 'function');
+  assert.equal(typeof client.dns.rec.lookup, 'function');
+  assert.equal(typeof client.sys.machine.inspect, 'function');
   assert.equal(client.$binaryPath, fixtureBinary);
   assert.equal(Array.isArray(client.$manifest.commands), true);
+  assert.equal(typeof client.$routes['network/ports/scan'], 'function');
+  assert.equal(typeof client.$routes['system/host/inspect'], 'function');
+  assert.equal(Array.isArray(client.$domains), true);
+  assert.equal(client.$cliSchema.name, 'rb');
+  assert.equal(client.$domains[0].name, 'dns');
+  assert.equal(client.$domains[0].resources[0].name, 'record');
+  assert.equal(client.$domains[0].resources[0].verbs[0].name, 'lookup');
+  assert.equal(client.$findRoute('network/ports/scan'), client.$routes['network/ports/scan']);
+  assert.equal(client.$findRoute('n/ports/scan'), client.$routes['network/ports/scan']);
+  assert.equal(client.$findRoute('sys/machine/inventory'), client.$routes['system/host/inspect']);
+  assert.equal(client.$findRoute('missing/route/here'), null);
+  assert.deepEqual(client.$suggest(['network', 'po']), {
+    stage: 'resource',
+    suggestions: ['ports']
+  });
+  const clientCli = await client.$createCLI({ localParserPath: parserDist });
+  assert.deepEqual(clientCli.parse(['tls', 'security', 'audit', 'example.com']).command, [
+    'tls',
+    'security',
+    'audit'
+  ]);
+  assert.equal((await runJson(['dns', 'record', 'lookup', 'example.com'], {
+    binaryPath: fixtureBinary,
+    env: {
+      RB_FAKE_LOG_PATH: logPath
+    }
+  })).ok, true);
 
   const raw = await client.dns.record.lookup.raw(
     { target: 'example.com' },
@@ -1157,7 +1346,7 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls and ports
   assert.match(directSpawnOutput, /"commands"/);
 
   const routeInvocations = readLogLines(logPath).filter((entry) => entry[0] !== 'sdk');
-  assert.deepEqual(routeInvocations[0], [
+  assert(routeInvocations.some((entry) => JSON.stringify(entry) === JSON.stringify([
     'dns',
     'record',
     'lookup',
@@ -1167,8 +1356,8 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls and ports
     '--json',
     '--format',
     'json'
-  ]);
-  assert.deepEqual(routeInvocations[1], [
+  ])));
+  assert(routeInvocations.some((entry) => JSON.stringify(entry) === JSON.stringify([
     'tls',
     'security',
     'audit',
@@ -1178,8 +1367,8 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls and ports
     '--json',
     '--format',
     'json'
-  ]);
-  assert.deepEqual(routeInvocations[2], [
+  ])));
+  assert(routeInvocations.some((entry) => JSON.stringify(entry) === JSON.stringify([
     'network',
     'ports',
     'scan',
@@ -1189,7 +1378,22 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls and ports
     '--json',
     '--output',
     'json'
-  ]);
+  ])));
+  assert(routeInvocations.some((entry) => JSON.stringify(entry) === JSON.stringify([
+    'system',
+    'host',
+    'inspect',
+    '--json'
+  ])));
+  assert(routeInvocations.some((entry) => JSON.stringify(entry) === JSON.stringify([
+    'dns',
+    'record',
+    'lookup',
+    'example.com',
+    '--json',
+    '--format',
+    'json'
+  ])));
 });
 
 test('fallback branches for raw, spawn and proxy construction stay stable', async () => {
@@ -1239,6 +1443,52 @@ test('fallback branches for raw, spawn and proxy construction stay stable', asyn
 
   const emptyProxy = createDomainProxy(fixtureBinary, {}, {});
   assert.deepEqual(emptyProxy, {});
+  assert.deepEqual(buildDomainCatalog({}), []);
+  assert.equal(findRouteInvocation({}, {}, 'dns/record/lookup'), null);
+  assert.deepEqual(suggestCommandTokens({}, ['dns']), {
+    stage: 'domain',
+    suggestions: []
+  });
+  assert.deepEqual(suggestRouteCommands({}, 'dns record lookup'), []);
+
+  const fallbackCatalog = buildDomainCatalog({
+    commands: [
+      {
+        domain: 'dns',
+        domain_aliases: ['d'],
+        resource: 'record',
+        resource_aliases: ['rec'],
+        description: 'DNS record lookups',
+        routes: [
+          {
+            verb: 'lookup',
+            summary: 'Lookup DNS records',
+            aliases: ['get']
+          }
+        ]
+      }
+    ]
+  });
+  assert.deepEqual(fallbackCatalog, [
+    {
+      name: 'dns',
+      aliases: ['d'],
+      resources: [
+        {
+          name: 'record',
+          description: 'DNS record lookups',
+          aliases: ['rec'],
+          verbs: [
+            {
+              name: 'lookup',
+              summary: 'Lookup DNS records',
+              aliases: ['get']
+            }
+          ]
+        }
+      ]
+    }
+  ]);
 
   const routeLessProxy = createDomainProxy(
     fixtureBinary,
@@ -1551,6 +1801,76 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
   assert.match(formatWrapperHelp(), /npm exec --package redblue-cli rb/);
   assert.match(formatWrapperHelp(), /--install/);
   assert.match(formatWrapperHelp(), /--release-version/);
+
+  const manifest = {
+    canonical_grammar: 'rb <domain> <resource> <verb> [target] [args...] [flags]',
+    global_options: [
+      {
+        long: 'json',
+        short: 'j',
+        description: 'Force JSON output globally'
+      }
+    ],
+    domains: [
+      {
+        name: 'dns',
+        aliases: [],
+        resources: [
+          {
+            name: 'record',
+            description: 'DNS record lookups',
+            aliases: [],
+            verbs: [
+              {
+                name: 'lookup',
+                summary: 'Lookup DNS records',
+                aliases: []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        name: 'network',
+        aliases: ['n'],
+        resources: [
+          {
+            name: 'ports',
+            description: 'Port scans',
+            aliases: [],
+            verbs: []
+          }
+        ]
+      }
+    ],
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        examples: [
+          {
+            summary: 'Lookup MX records',
+            command: 'rb dns record lookup example.com --type MX'
+          }
+        ]
+      }
+    ]
+  };
+
+  const manifestSummary = formatManifestHelpSummary(manifest);
+  assert.match(manifestSummary, /rb <domain> <resource> <verb>/);
+  assert.match(manifestSummary, /--json, -j/);
+  assert.match(manifestSummary, /dns/);
+  assert.match(manifestSummary, /record/);
+  assert.match(manifestSummary, /Examples:/);
+  assert.match(manifestSummary, /rb dns record lookup example.com --type MX/);
+
+  const richHelp = formatWrapperHelp(manifest);
+  assert.match(richHelp, /redblue CLI/);
+  assert.match(richHelp, /Global redblue options:/);
+  assert.match(richHelp, /Canonical domains:/);
+  assert.match(richHelp, /network/);
+  assert.match(richHelp, /Examples:/);
 });
 
 test('branch-only helper paths stay covered', async () => {

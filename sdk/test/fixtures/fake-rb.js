@@ -32,17 +32,133 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
 
   process.stdout.write(
     JSON.stringify({
+      schema_version: 1,
       version: '0.1.0',
       binary: 'redblue',
+      canonical_order: 'domain-resource-verb',
+      canonical_grammar: 'rb <domain> <resource> <verb> [target] [args...] [flags]',
+      global_options: [
+        {
+          long: 'json',
+          short: 'j',
+          description: 'Force JSON output globally',
+          kind: 'machine-output',
+          value: 'json'
+        },
+        {
+          long: 'output',
+          short: 'o',
+          description: 'Select output format globally',
+          kind: 'output-format',
+          values: ['human', 'json', 'yaml']
+        },
+        {
+          long: 'format',
+          description: 'Alias for --output',
+          kind: 'output-format',
+          values: ['human', 'json', 'yaml']
+        }
+      ],
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              description: 'DNS record lookups',
+              aliases: ['rec', 'records'],
+              verbs: [
+                {
+                  name: 'lookup',
+                  summary: 'Lookup DNS records',
+                  aliases: []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          name: 'tls',
+          aliases: [],
+          resources: [
+            {
+              name: 'security',
+              description: 'TLS audits',
+              aliases: ['sec'],
+              verbs: [
+                {
+                  name: 'audit',
+                  summary: 'Audit TLS target',
+                  aliases: []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          name: 'network',
+          aliases: ['n', 'net', 'ntwrk'],
+          resources: [
+            {
+              name: 'ports',
+              description: 'Port scans',
+              aliases: [],
+              verbs: [
+                {
+                  name: 'scan',
+                  summary: 'Scan ports',
+                  aliases: []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          name: 'system',
+          aliases: ['sys'],
+          resources: [
+            {
+              name: 'host',
+              description: 'Local host inventory',
+              aliases: ['machine', 'node'],
+              verbs: [
+                {
+                  name: 'inspect',
+                  summary: 'Full local host inventory',
+                  aliases: ['inventory', 'inv']
+                },
+                {
+                  name: 'summary',
+                  summary: 'Short local host summary',
+                  aliases: ['sum']
+                }
+              ]
+            }
+          ]
+        }
+      ],
       commands: [
         {
           domain: 'dns',
+          domain_aliases: [],
           resource: 'record',
+          resource_aliases: ['rec', 'records'],
           description: 'DNS record lookups',
+          canonical_order: 'domain-resource-verb',
+          canonical_prefix: 'rb dns record',
+          path: {
+            domain: 'dns',
+            resource: 'record'
+          },
+          aliases: [],
           machine_output: {
             global_flag: 'json',
             preferred_flag: 'format',
-            preferred_value: 'json'
+            preferred_value: 'json',
+            json_support: 'best-effort',
+            stdout_policy: 'json-only-when-requested',
+            stderr_policy: 'diagnostics-only'
           },
           flags: [
             {
@@ -64,11 +180,34 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
               machine_output_role: 'preferred'
             }
           ],
+          examples: [
+            {
+              summary: 'Lookup MX records',
+              command: 'rb dns record lookup example.com --type MX'
+            }
+          ],
           routes: [
             {
               verb: 'lookup',
               summary: 'Lookup DNS records',
               usage: 'rb dns record lookup <target> [--type TYPE]',
+              aliases: [],
+              canonical_path: 'dns/record/lookup',
+              command: 'rb dns record lookup',
+              machine_output: {
+                global_flag: 'json',
+                preferred_flag: 'format',
+                preferred_value: 'json',
+                json_support: 'best-effort',
+                stdout_policy: 'json-only-when-requested',
+                stderr_policy: 'diagnostics-only'
+              },
+              examples: [
+                {
+                  summary: 'Lookup MX records',
+                  command: 'rb dns record lookup example.com --type MX'
+                }
+              ],
               positionals: [
                 {
                   name: 'target',
@@ -83,12 +222,24 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
         },
         {
           domain: 'tls',
+          domain_aliases: [],
           resource: 'security',
+          resource_aliases: ['sec'],
           description: 'TLS audits',
+          canonical_order: 'domain-resource-verb',
+          canonical_prefix: 'rb tls security',
+          path: {
+            domain: 'tls',
+            resource: 'security'
+          },
+          aliases: [],
           machine_output: {
             global_flag: 'json',
             preferred_flag: 'format',
-            preferred_value: 'json'
+            preferred_value: 'json',
+            json_support: 'best-effort',
+            stdout_policy: 'json-only-when-requested',
+            stderr_policy: 'diagnostics-only'
           },
           flags: [
             {
@@ -110,11 +261,34 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
               machine_output_role: 'preferred'
             }
           ],
+          examples: [
+            {
+              summary: 'Audit a TLS endpoint',
+              command: 'rb tls security audit example.com'
+            }
+          ],
           routes: [
             {
               verb: 'audit',
               summary: 'Audit TLS target',
               usage: 'rb tls security audit <target>',
+              aliases: [],
+              canonical_path: 'tls/security/audit',
+              command: 'rb tls security audit',
+              machine_output: {
+                global_flag: 'json',
+                preferred_flag: 'format',
+                preferred_value: 'json',
+                json_support: 'best-effort',
+                stdout_policy: 'json-only-when-requested',
+                stderr_policy: 'diagnostics-only'
+              },
+              examples: [
+                {
+                  summary: 'Audit a TLS endpoint',
+                  command: 'rb tls security audit example.com'
+                }
+              ],
               positionals: [
                 {
                   name: 'target',
@@ -129,12 +303,24 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
         },
         {
           domain: 'network',
+          domain_aliases: ['n', 'net', 'ntwrk'],
           resource: 'ports',
+          resource_aliases: [],
           description: 'Port scans',
+          canonical_order: 'domain-resource-verb',
+          canonical_prefix: 'rb network ports',
+          path: {
+            domain: 'network',
+            resource: 'ports'
+          },
+          aliases: [],
           machine_output: {
             global_flag: 'json',
             preferred_flag: 'output',
-            preferred_value: 'json'
+            preferred_value: 'json',
+            json_support: 'best-effort',
+            stdout_policy: 'json-only-when-requested',
+            stderr_policy: 'diagnostics-only'
           },
           flags: [
             {
@@ -156,11 +342,34 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
               machine_output_role: 'preferred'
             }
           ],
+          examples: [
+            {
+              summary: 'Scan common ports',
+              command: 'rb network ports scan 10.0.0.1 --preset common'
+            }
+          ],
           routes: [
             {
               verb: 'scan',
               summary: 'Scan ports',
               usage: 'rb network ports scan <target>',
+              aliases: [],
+              canonical_path: 'network/ports/scan',
+              command: 'rb network ports scan',
+              machine_output: {
+                global_flag: 'json',
+                preferred_flag: 'output',
+                preferred_value: 'json',
+                json_support: 'best-effort',
+                stdout_policy: 'json-only-when-requested',
+                stderr_policy: 'diagnostics-only'
+              },
+              examples: [
+                {
+                  summary: 'Scan common ports',
+                  command: 'rb network ports scan 10.0.0.1 --preset common'
+                }
+              ],
               positionals: [
                 {
                   name: 'target',
@@ -170,6 +379,83 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
                   index: 0
                 }
               ]
+            }
+          ]
+        },
+        {
+          domain: 'system',
+          domain_aliases: ['sys'],
+          resource: 'host',
+          resource_aliases: ['machine', 'node'],
+          description: 'Local host inventory',
+          canonical_order: 'domain-resource-verb',
+          canonical_prefix: 'rb system host',
+          path: {
+            domain: 'system',
+            resource: 'host'
+          },
+          aliases: [],
+          machine_output: {
+            global_flag: 'json',
+            preferred_flag: null,
+            preferred_value: null,
+            json_support: 'guaranteed',
+            stdout_policy: 'json-only-when-requested',
+            stderr_policy: 'diagnostics-only'
+          },
+          flags: [],
+          examples: [
+            {
+              summary: 'Inspect the local host',
+              command: 'rb system host inspect --json'
+            }
+          ],
+          routes: [
+            {
+              verb: 'inspect',
+              summary: 'Full local host inventory',
+              usage: 'rb system host inspect',
+              aliases: ['inventory', 'inv'],
+              canonical_path: 'system/host/inspect',
+              command: 'rb system host inspect',
+              machine_output: {
+                global_flag: 'json',
+                preferred_flag: null,
+                preferred_value: null,
+                json_support: 'guaranteed',
+                stdout_policy: 'json-only-when-requested',
+                stderr_policy: 'diagnostics-only'
+              },
+              examples: [
+                {
+                  summary: 'Inspect the local host',
+                  command: 'rb system host inspect --json'
+                }
+              ],
+              positionals: []
+            },
+            {
+              verb: 'summary',
+              summary: 'Short local host summary',
+              usage: 'rb system host summary',
+              aliases: ['sum'],
+              canonical_path: 'system/host/summary',
+              command: 'rb system host summary',
+              machine_output: {
+                global_flag: 'json',
+                preferred_flag: null,
+                preferred_value: null,
+                json_support: 'guaranteed',
+                stdout_policy: 'json-only-when-requested',
+                stderr_policy: 'diagnostics-only'
+              },
+              examples: [
+                {
+                  summary: 'Summarize the local host',
+                  command: 'rb system host summary --json'
+                }
+              ],
+              positionals: []
             }
           ]
         }

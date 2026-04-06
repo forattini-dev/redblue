@@ -11,34 +11,34 @@ pub mod proxy;
 // Reconnaissance
 #[allow(dead_code)]
 pub mod recon {
-    pub mod antidetection;
-    pub mod asn;
-    pub mod breach;
-    pub mod crtsh;
-    pub mod dns;
-    pub mod dnsdumpster;
-    pub mod dorks;
-    pub mod email_correlation;
-    pub mod email_permutator;
-    pub mod email_validator;
-    pub mod fingerprint; // Technology fingerprinting engine
-    pub mod harvester;
-    #[path = "ip-intel.rs"]
-    pub mod ip_intel;
-    pub mod massdns;
-    pub mod mitre; // MITRE ATT&CK intelligence
-    pub mod osint;
-    pub mod reporting;
-    pub mod secrets;
-    pub mod social;
-    pub mod sources; // Passive subdomain sources
-    pub mod subdomain;
-    pub mod subdomain_bruteforce;
-    pub mod threat_intel;
-    pub mod urlharvest;
-    pub mod username;
-    pub mod vuln;
-    pub mod whois; // WHOIS intelligence
+  pub mod antidetection;
+  pub mod asn;
+  pub mod breach;
+  pub mod crtsh;
+  pub mod dns;
+  pub mod dnsdumpster;
+  pub mod dorks;
+  pub mod email_correlation;
+  pub mod email_permutator;
+  pub mod email_validator;
+  pub mod fingerprint; // Technology fingerprinting engine
+  pub mod harvester;
+  #[path = "ip-intel.rs"]
+  pub mod ip_intel;
+  pub mod massdns;
+  pub mod mitre; // MITRE ATT&CK intelligence
+  pub mod osint;
+  pub mod reporting;
+  pub mod secrets;
+  pub mod social;
+  pub mod sources; // Passive subdomain sources
+  pub mod subdomain;
+  pub mod subdomain_bruteforce;
+  pub mod threat_intel;
+  pub mod urlharvest;
+  pub mod username;
+  pub mod vuln;
+  pub mod whois; // WHOIS intelligence
 }
 
 // Network Analysis
@@ -54,26 +54,26 @@ pub use tls::ct_logs;
 
 // Data Collection
 pub mod collection {
-    pub mod auth_test;
-    pub mod browser_creds;
-    pub mod categorization;
-    pub mod clustering;
-    pub mod creds;
-    pub mod dependencies;
-    pub mod login;
-    pub mod persistence;
-    pub mod resume;
-    pub mod sarif;
-    pub mod screenshot; // Chrome DevTools Protocol screenshot capture
-    pub mod screenshots;
-    pub mod secrets;
+  pub mod auth_test;
+  pub mod browser_creds;
+  pub mod categorization;
+  pub mod clustering;
+  pub mod creds;
+  pub mod dependencies;
+  pub mod login;
+  pub mod persistence;
+  pub mod resume;
+  pub mod sarif;
+  pub mod screenshot; // Chrome DevTools Protocol screenshot capture
+  pub mod screenshots;
+  pub mod secrets;
 }
 
 // Cloud Security
 pub mod cloud {
-    #[path = "s3-scanner.rs"]
-    pub mod s3_scanner;
-    pub mod takeover;
+  #[path = "s3-scanner.rs"]
+  pub mod s3_scanner;
+  pub mod takeover;
 }
 
 // CMS Security Testing
@@ -133,7 +133,7 @@ pub mod viz;
 
 // Code Analysis (secrets detection, dependency audit)
 pub mod code {
-    pub mod secrets;
+  pub mod secrets;
 }
 
 // CTF Challenge Generation (juice-shop-ctf style)

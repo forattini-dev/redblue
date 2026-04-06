@@ -49,81 +49,81 @@ use super::types::Playbook;
 
 /// Get all APT playbooks
 pub fn all_apt_playbooks() -> Vec<Playbook> {
-    vec![
-        apt28(),
-        apt29(),
-        apt3(),
-        apt32(),
-        apt41(),
-        fin7(),
-        kimsuky(),
-        lazarus_group(),
-        muddywater(),
-        oilrig(),
-        sandworm_team(),
-        scattered_spider(),
-        turla(),
-        volt_typhoon(),
-        wizard_spider(),
-    ]
+  vec![
+    apt28(),
+    apt29(),
+    apt3(),
+    apt32(),
+    apt41(),
+    fin7(),
+    kimsuky(),
+    lazarus_group(),
+    muddywater(),
+    oilrig(),
+    sandworm_team(),
+    scattered_spider(),
+    turla(),
+    volt_typhoon(),
+    wizard_spider(),
+  ]
 }
 
 /// Get APT playbook by group name or alias
 pub fn get_apt_playbook(name: &str) -> Option<Playbook> {
-    let name_lower = name.to_lowercase();
-    all_apt_playbooks().into_iter().find(|p| {
-        p.metadata.id.to_lowercase() == name_lower
-            || p.metadata.name.to_lowercase().contains(&name_lower)
-    })
+  let name_lower = name.to_lowercase();
+  all_apt_playbooks().into_iter().find(|p| {
+    p.metadata.id.to_lowercase() == name_lower
+      || p.metadata.name.to_lowercase().contains(&name_lower)
+  })
 }
 
 /// List all APT group names
 pub fn list_apt_groups() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("apt28", "APT28"),
-        ("apt29", "APT29"),
-        ("apt3", "APT3"),
-        ("apt32", "APT32"),
-        ("apt41", "APT41"),
-        ("fin7", "FIN7"),
-        ("kimsuky", "Kimsuky"),
-        ("lazarus-group", "Lazarus Group"),
-        ("muddywater", "MuddyWater"),
-        ("oilrig", "OilRig"),
-        ("sandworm-team", "Sandworm Team"),
-        ("scattered-spider", "Scattered Spider"),
-        ("turla", "Turla"),
-        ("volt-typhoon", "Volt Typhoon"),
-        ("wizard-spider", "Wizard Spider"),
-    ]
+  vec![
+    ("apt28", "APT28"),
+    ("apt29", "APT29"),
+    ("apt3", "APT3"),
+    ("apt32", "APT32"),
+    ("apt41", "APT41"),
+    ("fin7", "FIN7"),
+    ("kimsuky", "Kimsuky"),
+    ("lazarus-group", "Lazarus Group"),
+    ("muddywater", "MuddyWater"),
+    ("oilrig", "OilRig"),
+    ("sandworm-team", "Sandworm Team"),
+    ("scattered-spider", "Scattered Spider"),
+    ("turla", "Turla"),
+    ("volt-typhoon", "Volt Typhoon"),
+    ("wizard-spider", "Wizard Spider"),
+  ]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_all_apt_playbooks_valid() {
-        for playbook in all_apt_playbooks() {
-            assert!(!playbook.metadata.id.is_empty());
-            assert!(!playbook.metadata.name.is_empty());
-            assert!(!playbook.steps.is_empty());
-            assert!(playbook.metadata.tags.contains(&"apt".to_string()));
-        }
+  #[test]
+  fn test_all_apt_playbooks_valid() {
+    for playbook in all_apt_playbooks() {
+      assert!(!playbook.metadata.id.is_empty());
+      assert!(!playbook.metadata.name.is_empty());
+      assert!(!playbook.steps.is_empty());
+      assert!(playbook.metadata.tags.contains(&"apt".to_string()));
     }
+  }
 
-    #[test]
-    fn test_get_apt_playbook_by_name() {
-        assert!(get_apt_playbook("apt29").is_some());
-        assert!(get_apt_playbook("lazarus").is_some());
-        assert!(get_apt_playbook("fin7").is_some());
-        assert!(get_apt_playbook("APT28").is_some());
-    }
+  #[test]
+  fn test_get_apt_playbook_by_name() {
+    assert!(get_apt_playbook("apt29").is_some());
+    assert!(get_apt_playbook("lazarus").is_some());
+    assert!(get_apt_playbook("fin7").is_some());
+    assert!(get_apt_playbook("APT28").is_some());
+  }
 
-    #[test]
-    fn test_list_apt_groups() {
-        let groups = list_apt_groups();
-        assert!(groups.len() >= 15);
-        assert!(groups.iter().any(|(id, _)| *id == "apt29"));
-    }
+  #[test]
+  fn test_list_apt_groups() {
+    let groups = list_apt_groups();
+    assert!(groups.len() >= 15);
+    assert!(groups.iter().any(|(id, _)| *id == "apt29"));
+  }
 }

@@ -37,33 +37,33 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct BTreeNodeId(pub u64);
 
 impl BTreeNodeId {
-    /// Create a new BTreeNodeId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new BTreeNodeId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 }
 
 impl fmt::Display for BTreeNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "btree:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "btree:{}", self.0)
+  }
 }
 
 impl From<u64> for BTreeNodeId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<BTreeNodeId> for u64 {
-    fn from(id: BTreeNodeId) -> Self {
-        id.0
-    }
+  fn from(id: BTreeNodeId) -> Self {
+    id.0
+  }
 }
 
 /// Global counter for B+ tree node IDs
@@ -71,7 +71,7 @@ static BTREE_NODE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Generate next B+ tree node ID
 pub fn next_btree_node_id() -> BTreeNodeId {
-    BTreeNodeId(BTREE_NODE_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
+  BTreeNodeId(BTREE_NODE_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
 }
 
 // ============================================================================
@@ -88,33 +88,33 @@ pub fn next_btree_node_id() -> BTreeNodeId {
 pub struct HnswNodeId(pub u64);
 
 impl HnswNodeId {
-    /// Create a new HnswNodeId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new HnswNodeId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 }
 
 impl fmt::Display for HnswNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "hnsw:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "hnsw:{}", self.0)
+  }
 }
 
 impl From<u64> for HnswNodeId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<HnswNodeId> for u64 {
-    fn from(id: HnswNodeId) -> Self {
-        id.0
-    }
+  fn from(id: HnswNodeId) -> Self {
+    id.0
+  }
 }
 
 // ============================================================================
@@ -132,62 +132,62 @@ impl From<HnswNodeId> for u64 {
 pub struct TxnId(pub u64);
 
 impl TxnId {
-    /// Create a new TxnId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new TxnId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// The null/initial transaction ID
-    pub const ZERO: TxnId = TxnId(0);
+  /// The null/initial transaction ID
+  pub const ZERO: TxnId = TxnId(0);
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 
-    /// Check if this is the null/initial transaction
-    pub const fn is_zero(self) -> bool {
-        self.0 == 0
-    }
+  /// Check if this is the null/initial transaction
+  pub const fn is_zero(self) -> bool {
+    self.0 == 0
+  }
 }
 
 impl fmt::Display for TxnId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "txn:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "txn:{}", self.0)
+  }
 }
 
 impl From<u64> for TxnId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<TxnId> for u64 {
-    fn from(id: TxnId) -> Self {
-        id.0
-    }
+  fn from(id: TxnId) -> Self {
+    id.0
+  }
 }
 
 // Arithmetic operations for TxnId
 impl Add<u64> for TxnId {
-    type Output = TxnId;
-    fn add(self, rhs: u64) -> TxnId {
-        TxnId(self.0 + rhs)
-    }
+  type Output = TxnId;
+  fn add(self, rhs: u64) -> TxnId {
+    TxnId(self.0 + rhs)
+  }
 }
 
 impl AddAssign<u64> for TxnId {
-    fn add_assign(&mut self, rhs: u64) {
-        self.0 += rhs;
-    }
+  fn add_assign(&mut self, rhs: u64) {
+    self.0 += rhs;
+  }
 }
 
 impl Sub<u64> for TxnId {
-    type Output = TxnId;
-    fn sub(self, rhs: u64) -> TxnId {
-        TxnId(self.0 - rhs)
-    }
+  type Output = TxnId;
+  fn sub(self, rhs: u64) -> TxnId {
+    TxnId(self.0 - rhs)
+  }
 }
 
 /// Global counter for transaction IDs
@@ -195,7 +195,7 @@ static TXN_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Generate next transaction ID
 pub fn next_txn_id() -> TxnId {
-    TxnId(TXN_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
+  TxnId(TXN_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
 }
 
 // ============================================================================
@@ -212,33 +212,33 @@ pub fn next_txn_id() -> TxnId {
 pub struct VectorId(pub u64);
 
 impl VectorId {
-    /// Create a new VectorId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new VectorId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 }
 
 impl fmt::Display for VectorId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "vec:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "vec:{}", self.0)
+  }
 }
 
 impl From<u64> for VectorId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<VectorId> for u64 {
-    fn from(id: VectorId) -> Self {
-        id.0
-    }
+  fn from(id: VectorId) -> Self {
+    id.0
+  }
 }
 
 // ============================================================================
@@ -256,33 +256,33 @@ impl From<VectorId> for u64 {
 pub struct SegmentId(pub u64);
 
 impl SegmentId {
-    /// Create a new SegmentId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new SegmentId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 }
 
 impl fmt::Display for SegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "seg:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "seg:{}", self.0)
+  }
 }
 
 impl From<u64> for SegmentId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<SegmentId> for u64 {
-    fn from(id: SegmentId) -> Self {
-        id.0
-    }
+  fn from(id: SegmentId) -> Self {
+    id.0
+  }
 }
 
 // ============================================================================
@@ -299,41 +299,41 @@ impl From<SegmentId> for u64 {
 pub struct PageId(pub u64);
 
 impl PageId {
-    /// Create a new PageId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new PageId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// The null page ID (no page)
-    pub const NULL: PageId = PageId(0);
+  /// The null page ID (no page)
+  pub const NULL: PageId = PageId(0);
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 
-    /// Check if this is the null page
-    pub const fn is_null(self) -> bool {
-        self.0 == 0
-    }
+  /// Check if this is the null page
+  pub const fn is_null(self) -> bool {
+    self.0 == 0
+  }
 }
 
 impl fmt::Display for PageId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "page:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "page:{}", self.0)
+  }
 }
 
 impl From<u64> for PageId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<PageId> for u64 {
-    fn from(id: PageId) -> Self {
-        id.0
-    }
+  fn from(id: PageId) -> Self {
+    id.0
+  }
 }
 
 // ============================================================================
@@ -349,33 +349,33 @@ impl From<PageId> for u64 {
 pub struct EntityId(pub u64);
 
 impl EntityId {
-    /// Create a new EntityId
-    pub const fn new(id: u64) -> Self {
-        Self(id)
-    }
+  /// Create a new EntityId
+  pub const fn new(id: u64) -> Self {
+    Self(id)
+  }
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 }
 
 impl fmt::Display for EntityId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "entity:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "entity:{}", self.0)
+  }
 }
 
 impl From<u64> for EntityId {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
+  fn from(id: u64) -> Self {
+    Self(id)
+  }
 }
 
 impl From<EntityId> for u64 {
-    fn from(id: EntityId) -> Self {
-        id.0
-    }
+  fn from(id: EntityId) -> Self {
+    id.0
+  }
 }
 
 // ============================================================================
@@ -391,102 +391,102 @@ impl From<EntityId> for u64 {
 pub struct Timestamp(pub u64);
 
 impl Timestamp {
-    /// Create a new Timestamp
-    pub const fn new(ts: u64) -> Self {
-        Self(ts)
-    }
+  /// Create a new Timestamp
+  pub const fn new(ts: u64) -> Self {
+    Self(ts)
+  }
 
-    /// The epoch (time zero)
-    pub const EPOCH: Timestamp = Timestamp(0);
+  /// The epoch (time zero)
+  pub const EPOCH: Timestamp = Timestamp(0);
 
-    /// Maximum timestamp
-    pub const MAX: Timestamp = Timestamp(u64::MAX);
+  /// Maximum timestamp
+  pub const MAX: Timestamp = Timestamp(u64::MAX);
 
-    /// Get the raw u64 value
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+  /// Get the raw u64 value
+  pub const fn get(self) -> u64 {
+    self.0
+  }
 
-    /// Check if this is the epoch
-    pub const fn is_epoch(self) -> bool {
-        self.0 == 0
-    }
+  /// Check if this is the epoch
+  pub const fn is_epoch(self) -> bool {
+    self.0 == 0
+  }
 }
 
 impl fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ts:{}", self.0)
-    }
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "ts:{}", self.0)
+  }
 }
 
 impl From<u64> for Timestamp {
-    fn from(ts: u64) -> Self {
-        Self(ts)
-    }
+  fn from(ts: u64) -> Self {
+    Self(ts)
+  }
 }
 
 impl From<Timestamp> for u64 {
-    fn from(ts: Timestamp) -> Self {
-        ts.0
-    }
+  fn from(ts: Timestamp) -> Self {
+    ts.0
+  }
 }
 
 // Arithmetic operations for Timestamp
 impl Add<u64> for Timestamp {
-    type Output = Timestamp;
-    fn add(self, rhs: u64) -> Timestamp {
-        Timestamp(self.0 + rhs)
-    }
+  type Output = Timestamp;
+  fn add(self, rhs: u64) -> Timestamp {
+    Timestamp(self.0 + rhs)
+  }
 }
 
 impl Add<Timestamp> for Timestamp {
-    type Output = Timestamp;
-    fn add(self, rhs: Timestamp) -> Timestamp {
-        Timestamp(self.0 + rhs.0)
-    }
+  type Output = Timestamp;
+  fn add(self, rhs: Timestamp) -> Timestamp {
+    Timestamp(self.0 + rhs.0)
+  }
 }
 
 impl AddAssign<u64> for Timestamp {
-    fn add_assign(&mut self, rhs: u64) {
-        self.0 += rhs;
-    }
+  fn add_assign(&mut self, rhs: u64) {
+    self.0 += rhs;
+  }
 }
 
 impl Sub<u64> for Timestamp {
-    type Output = Timestamp;
-    fn sub(self, rhs: u64) -> Timestamp {
-        Timestamp(self.0 - rhs)
-    }
+  type Output = Timestamp;
+  fn sub(self, rhs: u64) -> Timestamp {
+    Timestamp(self.0 - rhs)
+  }
 }
 
 impl Sub<Timestamp> for Timestamp {
-    type Output = Timestamp;
-    fn sub(self, rhs: Timestamp) -> Timestamp {
-        Timestamp(self.0 - rhs.0)
-    }
+  type Output = Timestamp;
+  fn sub(self, rhs: Timestamp) -> Timestamp {
+    Timestamp(self.0 - rhs.0)
+  }
 }
 
 impl SubAssign<u64> for Timestamp {
-    fn sub_assign(&mut self, rhs: u64) {
-        self.0 -= rhs;
-    }
+  fn sub_assign(&mut self, rhs: u64) {
+    self.0 -= rhs;
+  }
 }
 
 impl Timestamp {
-    /// Saturating subtraction
-    pub const fn saturating_sub(self, rhs: Self) -> Self {
-        Timestamp(self.0.saturating_sub(rhs.0))
-    }
+  /// Saturating subtraction
+  pub const fn saturating_sub(self, rhs: Self) -> Self {
+    Timestamp(self.0.saturating_sub(rhs.0))
+  }
 
-    /// Minimum of two timestamps
-    pub fn min(self, other: Self) -> Self {
-        Timestamp(self.0.min(other.0))
-    }
+  /// Minimum of two timestamps
+  pub fn min(self, other: Self) -> Self {
+    Timestamp(self.0.min(other.0))
+  }
 
-    /// Maximum of two timestamps
-    pub fn max(self, other: Self) -> Self {
-        Timestamp(self.0.max(other.0))
-    }
+  /// Maximum of two timestamps
+  pub fn max(self, other: Self) -> Self {
+    Timestamp(self.0.max(other.0))
+  }
 }
 
 /// Global logical timestamp counter
@@ -494,12 +494,12 @@ static GLOBAL_TIMESTAMP: AtomicU64 = AtomicU64::new(1);
 
 /// Get next timestamp
 pub fn next_timestamp() -> Timestamp {
-    Timestamp(GLOBAL_TIMESTAMP.fetch_add(1, Ordering::SeqCst))
+  Timestamp(GLOBAL_TIMESTAMP.fetch_add(1, Ordering::SeqCst))
 }
 
 /// Get current timestamp without incrementing
 pub fn current_timestamp() -> Timestamp {
-    Timestamp(GLOBAL_TIMESTAMP.load(Ordering::SeqCst))
+  Timestamp(GLOBAL_TIMESTAMP.load(Ordering::SeqCst))
 }
 
 // ============================================================================
@@ -508,83 +508,83 @@ pub fn current_timestamp() -> Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_btree_node_id() {
-        let id1 = BTreeNodeId::new(42);
-        let id2 = BTreeNodeId::from(42u64);
-        assert_eq!(id1, id2);
-        assert_eq!(id1.get(), 42);
-        assert_eq!(format!("{}", id1), "btree:42");
-    }
+  #[test]
+  fn test_btree_node_id() {
+    let id1 = BTreeNodeId::new(42);
+    let id2 = BTreeNodeId::from(42u64);
+    assert_eq!(id1, id2);
+    assert_eq!(id1.get(), 42);
+    assert_eq!(format!("{}", id1), "btree:42");
+  }
 
-    #[test]
-    fn test_hnsw_node_id() {
-        let id = HnswNodeId::new(100);
-        assert_eq!(id.get(), 100);
-        assert_eq!(format!("{}", id), "hnsw:100");
-    }
+  #[test]
+  fn test_hnsw_node_id() {
+    let id = HnswNodeId::new(100);
+    assert_eq!(id.get(), 100);
+    assert_eq!(format!("{}", id), "hnsw:100");
+  }
 
-    #[test]
-    fn test_txn_id() {
-        assert!(TxnId::ZERO.is_zero());
-        let id = TxnId::new(5);
-        assert!(!id.is_zero());
-        assert_eq!(format!("{}", id), "txn:5");
-    }
+  #[test]
+  fn test_txn_id() {
+    assert!(TxnId::ZERO.is_zero());
+    let id = TxnId::new(5);
+    assert!(!id.is_zero());
+    assert_eq!(format!("{}", id), "txn:5");
+  }
 
-    #[test]
-    fn test_vector_id() {
-        let id = VectorId::new(999);
-        assert_eq!(id.get(), 999);
-        assert_eq!(u64::from(id), 999);
-    }
+  #[test]
+  fn test_vector_id() {
+    let id = VectorId::new(999);
+    assert_eq!(id.get(), 999);
+    assert_eq!(u64::from(id), 999);
+  }
 
-    #[test]
-    fn test_page_id() {
-        assert!(PageId::NULL.is_null());
-        let id = PageId::new(1);
-        assert!(!id.is_null());
-    }
+  #[test]
+  fn test_page_id() {
+    assert!(PageId::NULL.is_null());
+    let id = PageId::new(1);
+    assert!(!id.is_null());
+  }
 
-    #[test]
-    fn test_timestamp() {
-        assert!(Timestamp::EPOCH.is_epoch());
-        let ts = Timestamp::new(100);
-        assert!(!ts.is_epoch());
-        assert!(ts < Timestamp::MAX);
-    }
+  #[test]
+  fn test_timestamp() {
+    assert!(Timestamp::EPOCH.is_epoch());
+    let ts = Timestamp::new(100);
+    assert!(!ts.is_epoch());
+    assert!(ts < Timestamp::MAX);
+  }
 
-    #[test]
-    fn test_id_generation() {
-        let id1 = next_btree_node_id();
-        let id2 = next_btree_node_id();
-        assert!(id2.get() > id1.get());
+  #[test]
+  fn test_id_generation() {
+    let id1 = next_btree_node_id();
+    let id2 = next_btree_node_id();
+    assert!(id2.get() > id1.get());
 
-        let txn1 = next_txn_id();
-        let txn2 = next_txn_id();
-        assert!(txn2.get() > txn1.get());
+    let txn1 = next_txn_id();
+    let txn2 = next_txn_id();
+    assert!(txn2.get() > txn1.get());
 
-        let ts1 = next_timestamp();
-        let ts2 = next_timestamp();
-        assert!(ts2.get() > ts1.get());
-    }
+    let ts1 = next_timestamp();
+    let ts2 = next_timestamp();
+    assert!(ts2.get() > ts1.get());
+  }
 
-    #[test]
-    fn test_type_safety() {
-        // These types should NOT be interchangeable at compile time
-        // (This is a conceptual test - actual type errors are compile-time)
-        let btree_id = BTreeNodeId::new(1);
-        let hnsw_id = HnswNodeId::new(1);
-        let txn_id = TxnId::new(1);
+  #[test]
+  fn test_type_safety() {
+    // These types should NOT be interchangeable at compile time
+    // (This is a conceptual test - actual type errors are compile-time)
+    let btree_id = BTreeNodeId::new(1);
+    let hnsw_id = HnswNodeId::new(1);
+    let txn_id = TxnId::new(1);
 
-        // They have the same underlying value but are different types
-        assert_eq!(btree_id.get(), hnsw_id.get());
-        assert_eq!(btree_id.get(), txn_id.get());
+    // They have the same underlying value but are different types
+    assert_eq!(btree_id.get(), hnsw_id.get());
+    assert_eq!(btree_id.get(), txn_id.get());
 
-        // But they format differently, showing their semantic meaning
-        assert_ne!(format!("{}", btree_id), format!("{}", hnsw_id));
-        assert_ne!(format!("{}", btree_id), format!("{}", txn_id));
-    }
+    // But they format differently, showing their semantic meaning
+    assert_ne!(format!("{}", btree_id), format!("{}", hnsw_id));
+    assert_ne!(format!("{}", btree_id), format!("{}", txn_id));
+  }
 }

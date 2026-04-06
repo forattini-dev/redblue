@@ -59,11 +59,11 @@ pub use builders::{EdgeBuilder, NodeBuilder, RowBuilder, VectorBuilder};
 pub use error::DevXError;
 pub use helpers::cosine_similarity;
 pub use preprocessors::{
-    ContentHasher, IndexConfig, KeywordExtractor, Preprocessor, PreprocessorPipeline,
-    TimestampPreprocessor, VectorNormalizer,
+  ContentHasher, IndexConfig, KeywordExtractor, Preprocessor, PreprocessorPipeline,
+  TimestampPreprocessor, VectorNormalizer,
 };
 pub use query::{
-    ExpandedEntity, MetadataFilter, PropertyFilter, QueryBuilder, QueryResult, QueryResultItem,
+  ExpandedEntity, MetadataFilter, PropertyFilter, QueryBuilder, QueryResult, QueryResultItem,
 };
 pub use reddb::RedDB;
 pub use refs::{AnyRef, NodeRef, TableRef, VectorRef};
@@ -71,94 +71,94 @@ pub use types::{LinkedEntity, SimilarResult};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_create_node() {
-        let db = RedDB::new();
+  #[test]
+  fn test_create_node() {
+    let db = RedDB::new();
 
-        let host = db
-            .node("hosts", "Host")
-            .property("ip", "192.168.1.1")
-            .property("os", "Linux")
-            .metadata("scan_time", 1234567890i64)
-            .save();
+    let host = db
+      .node("hosts", "Host")
+      .property("ip", "192.168.1.1")
+      .property("os", "Linux")
+      .metadata("scan_time", 1234567890i64)
+      .save();
 
-        assert!(host.is_ok());
-    }
+    assert!(host.is_ok());
+  }
 
-    #[test]
-    fn test_create_edge() {
-        let db = RedDB::new();
+  #[test]
+  fn test_create_edge() {
+    let db = RedDB::new();
 
-        let host_a = db
-            .node("hosts", "Host")
-            .property("ip", "10.0.0.1")
-            .save()
-            .unwrap();
-        let host_b = db
-            .node("hosts", "Host")
-            .property("ip", "10.0.0.2")
-            .save()
-            .unwrap();
+    let host_a = db
+      .node("hosts", "Host")
+      .property("ip", "10.0.0.1")
+      .save()
+      .unwrap();
+    let host_b = db
+      .node("hosts", "Host")
+      .property("ip", "10.0.0.2")
+      .save()
+      .unwrap();
 
-        let edge = db
-            .edge("connections", "CONNECTS_TO")
-            .from(host_a)
-            .to(host_b)
-            .weight(0.95)
-            .property("protocol", "TCP")
-            .save();
+    let edge = db
+      .edge("connections", "CONNECTS_TO")
+      .from(host_a)
+      .to(host_b)
+      .weight(0.95)
+      .property("protocol", "TCP")
+      .save();
 
-        assert!(edge.is_ok());
-    }
+    assert!(edge.is_ok());
+  }
 
-    #[test]
-    fn test_create_vector() {
-        let db = RedDB::new();
+  #[test]
+  fn test_create_vector() {
+    let db = RedDB::new();
 
-        let vec = db
-            .vector("embeddings")
-            .dense(vec![0.1, 0.2, 0.3])
-            .content("Test content")
-            .metadata("source", "test")
-            .save();
+    let vec = db
+      .vector("embeddings")
+      .dense(vec![0.1, 0.2, 0.3])
+      .content("Test content")
+      .metadata("source", "test")
+      .save();
 
-        assert!(vec.is_ok());
-    }
+    assert!(vec.is_ok());
+  }
 
-    #[test]
-    fn test_query_builder() {
-        let db = RedDB::new();
+  #[test]
+  fn test_query_builder() {
+    let db = RedDB::new();
 
-        // Create some test data
-        let _ = db
-            .node("hosts", "Host")
-            .property("ip", "192.168.1.1")
-            .property("os", "Linux")
-            .embedding("desc", vec![0.1, 0.2, 0.3])
-            .save();
+    // Create some test data
+    let _ = db
+      .node("hosts", "Host")
+      .property("ip", "192.168.1.1")
+      .property("os", "Linux")
+      .embedding("desc", vec![0.1, 0.2, 0.3])
+      .save();
 
-        let results = db
-            .query()
-            .collection("hosts")
-            .where_prop("os", "Linux")
-            .limit(10)
-            .execute();
+    let results = db
+      .query()
+      .collection("hosts")
+      .where_prop("os", "Linux")
+      .limit(10)
+      .execute();
 
-        assert!(results.is_ok());
-    }
+    assert!(results.is_ok());
+  }
 
-    #[test]
-    fn test_table_ref_metadata() {
-        let db = RedDB::new();
+  #[test]
+  fn test_table_ref_metadata() {
+    let db = RedDB::new();
 
-        let host = db
-            .node("hosts", "Host")
-            .property("ip", "192.168.1.1")
-            .link_to_table("scan_result", db.table_ref("scans", 42))
-            .save();
+    let host = db
+      .node("hosts", "Host")
+      .property("ip", "192.168.1.1")
+      .link_to_table("scan_result", db.table_ref("scans", 42))
+      .save();
 
-        assert!(host.is_ok());
-    }
+    assert!(host.is_ok());
+  }
 }

@@ -48,8 +48,8 @@ pub mod certs;
 pub use aes_gcm::{aes256_gcm_decrypt, aes256_gcm_encrypt};
 pub use bigint::BigInt;
 pub use chacha20::{
-    chacha20poly1305_decrypt, chacha20poly1305_encrypt, decode_base64, encode_base64, generate_key,
-    generate_nonce, ChaCha20, Poly1305,
+  chacha20poly1305_decrypt, chacha20poly1305_encrypt, decode_base64, encode_base64, generate_key,
+  generate_nonce, ChaCha20, Poly1305,
 };
 pub use hkdf::{derive_secret, hkdf, hkdf_expand, hkdf_expand_label, hkdf_extract};
 pub use hmac::Hmac;

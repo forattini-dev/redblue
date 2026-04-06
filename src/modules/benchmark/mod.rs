@@ -9,8 +9,8 @@ pub mod thread_pool;
 pub use crate::protocols::http::pool::{ConnectionPool, PooledHttpClient};
 #[cfg(not(target_os = "windows"))]
 pub use load_generator::{
-    LiveSnapshot, LoadConfig, LoadGenerator, LoadMode, LoadTestResults, ProtocolOutcome,
-    ProtocolPreference,
+  LiveSnapshot, LoadConfig, LoadGenerator, LoadMode, LoadTestResults, ProtocolOutcome,
+  ProtocolPreference,
 };
 pub use stats::{AtomicStatsCollector, Percentile, RequestStats, StatsAggregator};
 pub use thread_pool::ThreadPool;

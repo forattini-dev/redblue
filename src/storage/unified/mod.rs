@@ -46,69 +46,69 @@ pub mod segment;
 pub mod store;
 
 pub use devx::{
-    AnyRef,
-    BatchBuilder,
-    BatchResult,
-    ContentHasher,
-    DevXError,
-    EdgeBuilder,
-    IndexConfig,
-    KeywordExtractor,
-    LinkedEntity,
-    MetadataFilter as DevXMetadataFilter,
-    NodeBuilder,
-    NodeRef,
-    Preprocessor,
-    PreprocessorPipeline,
-    PropertyFilter,
-    QueryBuilder,
-    QueryResult,
-    QueryResultItem,
-    RedDB,
-    RowBuilder,
-    SimilarResult,
-    TableRef,
-    // Built-in preprocessors
-    TimestampPreprocessor,
-    VectorBuilder,
-    VectorNormalizer,
-    VectorRef,
+  AnyRef,
+  BatchBuilder,
+  BatchResult,
+  ContentHasher,
+  DevXError,
+  EdgeBuilder,
+  IndexConfig,
+  KeywordExtractor,
+  LinkedEntity,
+  MetadataFilter as DevXMetadataFilter,
+  NodeBuilder,
+  NodeRef,
+  Preprocessor,
+  PreprocessorPipeline,
+  PropertyFilter,
+  QueryBuilder,
+  QueryResult,
+  QueryResultItem,
+  RedDB,
+  RowBuilder,
+  SimilarResult,
+  TableRef,
+  // Built-in preprocessors
+  TimestampPreprocessor,
+  VectorBuilder,
+  VectorNormalizer,
+  VectorRef,
 };
 pub use entity::{
-    CrossRef, EdgeData, EmbeddingSlot, EntityData, EntityId, EntityKind, NodeData, RefType,
-    RowData, SparseVector, UnifiedEntity, VectorData,
+  CrossRef, EdgeData, EmbeddingSlot, EntityData, EntityId, EntityKind, NodeData, RefType, RowData,
+  SparseVector, UnifiedEntity, VectorData,
 };
 pub use index::{
-    AdjacencyEntry,
-    EdgeDirection,
-    // Graph adjacency index
-    GraphAdjacencyIndex,
-    IndexEvent,
-    IndexEventKind,
-    IndexStats,
-    IndexStatus,
-    // Index lifecycle management
-    IndexType,
-    IntegratedIndexConfig,
-    IntegratedIndexManager,
-    InvertedIndex,
-    MetadataQueryFilter,
-    TextSearchResult,
-    VectorSearchResult,
+  AdjacencyEntry,
+  EdgeDirection,
+  // Graph adjacency index
+  GraphAdjacencyIndex,
+  IndexEvent,
+  IndexEventKind,
+  IndexStats,
+  IndexStatus,
+  // Index lifecycle management
+  IndexType,
+  IntegratedIndexConfig,
+  IntegratedIndexManager,
+  InvertedIndex,
+  MetadataQueryFilter,
+  TextSearchResult,
+  VectorSearchResult,
 };
 pub use manager::{LifecycleEvent, ManagerConfig, ManagerStats, SegmentManager};
 pub use metadata::{
-    Metadata, MetadataFilter as UnifiedMetadataFilter, MetadataStorage, MetadataType,
-    MetadataValue, RefTarget, TypedColumn,
+  Metadata, MetadataFilter as UnifiedMetadataFilter, MetadataStorage, MetadataType, MetadataValue,
+  RefTarget, TypedColumn,
 };
 pub use segment::{
-    SegmentConfig, SegmentError, SegmentId, SegmentState, SegmentStats, UnifiedSegment,
+  SegmentConfig, SegmentError, SegmentId, SegmentState, SegmentStats, UnifiedSegment,
 };
 pub use store::{StoreError, StoreStats, UnifiedStore, UnifiedStoreConfig};
 // Query DSL for fluent multi-modal queries
 pub use dsl::{
-    Filter as DslFilter, FilterOp, FilterValue, GraphQueryBuilder, HybridQueryBuilder,
-    MatchComponents, QueryResult as DslQueryResult, RefQueryBuilder, ScanQueryBuilder, ScoredMatch,
-    SortOrder, TableQueryBuilder, TextSearchBuilder, TraversalDirection, VectorQueryBuilder,
-    WhereClause, Q,
+  Filter as DslFilter, FilterOp, FilterValue, GraphQueryBuilder, HybridQueryBuilder,
+  MatchComponents, QueryResult as DslQueryResult, RefQueryBuilder, ScanQueryBuilder, ScoredMatch,
+  SortOrder, TableQueryBuilder, TextSearchBuilder, TraversalDirection, VectorQueryBuilder,
+  WhereClause, Q,
 };

@@ -62,69 +62,69 @@ pub mod unified;
 
 // Re-export common types
 pub use ast::{
-    CompareOp, CteDefinition, CteQueryBuilder, EdgeDirection, EdgePattern, FieldRef,
-    Filter as AstFilter, GraphPattern, GraphQuery, JoinCondition, JoinQuery, JoinType, NodePattern,
-    NodeSelector, OrderByClause, PathQuery, Projection, QueryExpr, QueryWithCte, TableQuery,
-    WithClause,
+  CompareOp, CteDefinition, CteQueryBuilder, EdgeDirection, EdgePattern, FieldRef,
+  Filter as AstFilter, GraphPattern, GraphQuery, JoinCondition, JoinQuery, JoinType, NodePattern,
+  NodeSelector, OrderByClause, PathQuery, Projection, QueryExpr, QueryWithCte, TableQuery,
+  WithClause,
 };
 pub use engine::{
-    Binding, BindingBuilder, BindingIterator, Op, OpBGP, OpDisjunction, OpDistinct, OpExtend,
-    OpFilter, OpGroup, OpJoin, OpLeftJoin, OpMinus, OpNull, OpOrder, OpProject, OpReduced,
-    OpSequence, OpSlice, OpTable, OpTransform, OpTriple, OpUnion, OpVisitor, Pattern, QueryEngine,
-    QueryEngineFactory, QueryEngineRegistry, QueryIter, QueryIterBase, QueryIterFilter,
-    QueryIterJoin, QueryIterProject, QueryIterSlice, QueryIterSort, QueryIterUnion, TransformCopy,
-    TransformPushFilter, Triple, Var,
+  Binding, BindingBuilder, BindingIterator, Op, OpBGP, OpDisjunction, OpDistinct, OpExtend,
+  OpFilter, OpGroup, OpJoin, OpLeftJoin, OpMinus, OpNull, OpOrder, OpProject, OpReduced,
+  OpSequence, OpSlice, OpTable, OpTransform, OpTriple, OpUnion, OpVisitor, Pattern, QueryEngine,
+  QueryEngineFactory, QueryEngineRegistry, QueryIter, QueryIterBase, QueryIterFilter,
+  QueryIterJoin, QueryIterProject, QueryIterSlice, QueryIterSort, QueryIterUnion, TransformCopy,
+  TransformPushFilter, Triple, Var,
 };
 pub use executor::{QueryExecutor, QueryPlan, QueryResult};
 pub use executors::{
-    CteContext, CteExecutor, CteStats, ExecuteResult, GremlinExecutor, MultiModeExecutor,
-    NaturalExecutor, SparqlExecutor,
+  CteContext, CteExecutor, CteStats, ExecuteResult, GremlinExecutor, MultiModeExecutor,
+  NaturalExecutor, SparqlExecutor,
 };
 pub use filter::{Filter, FilterOp, Predicate};
 pub use lexer::{Lexer, LexerError, Position, Spanned, Token};
 pub use optimizer::{
-    ColumnStats, FilterRanker, RankedFilter, RankingConfig, StatsCollector, TableStats,
+  ColumnStats, FilterRanker, RankedFilter, RankingConfig, StatsCollector, TableStats,
 };
 pub use parser::{parse, ParseError, Parser};
 pub use planner::{
-    CacheStats, CachedPlan, CardinalityEstimate, CostEstimator, OptimizationPass, PlanCache,
-    PlanCost, QueryOptimizer, QueryPlan as PlannerQueryPlan, QueryPlanner, QueryRewriter,
-    RewriteContext, RewriteRule,
+  CacheStats, CachedPlan, CardinalityEstimate, CostEstimator, OptimizationPass, PlanCache,
+  PlanCost, QueryOptimizer, QueryPlan as PlannerQueryPlan, QueryPlanner, QueryRewriter,
+  RewriteContext, RewriteRule,
 };
 pub use rag::{
-    ChunkSource, ContextChunk, EntityType, MultiSourceRetriever, QueryAnalysis, QueryIntent,
-    RagConfig, RagEngine, RetrievalContext, RetrievalStrategy, SimilarEntity,
+  ChunkSource, ContextChunk, EntityType, MultiSourceRetriever, QueryAnalysis, QueryIntent,
+  RagConfig, RagEngine, RetrievalContext, RetrievalStrategy, SimilarEntity,
 };
 pub use security::{
-    // Result types
-    AttackPath,
-    // Query types
-    AttackPathQuery,
-    BlastRadiusQuery,
-    BlastRadiusResult,
-    CredentialChain,
-    LateralMovementQuery,
-    LateralMovementResult,
-    PrivEscPath,
-    PrivEscQuery,
-    ReachableHost,
-    // Query engine
-    SecurityQueries,
-    SimilarCVE,
+  // Result types
+  AttackPath,
+  // Query types
+  AttackPathQuery,
+  BlastRadiusQuery,
+  BlastRadiusResult,
+  CredentialChain,
+  LateralMovementQuery,
+  LateralMovementResult,
+  PrivEscPath,
+  PrivEscQuery,
+  ReachableHost,
+  // Query engine
+  SecurityQueries,
+  SimilarCVE,
 };
 pub use similarity::{SimilarityQuery, SimilarityResult};
 pub use sort::{Direction, NullsOrder, OrderBy, QueryLimits, SortKey};
 pub use step::{
-    AggregateStep, BarrierStep, BasicTraversal, BranchStep, ChooseStep, CollectingBarrierStep,
-    DedupStep, Direction as TraversalDirection, EdgeSourceStep, EdgeStep, ExecutionMode,
-    FilterStep, FlatMapStep, FoldStep, GroupStep, HasStep, IdStep, LimitStep, LoopState, MapStep,
-    OptionalStep, OrderStep, Path, PathStep, Predicate as StepPredicate, ProjectStep, PropertyStep,
-    RangeStep, ReducingBarrierStep, RepeatStep, SelectStep, SideEffectStep, SourceStep, Step,
-    StepPosition, StepResult, StoreStep, Traversal, TraversalParent, Traverser, TraverserGenerator,
-    TraverserRequirement, TraverserValue, UnionStep, ValueMapStep, VertexSourceStep, VertexStep,
-    WhereStep,
+  AggregateStep, BarrierStep, BasicTraversal, BranchStep, ChooseStep, CollectingBarrierStep,
+  DedupStep, Direction as TraversalDirection, EdgeSourceStep, EdgeStep, ExecutionMode, FilterStep,
+  FlatMapStep, FoldStep, GroupStep, HasStep, IdStep, LimitStep, LoopState, MapStep, OptionalStep,
+  OrderStep, Path, PathStep, Predicate as StepPredicate, ProjectStep, PropertyStep, RangeStep,
+  ReducingBarrierStep, RepeatStep, SelectStep, SideEffectStep, SourceStep, Step, StepPosition,
+  StepResult, StoreStep, Traversal, TraversalParent, Traverser, TraverserGenerator,
+  TraverserRequirement, TraverserValue, UnionStep, ValueMapStep, VertexSourceStep, VertexStep,
+  WhereStep,
 };
 pub use unified::{
-    ExecutionError, GraphPath, MatchedEdge, MatchedNode, QueryStats, UnifiedExecutor,
-    UnifiedRecord, UnifiedResult,
+  ExecutionError, GraphPath, MatchedEdge, MatchedNode, QueryStats, UnifiedExecutor, UnifiedRecord,
+  UnifiedResult,
 };

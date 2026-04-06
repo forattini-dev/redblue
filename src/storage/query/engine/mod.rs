@@ -37,13 +37,13 @@ pub mod transform;
 
 pub use binding::{Binding, BindingBuilder, Var};
 pub use iterator::{
-    BindingIterator, QueryIter, QueryIterBase, QueryIterFilter, QueryIterJoin, QueryIterProject,
-    QueryIterSlice, QueryIterSort, QueryIterUnion,
+  BindingIterator, QueryIter, QueryIterBase, QueryIterFilter, QueryIterJoin, QueryIterProject,
+  QueryIterSlice, QueryIterSort, QueryIterUnion,
 };
 pub use op::{
-    Op, OpBGP, OpDisjunction, OpDistinct, OpExtend, OpFilter, OpGroup, OpJoin, OpLeftJoin, OpMinus,
-    OpNull, OpOrder, OpProject, OpReduced, OpSequence, OpSlice, OpTable, OpTriple, OpUnion,
-    Pattern, Triple,
+  Op, OpBGP, OpDisjunction, OpDistinct, OpExtend, OpFilter, OpGroup, OpJoin, OpLeftJoin, OpMinus,
+  OpNull, OpOrder, OpProject, OpReduced, OpSequence, OpSlice, OpTable, OpTriple, OpUnion, Pattern,
+  Triple,
 };
 pub use registry::{QueryEngine, QueryEngineFactory, QueryEngineRegistry};
 pub use transform::{OpTransform, OpVisitor, TransformCopy, TransformPushFilter};

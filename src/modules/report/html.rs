@@ -7,192 +7,188 @@ use super::{Report, Severity};
 pub struct HtmlExporter;
 
 impl HtmlExporter {
-    /// Export report to HTML string
-    pub fn export(report: &Report) -> String {
-        let mut html = String::with_capacity(32768);
+  /// Export report to HTML string
+  pub fn export(report: &Report) -> String {
+    let mut html = String::with_capacity(32768);
 
-        // Document header
-        html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
-        html.push_str("<meta charset=\"UTF-8\">\n");
-        html.push_str(
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",
-        );
-        html.push_str(&format!(
-            "<title>{} - redblue Report</title>\n",
-            Self::escape_html(&report.title)
-        ));
-        html.push_str("<style>\n");
-        html.push_str(Self::css());
-        html.push_str("\n</style>\n</head>\n<body>\n");
+    // Document header
+    html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
+    html.push_str("<meta charset=\"UTF-8\">\n");
+    html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
+    html.push_str(&format!(
+      "<title>{} - redblue Report</title>\n",
+      Self::escape_html(&report.title)
+    ));
+    html.push_str("<style>\n");
+    html.push_str(Self::css());
+    html.push_str("\n</style>\n</head>\n<body>\n");
 
-        // Header
-        html.push_str("<header>\n");
-        html.push_str(&format!("<h1>{}</h1>\n", Self::escape_html(&report.title)));
-        html.push_str(&format!(
-            "<p class=\"meta\">Target: <strong>{}</strong> | Scan Date: {}</p>\n",
-            Self::escape_html(&report.target),
-            Self::escape_html(&report.scan_date)
-        ));
-        html.push_str("</header>\n\n");
+    // Header
+    html.push_str("<header>\n");
+    html.push_str(&format!("<h1>{}</h1>\n", Self::escape_html(&report.title)));
+    html.push_str(&format!(
+      "<p class=\"meta\">Target: <strong>{}</strong> | Scan Date: {}</p>\n",
+      Self::escape_html(&report.target),
+      Self::escape_html(&report.scan_date)
+    ));
+    html.push_str("</header>\n\n");
 
-        // Executive Summary
-        html.push_str("<section class=\"summary\">\n");
-        html.push_str("<h2>Executive Summary</h2>\n");
-        if !report.executive_summary.is_empty() {
-            html.push_str(&format!(
-                "<p>{}</p>\n",
-                Self::escape_html(&report.executive_summary)
-            ));
-        }
+    // Executive Summary
+    html.push_str("<section class=\"summary\">\n");
+    html.push_str("<h2>Executive Summary</h2>\n");
+    if !report.executive_summary.is_empty() {
+      html.push_str(&format!(
+        "<p>{}</p>\n",
+        Self::escape_html(&report.executive_summary)
+      ));
+    }
 
-        // Stats cards
-        let counts = report.severity_counts();
-        html.push_str("<div class=\"stats-grid\">\n");
-        html.push_str(&format!("<div class=\"stat-card critical\"><span class=\"count\">{}</span><span class=\"label\">Critical</span></div>\n",
+    // Stats cards
+    let counts = report.severity_counts();
+    html.push_str("<div class=\"stats-grid\">\n");
+    html.push_str(&format!("<div class=\"stat-card critical\"><span class=\"count\">{}</span><span class=\"label\">Critical</span></div>\n",
             counts.get(&Severity::Critical).unwrap_or(&0)));
-        html.push_str(&format!("<div class=\"stat-card high\"><span class=\"count\">{}</span><span class=\"label\">High</span></div>\n",
+    html.push_str(&format!("<div class=\"stat-card high\"><span class=\"count\">{}</span><span class=\"label\">High</span></div>\n",
             counts.get(&Severity::High).unwrap_or(&0)));
-        html.push_str(&format!("<div class=\"stat-card medium\"><span class=\"count\">{}</span><span class=\"label\">Medium</span></div>\n",
+    html.push_str(&format!("<div class=\"stat-card medium\"><span class=\"count\">{}</span><span class=\"label\">Medium</span></div>\n",
             counts.get(&Severity::Medium).unwrap_or(&0)));
-        html.push_str(&format!("<div class=\"stat-card low\"><span class=\"count\">{}</span><span class=\"label\">Low</span></div>\n",
+    html.push_str(&format!("<div class=\"stat-card low\"><span class=\"count\">{}</span><span class=\"label\">Low</span></div>\n",
             counts.get(&Severity::Low).unwrap_or(&0)));
-        html.push_str(&format!("<div class=\"stat-card info\"><span class=\"count\">{}</span><span class=\"label\">Info</span></div>\n",
+    html.push_str(&format!("<div class=\"stat-card info\"><span class=\"count\">{}</span><span class=\"label\">Info</span></div>\n",
             counts.get(&Severity::Info).unwrap_or(&0)));
-        html.push_str("</div>\n</section>\n\n");
+    html.push_str("</div>\n</section>\n\n");
 
-        // Hosts section
-        if !report.hosts.is_empty() {
-            html.push_str("<section class=\"hosts\">\n");
-            html.push_str("<h2>Discovered Hosts</h2>\n");
-            html.push_str("<table>\n<thead>\n<tr><th>Hostname</th><th>IP</th><th>Open Ports</th><th>Technologies</th></tr>\n</thead>\n<tbody>\n");
+    // Hosts section
+    if !report.hosts.is_empty() {
+      html.push_str("<section class=\"hosts\">\n");
+      html.push_str("<h2>Discovered Hosts</h2>\n");
+      html.push_str("<table>\n<thead>\n<tr><th>Hostname</th><th>IP</th><th>Open Ports</th><th>Technologies</th></tr>\n</thead>\n<tbody>\n");
 
-            for host in &report.hosts {
-                let ports_str = host
-                    .ports
-                    .iter()
-                    .map(|p| format!("{}/{}", p.port, p.service))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+      for host in &report.hosts {
+        let ports_str = host
+          .ports
+          .iter()
+          .map(|p| format!("{}/{}", p.port, p.service))
+          .collect::<Vec<_>>()
+          .join(", ");
 
-                html.push_str("<tr>");
-                html.push_str(&format!("<td>{}</td>", Self::escape_html(&host.hostname)));
-                html.push_str(&format!("<td>{}</td>", host.ip.as_deref().unwrap_or("-")));
-                html.push_str(&format!("<td>{}</td>", Self::escape_html(&ports_str)));
-                html.push_str(&format!(
-                    "<td>{}</td>",
-                    Self::escape_html(&host.technologies.join(", "))
-                ));
-                html.push_str("</tr>\n");
-            }
+        html.push_str("<tr>");
+        html.push_str(&format!("<td>{}</td>", Self::escape_html(&host.hostname)));
+        html.push_str(&format!("<td>{}</td>", host.ip.as_deref().unwrap_or("-")));
+        html.push_str(&format!("<td>{}</td>", Self::escape_html(&ports_str)));
+        html.push_str(&format!(
+          "<td>{}</td>",
+          Self::escape_html(&host.technologies.join(", "))
+        ));
+        html.push_str("</tr>\n");
+      }
 
-            html.push_str("</tbody>\n</table>\n</section>\n\n");
-        }
-
-        // Findings section
-        html.push_str("<section class=\"findings\">\n");
-        html.push_str("<h2>Security Findings</h2>\n");
-
-        // Sort findings by severity (critical first)
-        let mut sorted_findings = report.findings.clone();
-        sorted_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
-
-        for finding in &sorted_findings {
-            let severity_class = match finding.severity {
-                Severity::Critical => "critical",
-                Severity::High => "high",
-                Severity::Medium => "medium",
-                Severity::Low => "low",
-                Severity::Info => "info",
-            };
-
-            html.push_str(&format!("<div class=\"finding {}\">\n", severity_class));
-            html.push_str(&format!(
-                "<h3><span class=\"badge {}\">{}</span> {}</h3>\n",
-                severity_class,
-                finding.severity.as_str(),
-                Self::escape_html(&finding.title)
-            ));
-
-            if !finding.description.is_empty() {
-                html.push_str(&format!(
-                    "<p class=\"description\">{}</p>\n",
-                    Self::escape_html(&finding.description)
-                ));
-            }
-
-            if let Some(ref evidence) = finding.evidence {
-                html.push_str("<div class=\"evidence\">\n<h4>Evidence</h4>\n");
-                html.push_str(&format!(
-                    "<pre><code>{}</code></pre>\n</div>\n",
-                    Self::escape_html(evidence)
-                ));
-            }
-
-            if let Some(ref remediation) = finding.remediation {
-                html.push_str("<div class=\"remediation\">\n<h4>Remediation</h4>\n");
-                html.push_str(&format!(
-                    "<p>{}</p>\n</div>\n",
-                    Self::escape_html(remediation)
-                ));
-            }
-
-            if !finding.references.is_empty() {
-                html.push_str("<div class=\"references\">\n<h4>References</h4>\n<ul>\n");
-                for reference in &finding.references {
-                    html.push_str(&format!(
-                        "<li><a href=\"{}\" target=\"_blank\">{}</a></li>\n",
-                        Self::escape_html(reference),
-                        Self::escape_html(reference)
-                    ));
-                }
-                html.push_str("</ul>\n</div>\n");
-            }
-
-            if !finding.tags.is_empty() {
-                html.push_str("<div class=\"tags\">\n");
-                for tag in &finding.tags {
-                    html.push_str(&format!(
-                        "<span class=\"tag\">{}</span>\n",
-                        Self::escape_html(tag)
-                    ));
-                }
-                html.push_str("</div>\n");
-            }
-
-            html.push_str("</div>\n\n");
-        }
-        html.push_str("</section>\n\n");
-
-        // Footer
-        html.push_str("<footer>\n");
-        html.push_str(
-            "<p>Generated by <strong>redblue</strong> - Security Assessment Toolkit</p>\n",
-        );
-        html.push_str("</footer>\n\n");
-
-        html.push_str("</body>\n</html>");
-        html
+      html.push_str("</tbody>\n</table>\n</section>\n\n");
     }
 
-    /// Escape HTML special characters
-    fn escape_html(s: &str) -> String {
-        let mut escaped = String::with_capacity(s.len());
-        for c in s.chars() {
-            match c {
-                '<' => escaped.push_str("&lt;"),
-                '>' => escaped.push_str("&gt;"),
-                '&' => escaped.push_str("&amp;"),
-                '"' => escaped.push_str("&quot;"),
-                '\'' => escaped.push_str("&#x27;"),
-                _ => escaped.push(c),
-            }
-        }
-        escaped
-    }
+    // Findings section
+    html.push_str("<section class=\"findings\">\n");
+    html.push_str("<h2>Security Findings</h2>\n");
 
-    /// Embedded CSS
-    fn css() -> &'static str {
-        r#"
+    // Sort findings by severity (critical first)
+    let mut sorted_findings = report.findings.clone();
+    sorted_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+
+    for finding in &sorted_findings {
+      let severity_class = match finding.severity {
+        Severity::Critical => "critical",
+        Severity::High => "high",
+        Severity::Medium => "medium",
+        Severity::Low => "low",
+        Severity::Info => "info",
+      };
+
+      html.push_str(&format!("<div class=\"finding {}\">\n", severity_class));
+      html.push_str(&format!(
+        "<h3><span class=\"badge {}\">{}</span> {}</h3>\n",
+        severity_class,
+        finding.severity.as_str(),
+        Self::escape_html(&finding.title)
+      ));
+
+      if !finding.description.is_empty() {
+        html.push_str(&format!(
+          "<p class=\"description\">{}</p>\n",
+          Self::escape_html(&finding.description)
+        ));
+      }
+
+      if let Some(ref evidence) = finding.evidence {
+        html.push_str("<div class=\"evidence\">\n<h4>Evidence</h4>\n");
+        html.push_str(&format!(
+          "<pre><code>{}</code></pre>\n</div>\n",
+          Self::escape_html(evidence)
+        ));
+      }
+
+      if let Some(ref remediation) = finding.remediation {
+        html.push_str("<div class=\"remediation\">\n<h4>Remediation</h4>\n");
+        html.push_str(&format!(
+          "<p>{}</p>\n</div>\n",
+          Self::escape_html(remediation)
+        ));
+      }
+
+      if !finding.references.is_empty() {
+        html.push_str("<div class=\"references\">\n<h4>References</h4>\n<ul>\n");
+        for reference in &finding.references {
+          html.push_str(&format!(
+            "<li><a href=\"{}\" target=\"_blank\">{}</a></li>\n",
+            Self::escape_html(reference),
+            Self::escape_html(reference)
+          ));
+        }
+        html.push_str("</ul>\n</div>\n");
+      }
+
+      if !finding.tags.is_empty() {
+        html.push_str("<div class=\"tags\">\n");
+        for tag in &finding.tags {
+          html.push_str(&format!(
+            "<span class=\"tag\">{}</span>\n",
+            Self::escape_html(tag)
+          ));
+        }
+        html.push_str("</div>\n");
+      }
+
+      html.push_str("</div>\n\n");
+    }
+    html.push_str("</section>\n\n");
+
+    // Footer
+    html.push_str("<footer>\n");
+    html.push_str("<p>Generated by <strong>redblue</strong> - Security Assessment Toolkit</p>\n");
+    html.push_str("</footer>\n\n");
+
+    html.push_str("</body>\n</html>");
+    html
+  }
+
+  /// Escape HTML special characters
+  fn escape_html(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    for c in s.chars() {
+      match c {
+        '<' => escaped.push_str("&lt;"),
+        '>' => escaped.push_str("&gt;"),
+        '&' => escaped.push_str("&amp;"),
+        '"' => escaped.push_str("&quot;"),
+        '\'' => escaped.push_str("&#x27;"),
+        _ => escaped.push(c),
+      }
+    }
+    escaped
+  }
+
+  /// Embedded CSS
+  fn css() -> &'static str {
+    r#"
 :root {
   --bg: #0d1117;
   --surface: #161b22;
@@ -355,5 +351,5 @@ footer {
   body { padding: 1rem; }
 }
 "#
-    }
+  }
 }

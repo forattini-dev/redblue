@@ -12,12 +12,12 @@ pub mod scanner;
 
 // Re-export key types
 pub use extractor::{
-    ExtractedLink, ExtractorConfig, LinkExtractor, LinkExtractorBuilder, LinkSource,
+  ExtractedLink, ExtractorConfig, LinkExtractor, LinkExtractorBuilder, LinkSource,
 };
 pub use queue::{
-    DiscoverySource, QueueConfig, QueueStats, QueuedUrl, RecursionQueue, RecursionQueueBuilder,
+  DiscoverySource, QueueConfig, QueueStats, QueuedUrl, RecursionQueue, RecursionQueueBuilder,
 };
 pub use scanner::{
-    DiscoveredResource, RecursiveScanConfig, RecursiveScanStats, RecursiveScanner,
-    RecursiveScannerBuilder, ScanResult, ScannerState,
+  DiscoveredResource, RecursiveScanConfig, RecursiveScanStats, RecursiveScanner,
+  RecursiveScannerBuilder, ScanResult, ScannerState,
 };

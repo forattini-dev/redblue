@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_compliance_check(args: &Args) -> String {
-    let standard = get_arg(args, "standard", "unknown");
-    let scope = get_arg(args, "scope", "not specified");
+  let standard = get_arg(args, "standard", "unknown");
+  let scope = get_arg(args, "scope", "not specified");
 
-    format!(
-        r#"# Compliance Assessment
+  format!(
+    r#"# Compliance Assessment
 
 ## Standard
 {standard}
@@ -42,15 +42,15 @@ Perform compliance check:
    - Compensating controls
    - Roadmap to compliance
 "#
-    )
+  )
 }
 
 pub fn gen_gap_analysis(args: &Args) -> String {
-    let current_state = get_arg(args, "current_state", "unknown");
-    let target_state = get_arg(args, "target_state", "not specified");
+  let current_state = get_arg(args, "current_state", "unknown");
+  let target_state = get_arg(args, "target_state", "not specified");
 
-    format!(
-        r#"# Security Gap Analysis
+  format!(
+    r#"# Security Gap Analysis
 
 ## Current State
 {current_state}
@@ -86,15 +86,15 @@ Perform gap analysis:
    - Personnel needs
    - Technology investments
 "#
-    )
+  )
 }
 
 pub fn gen_mitre_mapping(args: &Args) -> String {
-    let findings = get_arg(args, "findings", "none");
-    let format = get_arg(args, "format", "navigator");
+  let findings = get_arg(args, "findings", "none");
+  let format = get_arg(args, "format", "navigator");
 
-    format!(
-        r#"# MITRE ATT&CK Mapping
+  format!(
+    r#"# MITRE ATT&CK Mapping
 
 ## Findings to Map
 {findings}
@@ -132,15 +132,15 @@ Map findings to ATT&CK:
    - Detection rules
    - Monitoring improvements
 "#
-    )
+  )
 }
 
 pub fn gen_attack_simulation(args: &Args) -> String {
-    let threat_actor = get_arg(args, "threat_actor", "generic APT");
-    let scope = get_arg(args, "scope", "not specified");
+  let threat_actor = get_arg(args, "threat_actor", "generic APT");
+  let scope = get_arg(args, "scope", "not specified");
 
-    format!(
-        r#"# Attack Simulation Design
+  format!(
+    r#"# Attack Simulation Design
 
 ## Threat Actor to Emulate
 {threat_actor}
@@ -178,5 +178,5 @@ Design attack simulation:
    - Emergency stop
    - Rollback procedures
 "#
-    )
+  )
 }

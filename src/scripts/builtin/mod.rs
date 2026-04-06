@@ -80,45 +80,45 @@ use crate::scripts::Script;
 
 /// Get all built-in scripts
 pub fn all_scripts() -> Vec<Box<dyn Script>> {
-    vec![
-        // HTTP/Web (3 scripts)
-        Box::new(http_headers::HttpHeadersScript::new()),
-        Box::new(http_security::HttpSecurityScript::new()),
-        Box::new(http_vulns::HttpVulnsScript::new()),
-        // Service Banners (4 scripts)
-        Box::new(ssh_banner::SshBannerScript::new()),
-        Box::new(ftp_banner::FtpBannerScript::new()),
-        Box::new(smtp_banner::SmtpBannerScript::new()),
-        Box::new(telnet_info::TelnetInfoScript::new()),
-        // TLS/SSL (1 script)
-        Box::new(tls_info::TlsInfoScript::new()),
-        // Databases (5 scripts)
-        Box::new(mysql_info::MysqlInfoScript::new()),
-        Box::new(redis_info::RedisInfoScript::new()),
-        Box::new(mongodb_info::MongodbInfoScript::new()),
-        Box::new(postgres_info::PostgresInfoScript::new()),
-        Box::new(elasticsearch_info::ElasticsearchInfoScript::new()),
-        // Network Protocols (6 scripts)
-        Box::new(dns_zone_transfer::DnsZoneTransferScript::new()),
-        Box::new(snmp_info::SnmpInfoScript::new()),
-        Box::new(rdp_info::RdpInfoScript::new()),
-        Box::new(smb_info::SmbInfoScript::new()),
-        Box::new(ldap_info::LdapInfoScript::new()),
-        Box::new(vnc_info::VncInfoScript::new()),
-        // Container/Cloud (1 script)
-        Box::new(docker_info::DockerInfoScript::new()),
-    ]
+  vec![
+    // HTTP/Web (3 scripts)
+    Box::new(http_headers::HttpHeadersScript::new()),
+    Box::new(http_security::HttpSecurityScript::new()),
+    Box::new(http_vulns::HttpVulnsScript::new()),
+    // Service Banners (4 scripts)
+    Box::new(ssh_banner::SshBannerScript::new()),
+    Box::new(ftp_banner::FtpBannerScript::new()),
+    Box::new(smtp_banner::SmtpBannerScript::new()),
+    Box::new(telnet_info::TelnetInfoScript::new()),
+    // TLS/SSL (1 script)
+    Box::new(tls_info::TlsInfoScript::new()),
+    // Databases (5 scripts)
+    Box::new(mysql_info::MysqlInfoScript::new()),
+    Box::new(redis_info::RedisInfoScript::new()),
+    Box::new(mongodb_info::MongodbInfoScript::new()),
+    Box::new(postgres_info::PostgresInfoScript::new()),
+    Box::new(elasticsearch_info::ElasticsearchInfoScript::new()),
+    // Network Protocols (6 scripts)
+    Box::new(dns_zone_transfer::DnsZoneTransferScript::new()),
+    Box::new(snmp_info::SnmpInfoScript::new()),
+    Box::new(rdp_info::RdpInfoScript::new()),
+    Box::new(smb_info::SmbInfoScript::new()),
+    Box::new(ldap_info::LdapInfoScript::new()),
+    Box::new(vnc_info::VncInfoScript::new()),
+    // Container/Cloud (1 script)
+    Box::new(docker_info::DockerInfoScript::new()),
+  ]
 }
 
 /// Get scripts by category
 pub fn scripts_by_category(category: crate::scripts::ScriptCategory) -> Vec<Box<dyn Script>> {
-    all_scripts()
-        .into_iter()
-        .filter(|s| s.metadata().categories.contains(&category))
-        .collect()
+  all_scripts()
+    .into_iter()
+    .filter(|s| s.metadata().categories.contains(&category))
+    .collect()
 }
 
 /// Get a specific script by ID
 pub fn get_script(id: &str) -> Option<Box<dyn Script>> {
-    all_scripts().into_iter().find(|s| s.id() == id)
+  all_scripts().into_iter().find(|s| s.id() == id)
 }

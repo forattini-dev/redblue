@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_api_security(args: &Args) -> String {
-    let api_spec = get_arg(args, "api_spec", "not provided");
-    let auth_type = get_arg(args, "auth_type", "unknown");
+  let api_spec = get_arg(args, "api_spec", "not provided");
+  let auth_type = get_arg(args, "auth_type", "unknown");
 
-    format!(
-        r#"# API Security Assessment
+  format!(
+    r#"# API Security Assessment
 
 ## API Specification
 {api_spec}
@@ -74,15 +74,15 @@ Perform API security assessment:
    rb web asset get <endpoint>
    ```
 "#
-    )
+  )
 }
 
 pub fn gen_graphql_security(args: &Args) -> String {
-    let endpoint = get_arg(args, "endpoint", "unknown");
-    let schema = get_arg(args, "schema", "introspection");
+  let endpoint = get_arg(args, "endpoint", "unknown");
+  let schema = get_arg(args, "schema", "introspection");
 
-    format!(
-        r#"# GraphQL Security Testing
+  format!(
+    r#"# GraphQL Security Testing
 
 ## Endpoint
 {endpoint}
@@ -151,15 +151,15 @@ Perform GraphQL security testing:
    | Vulnerability | Severity | Query | Remediation |
    |---------------|----------|-------|-------------|
 "#
-    )
+  )
 }
 
 pub fn gen_oauth_audit(args: &Args) -> String {
-    let provider = get_arg(args, "provider", "unknown");
-    let flows = get_arg(args, "flows", "authorization_code");
+  let provider = get_arg(args, "provider", "unknown");
+  let flows = get_arg(args, "flows", "authorization_code");
 
-    format!(
-        r#"# OAuth/OIDC Security Audit
+  format!(
+    r#"# OAuth/OIDC Security Audit
 
 ## OAuth Provider
 {provider}
@@ -227,15 +227,15 @@ Perform OAuth/OIDC security audit:
    - Configuration changes
    - Monitoring additions
 "#
-    )
+  )
 }
 
 pub fn gen_jwt_analysis(args: &Args) -> String {
-    let token = get_arg(args, "token", "[TOKEN]");
-    let context = get_arg(args, "context", "general");
+  let token = get_arg(args, "token", "[TOKEN]");
+  let context = get_arg(args, "context", "general");
 
-    format!(
-        r#"# JWT Token Security Analysis
+  format!(
+    r#"# JWT Token Security Analysis
 
 ## Token
 {token}
@@ -307,5 +307,5 @@ Analyze JWT for security issues:
    - Claim additions
    - Rotation strategy
 "#
-    )
+  )
 }

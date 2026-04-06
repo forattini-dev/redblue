@@ -3,11 +3,11 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_container_security(args: &Args) -> String {
-    let image = get_arg(args, "image", "unknown");
-    let runtime = get_arg(args, "runtime", "docker");
+  let image = get_arg(args, "image", "unknown");
+  let runtime = get_arg(args, "runtime", "docker");
 
-    format!(
-        r#"# Container Security Assessment
+  format!(
+    r#"# Container Security Assessment
 
 ## Container Image
 {image}
@@ -67,16 +67,16 @@ Perform container security assessment:
    - Base image alternatives
    - Runtime restrictions
 "#
-    )
+  )
 }
 
 pub fn gen_k8s_security(args: &Args) -> String {
-    let cluster = get_arg(args, "cluster", "unknown");
-    let namespace = get_arg(args, "namespace", "all");
-    let focus = get_arg(args, "focus", "full");
+  let cluster = get_arg(args, "cluster", "unknown");
+  let namespace = get_arg(args, "namespace", "all");
+  let focus = get_arg(args, "focus", "full");
 
-    format!(
-        r#"# Kubernetes Security Assessment
+  format!(
+    r#"# Kubernetes Security Assessment
 
 ## Cluster
 {cluster}
@@ -141,15 +141,15 @@ Perform Kubernetes security assessment:
    | Resource | Namespace | Issue | Severity | Remediation |
    |----------|-----------|-------|----------|-------------|
 "#
-    )
+  )
 }
 
 pub fn gen_dockerfile_review(args: &Args) -> String {
-    let dockerfile = get_arg(args, "dockerfile", "not provided");
-    let base_image = get_arg(args, "base_image", "unknown");
+  let dockerfile = get_arg(args, "dockerfile", "not provided");
+  let base_image = get_arg(args, "base_image", "unknown");
 
-    format!(
-        r#"# Dockerfile Security Review
+  format!(
+    r#"# Dockerfile Security Review
 
 ## Dockerfile Content
 ```dockerfile
@@ -213,15 +213,15 @@ Review Dockerfile for security issues:
    # Recommended changes
    ```
 "#
-    )
+  )
 }
 
 pub fn gen_helm_security(args: &Args) -> String {
-    let chart = get_arg(args, "chart", "unknown");
-    let values = get_arg(args, "values", "default");
+  let chart = get_arg(args, "chart", "unknown");
+  let values = get_arg(args, "values", "default");
 
-    format!(
-        r#"# Helm Chart Security Review
+  format!(
+    r#"# Helm Chart Security Review
 
 ## Chart
 {chart}
@@ -285,5 +285,5 @@ Review Helm chart for security issues:
    # Security-focused values.yaml
    ```
 "#
-    )
+  )
 }

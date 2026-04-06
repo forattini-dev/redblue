@@ -53,7 +53,7 @@ pub mod stix;
 pub mod taxii;
 
 pub use mapper::{
-    Confidence, Findings, MappedTechnique, MappingResult, MappingSource, TechniqueMapper,
+  Confidence, Findings, MappedTechnique, MappingResult, MappingSource, TechniqueMapper,
 };
 
 pub use navigator::{create_layer_from_techniques, NavigatorLayer, TechniqueAnnotation};

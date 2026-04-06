@@ -18,7 +18,7 @@ pub mod view;
 
 pub use buffer::{Delta, Page, PagedBuffer, PAGE_SIZE};
 pub use search::{
-    replace, replace_all, search_simple, search_text, BoyerMooreSearcher, SearchResult,
+  replace, replace_all, search_simple, search_text, BoyerMooreSearcher, SearchResult,
 };
 #[cfg(target_os = "linux")]
 pub use source::ProcessMemorySource;

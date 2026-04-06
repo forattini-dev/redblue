@@ -7,12 +7,12 @@ static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 /// Enable verbose/debug logging
 pub fn enable_verbose() {
-    VERBOSE.store(true, Ordering::Relaxed);
+  VERBOSE.store(true, Ordering::Relaxed);
 }
 
 /// Check if verbose logging is enabled
 pub fn is_verbose() -> bool {
-    VERBOSE.load(Ordering::Relaxed)
+  VERBOSE.load(Ordering::Relaxed)
 }
 
 /// Log debug message (only if verbose mode is enabled)

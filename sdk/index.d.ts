@@ -44,30 +44,79 @@ export interface ManifestRoute {
   verb: string;
   summary?: string;
   usage?: string;
+  aliases?: string[];
+  canonical_path?: string;
+  command?: string;
+  machine_output?: ManifestMachineOutput;
   positionals?: ManifestPositional[];
+}
+
+export interface ManifestVerbNode {
+  name: string;
+  summary?: string;
+  aliases?: string[];
+}
+
+export interface ManifestResourceNode {
+  name: string;
+  description?: string;
+  aliases?: string[];
+  verbs?: ManifestVerbNode[];
+}
+
+export interface ManifestDomainNode {
+  name: string;
+  aliases?: string[];
+  resources?: ManifestResourceNode[];
 }
 
 export interface ManifestMachineOutput {
   global_flag?: string;
   preferred_flag?: string;
   preferred_value?: string;
+  json_support?: 'undeclared' | 'best-effort' | 'guaranteed' | string;
+  stdout_policy?: 'mixed' | 'json-only-when-requested' | string;
+  stderr_policy?: 'mixed' | 'diagnostics-only' | string;
   description?: string;
+}
+
+export interface ManifestGlobalOption {
+  long: string;
+  short?: string;
+  description?: string;
+  kind?: 'machine-output' | 'output-format' | string;
+  value?: string;
+  values?: string[];
 }
 
 export interface ManifestCommand {
   domain: string;
+  domain_aliases?: string[];
   resource: string;
+  resource_aliases?: string[];
   description?: string;
   hidden?: boolean;
+  canonical_order?: string;
+  canonical_prefix?: string;
+  path?: {
+    domain: string;
+    resource: string;
+  };
+  aliases?: string[];
   machine_output?: ManifestMachineOutput;
   flags: ManifestFlag[];
   routes: ManifestRoute[];
 }
 
 export interface SdkManifest {
+  schema_version?: number;
   version: string;
   binary: string;
+  canonical_order?: string;
+  canonical_grammar?: string;
   machine_output?: ManifestMachineOutput;
+  global_options?: ManifestGlobalOption[];
+  domains?: ManifestDomainNode[];
   commands: ManifestCommand[];
 }
 
@@ -174,6 +223,15 @@ export interface RedblueClient {
   [domain: string]: ResourceBucket;
   $binaryPath: string;
   $manifest: SdkManifest;
+  $routes: Record<string, RouteInvocation>;
+  $domains: ManifestDomainNode[];
+  $cliSchema: Record<string, unknown>;
+  $createCLI(runtime?: CliInvocationRuntime): Promise<unknown>;
+  $findRoute(selector: string | [string, string, string]): RouteInvocation | null;
+  $suggest(selector?: string | string[]): {
+    stage: 'domain' | 'resource' | 'verb' | 'command' | string;
+    suggestions: string[];
+  };
   $downloadBinary: typeof downloadBinary;
   $resolveBinary: typeof resolveBinary;
   $exec: typeof execFile;
@@ -193,15 +251,21 @@ export interface CliResult {
 
 export interface InternalNamespace {
   attachRoute: (...args: unknown[]) => unknown;
+  buildDomainCatalog: (...args: unknown[]) => unknown;
+  buildManifestCliSchema: (...args: unknown[]) => unknown;
+  buildJsonCliArgs: (...args: unknown[]) => unknown;
   buildInvocation: (...args: unknown[]) => unknown;
   checkForUpdates: (...args: unknown[]) => unknown;
+  createManifestCLI: typeof createManifestCLI;
   createDomainProxy: (...args: unknown[]) => unknown;
+  createRouteIndex: (...args: unknown[]) => unknown;
   defaultInstallDir: (...args: unknown[]) => unknown;
   downloadToFile: (...args: unknown[]) => unknown;
   ensureInstalled: (...args: unknown[]) => unknown;
   ensureObject: (...args: unknown[]) => unknown;
   execFilePromise: (...args: unknown[]) => unknown;
   exists: (...args: unknown[]) => unknown;
+  formatManifestHelpSummary: (...args: unknown[]) => unknown;
   formatWrapperBinaryStatus: (...args: unknown[]) => unknown;
   formatWrapperHelp: (...args: unknown[]) => unknown;
   findFlag: (...args: unknown[]) => unknown;
@@ -210,18 +274,29 @@ export interface InternalNamespace {
   getDefaultBinaryName: (...args: unknown[]) => unknown;
   getInstalledVersion: (...args: unknown[]) => unknown;
   getReleaseTag: (...args: unknown[]) => unknown;
+  hasLongFlag: (...args: unknown[]) => unknown;
+  findRouteInvocation: (...args: unknown[]) => unknown;
   invokeJson: (...args: unknown[]) => unknown;
   invokeRaw: (...args: unknown[]) => unknown;
   isExecutable: (...args: unknown[]) => unknown;
   kebabToCamel: (...args: unknown[]) => unknown;
   legacyInstallDir: (...args: unknown[]) => unknown;
   loadCliArgsParser: (...args: unknown[]) => unknown;
+  looksLikeCanonicalCommandArgs: (...args: unknown[]) => unknown;
+  normalizeCliArgv: (...args: unknown[]) => unknown;
   normalizeReleaseTag: (...args: unknown[]) => unknown;
+  normalizeTokenSelector: (...args: unknown[]) => unknown;
+  normalizeRouteSelector: (...args: unknown[]) => unknown;
   parseWrapperArgs: (...args: unknown[]) => unknown;
   parseInstalledVersion: (...args: unknown[]) => unknown;
   request: (...args: unknown[]) => unknown;
   requestJson: (...args: unknown[]) => unknown;
   requestText: (...args: unknown[]) => unknown;
+  routeInvocationMeta: (...args: unknown[]) => unknown;
+  resolveMachineOutput: (...args: unknown[]) => unknown;
+  routeIdentifier: (...args: unknown[]) => unknown;
+  runJson: typeof runJson;
+  suggestCommandTokens: (...args: unknown[]) => unknown;
   resolveFromPath: (...args: unknown[]) => unknown;
   resolveBinaryWithInfo: (...args: unknown[]) => unknown;
   resolveLegacyBinaryPath: (...args: unknown[]) => unknown;
@@ -232,12 +307,17 @@ export interface InternalNamespace {
   spawnBinary: (...args: unknown[]) => unknown;
   toImportSpecifier: (...args: unknown[]) => unknown;
   upgradeBinary: (...args: unknown[]) => unknown;
+  validateManifestCommandArgs: (...args: unknown[]) => unknown;
   waitForChild: (...args: unknown[]) => unknown;
   writeLine: (...args: unknown[]) => unknown;
   verifyChecksum: (...args: unknown[]) => unknown;
 }
 
 export function checkForUpdates(options?: WrapperOptions): Promise<WrapperStatus>;
+export function createManifestCLI(
+  options?: WrapperOptions,
+  runtime?: CliInvocationRuntime
+): Promise<unknown>;
 export function createClient(options?: WrapperOptions): Promise<RedblueClient>;
 export function downloadBinary(options?: WrapperOptions): Promise<string>;
 export function ensureInstalled(options?: WrapperOptions): Promise<BinaryInstallResult>;
@@ -245,6 +325,7 @@ export function getBinaryInfo(options?: WrapperOptions): Promise<BinaryInfo>;
 export function getManifest(options?: WrapperOptions): Promise<ManifestResult>;
 export function getInstalledVersion(binaryPath: string, options?: ResolveOptions): Promise<string | null>;
 export function runCli(argv?: string[], runtime?: CliInvocationRuntime): Promise<number>;
+export function runJson(argv?: string[], options?: WrapperOptions): Promise<unknown>;
 export function resolveAssetName(options?: WrapperOptions): string;
 export function resolveBinary(options?: WrapperOptions): Promise<string>;
 export function resolveBinaryWithInfo(
@@ -268,6 +349,7 @@ export function spawnChild(
 
 export interface RedblueSdkExports {
   checkForUpdates: typeof checkForUpdates;
+  createManifestCLI: typeof createManifestCLI;
   createClient: typeof createClient;
   downloadBinary: typeof downloadBinary;
   ensureInstalled: typeof ensureInstalled;
@@ -275,6 +357,7 @@ export interface RedblueSdkExports {
   getManifest: typeof getManifest;
   getInstalledVersion: typeof getInstalledVersion;
   runCli: typeof runCli;
+  runJson: typeof runJson;
   resolveAssetName: typeof resolveAssetName;
   resolveBinary: typeof resolveBinary;
   resolveBinaryWithInfo: typeof resolveBinaryWithInfo;

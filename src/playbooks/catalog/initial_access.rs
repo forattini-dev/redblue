@@ -9,7 +9,7 @@ use crate::scripts::FindingSeverity;
 ///
 /// Comprehensive web application security testing.
 pub fn web_app_assessment() -> Playbook {
-    Playbook::new("web-app-assessment", "Web Application Security Assessment")
+  Playbook::new("web-app-assessment", "Web Application Security Assessment")
         .with_description("Comprehensive security assessment of web applications")
         .with_objective("Identify vulnerabilities in web applications including injection, auth issues, and misconfigurations")
         .for_target(TargetType::WebApp)
@@ -88,81 +88,81 @@ pub fn web_app_assessment() -> Playbook {
 ///
 /// Maps the external attack surface of an organization.
 pub fn external_footprint() -> Playbook {
-    Playbook::new("external-footprint", "External Footprint Mapping")
-        .with_description(
-            "Map the external attack surface including domains, IPs, and exposed services",
-        )
-        .with_objective("Create comprehensive inventory of externally accessible assets")
-        .for_target(TargetType::Domain)
-        .for_os(TargetOS::Any)
-        .with_risk(RiskLevel::Low)
-        .with_duration("1-3 hours")
-        .with_mitre("T1595") // Active Scanning
-        .with_mitre("T1592") // Gather Victim Host Info
-        .add_precondition(PreCondition::new("Target domain identified"))
-        .add_step(
-            PlaybookStep::new(1, PlaybookPhase::Recon, "WHOIS Lookup")
-                .with_description("Gather domain registration information")
-                .with_command("rb recon domain whois {{ target }}")
-                .with_success("Registration details obtained")
-                .parallel(1)
-                .collects(EvidenceType::SystemInfo)
-                .with_mitre("T1596.002", None), // WHOIS/DNS Info
-        )
-        .add_step(
-            PlaybookStep::new(2, PlaybookPhase::Recon, "DNS Enumeration")
-                .with_description("Enumerate DNS records")
-                .with_command("rb dns record lookup {{ target }} --type ALL")
-                .with_success("DNS records mapped")
-                .parallel(1)
-                .collects(EvidenceType::NetworkMap)
-                .with_mitre("T1596.001", None), // DNS/Passive DNS
-        )
-        .add_step(
-            PlaybookStep::new(3, PlaybookPhase::Recon, "Subdomain Discovery")
-                .with_description("Find subdomains using passive and active methods")
-                .with_command("rb recon domain subdomains {{ target }}")
-                .with_success("Subdomains enumerated")
-                .parallel(1)
-                .collects(EvidenceType::NetworkMap)
-                .with_mitre("T1595.002", None),
-        )
-        .add_step(
-            PlaybookStep::new(4, PlaybookPhase::Recon, "Port Scanning")
-                .with_description("Scan for open ports on discovered hosts")
-                .with_command("rb network ports scan {{ hosts }} --preset common")
-                .with_success("Open ports identified")
-                .depends(3)
-                .collects(EvidenceType::NetworkMap)
-                .with_mitre("T1046", None), // Network Service Scanning
-        )
-        .add_step(
-            PlaybookStep::new(5, PlaybookPhase::Recon, "Service Identification")
-                .with_description("Identify services and versions")
-                .with_command("rb network ports scan {{ hosts }} --banner")
-                .with_success("Services identified")
-                .depends(4)
-                .collects(EvidenceType::SystemInfo)
-                .with_mitre("T1046", None),
-        )
-        .add_evidence(
-            ExpectedEvidence::new("Attack surface inventory")
-                .at("Scan results")
-                .with_indicator("Complete list of domains, IPs, ports, services")
-                .severity(FindingSeverity::Info),
-        )
-        .add_failed_control(
-            FailedControl::new("Asset Inventory", "Unknown external assets discovered")
-                .with_fix("Implement continuous asset discovery and inventory management"),
-        )
-        .with_kill_chain(KillChainPhase::Reconnaissance())
+  Playbook::new("external-footprint", "External Footprint Mapping")
+    .with_description(
+      "Map the external attack surface including domains, IPs, and exposed services",
+    )
+    .with_objective("Create comprehensive inventory of externally accessible assets")
+    .for_target(TargetType::Domain)
+    .for_os(TargetOS::Any)
+    .with_risk(RiskLevel::Low)
+    .with_duration("1-3 hours")
+    .with_mitre("T1595") // Active Scanning
+    .with_mitre("T1592") // Gather Victim Host Info
+    .add_precondition(PreCondition::new("Target domain identified"))
+    .add_step(
+      PlaybookStep::new(1, PlaybookPhase::Recon, "WHOIS Lookup")
+        .with_description("Gather domain registration information")
+        .with_command("rb recon domain whois {{ target }}")
+        .with_success("Registration details obtained")
+        .parallel(1)
+        .collects(EvidenceType::SystemInfo)
+        .with_mitre("T1596.002", None), // WHOIS/DNS Info
+    )
+    .add_step(
+      PlaybookStep::new(2, PlaybookPhase::Recon, "DNS Enumeration")
+        .with_description("Enumerate DNS records")
+        .with_command("rb dns record lookup {{ target }} --type ALL")
+        .with_success("DNS records mapped")
+        .parallel(1)
+        .collects(EvidenceType::NetworkMap)
+        .with_mitre("T1596.001", None), // DNS/Passive DNS
+    )
+    .add_step(
+      PlaybookStep::new(3, PlaybookPhase::Recon, "Subdomain Discovery")
+        .with_description("Find subdomains using passive and active methods")
+        .with_command("rb recon domain subdomains {{ target }}")
+        .with_success("Subdomains enumerated")
+        .parallel(1)
+        .collects(EvidenceType::NetworkMap)
+        .with_mitre("T1595.002", None),
+    )
+    .add_step(
+      PlaybookStep::new(4, PlaybookPhase::Recon, "Port Scanning")
+        .with_description("Scan for open ports on discovered hosts")
+        .with_command("rb network ports scan {{ hosts }} --preset common")
+        .with_success("Open ports identified")
+        .depends(3)
+        .collects(EvidenceType::NetworkMap)
+        .with_mitre("T1046", None), // Network Service Scanning
+    )
+    .add_step(
+      PlaybookStep::new(5, PlaybookPhase::Recon, "Service Identification")
+        .with_description("Identify services and versions")
+        .with_command("rb network ports scan {{ hosts }} --banner")
+        .with_success("Services identified")
+        .depends(4)
+        .collects(EvidenceType::SystemInfo)
+        .with_mitre("T1046", None),
+    )
+    .add_evidence(
+      ExpectedEvidence::new("Attack surface inventory")
+        .at("Scan results")
+        .with_indicator("Complete list of domains, IPs, ports, services")
+        .severity(FindingSeverity::Info),
+    )
+    .add_failed_control(
+      FailedControl::new("Asset Inventory", "Unknown external assets discovered")
+        .with_fix("Implement continuous asset discovery and inventory management"),
+    )
+    .with_kill_chain(KillChainPhase::Reconnaissance())
 }
 
 /// SSH Credential Testing
 ///
 /// Tests SSH authentication for weak or default credentials.
 pub fn ssh_credential_test() -> Playbook {
-    Playbook::new("ssh-credential-test", "SSH Credential Testing")
+  Playbook::new("ssh-credential-test", "SSH Credential Testing")
         .with_description("Test SSH services for weak, default, or reused credentials")
         .with_objective("Identify SSH services with weak authentication that could be exploited")
         .for_target(TargetType::Host)

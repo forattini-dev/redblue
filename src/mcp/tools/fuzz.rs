@@ -5,14 +5,14 @@
 use crate::mcp::types::{ToolDefinition, ToolField, ToolResult};
 use crate::mcp::McpServer;
 use crate::modules::web::fuzzer::{
-    FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, WordlistManager,
+  FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, WordlistManager,
 };
 use crate::utils::json::JsonValue;
 use std::time::Duration;
 
 /// Register fuzzing tools with the server
 pub fn register_fuzz_tools() -> Vec<ToolDefinition<McpServer>> {
-    vec![
+  vec![
         ToolDefinition {
             name: "rb.fuzz.dir",
             description: "Directory and file fuzzing. Replace 'FUZZ' in the URL with wordlist entries \
@@ -106,318 +106,322 @@ pub fn register_fuzz_tools() -> Vec<ToolDefinition<McpServer>> {
 
 /// Load wordlist from file, returning words and count
 fn load_wordlist(path: &str) -> Result<Vec<String>, String> {
-    let mut wl = WordlistManager::new();
-    wl.load_file(path)?;
+  let mut wl = WordlistManager::new();
+  wl.load_file(path)?;
 
-    if wl.is_empty() {
-        return Err(format!(
-            "Wordlist '{}' is empty or contains no valid entries.",
-            path
-        ));
-    }
+  if wl.is_empty() {
+    return Err(format!(
+      "Wordlist '{}' is empty or contains no valid entries.",
+      path
+    ));
+  }
 
-    Ok(wl.words().to_vec())
+  Ok(wl.words().to_vec())
 }
 
 /// Format fuzz results into JSON array
 fn results_to_json(results: &[crate::modules::web::fuzzer::FuzzResult]) -> Vec<JsonValue> {
-    results
-        .iter()
-        .map(|r| {
-            JsonValue::object(vec![
-                ("payload".to_string(), JsonValue::String(r.payload.clone())),
-                ("url".to_string(), JsonValue::String(r.url.clone())),
-                (
-                    "status".to_string(),
-                    JsonValue::Number(r.status_code as f64),
-                ),
-                ("size".to_string(), JsonValue::Number(r.size as f64)),
-                ("words".to_string(), JsonValue::Number(r.words as f64)),
-                ("lines".to_string(), JsonValue::Number(r.lines as f64)),
-                (
-                    "duration_ms".to_string(),
-                    JsonValue::Number(r.duration.as_millis() as f64),
-                ),
-                (
-                    "redirect".to_string(),
-                    r.redirect
-                        .as_ref()
-                        .map(|loc| JsonValue::String(loc.clone()))
-                        .unwrap_or(JsonValue::Null),
-                ),
-                (
-                    "content_type".to_string(),
-                    r.content_type
-                        .as_ref()
-                        .map(|ct| JsonValue::String(ct.clone()))
-                        .unwrap_or(JsonValue::Null),
-                ),
-            ])
-        })
-        .collect()
+  results
+    .iter()
+    .map(|r| {
+      JsonValue::object(vec![
+        ("payload".to_string(), JsonValue::String(r.payload.clone())),
+        ("url".to_string(), JsonValue::String(r.url.clone())),
+        (
+          "status".to_string(),
+          JsonValue::Number(r.status_code as f64),
+        ),
+        ("size".to_string(), JsonValue::Number(r.size as f64)),
+        ("words".to_string(), JsonValue::Number(r.words as f64)),
+        ("lines".to_string(), JsonValue::Number(r.lines as f64)),
+        (
+          "duration_ms".to_string(),
+          JsonValue::Number(r.duration.as_millis() as f64),
+        ),
+        (
+          "redirect".to_string(),
+          r.redirect
+            .as_ref()
+            .map(|loc| JsonValue::String(loc.clone()))
+            .unwrap_or(JsonValue::Null),
+        ),
+        (
+          "content_type".to_string(),
+          r.content_type
+            .as_ref()
+            .map(|ct| JsonValue::String(ct.clone()))
+            .unwrap_or(JsonValue::Null),
+        ),
+      ])
+    })
+    .collect()
 }
 
 fn tool_fuzz_dir(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
-    let url = args
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: url")?;
+  let url = args
+    .get("url")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: url")?;
 
-    let wordlist_path = args
-        .get("wordlist")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: wordlist")?;
+  let wordlist_path = args
+    .get("wordlist")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: wordlist")?;
 
-    let status_filter: Option<Vec<u16>> =
-        args.get("status_filter").and_then(|v| v.as_str()).map(|s| {
-            s.split(',')
-                .filter_map(|code| code.trim().parse::<u16>().ok())
-                .collect()
-        });
+  let status_filter: Option<Vec<u16>> =
+    args.get("status_filter").and_then(|v| v.as_str()).map(|s| {
+      s.split(',')
+        .filter_map(|code| code.trim().parse::<u16>().ok())
+        .collect()
+    });
 
-    let size_filter: Option<usize> = args
-        .get("size_filter")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.trim().parse::<usize>().ok());
+  let size_filter: Option<usize> = args
+    .get("size_filter")
+    .and_then(|v| v.as_str())
+    .and_then(|s| s.trim().parse::<usize>().ok());
 
-    // Ensure URL contains FUZZ placeholder
-    let fuzz_url = if url.contains("FUZZ") {
-        url.to_string()
-    } else {
-        // Append FUZZ to path if not present
-        let base = url.trim_end_matches('/');
-        format!("{}/FUZZ", base)
-    };
+  // Ensure URL contains FUZZ placeholder
+  let fuzz_url = if url.contains("FUZZ") {
+    url.to_string()
+  } else {
+    // Append FUZZ to path if not present
+    let base = url.trim_end_matches('/');
+    format!("{}/FUZZ", base)
+  };
 
-    let words = load_wordlist(wordlist_path)?;
-    let word_count = words.len();
+  let words = load_wordlist(wordlist_path)?;
+  let word_count = words.len();
 
-    let config = FuzzerConfig {
-        threads: 20,
-        timeout: Duration::from_secs(10),
-        auto_calibrate: true,
-        ..FuzzerConfig::default()
-    };
+  let config = FuzzerConfig {
+    threads: 20,
+    timeout: Duration::from_secs(10),
+    auto_calibrate: true,
+    ..FuzzerConfig::default()
+  };
 
-    let target = FuzzTarget {
-        url: fuzz_url.clone(),
-        method: HttpMethod::GET,
-        headers: vec![],
-        body: None,
-        cookies: None,
-    };
+  let target = FuzzTarget {
+    url: fuzz_url.clone(),
+    method: HttpMethod::GET,
+    headers: vec![],
+    body: None,
+    cookies: None,
+  };
 
-    let mut fuzzer = WebFuzzer::new(config);
-    let results = fuzzer.fuzz(&target, &words)?;
+  let mut fuzzer = WebFuzzer::new(config);
+  let results = fuzzer.fuzz(&target, &words)?;
 
-    // Apply post-filters
-    let filtered: Vec<_> = results
-        .into_iter()
-        .filter(|r| {
-            // Apply status filter
-            if let Some(ref codes) = status_filter {
-                if !codes.contains(&r.status_code) {
-                    return false;
-                }
-            } else {
-                // Default: exclude 404
-                if r.status_code == 404 {
-                    return false;
-                }
-            }
-            // Apply size filter
-            if let Some(exclude_size) = size_filter {
-                if r.size == exclude_size {
-                    return false;
-                }
-            }
-            true
-        })
-        .collect();
+  // Apply post-filters
+  let filtered: Vec<_> = results
+    .into_iter()
+    .filter(|r| {
+      // Apply status filter
+      if let Some(ref codes) = status_filter {
+        if !codes.contains(&r.status_code) {
+          return false;
+        }
+      } else {
+        // Default: exclude 404
+        if r.status_code == 404 {
+          return false;
+        }
+      }
+      // Apply size filter
+      if let Some(exclude_size) = size_filter {
+        if r.size == exclude_size {
+          return false;
+        }
+      }
+      true
+    })
+    .collect();
 
-    let stats = fuzzer.stats();
-    let results_json = results_to_json(&filtered);
+  let stats = fuzzer.stats();
+  let results_json = results_to_json(&filtered);
 
-    let text = format!(
-        "Directory fuzzing on {}: {} words tested, {} hits found, {} errors (RPS: {:.1})",
-        fuzz_url,
-        word_count,
-        filtered.len(),
-        stats.errors,
-        stats.rps
-    );
+  let text = format!(
+    "Directory fuzzing on {}: {} words tested, {} hits found, {} errors (RPS: {:.1})",
+    fuzz_url,
+    word_count,
+    filtered.len(),
+    stats.errors,
+    stats.rps
+  );
 
-    Ok(ToolResult::with_data(
-        text,
-        JsonValue::object(vec![
-            ("url".to_string(), JsonValue::String(fuzz_url)),
-            (
-                "wordlist".to_string(),
-                JsonValue::String(wordlist_path.to_string()),
-            ),
-            (
-                "words_tested".to_string(),
-                JsonValue::Number(word_count as f64),
-            ),
-            ("hits".to_string(), JsonValue::Number(filtered.len() as f64)),
-            ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
-            ("rps".to_string(), JsonValue::Number(stats.rps)),
-            ("results".to_string(), JsonValue::array(results_json)),
-        ]),
-    ))
+  Ok(ToolResult::with_data(
+    text,
+    JsonValue::object(vec![
+      ("url".to_string(), JsonValue::String(fuzz_url)),
+      (
+        "wordlist".to_string(),
+        JsonValue::String(wordlist_path.to_string()),
+      ),
+      (
+        "words_tested".to_string(),
+        JsonValue::Number(word_count as f64),
+      ),
+      ("hits".to_string(), JsonValue::Number(filtered.len() as f64)),
+      ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
+      ("rps".to_string(), JsonValue::Number(stats.rps)),
+      ("results".to_string(), JsonValue::array(results_json)),
+    ]),
+  ))
 }
 
 fn tool_fuzz_vhost(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
-    let target = args
-        .get("target")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: target")?;
+  let target = args
+    .get("target")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: target")?;
 
-    let domain = args
-        .get("domain")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: domain")?;
+  let domain = args
+    .get("domain")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: domain")?;
 
-    let wordlist_path = args
-        .get("wordlist")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: wordlist")?;
+  let wordlist_path = args
+    .get("wordlist")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: wordlist")?;
 
-    let words = load_wordlist(wordlist_path)?;
-    let word_count = words.len();
+  let words = load_wordlist(wordlist_path)?;
+  let word_count = words.len();
 
-    // Build vhost wordlist: prepend each word as subdomain to domain
-    let vhost_words: Vec<String> = words.iter().map(|w| format!("{}.{}", w, domain)).collect();
+  // Build vhost wordlist: prepend each word as subdomain to domain
+  let vhost_words: Vec<String> = words.iter().map(|w| format!("{}.{}", w, domain)).collect();
 
-    // Normalize target URL
-    let base_url = if target.starts_with("http://") || target.starts_with("https://") {
-        target.to_string()
-    } else {
-        format!("http://{}", target)
-    };
+  // Normalize target URL
+  let base_url = if target.starts_with("http://") || target.starts_with("https://") {
+    target.to_string()
+  } else {
+    format!("http://{}", target)
+  };
 
-    // Use FUZZ in the Host header for vhost discovery
-    let config = FuzzerConfig {
-        threads: 20,
-        timeout: Duration::from_secs(10),
-        auto_calibrate: true,
-        ..FuzzerConfig::default()
-    };
+  // Use FUZZ in the Host header for vhost discovery
+  let config = FuzzerConfig {
+    threads: 20,
+    timeout: Duration::from_secs(10),
+    auto_calibrate: true,
+    ..FuzzerConfig::default()
+  };
 
-    let fuzz_target = FuzzTarget {
-        url: base_url.clone(),
-        method: HttpMethod::GET,
-        headers: vec![("Host".to_string(), "FUZZ".to_string())],
-        body: None,
-        cookies: None,
-    };
+  let fuzz_target = FuzzTarget {
+    url: base_url.clone(),
+    method: HttpMethod::GET,
+    headers: vec![("Host".to_string(), "FUZZ".to_string())],
+    body: None,
+    cookies: None,
+  };
 
-    let mut fuzzer = WebFuzzer::new(config);
-    let results = fuzzer.fuzz(&fuzz_target, &vhost_words)?;
+  let mut fuzzer = WebFuzzer::new(config);
+  let results = fuzzer.fuzz(&fuzz_target, &vhost_words)?;
 
-    // Vhost results are interesting if they differ from baseline (auto-calibration handles this)
-    let stats = fuzzer.stats();
-    let results_json = results_to_json(&results);
+  // Vhost results are interesting if they differ from baseline (auto-calibration handles this)
+  let stats = fuzzer.stats();
+  let results_json = results_to_json(&results);
 
-    let text = format!(
-        "VHost fuzzing on {} (domain: {}): {} subdomains tested, {} unique vhosts found (RPS: {:.1})",
-        target, domain, word_count, results.len(), stats.rps
-    );
+  let text = format!(
+    "VHost fuzzing on {} (domain: {}): {} subdomains tested, {} unique vhosts found (RPS: {:.1})",
+    target,
+    domain,
+    word_count,
+    results.len(),
+    stats.rps
+  );
 
-    Ok(ToolResult::with_data(
-        text,
-        JsonValue::object(vec![
-            ("target".to_string(), JsonValue::String(target.to_string())),
-            ("domain".to_string(), JsonValue::String(domain.to_string())),
-            (
-                "wordlist".to_string(),
-                JsonValue::String(wordlist_path.to_string()),
-            ),
-            (
-                "words_tested".to_string(),
-                JsonValue::Number(word_count as f64),
-            ),
-            (
-                "vhosts_found".to_string(),
-                JsonValue::Number(results.len() as f64),
-            ),
-            ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
-            ("rps".to_string(), JsonValue::Number(stats.rps)),
-            ("results".to_string(), JsonValue::array(results_json)),
-        ]),
-    ))
+  Ok(ToolResult::with_data(
+    text,
+    JsonValue::object(vec![
+      ("target".to_string(), JsonValue::String(target.to_string())),
+      ("domain".to_string(), JsonValue::String(domain.to_string())),
+      (
+        "wordlist".to_string(),
+        JsonValue::String(wordlist_path.to_string()),
+      ),
+      (
+        "words_tested".to_string(),
+        JsonValue::Number(word_count as f64),
+      ),
+      (
+        "vhosts_found".to_string(),
+        JsonValue::Number(results.len() as f64),
+      ),
+      ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
+      ("rps".to_string(), JsonValue::Number(stats.rps)),
+      ("results".to_string(), JsonValue::array(results_json)),
+    ]),
+  ))
 }
 
 fn tool_fuzz_param(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResult, String> {
-    let url = args
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: url")?;
+  let url = args
+    .get("url")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: url")?;
 
-    let param_name = args
-        .get("param_name")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: param_name")?;
+  let param_name = args
+    .get("param_name")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: param_name")?;
 
-    let wordlist_path = args
-        .get("wordlist")
-        .and_then(|v| v.as_str())
-        .ok_or("Missing required field: wordlist")?;
+  let wordlist_path = args
+    .get("wordlist")
+    .and_then(|v| v.as_str())
+    .ok_or("Missing required field: wordlist")?;
 
-    let words = load_wordlist(wordlist_path)?;
-    let word_count = words.len();
+  let words = load_wordlist(wordlist_path)?;
+  let word_count = words.len();
 
-    // Build URL with FUZZ placeholder in query parameter
-    let separator = if url.contains('?') { "&" } else { "?" };
-    let fuzz_url = format!("{}{}{}=FUZZ", url, separator, param_name);
+  // Build URL with FUZZ placeholder in query parameter
+  let separator = if url.contains('?') { "&" } else { "?" };
+  let fuzz_url = format!("{}{}{}=FUZZ", url, separator, param_name);
 
-    let config = FuzzerConfig {
-        threads: 20,
-        timeout: Duration::from_secs(10),
-        auto_calibrate: true,
-        ..FuzzerConfig::default()
-    };
+  let config = FuzzerConfig {
+    threads: 20,
+    timeout: Duration::from_secs(10),
+    auto_calibrate: true,
+    ..FuzzerConfig::default()
+  };
 
-    let target = FuzzTarget {
-        url: fuzz_url.clone(),
-        method: HttpMethod::GET,
-        headers: vec![],
-        body: None,
-        cookies: None,
-    };
+  let target = FuzzTarget {
+    url: fuzz_url.clone(),
+    method: HttpMethod::GET,
+    headers: vec![],
+    body: None,
+    cookies: None,
+  };
 
-    let mut fuzzer = WebFuzzer::new(config);
-    let results = fuzzer.fuzz(&target, &words)?;
+  let mut fuzzer = WebFuzzer::new(config);
+  let results = fuzzer.fuzz(&target, &words)?;
 
-    let stats = fuzzer.stats();
-    let results_json = results_to_json(&results);
+  let stats = fuzzer.stats();
+  let results_json = results_to_json(&results);
 
-    let text = format!(
+  let text = format!(
         "Parameter fuzzing on {} (param: '{}'): {} values tested, {} interesting responses (RPS: {:.1})",
         url, param_name, word_count, results.len(), stats.rps
     );
 
-    Ok(ToolResult::with_data(
-        text,
-        JsonValue::object(vec![
-            ("url".to_string(), JsonValue::String(url.to_string())),
-            (
-                "param_name".to_string(),
-                JsonValue::String(param_name.to_string()),
-            ),
-            ("fuzz_url".to_string(), JsonValue::String(fuzz_url)),
-            (
-                "wordlist".to_string(),
-                JsonValue::String(wordlist_path.to_string()),
-            ),
-            (
-                "words_tested".to_string(),
-                JsonValue::Number(word_count as f64),
-            ),
-            ("hits".to_string(), JsonValue::Number(results.len() as f64)),
-            ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
-            ("rps".to_string(), JsonValue::Number(stats.rps)),
-            ("results".to_string(), JsonValue::array(results_json)),
-        ]),
-    ))
+  Ok(ToolResult::with_data(
+    text,
+    JsonValue::object(vec![
+      ("url".to_string(), JsonValue::String(url.to_string())),
+      (
+        "param_name".to_string(),
+        JsonValue::String(param_name.to_string()),
+      ),
+      ("fuzz_url".to_string(), JsonValue::String(fuzz_url)),
+      (
+        "wordlist".to_string(),
+        JsonValue::String(wordlist_path.to_string()),
+      ),
+      (
+        "words_tested".to_string(),
+        JsonValue::Number(word_count as f64),
+      ),
+      ("hits".to_string(), JsonValue::Number(results.len() as f64)),
+      ("errors".to_string(), JsonValue::Number(stats.errors as f64)),
+      ("rps".to_string(), JsonValue::Number(stats.rps)),
+      ("results".to_string(), JsonValue::array(results_json)),
+    ]),
+  ))
 }

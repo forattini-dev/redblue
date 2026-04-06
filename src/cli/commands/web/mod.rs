@@ -21,20 +21,48 @@ mod types;
 pub struct WebCommand;
 
 impl Command for WebCommand {
-    fn domain(&self) -> &str {
-        "web"
-    }
+  fn domain(&self) -> &str {
+    "web"
+  }
 
-    fn resource(&self) -> &str {
-        "asset"
-    }
+  fn resource(&self) -> &str {
+    "asset"
+  }
 
-    fn description(&self) -> &str {
-        "Web application testing and analysis"
-    }
+  fn description(&self) -> &str {
+    "Web application testing and analysis"
+  }
 
-    fn routes(&self) -> Vec<Route> {
-        vec![
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new()
+      .with_aliases(crate::cli::aliases::resource_aliases_for(self.resource()))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let aliases = crate::cli::aliases::verb_aliases_for(verb);
+    match verb {
+      "get" | "headers" | "security" | "grade" => crate::cli::schema::RouteMetadata::new()
+        .with_aliases(aliases)
+        .with_machine_output(
+          crate::cli::schema::MachineOutputMetadata::new()
+            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+        ),
+      _ => crate::cli::schema::RouteMetadata::new()
+        .with_aliases(aliases)
+        .with_machine_output(self.metadata().machine_output),
+    }
+  }
+
+  fn routes(&self) -> Vec<Route> {
+    vec![
             Route {
                 verb: "get",
                 summary: "Execute a raw HTTP GET request",
@@ -183,217 +211,215 @@ impl Command for WebCommand {
                 usage: "rb web asset describe <host> [--db <file>]",
             },
         ]
+  }
+
+  fn flags(&self) -> Vec<Flag> {
+    vec![
+      Flag::new("timeout", "Request timeout in seconds")
+        .with_short('t')
+        .with_default("10"),
+      Flag::new("user-agent", "Custom User-Agent header").with_short('u'),
+      Flag::new(
+        "impersonate",
+        "Impersonate a browser profile (chrome, firefox, safari)",
+      )
+      .with_short('I'),
+      Flag::new("follow", "Follow redirects").with_short('f'),
+      Flag::new("wordlist", "Wordlist for fuzzing").with_short('w'),
+      Flag::new("threads", "Number of concurrent threads for fuzzing").with_default("50"),
+      Flag::new("filter", "Filter out status codes (comma-separated)").with_default("404"),
+      Flag::new("match", "Only show status codes (comma-separated)"),
+      Flag::new("common", "Use built-in common wordlist"),
+      Flag::new(
+        "type",
+        "Filter linkfinder results by type (api, s3, websocket, graphql, all)",
+      ),
+      Flag::new(
+        "recursive",
+        "Enable recursive directory fuzzing (feroxbuster-style)",
+      )
+      .with_short('r'),
+      Flag::new("depth", "Maximum recursion depth for fuzzing").with_default("3"),
+      Flag::new(
+        "strategy",
+        "Scanning strategy: auto (default), wordpress, drupal, joomla, generic",
+      )
+      .with_short('s')
+      .with_default("auto"),
+      Flag::new(
+        "intel",
+        "Perform HTTP server fingerprinting and intelligence gathering",
+      ),
+      Flag::new("persist", "Save results to binary database (.rdb file)"),
+      Flag::new("no-persist", "Don't save results (overrides config)"),
+      Flag::new(
+        "db",
+        "Database file path for RESTful queries (default: auto-detect)",
+      )
+      .with_short('d'),
+      // Scraping flags
+      Flag::new("select", "CSS selector for element selection").with_short('S'),
+      Flag::new("attr", "Extract specific attribute (use with --select)").with_short('a'),
+      Flag::new("format", "Output format (text, json)").with_default("text"),
+      Flag::new("link-type", "Filter link type: internal, external, all").with_default("all"),
+      Flag::new("har", "Export HAR file for crawl command"),
+      Flag::new("max-pages", "Maximum pages to crawl").with_short('m'),
+      Flag::new("external", "Include external links when crawling"),
+      // HTTP/2 flags
+      Flag::new("method", "HTTP method (GET, POST, PUT, DELETE, etc)").with_default("GET"),
+      Flag::new("body", "Request body for POST/PUT requests"),
+      Flag::new("body-file", "Read request body from file"),
+      Flag::new(
+        "headers",
+        "Additional headers (format: \"key:value;key2:value2\")",
+      ),
+      // HAR flags
+      Flag::new("output", "Output file path"),
+      Flag::new("entries", "Show individual HAR entries"),
+      Flag::new("timings", "Show timing breakdown"),
+      Flag::new("errors", "Show only errors"),
+      Flag::new("sequential", "Replay requests sequentially"),
+      Flag::new("compare", "Compare responses with original"),
+      Flag::new("delay", "Delay between replayed requests (ms)"),
+      // CMS flags
+      Flag::new("aggressive", "Enable aggressive scanning mode"),
+      Flag::new("waf-evasion", "Enable WAF evasion techniques"),
+      Flag::new("enumerate", "What to enumerate (plugins,themes,users)"),
+    ]
+  }
+
+  fn examples(&self) -> Vec<(&str, &str)> {
+    vec![
+      ("Simple GET request", "rb web asset get http://example.com"),
+      (
+        "HTTP server fingerprinting",
+        "rb web asset get http://example.com --intel",
+      ),
+      ("Analyze headers", "rb web asset headers http://example.com"),
+      ("Security audit", "rb web asset security http://example.com"),
+      ("TLS certificate check", "rb web asset cert example.com:443"),
+      (
+        "Directory fuzzing (basic)",
+        "rb web asset fuzz http://example.com --common",
+      ),
+      (
+        "Recursive fuzzing (feroxbuster-style)",
+        "rb web asset fuzz http://example.com --common --recursive --depth 4",
+      ),
+      (
+        "Auto-detect scan (smart)",
+        "rb web asset scan http://example.com",
+      ),
+      (
+        "Force WordPress scan",
+        "rb web asset scan http://example.com --strategy wordpress",
+      ),
+      (
+        "Extract links from page",
+        "rb web asset links http://example.com",
+      ),
+      (
+        "Crawl and export HAR",
+        "rb web asset har-export http://example.com --output site.har",
+      ),
+    ]
+  }
+
+  fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+    let verb = ctx.verb.as_ref().ok_or_else(|| {
+      print_help(self);
+      "No verb provided".to_string()
+    })?;
+
+    match verb.as_str() {
+      // Core HTTP operations
+      "get" => http::get(ctx),
+      "headers" => http::headers(ctx),
+      "http2" => http::http2(ctx),
+      "cert" => http::cert(ctx),
+
+      // Security analysis
+      "security" => security::security(ctx),
+      "grade" => security::grade(ctx),
+
+      // Fingerprinting
+      "fingerprint" => fingerprint::fingerprint(ctx),
+
+      // Scanning (delegated to scanning submodule)
+      "scan" => scanning::run_scan(ctx),
+      "vuln-scan" => scanning::run_active_scan(ctx),
+
+      // CMS scanning
+      "wpscan" => cms::wpscan(ctx),
+      "drupal-scan" => cms::drupal_scan(ctx),
+      "joomla-scan" => cms::joomla_scan(ctx),
+      "cms-scan" => cms::cms_scan(ctx),
+      "cms" => cms::cms_advanced(ctx),
+
+      // Scraping and extraction
+      "linkfinder" => scrape::linkfinder(ctx),
+      "crawl" => scrape::crawl(ctx),
+      "scrape" => scrape::scrape(ctx),
+      "links" => scrape::links(ctx),
+      "images" => scrape::images(ctx),
+      "meta" => scrape::meta(ctx),
+      "forms" => scrape::forms(ctx),
+      "tables" => scrape::tables(ctx),
+
+      // HAR operations
+      "har-export" => har::har_export(ctx),
+      "har-view" => har::har_view(ctx),
+      "har-replay" => har::har_replay(ctx),
+      "har-to-curl" => har::har_to_curl(ctx),
+
+      // Database queries
+      "list" => db::list_http(ctx),
+      "describe" => db::describe_http(ctx),
+
+      // Fuzzing redirect
+      "fuzz" => Err("Use 'rb web fuzz' command instead (dedicated fuzzing module)".to_string()),
+
+      _ => {
+        Output::error(&format!("Unknown verb: {}", verb));
+        println!(
+          "{}",
+          Validator::suggest_command(
+            verb,
+            &[
+              "get",
+              "headers",
+              "security",
+              "grade",
+              "http2",
+              "cert",
+              "fuzz",
+              "fingerprint",
+              "scan",
+              "vuln-scan",
+              "wpscan",
+              "drupal-scan",
+              "joomla-scan",
+              "cms-scan",
+              "cms",
+              "linkfinder",
+              "crawl",
+              "scrape",
+              "links",
+              "images",
+              "meta",
+              "forms",
+              "tables",
+              "har-export",
+              "har-view",
+              "har-replay",
+              "har-to-curl",
+              "list",
+              "describe"
+            ]
+          )
+        );
+        Err("Invalid verb".to_string())
+      }
     }
-
-    fn flags(&self) -> Vec<Flag> {
-        vec![
-            Flag::new("timeout", "Request timeout in seconds")
-                .with_short('t')
-                .with_default("10"),
-            Flag::new("user-agent", "Custom User-Agent header").with_short('u'),
-            Flag::new(
-                "impersonate",
-                "Impersonate a browser profile (chrome, firefox, safari)",
-            )
-            .with_short('I'),
-            Flag::new("follow", "Follow redirects").with_short('f'),
-            Flag::new("wordlist", "Wordlist for fuzzing").with_short('w'),
-            Flag::new("threads", "Number of concurrent threads for fuzzing").with_default("50"),
-            Flag::new("filter", "Filter out status codes (comma-separated)").with_default("404"),
-            Flag::new("match", "Only show status codes (comma-separated)"),
-            Flag::new("common", "Use built-in common wordlist"),
-            Flag::new(
-                "type",
-                "Filter linkfinder results by type (api, s3, websocket, graphql, all)",
-            ),
-            Flag::new(
-                "recursive",
-                "Enable recursive directory fuzzing (feroxbuster-style)",
-            )
-            .with_short('r'),
-            Flag::new("depth", "Maximum recursion depth for fuzzing").with_default("3"),
-            Flag::new(
-                "strategy",
-                "Scanning strategy: auto (default), wordpress, drupal, joomla, generic",
-            )
-            .with_short('s')
-            .with_default("auto"),
-            Flag::new(
-                "intel",
-                "Perform HTTP server fingerprinting and intelligence gathering",
-            ),
-            Flag::new("persist", "Save results to binary database (.rdb file)"),
-            Flag::new("no-persist", "Don't save results (overrides config)"),
-            Flag::new(
-                "db",
-                "Database file path for RESTful queries (default: auto-detect)",
-            )
-            .with_short('d'),
-            // Scraping flags
-            Flag::new("select", "CSS selector for element selection").with_short('S'),
-            Flag::new("attr", "Extract specific attribute (use with --select)").with_short('a'),
-            Flag::new("format", "Output format (text, json)").with_default("text"),
-            Flag::new("link-type", "Filter link type: internal, external, all").with_default("all"),
-            Flag::new("har", "Export HAR file for crawl command"),
-            Flag::new("max-pages", "Maximum pages to crawl").with_short('m'),
-            Flag::new("external", "Include external links when crawling"),
-            // HTTP/2 flags
-            Flag::new("method", "HTTP method (GET, POST, PUT, DELETE, etc)").with_default("GET"),
-            Flag::new("body", "Request body for POST/PUT requests"),
-            Flag::new("body-file", "Read request body from file"),
-            Flag::new(
-                "headers",
-                "Additional headers (format: \"key:value;key2:value2\")",
-            ),
-            // HAR flags
-            Flag::new("output", "Output file path"),
-            Flag::new("entries", "Show individual HAR entries"),
-            Flag::new("timings", "Show timing breakdown"),
-            Flag::new("errors", "Show only errors"),
-            Flag::new("sequential", "Replay requests sequentially"),
-            Flag::new("compare", "Compare responses with original"),
-            Flag::new("delay", "Delay between replayed requests (ms)"),
-            // CMS flags
-            Flag::new("aggressive", "Enable aggressive scanning mode"),
-            Flag::new("waf-evasion", "Enable WAF evasion techniques"),
-            Flag::new("enumerate", "What to enumerate (plugins,themes,users)"),
-        ]
-    }
-
-    fn examples(&self) -> Vec<(&str, &str)> {
-        vec![
-            ("Simple GET request", "rb web asset get http://example.com"),
-            (
-                "HTTP server fingerprinting",
-                "rb web asset get http://example.com --intel",
-            ),
-            ("Analyze headers", "rb web asset headers http://example.com"),
-            ("Security audit", "rb web asset security http://example.com"),
-            ("TLS certificate check", "rb web asset cert example.com:443"),
-            (
-                "Directory fuzzing (basic)",
-                "rb web asset fuzz http://example.com --common",
-            ),
-            (
-                "Recursive fuzzing (feroxbuster-style)",
-                "rb web asset fuzz http://example.com --common --recursive --depth 4",
-            ),
-            (
-                "Auto-detect scan (smart)",
-                "rb web asset scan http://example.com",
-            ),
-            (
-                "Force WordPress scan",
-                "rb web asset scan http://example.com --strategy wordpress",
-            ),
-            (
-                "Extract links from page",
-                "rb web asset links http://example.com",
-            ),
-            (
-                "Crawl and export HAR",
-                "rb web asset har-export http://example.com --output site.har",
-            ),
-        ]
-    }
-
-    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
-        let verb = ctx.verb.as_ref().ok_or_else(|| {
-            print_help(self);
-            "No verb provided".to_string()
-        })?;
-
-        match verb.as_str() {
-            // Core HTTP operations
-            "get" => http::get(ctx),
-            "headers" => http::headers(ctx),
-            "http2" => http::http2(ctx),
-            "cert" => http::cert(ctx),
-
-            // Security analysis
-            "security" => security::security(ctx),
-            "grade" => security::grade(ctx),
-
-            // Fingerprinting
-            "fingerprint" => fingerprint::fingerprint(ctx),
-
-            // Scanning (delegated to scanning submodule)
-            "scan" => scanning::run_scan(ctx),
-            "vuln-scan" => scanning::run_active_scan(ctx),
-
-            // CMS scanning
-            "wpscan" => cms::wpscan(ctx),
-            "drupal-scan" => cms::drupal_scan(ctx),
-            "joomla-scan" => cms::joomla_scan(ctx),
-            "cms-scan" => cms::cms_scan(ctx),
-            "cms" => cms::cms_advanced(ctx),
-
-            // Scraping and extraction
-            "linkfinder" => scrape::linkfinder(ctx),
-            "crawl" => scrape::crawl(ctx),
-            "scrape" => scrape::scrape(ctx),
-            "links" => scrape::links(ctx),
-            "images" => scrape::images(ctx),
-            "meta" => scrape::meta(ctx),
-            "forms" => scrape::forms(ctx),
-            "tables" => scrape::tables(ctx),
-
-            // HAR operations
-            "har-export" => har::har_export(ctx),
-            "har-view" => har::har_view(ctx),
-            "har-replay" => har::har_replay(ctx),
-            "har-to-curl" => har::har_to_curl(ctx),
-
-            // Database queries
-            "list" => db::list_http(ctx),
-            "describe" => db::describe_http(ctx),
-
-            // Fuzzing redirect
-            "fuzz" => {
-                Err("Use 'rb web fuzz' command instead (dedicated fuzzing module)".to_string())
-            }
-
-            _ => {
-                Output::error(&format!("Unknown verb: {}", verb));
-                println!(
-                    "{}",
-                    Validator::suggest_command(
-                        verb,
-                        &[
-                            "get",
-                            "headers",
-                            "security",
-                            "grade",
-                            "http2",
-                            "cert",
-                            "fuzz",
-                            "fingerprint",
-                            "scan",
-                            "vuln-scan",
-                            "wpscan",
-                            "drupal-scan",
-                            "joomla-scan",
-                            "cms-scan",
-                            "cms",
-                            "linkfinder",
-                            "crawl",
-                            "scrape",
-                            "links",
-                            "images",
-                            "meta",
-                            "forms",
-                            "tables",
-                            "har-export",
-                            "har-view",
-                            "har-replay",
-                            "har-to-curl",
-                            "list",
-                            "describe"
-                        ]
-                    )
-                );
-                Err("Invalid verb".to_string())
-            }
-        }
-    }
+  }
 }

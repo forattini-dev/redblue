@@ -15,112 +15,112 @@ use crate::modules::tls::scanner::{SecurityIssue, TlsScanner, TlsVersion};
 // Re-export CipherStrength from scanner for API consistency
 pub use crate::modules::tls::scanner::CipherStrength;
 use crate::protocols::{
-    tls12::Tls12Client,
-    tls_cert::{CertificateInfo, TlsClient},
+  tls12::Tls12Client,
+  tls_cert::{CertificateInfo, TlsClient},
 };
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct TlsAuditResult {
-    pub host: String,
-    pub port: u16,
-    pub supported_versions: Vec<TlsVersionInfo>,
-    pub supported_ciphers: Vec<CipherInfo>,
-    pub vulnerabilities: Vec<Vulnerability>,
-    pub certificate_valid: bool,
-    pub certificate_chain: Vec<CertificateInfo>,
-    pub negotiated_version: Option<String>,
-    pub negotiated_cipher: Option<String>,
-    pub negotiated_cipher_code: Option<u16>,
-    pub negotiated_cipher_strength: Option<CipherStrength>,
-    pub ja3: Option<String>,
-    pub ja3s: Option<String>,
-    pub ja3_raw: Option<String>,
-    pub ja3s_raw: Option<String>,
-    pub peer_fingerprints: Vec<String>,
-    pub certificate_chain_pem: Vec<String>,
+  pub host: String,
+  pub port: u16,
+  pub supported_versions: Vec<TlsVersionInfo>,
+  pub supported_ciphers: Vec<CipherInfo>,
+  pub vulnerabilities: Vec<Vulnerability>,
+  pub certificate_valid: bool,
+  pub certificate_chain: Vec<CertificateInfo>,
+  pub negotiated_version: Option<String>,
+  pub negotiated_cipher: Option<String>,
+  pub negotiated_cipher_code: Option<u16>,
+  pub negotiated_cipher_strength: Option<CipherStrength>,
+  pub ja3: Option<String>,
+  pub ja3s: Option<String>,
+  pub ja3_raw: Option<String>,
+  pub ja3s_raw: Option<String>,
+  pub peer_fingerprints: Vec<String>,
+  pub certificate_chain_pem: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TlsVersionInfo {
-    pub version: String,
-    pub supported: bool,
-    pub error: Option<String>,
+  pub version: String,
+  pub supported: bool,
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct CipherInfo {
-    pub name: String,
-    pub code: u16,
-    pub strength: CipherStrength,
+  pub name: String,
+  pub code: u16,
+  pub strength: CipherStrength,
 }
 
 // CipherStrength imported from scanner module for unified type
 
 #[derive(Debug, Clone)]
 pub struct Vulnerability {
-    pub name: String,
-    pub severity: Severity,
-    pub description: String,
+  pub name: String,
+  pub severity: Severity,
+  pub description: String,
 }
 
 // Severity imported from crate::modules::common
 
 pub struct TlsAuditor {
-    timeout: Duration,
+  timeout: Duration,
 }
 
 impl TlsAuditor {
-    pub fn new() -> Self {
-        Self {
-            timeout: Duration::from_secs(10),
-        }
+  pub fn new() -> Self {
+    Self {
+      timeout: Duration::from_secs(10),
     }
+  }
 
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
+  pub fn with_timeout(mut self, timeout: Duration) -> Self {
+    self.timeout = timeout;
+    self
+  }
 
-    /// Run full TLS audit
-    pub fn audit(&self, host: &str, port: u16) -> Result<TlsAuditResult, String> {
-        let mut result = TlsAuditResult {
-            host: host.to_string(),
-            port,
-            supported_versions: Vec::new(),
-            supported_ciphers: Vec::new(),
-            vulnerabilities: Vec::new(),
-            certificate_valid: false,
-            certificate_chain: Vec::new(),
-            negotiated_version: None,
-            negotiated_cipher: None,
-            negotiated_cipher_code: None,
-            negotiated_cipher_strength: None,
-            ja3: None,
-            ja3s: None,
-            ja3_raw: None,
-            ja3s_raw: None,
-            peer_fingerprints: Vec::new(),
-            certificate_chain_pem: Vec::new(),
-        };
+  /// Run full TLS audit
+  pub fn audit(&self, host: &str, port: u16) -> Result<TlsAuditResult, String> {
+    let mut result = TlsAuditResult {
+      host: host.to_string(),
+      port,
+      supported_versions: Vec::new(),
+      supported_ciphers: Vec::new(),
+      vulnerabilities: Vec::new(),
+      certificate_valid: false,
+      certificate_chain: Vec::new(),
+      negotiated_version: None,
+      negotiated_cipher: None,
+      negotiated_cipher_code: None,
+      negotiated_cipher_strength: None,
+      ja3: None,
+      ja3s: None,
+      ja3_raw: None,
+      ja3s_raw: None,
+      peer_fingerprints: Vec::new(),
+      certificate_chain_pem: Vec::new(),
+    };
 
-        let scanner = TlsScanner::with_timeout(self.timeout);
-        let scan_results = scanner.scan_all(host, port)?;
-        result.supported_versions = scan_results
-            .iter()
-            .map(|r| TlsVersionInfo {
-                version: r.version.as_str().to_string(),
-                supported: r.supported,
-                error: r.error.clone(),
-            })
-            .collect();
+    let scanner = TlsScanner::with_timeout(self.timeout);
+    let scan_results = scanner.scan_all(host, port)?;
+    result.supported_versions = scan_results
+      .iter()
+      .map(|r| TlsVersionInfo {
+        version: r.version.as_str().to_string(),
+        supported: r.supported,
+        error: r.error.clone(),
+      })
+      .collect();
 
-        // Flag legacy protocol support as vulnerabilities
-        for version in &result.supported_versions {
-            if !version.supported {
-                continue;
-            }
-            match version.version.as_str() {
+    // Flag legacy protocol support as vulnerabilities
+    for version in &result.supported_versions {
+      if !version.supported {
+        continue;
+      }
+      match version.version.as_str() {
                 "TLS 1.0" => self.ensure_vulnerability(
                     &mut result.vulnerabilities,
                     "Legacy protocol enabled (TLS 1.0)",
@@ -146,280 +146,279 @@ impl TlsAuditor {
                 ),
                 _ => {}
             }
+    }
+
+    result.supported_ciphers = self.extract_cipher_info(&scan_results);
+
+    let scanner_issues = scanner.check_vulnerabilities(&scan_results);
+    result.vulnerabilities = scanner_issues
+      .into_iter()
+      .map(|issue| self.convert_issue(issue))
+      .collect();
+
+    let mut handshake_ja3 = None;
+    let mut handshake_ja3_raw = None;
+    let mut handshake_ja3s = None;
+    let mut handshake_ja3s_raw = None;
+    let mut handshake_fingerprints: Vec<String> = Vec::new();
+    let mut handshake_pem: Vec<String> = Vec::new();
+
+    let (tls12_supported, tls12_error, negotiated_cipher, certs_from_tls) =
+      match Tls12Client::connect_with_timeout(host, port, self.timeout) {
+        Ok(client) => {
+          handshake_ja3 = client.ja3().map(|s| s.to_string());
+          handshake_ja3_raw = client.ja3_raw().map(|s| s.to_string());
+          handshake_ja3s = client.ja3s().map(|s| s.to_string());
+          handshake_ja3s_raw = client.ja3s_raw().map(|s| s.to_string());
+          handshake_fingerprints = client.peer_certificate_fingerprints();
+          handshake_pem = client.certificate_chain_pem();
+
+          let cipher = client.selected_cipher_suite();
+          let certificates = client
+            .peer_certificates()
+            .iter()
+            .map(CertificateInfo::from)
+            .collect::<Vec<_>>();
+          (true, None, cipher, Some(certificates))
         }
+        Err(err) => (false, Some(err.clone()), None, None),
+      };
 
-        result.supported_ciphers = self.extract_cipher_info(&scan_results);
-
-        let scanner_issues = scanner.check_vulnerabilities(&scan_results);
-        result.vulnerabilities = scanner_issues
-            .into_iter()
-            .map(|issue| self.convert_issue(issue))
-            .collect();
-
-        let mut handshake_ja3 = None;
-        let mut handshake_ja3_raw = None;
-        let mut handshake_ja3s = None;
-        let mut handshake_ja3s_raw = None;
-        let mut handshake_fingerprints: Vec<String> = Vec::new();
-        let mut handshake_pem: Vec<String> = Vec::new();
-
-        let (tls12_supported, tls12_error, negotiated_cipher, certs_from_tls) =
-            match Tls12Client::connect_with_timeout(host, port, self.timeout) {
-                Ok(client) => {
-                    handshake_ja3 = client.ja3().map(|s| s.to_string());
-                    handshake_ja3_raw = client.ja3_raw().map(|s| s.to_string());
-                    handshake_ja3s = client.ja3s().map(|s| s.to_string());
-                    handshake_ja3s_raw = client.ja3s_raw().map(|s| s.to_string());
-                    handshake_fingerprints = client.peer_certificate_fingerprints();
-                    handshake_pem = client.certificate_chain_pem();
-
-                    let cipher = client.selected_cipher_suite();
-                    let certificates = client
-                        .peer_certificates()
-                        .iter()
-                        .map(CertificateInfo::from)
-                        .collect::<Vec<_>>();
-                    (true, None, cipher, Some(certificates))
-                }
-                Err(err) => (false, Some(err.clone()), None, None),
-            };
-
-        if let Some(version_info) = result
-            .supported_versions
-            .iter_mut()
-            .find(|v| v.version == "TLS 1.2")
-        {
-            version_info.supported = tls12_supported;
-            if let Some(err) = tls12_error.clone() {
-                version_info.error = Some(err.clone());
-                if tls12_supported {
-                    version_info.supported = false;
-                }
-            }
-        }
-
+    if let Some(version_info) = result
+      .supported_versions
+      .iter_mut()
+      .find(|v| v.version == "TLS 1.2")
+    {
+      version_info.supported = tls12_supported;
+      if let Some(err) = tls12_error.clone() {
+        version_info.error = Some(err.clone());
         if tls12_supported {
-            result.negotiated_version = Some("TLS 1.2".to_string());
-            if let Some(code) = negotiated_cipher {
-                let (name, strength) = cipher_meta(code);
-                result.negotiated_cipher = Some(name.clone());
-                result.negotiated_cipher_code = Some(code);
-                result.negotiated_cipher_strength = Some(strength.clone());
-                if !result
-                    .supported_ciphers
-                    .iter()
-                    .any(|cipher| cipher.code == code)
-                {
-                    result.supported_ciphers.push(CipherInfo {
-                        name,
-                        code,
-                        strength,
-                    });
-                }
-            }
-        } else if let Some(err) = tls12_error.clone() {
-            result.vulnerabilities.push(Vulnerability {
-                name: "TLS 1.2 Handshake Failed".to_string(),
-                severity: Severity::High,
-                description: format!(
-                    "Unable to complete TLS 1.2 handshake: {}. Server may require legacy protocol.",
-                    err
-                ),
-            });
+          version_info.supported = false;
         }
-
-        if let Some(chain) = certs_from_tls {
-            result.certificate_valid =
-                validate_certificate_chain(&chain, &mut result.vulnerabilities);
-            result.certificate_chain = chain;
-        } else {
-            let tls_client = TlsClient::new();
-            if let Ok(chain) = tls_client.get_certificate_chain(host, port) {
-                result.certificate_valid =
-                    validate_certificate_chain(&chain, &mut result.vulnerabilities);
-                result.certificate_chain = chain;
-            }
-        }
-
-        result.ja3 = handshake_ja3;
-        result.ja3_raw = handshake_ja3_raw;
-        result.ja3s = handshake_ja3s;
-        result.ja3s_raw = handshake_ja3s_raw;
-        result.peer_fingerprints = handshake_fingerprints;
-        result.certificate_chain_pem = handshake_pem;
-
-        Ok(result)
+      }
     }
 
-    fn convert_issue(&self, issue: SecurityIssue) -> Vulnerability {
-        Vulnerability {
-            name: issue.title,
-            severity: issue.severity,
-            description: issue.description,
+    if tls12_supported {
+      result.negotiated_version = Some("TLS 1.2".to_string());
+      if let Some(code) = negotiated_cipher {
+        let (name, strength) = cipher_meta(code);
+        result.negotiated_cipher = Some(name.clone());
+        result.negotiated_cipher_code = Some(code);
+        result.negotiated_cipher_strength = Some(strength.clone());
+        if !result
+          .supported_ciphers
+          .iter()
+          .any(|cipher| cipher.code == code)
+        {
+          result.supported_ciphers.push(CipherInfo {
+            name,
+            code,
+            strength,
+          });
         }
+      }
+    } else if let Some(err) = tls12_error.clone() {
+      result.vulnerabilities.push(Vulnerability {
+        name: "TLS 1.2 Handshake Failed".to_string(),
+        severity: Severity::High,
+        description: format!(
+          "Unable to complete TLS 1.2 handshake: {}. Server may require legacy protocol.",
+          err
+        ),
+      });
     }
 
-    fn extract_cipher_info(
-        &self,
-        results: &[crate::modules::tls::scanner::ProtocolScanResult],
-    ) -> Vec<CipherInfo> {
-        let mut ciphers = Vec::new();
-        for result in results {
-            if !result.supported {
-                continue;
-            }
-            if result.version != TlsVersion::TLS12 {
-                continue;
-            }
-            for cipher in &result.supported_ciphers {
-                ciphers.push(CipherInfo {
-                    name: cipher.name.clone(),
-                    code: cipher.id,
-                    strength: cipher.strength.clone(),
-                });
-            }
-        }
-        ciphers
+    if let Some(chain) = certs_from_tls {
+      result.certificate_valid = validate_certificate_chain(&chain, &mut result.vulnerabilities);
+      result.certificate_chain = chain;
+    } else {
+      let tls_client = TlsClient::new();
+      if let Ok(chain) = tls_client.get_certificate_chain(host, port) {
+        result.certificate_valid = validate_certificate_chain(&chain, &mut result.vulnerabilities);
+        result.certificate_chain = chain;
+      }
     }
 
-    fn ensure_vulnerability(
-        &self,
-        list: &mut Vec<Vulnerability>,
-        name: &str,
-        severity: Severity,
-        description: String,
-    ) {
-        if list.iter().any(|v| v.name == name) {
-            return;
-        }
-        list.push(Vulnerability {
-            name: name.to_string(),
-            severity,
-            description,
+    result.ja3 = handshake_ja3;
+    result.ja3_raw = handshake_ja3_raw;
+    result.ja3s = handshake_ja3s;
+    result.ja3s_raw = handshake_ja3s_raw;
+    result.peer_fingerprints = handshake_fingerprints;
+    result.certificate_chain_pem = handshake_pem;
+
+    Ok(result)
+  }
+
+  fn convert_issue(&self, issue: SecurityIssue) -> Vulnerability {
+    Vulnerability {
+      name: issue.title,
+      severity: issue.severity,
+      description: issue.description,
+    }
+  }
+
+  fn extract_cipher_info(
+    &self,
+    results: &[crate::modules::tls::scanner::ProtocolScanResult],
+  ) -> Vec<CipherInfo> {
+    let mut ciphers = Vec::new();
+    for result in results {
+      if !result.supported {
+        continue;
+      }
+      if result.version != TlsVersion::TLS12 {
+        continue;
+      }
+      for cipher in &result.supported_ciphers {
+        ciphers.push(CipherInfo {
+          name: cipher.name.clone(),
+          code: cipher.id,
+          strength: cipher.strength.clone(),
         });
+      }
     }
+    ciphers
+  }
+
+  fn ensure_vulnerability(
+    &self,
+    list: &mut Vec<Vulnerability>,
+    name: &str,
+    severity: Severity,
+    description: String,
+  ) {
+    if list.iter().any(|v| v.name == name) {
+      return;
+    }
+    list.push(Vulnerability {
+      name: name.to_string(),
+      severity,
+      description,
+    });
+  }
 }
 
 impl Default for TlsAuditor {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 fn validate_certificate_chain(chain: &[CertificateInfo], vulns: &mut Vec<Vulnerability>) -> bool {
-    if chain.is_empty() {
+  if chain.is_empty() {
+    vulns.push(Vulnerability {
+      name: "No Certificate Presented".to_string(),
+      severity: Severity::Critical,
+      description: "Server did not present any certificate during the TLS handshake.".to_string(),
+    });
+    return false;
+  }
+
+  let mut overall_valid = true;
+
+  for (index, cert) in chain.iter().enumerate() {
+    if TlsClient::is_not_yet_valid(cert) {
+      overall_valid = false;
+      vulns.push(Vulnerability {
+        name: format!("Certificate Not Yet Valid (#{} in chain)", index + 1),
+        severity: Severity::Medium,
+        description: format!(
+          "Certificate for '{}' is not valid until {}.",
+          cert.subject, cert.valid_from
+        ),
+      });
+    }
+
+    if TlsClient::is_expired(cert) {
+      overall_valid = false;
+      vulns.push(Vulnerability {
+        name: format!("Expired Certificate (#{} in chain)", index + 1),
+        severity: Severity::High,
+        description: format!(
+          "Certificate for '{}' expired on {}.",
+          cert.subject, cert.valid_until
+        ),
+      });
+    }
+
+    if index + 1 < chain.len() {
+      let next = &chain[index + 1];
+      if cert.issuer != next.subject {
+        overall_valid = false;
         vulns.push(Vulnerability {
-            name: "No Certificate Presented".to_string(),
-            severity: Severity::Critical,
-            description: "Server did not present any certificate during the TLS handshake."
-                .to_string(),
+          name: "Broken Certificate Chain".to_string(),
+          severity: Severity::High,
+          description: format!(
+            "Issuer '{}' does not match next certificate subject '{}'.",
+            cert.issuer, next.subject
+          ),
         });
-        return false;
+      }
+    } else if !TlsClient::is_self_signed(cert) {
+      vulns.push(Vulnerability {
+        name: "Untrusted Root".to_string(),
+        severity: Severity::Medium,
+        description: format!(
+          "Terminal certificate '{}' is not self-signed; root CA may be missing from the chain.",
+          cert.subject
+        ),
+      });
     }
+  }
 
-    let mut overall_valid = true;
+  if chain.len() == 1 {
+    vulns.push(Vulnerability {
+      name: "Single-certificate Chain".to_string(),
+      severity: Severity::Low,
+      description:
+        "Server delivered only the leaf certificate; browsers may fail without intermediates."
+          .to_string(),
+    });
+  }
 
-    for (index, cert) in chain.iter().enumerate() {
-        if TlsClient::is_not_yet_valid(cert) {
-            overall_valid = false;
-            vulns.push(Vulnerability {
-                name: format!("Certificate Not Yet Valid (#{} in chain)", index + 1),
-                severity: Severity::Medium,
-                description: format!(
-                    "Certificate for '{}' is not valid until {}.",
-                    cert.subject, cert.valid_from
-                ),
-            });
-        }
-
-        if TlsClient::is_expired(cert) {
-            overall_valid = false;
-            vulns.push(Vulnerability {
-                name: format!("Expired Certificate (#{} in chain)", index + 1),
-                severity: Severity::High,
-                description: format!(
-                    "Certificate for '{}' expired on {}.",
-                    cert.subject, cert.valid_until
-                ),
-            });
-        }
-
-        if index + 1 < chain.len() {
-            let next = &chain[index + 1];
-            if cert.issuer != next.subject {
-                overall_valid = false;
-                vulns.push(Vulnerability {
-                    name: "Broken Certificate Chain".to_string(),
-                    severity: Severity::High,
-                    description: format!(
-                        "Issuer '{}' does not match next certificate subject '{}'.",
-                        cert.issuer, next.subject
-                    ),
-                });
-            }
-        } else if !TlsClient::is_self_signed(cert) {
-            vulns.push(Vulnerability {
-                name: "Untrusted Root".to_string(),
-                severity: Severity::Medium,
-                description: format!(
-                    "Terminal certificate '{}' is not self-signed; root CA may be missing from the chain.",
-                    cert.subject
-                ),
-            });
-        }
-    }
-
-    if chain.len() == 1 {
-        vulns.push(Vulnerability {
-            name: "Single-certificate Chain".to_string(),
-            severity: Severity::Low,
-            description: "Server delivered only the leaf certificate; browsers may fail without intermediates.".to_string(),
-        });
-    }
-
-    overall_valid
+  overall_valid
 }
 
 fn cipher_meta(code: u16) -> (String, CipherStrength) {
-    match code {
-        0xC02F => (
-            "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256".to_string(),
-            CipherStrength::Secure,
-        ),
-        0xC030 => (
-            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".to_string(),
-            CipherStrength::Secure,
-        ),
-        0x003C => (
-            "TLS_RSA_WITH_AES_128_CBC_SHA256".to_string(),
-            CipherStrength::Weak,
-        ),
-        0x003D => (
-            "TLS_RSA_WITH_AES_256_CBC_SHA256".to_string(),
-            CipherStrength::Weak,
-        ),
-        0x002F => (
-            "TLS_RSA_WITH_AES_128_CBC_SHA".to_string(),
-            CipherStrength::Insecure,
-        ),
-        other => (format!("0x{:04X}", other), CipherStrength::Weak),
-    }
+  match code {
+    0xC02F => (
+      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256".to_string(),
+      CipherStrength::Secure,
+    ),
+    0xC030 => (
+      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384".to_string(),
+      CipherStrength::Secure,
+    ),
+    0x003C => (
+      "TLS_RSA_WITH_AES_128_CBC_SHA256".to_string(),
+      CipherStrength::Weak,
+    ),
+    0x003D => (
+      "TLS_RSA_WITH_AES_256_CBC_SHA256".to_string(),
+      CipherStrength::Weak,
+    ),
+    0x002F => (
+      "TLS_RSA_WITH_AES_128_CBC_SHA".to_string(),
+      CipherStrength::Insecure,
+    ),
+    other => (format!("0x{:04X}", other), CipherStrength::Weak),
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_auditor_creation() {
-        let auditor = TlsAuditor::new();
-        assert_eq!(auditor.timeout.as_secs(), 10);
-    }
+  #[test]
+  fn test_auditor_creation() {
+    let auditor = TlsAuditor::new();
+    assert_eq!(auditor.timeout.as_secs(), 10);
+  }
 
-    #[test]
-    fn test_cipher_strength() {
-        let weak = CipherStrength::Weak;
-        let secure = CipherStrength::Secure;
-        assert_ne!(weak, secure);
-    }
+  #[test]
+  fn test_cipher_strength() {
+    let weak = CipherStrength::Weak;
+    let secure = CipherStrength::Secure;
+    assert_ne!(weak, secure);
+  }
 }

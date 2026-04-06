@@ -32,8 +32,8 @@ pub mod spill;
 
 pub use aggregates::{AggCacheStats, AggValue, AggregationCache, CardinalityEstimate, NumericAgg};
 pub use result::{
-    CacheKey, CachePolicy, MaterializedViewCache, MaterializedViewDef, RefreshPolicy, ResultCache,
-    ResultCacheStats,
+  CacheKey, CachePolicy, MaterializedViewCache, MaterializedViewDef, RefreshPolicy, ResultCache,
+  ResultCacheStats,
 };
 pub use sieve::{CacheConfig, CacheStats, PageCache, PageId};
 pub use spill::{SpillConfig, SpillError, SpillManager, SpillStats, SpillableGraph};

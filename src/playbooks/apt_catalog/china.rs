@@ -16,7 +16,7 @@ use crate::scripts::FindingSeverity;
 /// Aliases: APT3, Gothic Panda, Pirpi, UPS Team, Buckeye
 /// Techniques: 44
 pub fn apt3() -> Playbook {
-    Playbook::new("apt3", "APT3 Adversary Emulation")
+  Playbook::new("apt3", "APT3 Adversary Emulation")
         .with_description("APT3 is a China-based threat group that researchers have attributed to China's Ministry of State Security.(Citation: FireEye Cland...")
         .with_objective("Emulate APT3 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -142,7 +142,7 @@ pub fn apt3() -> Playbook {
 /// Aliases: APT41, Wicked Panda, Brass Typhoon, BARIUM
 /// Techniques: 82
 pub fn apt41() -> Playbook {
-    Playbook::new("apt41", "APT41 Adversary Emulation")
+  Playbook::new("apt41", "APT41 Adversary Emulation")
         .with_description("APT41 is a threat group that researchers have assessed as Chinese state-sponsored espionage group that also conducts financially-m...")
         .with_objective("Emulate APT41 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -268,7 +268,7 @@ pub fn apt41() -> Playbook {
 /// Aliases: Volt Typhoon, BRONZE SILHOUETTE, Vanguard Panda, DEV-0391, UNC3236
 /// Techniques: 81
 pub fn volt_typhoon() -> Playbook {
-    Playbook::new("volt-typhoon", "Volt Typhoon Adversary Emulation")
+  Playbook::new("volt-typhoon", "Volt Typhoon Adversary Emulation")
         .with_description("Volt Typhoon is a People's Republic of China (PRC) state-sponsored actor that has been active since at least 2021 primarily target...")
         .with_objective("Emulate Volt Typhoon TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)

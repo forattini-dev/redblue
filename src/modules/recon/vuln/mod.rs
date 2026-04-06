@@ -32,7 +32,7 @@ pub mod types;
 
 pub use crate::modules::common::Severity;
 pub use correlator::{
-    correlate_techs, CorrelationReport, CorrelatorConfig, TechCorrelation, VulnCorrelator,
+  correlate_techs, CorrelationReport, CorrelatorConfig, TechCorrelation, VulnCorrelator,
 };
 pub use cpe::{find_cpe, generate_cpe, get_all_cpe_mappings, CpeMapping, TechCategory};
 pub use exploitdb::ExploitDbClient;

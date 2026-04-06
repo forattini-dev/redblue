@@ -41,33 +41,33 @@ pub use fuzzer::{FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, Wo
 pub use scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 pub use scraper::{ExtractType, ExtractedValue, ScrapeConfig, ScrapeResult, ScrapeRule, Scraper};
 pub use strategies::{
-    DirectusScanResult, DirectusScanner, DrupalScanResult, DrupalScanner, GhostScanResult,
-    GhostScanner, JoomlaScanResult, JoomlaScanner, StrapiScanResult, StrapiScanner, WPScanResult,
-    WPScanner,
+  DirectusScanResult, DirectusScanner, DrupalScanResult, DrupalScanner, GhostScanResult,
+  GhostScanner, JoomlaScanResult, JoomlaScanner, StrapiScanResult, StrapiScanner, WPScanResult,
+  WPScanner,
 };
 pub use vuln_scanner::{ScanResult as VulnScanResult, WebScanner};
 
 // SQL injection testing
 pub use sqli::{
-    payloads::{Dbms, RiskLevel, SqliPayload, SqliTechnique},
-    tamper::{TamperScript, TAMPER_SCRIPTS},
-    techniques::{DetectionConfig, DetectionResult, InjectionPoint},
-    ScanConfig as SqliScanConfig, ScanResult as SqliScanResult, SqliScanner,
+  payloads::{Dbms, RiskLevel, SqliPayload, SqliTechnique},
+  tamper::{TamperScript, TAMPER_SCRIPTS},
+  techniques::{DetectionConfig, DetectionResult, InjectionPoint},
+  ScanConfig as SqliScanConfig, ScanResult as SqliScanResult, SqliScanner,
 };
 
 // NoSQL injection testing
 pub use nosqli::{
-    payloads::{NoSqlDb, NoSqlPayload, NoSqlTechnique, RiskLevel as NoSqlRiskLevel},
-    techniques::{
-        DetectionConfig as NoSqlDetectionConfig, DetectionResult as NoSqlDetectionResult,
-        InjectionPoint as NoSqlInjectionPoint,
-    },
-    AuthBypassScanner, JsonBodyScanner, NoSqliScanner, ScanConfig as NoSqlScanConfig,
-    ScanResult as NoSqlScanResult,
+  payloads::{NoSqlDb, NoSqlPayload, NoSqlTechnique, RiskLevel as NoSqlRiskLevel},
+  techniques::{
+    DetectionConfig as NoSqlDetectionConfig, DetectionResult as NoSqlDetectionResult,
+    InjectionPoint as NoSqlInjectionPoint,
+  },
+  AuthBypassScanner, JsonBodyScanner, NoSqliScanner, ScanConfig as NoSqlScanConfig,
+  ScanResult as NoSqlScanResult,
 };
 
 // Recursive content discovery
 pub use recursive::{
-    DiscoveredResource, DiscoverySource, ExtractedLink, LinkExtractor, LinkSource, QueuedUrl,
-    RecursionQueue, RecursiveScanConfig, RecursiveScanner, ScannerState,
+  DiscoveredResource, DiscoverySource, ExtractedLink, LinkExtractor, LinkSource, QueuedUrl,
+  RecursionQueue, RecursiveScanConfig, RecursiveScanner, ScannerState,
 };

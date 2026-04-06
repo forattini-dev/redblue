@@ -52,14 +52,13 @@ pub(crate) mod unified;
 
 // Public surface re-used by the rest of the codebase.
 pub use client::{
-    ActionConfig, ActionRecorder, PasswordSource, PersistenceConfig, PersistenceManager,
-    QueryManager,
+  ActionConfig, ActionRecorder, PasswordSource, PersistenceConfig, PersistenceManager, QueryManager,
 };
 pub use keyring::{clear_keyring, has_keyring_password, resolve_password, save_to_keyring};
 pub use records::{
-    PortScanRecord, PortStatus, ProxyConnectionRecord, ProxyHttpRequestRecord,
-    ProxyHttpResponseRecord, ProxyWebSocketRecord, SubdomainRecord, SubdomainSource, TlsCertRecord,
-    WhoisRecord,
+  PortScanRecord, PortStatus, ProxyConnectionRecord, ProxyHttpRequestRecord,
+  ProxyHttpResponseRecord, ProxyWebSocketRecord, SubdomainRecord, SubdomainSource, TlsCertRecord,
+  WhoisRecord,
 };
 pub use service::{PartitionKey, PartitionMetadata, StorageService};
 pub use session::{SessionFile, SessionMetadata};
@@ -67,12 +66,12 @@ pub use unified::RedDB;
 
 // Unified intelligence layer exports
 pub use segments::actions::{
-    ActionOutcome, ActionRecord, ActionSource, ActionTrace, ActionType, IntoActionRecord,
-    RecordPayload, Target,
+  ActionOutcome, ActionRecord, ActionSource, ActionTrace, ActionType, IntoActionRecord,
+  RecordPayload, Target,
 };
 pub use segments::convert::{
-    DnsResults, FingerprintResults, HttpResults, PingResults, PortScanResults, TlsAuditResults,
-    VulnResults, WhoisResults,
+  DnsResults, FingerprintResults, HttpResults, PingResults, PortScanResults, TlsAuditResults,
+  VulnResults, WhoisResults,
 };
 
 // =============================================================================
@@ -85,91 +84,91 @@ pub use segments::convert::{
 // Use `storage::Store` and `storage::Query` for all new code.
 
 pub use unified::{
-    AdjacencyEntry,
-    CrossRef,
-    DslFilter,
-    DslQueryResult as QueryResult,
-    EdgeData,
-    EdgeDirection,
-    EmbeddingSlot,
-    EntityData,
-    // Entity types - Universal data model
-    EntityId,
-    EntityKind,
-    FilterOp,
-    FilterValue,
-    // Graph adjacency index
-    GraphAdjacencyIndex,
-    GraphQueryBuilder,
-    HybridQueryBuilder,
-    IndexEvent,
-    IndexEventKind,
+  AdjacencyEntry,
+  CrossRef,
+  DslFilter,
+  DslQueryResult as QueryResult,
+  EdgeData,
+  EdgeDirection,
+  EmbeddingSlot,
+  EntityData,
+  // Entity types - Universal data model
+  EntityId,
+  EntityKind,
+  FilterOp,
+  FilterValue,
+  // Graph adjacency index
+  GraphAdjacencyIndex,
+  GraphQueryBuilder,
+  HybridQueryBuilder,
+  IndexEvent,
+  IndexEventKind,
 
-    IndexStats,
-    IndexStatus,
-    // Index lifecycle management
-    IndexType,
-    IntegratedIndexConfig as IndexConfig,
-    IntegratedIndexConfig,
+  IndexStats,
+  IndexStatus,
+  // Index lifecycle management
+  IndexType,
+  IntegratedIndexConfig as IndexConfig,
+  IntegratedIndexConfig,
 
-    // Index Manager - Unified indexing (HNSW + Inverted + B-tree + Graph)
-    IntegratedIndexManager as IndexManager,
-    IntegratedIndexManager,
-    InvertedIndex,
-    LifecycleEvent,
+  // Index Manager - Unified indexing (HNSW + Inverted + B-tree + Graph)
+  IntegratedIndexManager as IndexManager,
+  IntegratedIndexManager,
+  InvertedIndex,
+  LifecycleEvent,
 
-    ManagerConfig,
-    ManagerStats,
-    MatchComponents,
+  ManagerConfig,
+  ManagerStats,
+  MatchComponents,
 
-    // Metadata
-    Metadata,
-    MetadataQueryFilter,
-    MetadataStorage,
-    MetadataType,
+  // Metadata
+  Metadata,
+  MetadataQueryFilter,
+  MetadataStorage,
+  MetadataType,
 
-    MetadataValue,
-    NodeData,
-    QueryResultItem,
-    RefQueryBuilder,
-    RefType,
+  MetadataValue,
+  NodeData,
+  QueryResultItem,
+  RefQueryBuilder,
+  RefType,
 
-    RowData,
-    ScanQueryBuilder,
-    ScoredMatch,
-    SegmentConfig as UnifiedSegmentConfig,
-    SegmentError,
+  RowData,
+  ScanQueryBuilder,
+  ScoredMatch,
+  SegmentConfig as UnifiedSegmentConfig,
+  SegmentError,
 
-    SegmentId as UnifiedSegmentId,
-    // Manager
-    SegmentManager,
-    SegmentState,
-    SegmentStats,
-    SortOrder,
-    SparseVector,
-    StoreError,
+  SegmentId as UnifiedSegmentId,
+  // Manager
+  SegmentManager,
+  SegmentState,
+  SegmentStats,
+  SortOrder,
+  SparseVector,
+  StoreError,
 
-    StoreStats,
-    TableQueryBuilder,
-    TextSearchBuilder,
-    TextSearchResult,
-    TraversalDirection,
-    UnifiedEntity,
-    UnifiedEntity as Entity,
-    UnifiedMetadataFilter,
-    // Segments
-    UnifiedSegment,
-    // =========================================================================
-    // PRIMARY INTERFACE - Use these for all new code
-    // =========================================================================
+  StoreStats,
+  TableQueryBuilder,
+  TextSearchBuilder,
+  TextSearchResult,
+  TraversalDirection,
+  UnifiedEntity,
+  UnifiedEntity as Entity,
+  UnifiedMetadataFilter,
+  // Segments
+  UnifiedSegment,
+  // =========================================================================
+  // PRIMARY INTERFACE - Use these for all new code
+  // =========================================================================
 
-    // Store - THE primary storage interface
-    UnifiedStore as Store,
-    VectorData,
-    // Query builders (for advanced use)
-    VectorQueryBuilder,
-    VectorSearchResult,
-    WhereClause,
-    // Query DSL - Entry point for all queries
-    Q as Query,
+  // Store - THE primary storage interface
+  UnifiedStore as Store,
+  VectorData,
+  // Query builders (for advanced use)
+  VectorQueryBuilder,
+  VectorSearchResult,
+  WhereClause,
+  // Query DSL - Entry point for all queries
+  Q as Query,
 };

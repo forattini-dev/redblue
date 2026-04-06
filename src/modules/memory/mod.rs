@@ -43,10 +43,10 @@ pub use scanner::{ScanResult, ScanType, Scanner, ValueType};
 // Hex editor exports
 pub use buffer::{Delta, Page, PagedBuffer, PAGE_SIZE};
 pub use search::{
-    replace, replace_all, search_simple, search_text, BoyerMooreSearcher, SearchResult,
+  replace, replace_all, search_simple, search_text, BoyerMooreSearcher, SearchResult,
 };
 pub use source::{
-    BufferSource, DataSource, FileSource, ProcessMemorySource, SourceError, SourceResult,
+  BufferSource, DataSource, FileSource, ProcessMemorySource, SourceError, SourceResult,
 };
 pub use types::{DataInterpreter, DataValue, Endian};
 pub use undo::{UndoEntry, UndoError, UndoResult, UndoStack};

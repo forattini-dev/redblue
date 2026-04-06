@@ -101,6 +101,35 @@ function kebabToCamel(value) {
   return String(value).replace(/[-_]+([a-zA-Z0-9])/g, (_, ch) => ch.toUpperCase());
 }
 
+function levenshtein(a, b) {
+  const source = String(a);
+  const target = String(b);
+  const rows = Array.from({ length: source.length + 1 }, () =>
+    new Array(target.length + 1).fill(0)
+  );
+
+  for (let i = 0; i <= source.length; i += 1) {
+    rows[i][0] = i;
+  }
+
+  for (let j = 0; j <= target.length; j += 1) {
+    rows[0][j] = j;
+  }
+
+  for (let i = 1; i <= source.length; i += 1) {
+    for (let j = 1; j <= target.length; j += 1) {
+      const cost = source[i - 1] === target[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        rows[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return rows[source.length][target.length];
+}
+
 function ensureObject(value, label) {
   if (value == null) {
     return {};
@@ -795,15 +824,101 @@ function formatWrapperBinaryStatus(result) {
   return 'redblue binary status unavailable';
 }
 
-function formatWrapperHelp() {
-  return [
+function formatManifestOptionFlag(option = {}) {
+  if (!option || typeof option.long !== 'string' || option.long.length === 0) {
+    return null;
+  }
+
+  return option.short ? `--${option.long}, -${option.short}` : `--${option.long}`;
+}
+
+function formatManifestHelpSummary(manifest = {}) {
+  if (!manifest || typeof manifest !== 'object') {
+    return '';
+  }
+
+  const lines = [];
+  const grammar =
+    typeof manifest.canonical_grammar === 'string' && manifest.canonical_grammar.trim().length > 0
+      ? manifest.canonical_grammar.trim()
+      : 'rb <domain> <resource> <verb> [target] [args...] [flags]';
+
+  lines.push('redblue CLI');
+  lines.push(`  ${grammar}`);
+
+  const globalOptions = Array.isArray(manifest.global_options) ? manifest.global_options : [];
+  if (globalOptions.length > 0) {
+    lines.push('');
+    lines.push('Global redblue options:');
+    for (const option of globalOptions) {
+      const flagLabel = formatManifestOptionFlag(option);
+      if (!flagLabel) {
+        continue;
+      }
+      const description =
+        typeof option.description === 'string' && option.description.length > 0
+          ? option.description
+          : 'Global CLI option';
+      lines.push(`  ${flagLabel.padEnd(18)} ${description}`);
+    }
+  }
+
+  const domains = buildDomainCatalog(manifest);
+  if (domains.length > 0) {
+    lines.push('');
+    lines.push('Canonical domains:');
+    for (const domain of domains.slice(0, 8)) {
+      const resources = (domain.resources || []).map((resource) => resource.name);
+      const domainLabel =
+        Array.isArray(domain.aliases) && domain.aliases.length > 0
+          ? `${domain.name} (${domain.aliases.join(', ')})`
+          : domain.name;
+      const resourceLabel = resources.length > 0 ? resources.join(', ') : 'no resources registered';
+      lines.push(`  ${domainLabel.padEnd(18)} ${resourceLabel}`);
+    }
+  }
+
+  const commandExamples = Array.isArray(manifest.commands)
+    ? manifest.commands
+        .flatMap((command) => (Array.isArray(command.examples) ? command.examples : []))
+        .slice(0, 4)
+    : [];
+  if (commandExamples.length > 0) {
+    lines.push('');
+    lines.push('Examples:');
+    for (const example of commandExamples) {
+      if (!example || typeof example.command !== 'string') {
+        continue;
+      }
+      const summary =
+        typeof example.summary === 'string' && example.summary.length > 0
+          ? `${example.summary}: `
+          : '';
+      lines.push(`  ${summary}${example.command}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatWrapperHelp(manifest = null) {
+  const lines = [
     'redblue-cli wrapper',
     '',
     'Usage:',
     '  rb [wrapper options] [redblue args]',
     '  npx redblue-cli [redblue args]',
     '  npm exec --package redblue-cli rb -- [redblue args]',
-    '',
+    ''
+  ];
+
+  const manifestSummary = formatManifestHelpSummary(manifest);
+  if (manifestSummary.length > 0) {
+    lines.push(manifestSummary);
+    lines.push('');
+  }
+
+  lines.push(
     'Wrapper options:',
     '  --binary-path <path>     Use an explicit redblue binary',
     '  --target-dir <dir>       Resolve or install the managed binary in this directory',
@@ -830,7 +945,9 @@ function formatWrapperHelp() {
     '  Use "rb --version" to query the real redblue binary version after installation.',
     '  The exact command "npx rb" only works when a package named "rb" exists or when this package is already installed and exposes the rb bin.',
     ''
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 function waitForChild(child) {
@@ -848,6 +965,44 @@ function waitForChild(child) {
   });
 }
 
+function looksLikeCanonicalCommandArgs(argv) {
+  return (
+    Array.isArray(argv) &&
+    argv.length >= 3 &&
+    typeof argv[0] === 'string' &&
+    typeof argv[1] === 'string' &&
+    typeof argv[2] === 'string' &&
+    !argv[0].startsWith('-') &&
+    !argv[1].startsWith('-') &&
+    !argv[2].startsWith('-')
+  );
+}
+
+async function validateManifestCommandArgs(argv, options = {}, runtime = {}) {
+  const args = normalizeCliArgv(argv);
+  if (!looksLikeCanonicalCommandArgs(args)) {
+    return null;
+  }
+
+  const defaults = ensureObject(options, 'validateManifestCommandArgs options');
+  const { manifest } = await getManifest(defaults);
+  const proxy = createDomainProxy('__validation__', manifest, defaults);
+  const routeIndex = createRouteIndex(proxy);
+  if (!findRouteInvocation(routeIndex, manifest, args.slice(0, 3))) {
+    const suggestions = suggestRouteCommands(manifest, args.slice(0, 3), 3);
+    const suggestionText =
+      suggestions.length > 0 ? `\nDid you mean:\n  ${suggestions.join('\n  ')}` : '';
+    throw new Error(`Unknown command: ${args.slice(0, 3).join(' ')}${suggestionText}`);
+  }
+
+  const cli = await createManifestCLI(defaults, runtime);
+  const parsed = cli.parse(args);
+  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+    throw new Error(parsed.errors.join('; '));
+  }
+  return parsed;
+}
+
 async function runCli(argv = process.argv.slice(2), runtime = {}) {
   const stdout = runtime.stdout || process.stdout;
   const stderr = runtime.stderr || process.stderr;
@@ -860,7 +1015,13 @@ async function runCli(argv = process.argv.slice(2), runtime = {}) {
     });
 
     if (parsed.wrapperOptions.sdkHelp) {
-      writeLine(stdout, formatWrapperHelp());
+      let manifest = null;
+      try {
+        manifest = (await getManifest(cliOptions)).manifest;
+      } catch (_) {
+        manifest = null;
+      }
+      writeLine(stdout, formatWrapperHelp(manifest));
       return 0;
     }
 
@@ -962,6 +1123,28 @@ function findFlag(command, key) {
   );
 }
 
+function hasLongFlag(args, longName) {
+  return args.some((arg) => arg === `--${longName}` || arg.startsWith(`--${longName}=`));
+}
+
+function routeIdentifier(command, route) {
+  if (route && typeof route.canonical_path === 'string' && route.canonical_path.length > 0) {
+    return route.canonical_path;
+  }
+
+  return `${command.domain}/${command.resource}/${route.verb}`;
+}
+
+function resolveMachineOutput(command, route) {
+  if (route && route.machine_output && typeof route.machine_output === 'object') {
+    return route.machine_output;
+  }
+  if (command && command.machine_output && typeof command.machine_output === 'object') {
+    return command.machine_output;
+  }
+  return {};
+}
+
 function buildInvocation(command, route, input, execOptions) {
   const payload = ensureObject(input, 'route input');
   const args = [command.domain, command.resource, route.verb];
@@ -969,14 +1152,11 @@ function buildInvocation(command, route, input, execOptions) {
   const positionals = Array.isArray(route.positionals) ? route.positionals : [];
   const flags = Array.isArray(command.flags) ? command.flags : [];
   const extraFlags = ensureObject(payload.flags, 'flags');
+  const machineOutput = resolveMachineOutput(command, route);
   const preferredFlag =
-    command.machine_output && typeof command.machine_output.preferred_flag === 'string'
-      ? command.machine_output.preferred_flag
-      : null;
+    typeof machineOutput.preferred_flag === 'string' ? machineOutput.preferred_flag : null;
   const preferredValue =
-    command.machine_output && typeof command.machine_output.preferred_value === 'string'
-      ? command.machine_output.preferred_value
-      : 'json';
+    typeof machineOutput.preferred_value === 'string' ? machineOutput.preferred_value : 'json';
 
   for (const positional of positionals) {
     let value;
@@ -997,7 +1177,7 @@ function buildInvocation(command, route, input, execOptions) {
     if (value === undefined || value === null || value === '') {
       if (positional.required) {
         throw new Error(
-          `Missing required positional "${positional.name}" for ${command.domain} ${command.resource} ${route.verb}`
+          `Missing required positional "${positional.name}" for ${routeIdentifier(command, route)}`
         );
       }
       continue;
@@ -1082,7 +1262,7 @@ function buildInvocation(command, route, input, execOptions) {
   for (const key of Object.keys(extraFlags)) {
     if (!findFlag(command, key)) {
       throw new Error(
-        `Unknown flag "${key}" for ${command.domain} ${command.resource} ${route.verb}`
+        `Unknown flag "${key}" for ${routeIdentifier(command, route)}`
       );
     }
   }
@@ -1101,7 +1281,7 @@ function buildInvocation(command, route, input, execOptions) {
   for (const key of Object.keys(payload)) {
     if (!consumedKeys.has(key) && !knownKeys.has(key) && !findFlag(command, key)) {
       throw new Error(
-        `Unknown parameter "${key}" for ${command.domain} ${command.resource} ${route.verb}`
+        `Unknown parameter "${key}" for ${routeIdentifier(command, route)}`
       );
     }
   }
@@ -1135,7 +1315,7 @@ async function invokeJson(binaryPath, command, route, input, execOptions = {}, d
     return JSON.parse(stdout);
   } catch (error) {
     const wrapped = new Error(
-      `redblue command did not emit valid JSON for ${command.domain} ${command.resource} ${route.verb}: ${error.message}`
+      `redblue command did not emit valid JSON for ${routeIdentifier(command, route)}: ${error.message}`
     );
     wrapped.stdout = stdout;
     wrapped.stderr = result.stderr;
@@ -1152,6 +1332,80 @@ async function invokeRaw(binaryPath, command, route, input, execOptions = {}, de
     timeout: execOptions.timeout || defaults.timeout,
     maxBuffer: execOptions.maxBuffer || defaults.maxBuffer
   });
+}
+
+function normalizeCliArgv(argv) {
+  if (!Array.isArray(argv)) {
+    throw new TypeError('CLI argv must be an array of strings');
+  }
+
+  return argv.map((item) => String(item));
+}
+
+function routeInvocationMeta(routeIndex, manifest, argv) {
+  if (argv.length < 3) {
+    return null;
+  }
+
+  const selector = [argv[0], argv[1], argv[2]];
+  const invocation = findRouteInvocation(routeIndex, manifest, selector);
+  return invocation ? invocation.meta : null;
+}
+
+function buildJsonCliArgs(argv, routeIndex, manifest) {
+  const args = normalizeCliArgv(argv);
+  const meta = routeInvocationMeta(routeIndex, manifest, args);
+
+  if (!hasLongFlag(args, 'json')) {
+    args.push('--json');
+  }
+
+  if (!meta) {
+    return args;
+  }
+
+  const machineOutput = resolveMachineOutput(meta.command, meta.route);
+  const preferredFlag =
+    typeof machineOutput.preferred_flag === 'string' ? machineOutput.preferred_flag : null;
+  const preferredValue =
+    typeof machineOutput.preferred_value === 'string' ? machineOutput.preferred_value : 'json';
+
+  if (preferredFlag && !hasLongFlag(args, preferredFlag)) {
+    args.push(`--${preferredFlag}`, preferredValue);
+  }
+
+  return args;
+}
+
+async function runJson(argv, options = {}) {
+  const defaults = ensureObject(options, 'runJson options');
+  const inputArgv = normalizeCliArgv(argv);
+  const { binaryPath, manifest } = await getManifest(defaults);
+  await validateManifestCommandArgs(inputArgv, defaults, {});
+  const proxy = createDomainProxy(binaryPath, manifest, defaults);
+  const routeIndex = createRouteIndex(proxy);
+  const args = buildJsonCliArgs(inputArgv, routeIndex, manifest);
+  const result = await execFilePromise(binaryPath, args, {
+    cwd: defaults.cwd,
+    env: defaults.env,
+    timeout: defaults.timeout,
+    maxBuffer: defaults.maxBuffer
+  });
+  const stdout = String(result.stdout || '').trim();
+
+  if (!stdout) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    const wrapped = new Error(`redblue command did not emit valid JSON: ${error.message}`);
+    wrapped.stdout = stdout;
+    wrapped.stderr = result.stderr;
+    wrapped.args = args;
+    throw wrapped;
+  }
 }
 
 function attachRoute(container, binaryPath, command, route, defaults) {
@@ -1175,6 +1429,369 @@ function attachRoute(container, binaryPath, command, route, defaults) {
 
   invoke.meta = { command, route };
   container[route.verb] = invoke;
+
+  if (Array.isArray(route.aliases)) {
+    for (const alias of route.aliases) {
+      if (typeof alias === 'string' && alias.length > 0 && !container[alias]) {
+        container[alias] = invoke;
+      }
+    }
+  }
+}
+
+function createRouteIndex(client) {
+  const routes = {};
+
+  for (const [domain, resources] of Object.entries(client)) {
+    if (!resources || typeof resources !== 'object') {
+      continue;
+    }
+
+    for (const [resource, verbs] of Object.entries(resources)) {
+      if (!verbs || typeof verbs !== 'object') {
+        continue;
+      }
+
+      for (const [verb, invocation] of Object.entries(verbs)) {
+        if (typeof invocation !== 'function' || !invocation.meta) {
+          continue;
+        }
+
+        const key = routeIdentifier(invocation.meta.command, invocation.meta.route);
+        routes[key] = invocation;
+
+        const fallbackKey = `${domain}/${resource}/${verb}`;
+        if (!routes[fallbackKey]) {
+          routes[fallbackKey] = invocation;
+        }
+      }
+    }
+  }
+
+  return routes;
+}
+
+function normalizeRouteSelector(selector) {
+  if (Array.isArray(selector)) {
+    if (selector.length !== 3) {
+      throw new Error('Route selector array must contain [domain, resource, verb]');
+    }
+    return selector.map((item) => String(item));
+  }
+
+  if (typeof selector === 'string') {
+    const tokens = selector
+      .split(/[/.:\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (tokens.length !== 3) {
+      throw new Error('Route selector string must contain domain/resource/verb');
+    }
+    return tokens;
+  }
+
+  throw new TypeError('Route selector must be a string or [domain, resource, verb]');
+}
+
+function normalizeTokenSelector(selector) {
+  if (Array.isArray(selector)) {
+    return selector.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (typeof selector === 'string') {
+    return selector
+      .split(/[\/:\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (selector == null) {
+    return [];
+  }
+
+  throw new TypeError('Token selector must be a string, array, or nullish');
+}
+
+function findRouteInvocation(routeIndex, manifest, selector) {
+  const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
+  const canonicalDomain = (manifest.domains || []).find((domain) => {
+    return domain.name === domainToken || (domain.aliases || []).includes(domainToken);
+  });
+  const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
+  const canonicalResource = canonicalDomain
+    ? (canonicalDomain.resources || []).find((resource) => {
+        return resource.name === resourceToken || (resource.aliases || []).includes(resourceToken);
+      })
+    : null;
+  const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
+  const canonicalVerb = canonicalResource
+    ? (canonicalResource.verbs || []).find((verb) => {
+        return verb.name === verbToken || (verb.aliases || []).includes(verbToken);
+      })
+    : null;
+  const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
+
+  return (
+    routeIndex[`${domainName}/${resourceName}/${verbName}`] ||
+    routeIndex[`${domainToken}/${resourceToken}/${verbToken}`] ||
+    null
+  );
+}
+
+function suggestCommandTokens(manifest = {}, selector) {
+  const tokens = normalizeTokenSelector(selector);
+  const domains = buildDomainCatalog(manifest);
+
+  if (tokens.length === 0) {
+    return {
+      stage: 'domain',
+      suggestions: domains.map((domain) => domain.name)
+    };
+  }
+
+  if (tokens.length === 1) {
+    return {
+      stage: 'domain',
+      suggestions: domains
+        .filter((domain) => {
+          return matchesNodeToken(domain, tokens[0]);
+        })
+        .map((domain) => domain.name)
+    };
+  }
+
+  const domain = domains.find((item) => {
+    return item.name === tokens[0] || (item.aliases || []).includes(tokens[0]);
+  });
+
+  if (!domain) {
+    return {
+      stage: 'domain',
+      suggestions: []
+    };
+  }
+
+  if (tokens.length === 2) {
+    return {
+      stage: 'resource',
+      suggestions: (domain.resources || [])
+        .filter((resource) => {
+          return matchesNodeToken(resource, tokens[1]);
+        })
+        .map((resource) => resource.name)
+    };
+  }
+
+  const resource = (domain.resources || []).find((item) => {
+    return item.name === tokens[1] || (item.aliases || []).includes(tokens[1]);
+  });
+
+  if (!resource) {
+    return {
+      stage: 'resource',
+      suggestions: []
+    };
+  }
+
+  if (tokens.length === 3) {
+    return {
+      stage: 'verb',
+      suggestions: (resource.verbs || [])
+        .filter((verb) => {
+          return matchesNodeToken(verb, tokens[2]);
+        })
+        .map((verb) => verb.name)
+    };
+  }
+
+  return {
+    stage: 'command',
+    suggestions: [`rb ${domain.name} ${resource.name} ${tokens[2]}`]
+  };
+}
+
+function suggestRouteCommands(manifest = {}, selector, limit = 3) {
+  const [domainToken = '', resourceToken = '', verbToken = ''] = normalizeRouteSelector(selector);
+  const requested = `${domainToken}/${resourceToken}/${verbToken}`;
+  const candidates = [];
+
+  for (const domain of buildDomainCatalog(manifest)) {
+    for (const resource of domain.resources || []) {
+      for (const verb of resource.verbs || []) {
+        const canonicalPath = `${domain.name}/${resource.name}/${verb.name}`;
+        candidates.push({
+          distance: levenshtein(requested, canonicalPath),
+          command: `rb ${domain.name} ${resource.name} ${verb.name}`
+        });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => a.distance - b.distance || a.command.localeCompare(b.command));
+  return candidates
+    .filter((candidate) => candidate.distance <= 8)
+    .slice(0, limit)
+    .map((candidate) => candidate.command);
+}
+
+function matchesNodeToken(node, token) {
+  if (!node || typeof token !== 'string') {
+    return false;
+  }
+
+  if (typeof node.name === 'string' && node.name.startsWith(token)) {
+    return true;
+  }
+
+  if (!Array.isArray(node.aliases)) {
+    return false;
+  }
+
+  return node.aliases.some((alias) => typeof alias === 'string' && alias.startsWith(token));
+}
+
+function buildDomainCatalog(manifest = {}) {
+  if (Array.isArray(manifest.domains) && manifest.domains.length > 0) {
+    return manifest.domains;
+  }
+
+  const domains = new Map();
+
+  for (const command of manifest.commands || []) {
+    if (!domains.has(command.domain)) {
+      domains.set(command.domain, {
+        name: command.domain,
+        aliases: Array.isArray(command.domain_aliases) ? command.domain_aliases.slice() : [],
+        resources: []
+      });
+    }
+
+    const domain = domains.get(command.domain);
+    const resource = {
+      name: command.resource,
+      description: command.description || '',
+      aliases: Array.isArray(command.resource_aliases) ? command.resource_aliases.slice() : [],
+      verbs: (command.routes || []).map((route) => ({
+        name: route.verb,
+        summary: route.summary || '',
+        aliases: Array.isArray(route.aliases) ? route.aliases.slice() : []
+      }))
+    };
+
+    domain.resources.push(resource);
+  }
+
+  return Array.from(domains.values());
+}
+
+function manifestFlagToOption(flag) {
+  return {
+    type: flag.expects_value ? 'string' : 'boolean',
+    short: flag.short || undefined,
+    description: flag.description
+  };
+}
+
+function manifestGlobalOptionToOption(option) {
+  const kind = typeof option.kind === 'string' ? option.kind : '';
+  const values = Array.isArray(option.values) ? option.values.slice() : undefined;
+
+  return {
+    type: kind === 'output-format' || values ? 'string' : 'boolean',
+    short: option.short || undefined,
+    description: option.description || ''
+  };
+}
+
+function buildGlobalOptions(manifest = {}) {
+  const globalOptions = ensureObject({}, 'global options');
+
+  for (const option of manifest.global_options || []) {
+    if (!option || typeof option.long !== 'string' || option.long.length === 0) {
+      continue;
+    }
+    globalOptions[option.long] = manifestGlobalOptionToOption(option);
+  }
+
+  if (Object.keys(globalOptions).length === 0) {
+    globalOptions.json = {
+      type: 'boolean',
+      description: 'Request machine-readable JSON output'
+    };
+  }
+
+  return globalOptions;
+}
+
+function manifestPositionalToCliPositional(positional) {
+  return {
+    name: positional.name,
+    description: positional.slot === 'target' ? 'Target input' : positional.name,
+    required: positional.required === true,
+    variadic: positional.repeated === true
+  };
+}
+
+function buildManifestCliSchema(manifest = {}) {
+  const commands = {};
+
+  for (const domain of buildDomainCatalog(manifest)) {
+    const resourceCommands = {};
+
+    for (const resource of domain.resources || []) {
+      const verbCommands = {};
+      const relatedCommands = (manifest.commands || []).filter((command) => {
+        return command.domain === domain.name && command.resource === resource.name;
+      });
+
+      for (const command of relatedCommands) {
+        for (const route of command.routes || []) {
+          verbCommands[route.verb] = {
+            description: route.summary || `${domain.name} ${resource.name} ${route.verb}`,
+            aliases: Array.isArray(route.aliases) ? route.aliases.slice() : [],
+            positional: (route.positionals || []).map(manifestPositionalToCliPositional),
+            options: Object.fromEntries(
+              (command.flags || []).map((flag) => [flag.long, manifestFlagToOption(flag)])
+            )
+          };
+        }
+      }
+
+      resourceCommands[resource.name] = {
+        description: resource.description,
+        aliases: Array.isArray(resource.aliases) ? resource.aliases.slice() : [],
+        commands: verbCommands
+      };
+    }
+
+    commands[domain.name] = {
+      description: `${domain.name} command group`,
+      aliases: Array.isArray(domain.aliases) ? domain.aliases.slice() : [],
+      commands: resourceCommands
+    };
+  }
+
+  return {
+    name: 'rb',
+    version: manifest.version,
+    description: 'redblue manifest-driven CLI schema',
+    help: {
+      includeGlobalOptionsInCommands: true
+    },
+    options: buildGlobalOptions(manifest),
+    commands
+  };
+}
+
+async function createManifestCLI(options = {}, runtime = {}) {
+  const defaults = ensureObject(options, 'createManifestCLI options');
+  const parserModule = await loadCliArgsParser(runtime);
+  if (typeof parserModule.createCLI !== 'function') {
+    throw new Error('cli-args-parser does not export createCLI');
+  }
+
+  const { manifest } = await getManifest(defaults);
+  return parserModule.createCLI(buildManifestCliSchema(manifest));
 }
 
 function createDomainProxy(binaryPath, manifest, defaults) {
@@ -1191,6 +1808,26 @@ function createDomainProxy(binaryPath, manifest, defaults) {
     for (const route of command.routes || []) {
       attachRoute(client[command.domain][command.resource], binaryPath, command, route, defaults);
     }
+
+    if (Array.isArray(command.resource_aliases)) {
+      for (const alias of command.resource_aliases) {
+        if (
+          typeof alias === 'string' &&
+          alias.length > 0 &&
+          !client[command.domain][alias]
+        ) {
+          client[command.domain][alias] = client[command.domain][command.resource];
+        }
+      }
+    }
+
+    if (Array.isArray(command.domain_aliases)) {
+      for (const alias of command.domain_aliases) {
+        if (typeof alias === 'string' && alias.length > 0 && !client[alias]) {
+          client[alias] = client[command.domain];
+        }
+      }
+    }
   }
 
   return client;
@@ -1200,6 +1837,9 @@ async function createClient(options = {}) {
   const defaults = ensureObject(options, 'createClient options');
   const { binaryPath, manifest } = await getManifest(defaults);
   const api = createDomainProxy(binaryPath, manifest, defaults);
+  const routeIndex = createRouteIndex(api);
+  const domainCatalog = buildDomainCatalog(manifest);
+  const cliSchema = buildManifestCliSchema(manifest);
 
   Object.defineProperties(api, {
     $binaryPath: {
@@ -1208,6 +1848,36 @@ async function createClient(options = {}) {
     },
     $manifest: {
       value: manifest,
+      enumerable: false
+    },
+    $routes: {
+      value: routeIndex,
+      enumerable: false
+    },
+    $domains: {
+      value: domainCatalog,
+      enumerable: false
+    },
+    $cliSchema: {
+      value: cliSchema,
+      enumerable: false
+    },
+    $createCLI: {
+      value(runtime = {}) {
+        return createManifestCLI(defaults, runtime);
+      },
+      enumerable: false
+    },
+    $findRoute: {
+      value(selector) {
+        return findRouteInvocation(routeIndex, manifest, selector);
+      },
+      enumerable: false
+    },
+    $suggest: {
+      value(selector) {
+        return suggestCommandTokens(manifest, selector);
+      },
       enumerable: false
     },
     $downloadBinary: {
@@ -1243,6 +1913,7 @@ async function createClient(options = {}) {
 
 module.exports = {
   checkForUpdates,
+  createManifestCLI,
   createClient,
   downloadBinary,
   ensureInstalled,
@@ -1250,6 +1921,7 @@ module.exports = {
   getManifest,
   getInstalledVersion,
   runCli,
+  runJson,
   resolveAssetName,
   resolveBinary,
   upgradeBinary
@@ -1257,15 +1929,20 @@ module.exports = {
 
 module.exports._internal = {
   attachRoute,
+  buildDomainCatalog,
+  buildManifestCliSchema,
   buildInvocation,
   checkForUpdates,
+  createManifestCLI,
   createDomainProxy,
+  createRouteIndex,
   defaultInstallDir,
   downloadToFile,
   ensureInstalled,
   ensureObject,
   execFilePromise,
   exists,
+  formatManifestHelpSummary,
   formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
@@ -1274,6 +1951,8 @@ module.exports._internal = {
   getDefaultBinaryName,
   getInstalledVersion,
   getReleaseTag,
+  hasLongFlag,
+  buildJsonCliArgs,
   invokeJson,
   invokeRaw,
   isExecutable,
@@ -1281,11 +1960,22 @@ module.exports._internal = {
   legacyInstallDir,
   loadCliArgsParser,
   normalizeReleaseTag,
+  normalizeCliArgv,
+  normalizeTokenSelector,
+  normalizeRouteSelector,
   parseWrapperArgs,
   parseInstalledVersion,
   request,
   requestJson,
   requestText,
+  findRouteInvocation,
+  looksLikeCanonicalCommandArgs,
+  routeInvocationMeta,
+  resolveMachineOutput,
+  routeIdentifier,
+  runJson,
+  suggestCommandTokens,
+  suggestRouteCommands,
   resolveFromPath,
   resolveBinaryWithInfo,
   resolveLegacyBinaryPath,
@@ -1297,6 +1987,7 @@ module.exports._internal = {
   spawnBinary,
   toImportSpecifier,
   upgradeBinary,
+  validateManifestCommandArgs,
   waitForChild,
   writeLine,
   verifyChecksum

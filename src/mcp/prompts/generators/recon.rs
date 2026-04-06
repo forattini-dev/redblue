@@ -3,12 +3,12 @@
 use crate::mcp::prompts::types::{get_arg, Args};
 
 pub fn gen_recon_strategy(args: &Args) -> String {
-    let target = get_arg(args, "target", "unknown");
-    let scope = get_arg(args, "scope", "full");
-    let time_limit = get_arg(args, "time_limit", "no limit");
+  let target = get_arg(args, "target", "unknown");
+  let scope = get_arg(args, "scope", "full");
+  let time_limit = get_arg(args, "time_limit", "no limit");
 
-    format!(
-        r#"# Reconnaissance Strategy Request
+  format!(
+    r#"# Reconnaissance Strategy Request
 
 ## Target
 {target}
@@ -49,15 +49,15 @@ Please create a comprehensive reconnaissance strategy for this target. Include:
 
 Use redblue tool commands where applicable (e.g., `rb network ports scan`, `rb dns record lookup`, `rb recon domain whois`).
 "#
-    )
+  )
 }
 
 pub fn gen_subdomain_hunt(args: &Args) -> String {
-    let domain = get_arg(args, "domain", "example.com");
-    let depth = get_arg(args, "depth", "standard");
+  let domain = get_arg(args, "domain", "example.com");
+  let depth = get_arg(args, "depth", "standard");
 
-    format!(
-        r#"# Subdomain Enumeration Request
+  format!(
+    r#"# Subdomain Enumeration Request
 
 ## Target Domain
 {domain}
@@ -97,15 +97,15 @@ Focus on finding:
 - Legacy systems
 - Third-party integrations
 "#
-    )
+  )
 }
 
 pub fn gen_osint_profile(args: &Args) -> String {
-    let target = get_arg(args, "target", "unknown");
-    let depth = get_arg(args, "depth", "moderate");
+  let target = get_arg(args, "target", "unknown");
+  let depth = get_arg(args, "depth", "moderate");
 
-    format!(
-        r#"# OSINT Profile Request
+  format!(
+    r#"# OSINT Profile Request
 
 ## Target
 {target}
@@ -147,15 +147,15 @@ Build OSINT profile:
    - Interesting discoveries
    - Recommended next steps
 "#
-    )
+  )
 }
 
 pub fn gen_attack_surface(args: &Args) -> String {
-    let organization = get_arg(args, "organization", "unknown");
-    let include_subs = get_arg(args, "include_subsidiaries", "false");
+  let organization = get_arg(args, "organization", "unknown");
+  let include_subs = get_arg(args, "include_subsidiaries", "false");
 
-    format!(
-        r#"# External Attack Surface Mapping
+  format!(
+    r#"# External Attack Surface Mapping
 
 ## Organization
 {organization}
@@ -193,5 +193,5 @@ Map external attack surface:
    - Services to secure
    - Monitoring requirements
 "#
-    )
+  )
 }

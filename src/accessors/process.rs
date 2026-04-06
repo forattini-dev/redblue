@@ -7,229 +7,227 @@ use std::path::Path;
 
 #[derive(Debug, Clone)]
 struct ProcessInfo {
-    pid: u32,
-    ppid: u32,
-    name: String,
-    state: String,
-    uid: u32,
-    cmdline: Vec<String>,
+  pid: u32,
+  ppid: u32,
+  name: String,
+  state: String,
+  uid: u32,
+  cmdline: Vec<String>,
 }
 
 impl JsonEncode for ProcessInfo {
-    fn to_json_value(&self) -> Value {
-        let mut map = Map::new();
-        map.insert("pid".to_string(), self.pid.to_json_value());
-        map.insert("ppid".to_string(), self.ppid.to_json_value());
-        map.insert("name".to_string(), self.name.to_json_value());
-        map.insert("state".to_string(), self.state.to_json_value());
-        map.insert("uid".to_string(), self.uid.to_json_value());
-        map.insert("cmdline".to_string(), self.cmdline.to_json_value());
-        Value::Object(map)
-    }
+  fn to_json_value(&self) -> Value {
+    let mut map = Map::new();
+    map.insert("pid".to_string(), self.pid.to_json_value());
+    map.insert("ppid".to_string(), self.ppid.to_json_value());
+    map.insert("name".to_string(), self.name.to_json_value());
+    map.insert("state".to_string(), self.state.to_json_value());
+    map.insert("uid".to_string(), self.uid.to_json_value());
+    map.insert("cmdline".to_string(), self.cmdline.to_json_value());
+    Value::Object(map)
+  }
 }
 
 impl JsonDecode for ProcessInfo {
-    fn from_json_value(value: Value) -> Result<Self, String> {
-        let map = match value {
-            Value::Object(map) => map,
-            _ => return Err("expected object".to_string()),
-        };
-        Ok(Self {
-            pid: u32::from_json_value(map.get("pid").cloned().unwrap_or(Value::Null))?,
-            ppid: u32::from_json_value(map.get("ppid").cloned().unwrap_or(Value::Null))?,
-            name: String::from_json_value(map.get("name").cloned().unwrap_or(Value::Null))?,
-            state: String::from_json_value(map.get("state").cloned().unwrap_or(Value::Null))?,
-            uid: u32::from_json_value(map.get("uid").cloned().unwrap_or(Value::Null))?,
-            cmdline: Vec::<String>::from_json_value(
-                map.get("cmdline").cloned().unwrap_or(Value::Null),
-            )?,
-        })
-    }
+  fn from_json_value(value: Value) -> Result<Self, String> {
+    let map = match value {
+      Value::Object(map) => map,
+      _ => return Err("expected object".to_string()),
+    };
+    Ok(Self {
+      pid: u32::from_json_value(map.get("pid").cloned().unwrap_or(Value::Null))?,
+      ppid: u32::from_json_value(map.get("ppid").cloned().unwrap_or(Value::Null))?,
+      name: String::from_json_value(map.get("name").cloned().unwrap_or(Value::Null))?,
+      state: String::from_json_value(map.get("state").cloned().unwrap_or(Value::Null))?,
+      uid: u32::from_json_value(map.get("uid").cloned().unwrap_or(Value::Null))?,
+      cmdline: Vec::<String>::from_json_value(map.get("cmdline").cloned().unwrap_or(Value::Null))?,
+    })
+  }
 }
 
 pub struct ProcessAccessor;
 
 impl ProcessAccessor {
-    pub fn new() -> Self {
-        Self
+  pub fn new() -> Self {
+    Self
+  }
+
+  #[cfg(target_os = "linux")]
+  fn list_processes(&self) -> AccessorResult {
+    let mut processes = Vec::new();
+    let proc_dir = Path::new("/proc");
+
+    if !proc_dir.exists() {
+      return AccessorResult::error("/proc filesystem not found");
     }
 
-    #[cfg(target_os = "linux")]
-    fn list_processes(&self) -> AccessorResult {
-        let mut processes = Vec::new();
-        let proc_dir = Path::new("/proc");
-
-        if !proc_dir.exists() {
-            return AccessorResult::error("/proc filesystem not found");
-        }
-
-        match fs::read_dir(proc_dir) {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        if let Some(file_name) = path.file_name() {
-                            let file_name_str = file_name.to_string_lossy();
-                            if let Ok(pid) = file_name_str.parse::<u32>() {
-                                if let Some(info) = self.get_process_info(pid, &path) {
-                                    processes.push(info);
-                                }
-                            }
-                        }
-                    }
+    match fs::read_dir(proc_dir) {
+      Ok(entries) => {
+        for entry in entries.flatten() {
+          let path = entry.path();
+          if path.is_dir() {
+            if let Some(file_name) = path.file_name() {
+              let file_name_str = file_name.to_string_lossy();
+              if let Ok(pid) = file_name_str.parse::<u32>() {
+                if let Some(info) = self.get_process_info(pid, &path) {
+                  processes.push(info);
                 }
-                AccessorResult::success(json!(processes))
+              }
             }
-            Err(e) => AccessorResult::error(&format!("Failed to read /proc: {}", e)),
+          }
         }
+        AccessorResult::success(json!(processes))
+      }
+      Err(e) => AccessorResult::error(&format!("Failed to read /proc: {}", e)),
+    }
+  }
+
+  #[cfg(not(target_os = "linux"))]
+  fn list_processes(&self) -> AccessorResult {
+    AccessorResult::error("Process listing only implemented for Linux currently")
+  }
+
+  #[cfg(target_os = "linux")]
+  fn get_process_info(&self, pid: u32, path: &Path) -> Option<ProcessInfo> {
+    // Read /proc/[pid]/stat for basic info
+    // format: pid (comm) state ppid ...
+    let stat_path = path.join("stat");
+    let stat_content = fs::read_to_string(&stat_path).ok()?;
+
+    // Parse stat (careful with process names containing spaces/parens)
+    let parts: Vec<&str> = stat_content.split_whitespace().collect();
+    if parts.len() < 4 {
+      return None;
     }
 
-    #[cfg(not(target_os = "linux"))]
-    fn list_processes(&self) -> AccessorResult {
-        AccessorResult::error("Process listing only implemented for Linux currently")
+    // Find the last closing parenthesis to handle names with parens
+    let r_paren_idx = stat_content.rfind(')')?;
+    let after_paren = &stat_content[r_paren_idx + 2..]; // skip ") "
+    let stat_fields: Vec<&str> = after_paren.split_whitespace().collect();
+
+    if stat_fields.len() < 2 {
+      return None;
     }
 
-    #[cfg(target_os = "linux")]
-    fn get_process_info(&self, pid: u32, path: &Path) -> Option<ProcessInfo> {
-        // Read /proc/[pid]/stat for basic info
-        // format: pid (comm) state ppid ...
-        let stat_path = path.join("stat");
-        let stat_content = fs::read_to_string(&stat_path).ok()?;
+    let state = stat_fields[0].to_string();
+    let ppid = stat_fields[1].parse::<u32>().unwrap_or(0);
 
-        // Parse stat (careful with process names containing spaces/parens)
-        let parts: Vec<&str> = stat_content.split_whitespace().collect();
-        if parts.len() < 4 {
-            return None;
-        }
+    // Name is between first ( and last )
+    let l_paren_idx = stat_content.find('(')?;
+    let name = stat_content[l_paren_idx + 1..r_paren_idx].to_string();
 
-        // Find the last closing parenthesis to handle names with parens
-        let r_paren_idx = stat_content.rfind(')')?;
-        let after_paren = &stat_content[r_paren_idx + 2..]; // skip ") "
-        let stat_fields: Vec<&str> = after_paren.split_whitespace().collect();
+    // Read cmdline
+    let cmdline_path = path.join("cmdline");
+    let cmdline_content = fs::read_to_string(cmdline_path).unwrap_or_default();
+    let cmdline: Vec<String> = cmdline_content
+      .split('\0')
+      .filter(|s| !s.is_empty())
+      .map(|s| s.to_string())
+      .collect();
 
-        if stat_fields.len() < 2 {
-            return None;
-        }
+    // Read status for UID
+    let status_path = path.join("status");
+    let uid = if let Ok(status) = fs::read_to_string(status_path) {
+      status
+        .lines()
+        .find(|l| l.starts_with("Uid:"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0)
+    } else {
+      0
+    };
 
-        let state = stat_fields[0].to_string();
-        let ppid = stat_fields[1].parse::<u32>().unwrap_or(0);
+    Some(ProcessInfo {
+      pid,
+      ppid,
+      name,
+      state,
+      uid,
+      cmdline,
+    })
+  }
 
-        // Name is between first ( and last )
-        let l_paren_idx = stat_content.find('(')?;
-        let name = stat_content[l_paren_idx + 1..r_paren_idx].to_string();
-
-        // Read cmdline
-        let cmdline_path = path.join("cmdline");
-        let cmdline_content = fs::read_to_string(cmdline_path).unwrap_or_default();
-        let cmdline: Vec<String> = cmdline_content
-            .split('\0')
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect();
-
-        // Read status for UID
-        let status_path = path.join("status");
-        let uid = if let Ok(status) = fs::read_to_string(status_path) {
-            status
-                .lines()
-                .find(|l| l.starts_with("Uid:"))
-                .and_then(|l| l.split_whitespace().nth(1))
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0)
-        } else {
-            0
-        };
-
-        Some(ProcessInfo {
-            pid,
-            ppid,
-            name,
-            state,
-            uid,
-            cmdline,
-        })
+  fn build_tree(&self) -> AccessorResult {
+    let result = self.list_processes();
+    if !result.success {
+      return result;
     }
 
-    fn build_tree(&self) -> AccessorResult {
-        let result = self.list_processes();
-        if !result.success {
-            return result;
-        }
+    let processes: Vec<ProcessInfo> =
+      crate::serde_json::from_value(result.data.unwrap()).unwrap_or_default();
 
-        let processes: Vec<ProcessInfo> =
-            crate::serde_json::from_value(result.data.unwrap()).unwrap_or_default();
+    // Build map of children
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut roots = Vec::new();
+    let mut process_map: HashMap<u32, ProcessInfo> = HashMap::new();
 
-        // Build map of children
-        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-        let mut roots = Vec::new();
-        let mut process_map: HashMap<u32, ProcessInfo> = HashMap::new();
-
-        for p in &processes {
-            process_map.insert(p.pid, p.clone());
-            if p.ppid == 0 {
-                roots.push(p.pid);
-            } else {
-                children.entry(p.ppid).or_default().push(p.pid);
-            }
-        }
-
-        // If a process has a PPID that doesn't exist in our list (e.g. we couldn't read it), treat it as a root
-        for p in &processes {
-            if p.ppid != 0 && !process_map.contains_key(&p.ppid) {
-                roots.push(p.pid);
-            }
-        }
-
-        let tree = self.recursive_build_tree(&roots, &children, &process_map);
-        AccessorResult::success(tree)
+    for p in &processes {
+      process_map.insert(p.pid, p.clone());
+      if p.ppid == 0 {
+        roots.push(p.pid);
+      } else {
+        children.entry(p.ppid).or_default().push(p.pid);
+      }
     }
 
-    fn recursive_build_tree(
-        &self,
-        pids: &[u32],
-        children: &HashMap<u32, Vec<u32>>,
-        info_map: &HashMap<u32, ProcessInfo>,
-    ) -> Value {
-        let mut nodes = Vec::new();
+    // If a process has a PPID that doesn't exist in our list (e.g. we couldn't read it), treat it as a root
+    for p in &processes {
+      if p.ppid != 0 && !process_map.contains_key(&p.ppid) {
+        roots.push(p.pid);
+      }
+    }
 
-        for pid in pids {
-            if let Some(info) = info_map.get(pid) {
-                let mut node = json!({
-                    "pid": info.pid,
-                    "name": info.name,
-                    "user": info.uid, // Could resolve to username if we had passwd parsing
-                });
+    let tree = self.recursive_build_tree(&roots, &children, &process_map);
+    AccessorResult::success(tree)
+  }
 
-                if let Some(child_pids) = children.get(pid) {
-                    node["children"] = self.recursive_build_tree(child_pids, children, info_map);
-                }
+  fn recursive_build_tree(
+    &self,
+    pids: &[u32],
+    children: &HashMap<u32, Vec<u32>>,
+    info_map: &HashMap<u32, ProcessInfo>,
+  ) -> Value {
+    let mut nodes = Vec::new();
 
-                nodes.push(node);
-            }
+    for pid in pids {
+      if let Some(info) = info_map.get(pid) {
+        let mut node = json!({
+            "pid": info.pid,
+            "name": info.name,
+            "user": info.uid, // Could resolve to username if we had passwd parsing
+        });
+
+        if let Some(child_pids) = children.get(pid) {
+          node["children"] = self.recursive_build_tree(child_pids, children, info_map);
         }
 
-        Value::Array(nodes)
+        nodes.push(node);
+      }
     }
+
+    Value::Array(nodes)
+  }
 }
 
 impl Accessor for ProcessAccessor {
-    fn name(&self) -> &str {
-        "process"
-    }
+  fn name(&self) -> &str {
+    "process"
+  }
 
-    fn info(&self) -> AccessorInfo {
-        AccessorInfo {
-            name: "Process Accessor".to_string(),
-            description: "Interact with system processes".to_string(),
-            methods: vec!["list".to_string(), "tree".to_string()],
-        }
+  fn info(&self) -> AccessorInfo {
+    AccessorInfo {
+      name: "Process Accessor".to_string(),
+      description: "Interact with system processes".to_string(),
+      methods: vec!["list".to_string(), "tree".to_string()],
     }
+  }
 
-    fn execute(&self, method: &str, _args: &HashMap<String, String>) -> AccessorResult {
-        match method {
-            "list" => self.list_processes(),
-            "tree" => self.build_tree(),
-            _ => AccessorResult::error(&format!("Unknown method: {}", method)),
-        }
+  fn execute(&self, method: &str, _args: &HashMap<String, String>) -> AccessorResult {
+    match method {
+      "list" => self.list_processes(),
+      "tree" => self.build_tree(),
+      _ => AccessorResult::error(&format!("Unknown method: {}", method)),
     }
+  }
 }

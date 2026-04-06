@@ -16,7 +16,7 @@ use crate::scripts::FindingSeverity;
 /// Aliases: APT32, SeaLotus, OceanLotus, APT-C-00, Canvas Cyclone
 /// Techniques: 78
 pub fn apt32() -> Playbook {
-    Playbook::new("apt32", "APT32 Adversary Emulation")
+  Playbook::new("apt32", "APT32 Adversary Emulation")
         .with_description("APT32 is a suspected Vietnam-based threat group that has been active since at least 2014. The group has targeted multiple private ...")
         .with_objective("Emulate APT32 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -142,7 +142,7 @@ pub fn apt32() -> Playbook {
 /// Aliases: Kimsuky, Black Banshee, Velvet Chollima, Emerald Sleet, THALLIUM
 /// Techniques: 109
 pub fn kimsuky() -> Playbook {
-    Playbook::new("kimsuky", "Kimsuky Adversary Emulation")
+  Playbook::new("kimsuky", "Kimsuky Adversary Emulation")
         .with_description("Kimsuky is a North Korea-based cyber espionage group that has been active since at least 2012. The group initially targeted South ...")
         .with_objective("Emulate Kimsuky TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -268,7 +268,7 @@ pub fn kimsuky() -> Playbook {
 /// Aliases: Lazarus Group, Labyrinth Chollima, HIDDEN COBRA, Guardians of Peace, ZINC
 /// Techniques: 93
 pub fn lazarus_group() -> Playbook {
-    Playbook::new("lazarus-group", "Lazarus Group Adversary Emulation")
+  Playbook::new("lazarus-group", "Lazarus Group Adversary Emulation")
         .with_description("Lazarus Group is a North Korean state-sponsored cyber threat group attributed to the Reconnaissance General Bureau (RGB). (Citatio...")
         .with_objective("Emulate Lazarus Group TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)

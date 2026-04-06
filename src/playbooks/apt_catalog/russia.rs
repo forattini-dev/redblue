@@ -18,7 +18,7 @@ use crate::scripts::FindingSeverity;
 /// Aliases: APT28, IRON TWILIGHT, SNAKEMACKEREL, Swallowtail, Group 74
 /// Techniques: 91
 pub fn apt28() -> Playbook {
-    Playbook::new("apt28", "APT28 Adversary Emulation")
+  Playbook::new("apt28", "APT28 Adversary Emulation")
         .with_description("APT28 is a threat group that has been attributed to Russia's General Staff Main Intelligence Directorate (GRU) 85th Main Special S...")
         .with_objective("Emulate APT28 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -144,7 +144,7 @@ pub fn apt28() -> Playbook {
 /// Aliases: APT29, IRON RITUAL, IRON HEMLOCK, NobleBaron, Dark Halo
 /// Techniques: 66
 pub fn apt29() -> Playbook {
-    Playbook::new("apt29", "APT29 Adversary Emulation")
+  Playbook::new("apt29", "APT29 Adversary Emulation")
         .with_description("APT29 is threat group that has been attributed to Russia's Foreign Intelligence Service (SVR).(Citation: White House Imposing Cost...")
         .with_objective("Emulate APT29 TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -270,7 +270,7 @@ pub fn apt29() -> Playbook {
 /// Aliases: Sandworm Team, ELECTRUM, Telebots, IRON VIKING, BlackEnergy (Group)
 /// Techniques: 79
 pub fn sandworm_team() -> Playbook {
-    Playbook::new("sandworm-team", "Sandworm Team Adversary Emulation")
+  Playbook::new("sandworm-team", "Sandworm Team Adversary Emulation")
         .with_description("Sandworm Team is a destructive threat group that has been attributed to Russia's General Staff Main Intelligence Directorate (GRU)...")
         .with_objective("Emulate Sandworm Team TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -396,7 +396,7 @@ pub fn sandworm_team() -> Playbook {
 /// Aliases: Turla, IRON HUNTER, Group 88, Waterbug, WhiteBear
 /// Techniques: 68
 pub fn turla() -> Playbook {
-    Playbook::new("turla", "Turla Adversary Emulation")
+  Playbook::new("turla", "Turla Adversary Emulation")
         .with_description("Turla is a cyber espionage threat group that has been attributed to Russia's Federal Security Service (FSB).  They have compromise...")
         .with_objective("Emulate Turla TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)
@@ -522,7 +522,7 @@ pub fn turla() -> Playbook {
 /// Aliases: Wizard Spider, UNC1878, TEMP.MixMaster, Grim Spider, FIN12
 /// Techniques: 64
 pub fn wizard_spider() -> Playbook {
-    Playbook::new("wizard-spider", "Wizard Spider Adversary Emulation")
+  Playbook::new("wizard-spider", "Wizard Spider Adversary Emulation")
         .with_description("Wizard Spider is a Russia-based financially motivated threat group originally known for the creation and deployment of TrickBot si...")
         .with_objective("Emulate Wizard Spider TTPs to test detection and response capabilities")
         .for_target(TargetType::Host)

@@ -7,208 +7,208 @@ use crate::modules::recon::asn::AsnClient;
 use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
 
 pub fn osint(ctx: &CliContext) -> Result<(), String> {
-    let target = ctx
-        .target
-        .as_ref()
-        .ok_or("Missing username.\nUsage: rb recon domain osint <USERNAME>")?;
+  let target = ctx
+    .target
+    .as_ref()
+    .ok_or("Missing username.\nUsage: rb recon domain osint <USERNAME>")?;
 
-    if target.is_empty() {
-        return Err("Username cannot be empty".to_string());
-    }
+  if target.is_empty() {
+    return Err("Username cannot be empty".to_string());
+  }
 
-    Output::warning("OSINT helpers not yet implemented");
-    println!("\nComing soon!");
-    Ok(())
+  Output::warning("OSINT helpers not yet implemented");
+  println!("\nComing soon!");
+  Ok(())
 }
 
 pub fn email(ctx: &CliContext) -> Result<(), String> {
-    let target = ctx
-        .target
-        .as_ref()
-        .ok_or("Missing email address.\nUsage: rb recon domain email <EMAIL>")?;
+  let target = ctx
+    .target
+    .as_ref()
+    .ok_or("Missing email address.\nUsage: rb recon domain email <EMAIL>")?;
 
-    if !target.contains('@') {
-        return Err(format!("Invalid email address: {}", target));
-    }
+  if !target.contains('@') {
+    return Err(format!("Invalid email address: {}", target));
+  }
 
-    Output::header(&format!("Email Intelligence: {}", target));
+  Output::header(&format!("Email Intelligence: {}", target));
 
-    let config = EmailOsintConfig::default();
-    let intel = EmailIntel::new(config);
+  let config = EmailOsintConfig::default();
+  let intel = EmailIntel::new(config);
 
-    let format = ctx.get_output_format();
+  let format = ctx.get_output_format();
 
-    // Validate email format
-    if !intel.is_valid_format(target) {
-        return Err(format!("Invalid email format: {}", target));
-    }
+  // Validate email format
+  if !intel.is_valid_format(target) {
+    return Err(format!("Invalid email format: {}", target));
+  }
 
-    Output::spinner_start(&format!("Investigating {}", target));
+  Output::spinner_start(&format!("Investigating {}", target));
 
-    let result = intel.investigate(target);
+  let result = intel.investigate(target);
 
-    Output::spinner_done();
+  Output::spinner_done();
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-        let social_profiles: Vec<_> = result
-            .social_profiles
-            .iter()
-            .map(|profile| {
-                json!({
-                    "platform": profile.platform.clone(),
-                    "url": profile.url.clone()
-                })
-            })
-            .collect();
-        Output::json_value(&json!({
-            "email": result.email,
-            "valid": result.valid,
-            "provider": result.provider,
-            "services": result.services,
-            "social_profiles": social_profiles
-        }));
-        return Ok(());
-    }
+  // JSON output
+  if format == crate::cli::format::OutputFormat::Json {
+    let social_profiles: Vec<_> = result
+      .social_profiles
+      .iter()
+      .map(|profile| {
+        json!({
+            "platform": profile.platform.clone(),
+            "url": profile.url.clone()
+        })
+      })
+      .collect();
+    Output::json_value(&json!({
+        "email": result.email,
+        "valid": result.valid,
+        "provider": result.provider,
+        "services": result.services,
+        "social_profiles": social_profiles
+    }));
+    return Ok(());
+  }
 
-    // Human output
+  // Human output
+  println!();
+  Output::item("Email", &result.email);
+  Output::item("Valid", if result.valid { "Yes" } else { "No" });
+
+  if let Some(provider) = &result.provider {
+    Output::item("Provider", provider);
+  }
+
+  // Check if disposable
+  if intel.is_disposable(target) {
+    Output::warning("This appears to be a disposable email address");
+  }
+
+  // Services found
+  if !result.services.is_empty() {
     println!();
-    Output::item("Email", &result.email);
-    Output::item("Valid", if result.valid { "Yes" } else { "No" });
-
-    if let Some(provider) = &result.provider {
-        Output::item("Provider", provider);
+    Output::subheader(&format!("Registered Services ({})", result.services.len()));
+    for service in &result.services {
+      println!("  \x1b[32m✓\x1b[0m {}", service);
     }
+  }
 
-    // Check if disposable
-    if intel.is_disposable(target) {
-        Output::warning("This appears to be a disposable email address");
-    }
-
-    // Services found
-    if !result.services.is_empty() {
-        println!();
-        Output::subheader(&format!("Registered Services ({})", result.services.len()));
-        for service in &result.services {
-            println!("  \x1b[32m✓\x1b[0m {}", service);
-        }
-    }
-
-    // Social profiles linked
-    if !result.social_profiles.is_empty() {
-        println!();
-        Output::subheader(&format!(
-            "Social Profiles ({})",
-            result.social_profiles.len()
-        ));
-        for profile in &result.social_profiles {
-            let url = profile.url.as_deref().unwrap_or("N/A");
-            println!(
-                "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
-                profile.platform, url
-            );
-        }
-    }
-
-    // Summary
+  // Social profiles linked
+  if !result.social_profiles.is_empty() {
     println!();
-    let total = result.services.len() + result.social_profiles.len();
-    if total > 0 {
-        Output::success(&format!(
-            "Found {} service(s) and {} profile(s)",
-            result.services.len(),
-            result.social_profiles.len()
-        ));
-    } else {
-        Output::info("No service registrations or profiles found");
+    Output::subheader(&format!(
+      "Social Profiles ({})",
+      result.social_profiles.len()
+    ));
+    for profile in &result.social_profiles {
+      let url = profile.url.as_deref().unwrap_or("N/A");
+      println!(
+        "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+        profile.platform, url
+      );
     }
+  }
 
-    // Extract username and suggest related search
-    if let Some(username) = intel.extract_username(target) {
-        println!();
-        Output::info(&format!(
-            "Tip: Try 'rb recon identity username {}' for broader search",
-            username
-        ));
-    }
+  // Summary
+  println!();
+  let total = result.services.len() + result.social_profiles.len();
+  if total > 0 {
+    Output::success(&format!(
+      "Found {} service(s) and {} profile(s)",
+      result.services.len(),
+      result.social_profiles.len()
+    ));
+  } else {
+    Output::info("No service registrations or profiles found");
+  }
 
-    Ok(())
+  // Extract username and suggest related search
+  if let Some(username) = intel.extract_username(target) {
+    println!();
+    Output::info(&format!(
+      "Tip: Try 'rb recon identity username {}' for broader search",
+      username
+    ));
+  }
+
+  Ok(())
 }
 
 /// ASN lookup for IP address or hostname
 pub fn asn(ctx: &CliContext) -> Result<(), String> {
-    let target = ctx.target.as_ref().ok_or(
+  let target = ctx.target.as_ref().ok_or(
         "Missing IP address or hostname.\nUsage: rb recon domain asn <IP|HOSTNAME>\nExample: rb recon domain asn 8.8.8.8",
     )?;
 
-    let format = ctx.get_output_format();
-    let client = AsnClient::new();
+  let format = ctx.get_output_format();
+  let client = AsnClient::new();
 
-    if format == crate::cli::format::OutputFormat::Human {
-        Output::spinner_start(&format!("Looking up ASN for {}", target));
+  if format == crate::cli::format::OutputFormat::Human {
+    Output::spinner_start(&format!("Looking up ASN for {}", target));
+  }
+
+  // Check if it's an IP or hostname
+  let is_ip = target.parse::<std::net::IpAddr>().is_ok();
+
+  let results = if is_ip {
+    vec![client.lookup_ip(target)?]
+  } else {
+    client.lookup_host(target)?
+  };
+
+  if format == crate::cli::format::OutputFormat::Human {
+    Output::spinner_done();
+  }
+
+  // JSON output
+  if format == crate::cli::format::OutputFormat::Json {
+    let payload: Vec<_> = results
+      .iter()
+      .map(|info| {
+        json!({
+            "ip": info.ip.to_string(),
+            "announced": info.announced,
+            "asn": info.asn,
+            "organization": info.organization.clone(),
+            "country": info.country.clone(),
+            "cidr": info.cidr.clone()
+        })
+      })
+      .collect();
+    Output::json_value(&json!({
+        "query": target,
+        "results": payload
+    }));
+    return Ok(());
+  }
+
+  // Human output
+  Output::header(&format!("ASN Lookup: {}", target));
+  println!();
+
+  for info in &results {
+    if !info.announced {
+      Output::warning(&format!("IP {} is not announced (not routed)", info.ip));
+      continue;
     }
 
-    // Check if it's an IP or hostname
-    let is_ip = target.parse::<std::net::IpAddr>().is_ok();
-
-    let results = if is_ip {
-        vec![client.lookup_ip(target)?]
-    } else {
-        client.lookup_host(target)?
-    };
-
-    if format == crate::cli::format::OutputFormat::Human {
-        Output::spinner_done();
+    println!("  {:<15} {}", "IP:", info.ip);
+    if let Some(asn) = info.asn {
+      println!("  {:<15} AS{}", "ASN:", asn);
     }
-
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-        let payload: Vec<_> = results
-            .iter()
-            .map(|info| {
-                json!({
-                    "ip": info.ip.to_string(),
-                    "announced": info.announced,
-                    "asn": info.asn,
-                    "organization": info.organization.clone(),
-                    "country": info.country.clone(),
-                    "cidr": info.cidr.clone()
-                })
-            })
-            .collect();
-        Output::json_value(&json!({
-            "query": target,
-            "results": payload
-        }));
-        return Ok(());
+    if let Some(ref org) = info.organization {
+      println!("  {:<15} {}", "Organization:", org);
     }
-
-    // Human output
-    Output::header(&format!("ASN Lookup: {}", target));
+    if let Some(ref country) = info.country {
+      println!("  {:<15} {}", "Country:", country);
+    }
+    if let Some(ref cidr) = info.cidr {
+      println!("  {:<15} {}", "Network:", cidr);
+    }
     println!();
+  }
 
-    for info in &results {
-        if !info.announced {
-            Output::warning(&format!("IP {} is not announced (not routed)", info.ip));
-            continue;
-        }
-
-        println!("  {:<15} {}", "IP:", info.ip);
-        if let Some(asn) = info.asn {
-            println!("  {:<15} AS{}", "ASN:", asn);
-        }
-        if let Some(ref org) = info.organization {
-            println!("  {:<15} {}", "Organization:", org);
-        }
-        if let Some(ref country) = info.country {
-            println!("  {:<15} {}", "Country:", country);
-        }
-        if let Some(ref cidr) = info.cidr {
-            println!("  {:<15} {}", "Network:", cidr);
-        }
-        println!();
-    }
-
-    Output::success("ASN lookup completed");
-    Ok(())
+  Output::success("ASN lookup completed");
+  Ok(())
 }

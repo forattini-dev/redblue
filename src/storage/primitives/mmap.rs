@@ -98,354 +98,354 @@ macro_rules! syscall {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 unsafe fn linux_mmap(
-    addr: *mut u8,
-    len: usize,
-    prot: i32,
-    flags: i32,
-    fd: i32,
-    offset: i64,
+  addr: *mut u8,
+  len: usize,
+  prot: i32,
+  flags: i32,
+  fd: i32,
+  offset: i64,
 ) -> isize {
-    syscall!(SYS_MMAP, addr, len, prot, flags, fd, offset) as isize
+  syscall!(SYS_MMAP, addr, len, prot, flags, fd, offset) as isize
 }
 
 #[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
 unsafe fn linux_mmap(
-    addr: *mut u8,
-    len: usize,
-    prot: i32,
-    flags: i32,
-    fd: i32,
-    offset: i64,
+  addr: *mut u8,
+  len: usize,
+  prot: i32,
+  flags: i32,
+  fd: i32,
+  offset: i64,
 ) -> isize {
-    libc::mmap(addr.cast(), len, prot, flags, fd, offset as libc::off_t) as isize
+  libc::mmap(addr.cast(), len, prot, flags, fd, offset as libc::off_t) as isize
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 unsafe fn linux_msync(addr: *mut u8, len: usize, flags: i32) -> i64 {
-    syscall!(SYS_MSYNC, addr, len, flags)
+  syscall!(SYS_MSYNC, addr, len, flags)
 }
 
 #[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
 unsafe fn linux_msync(addr: *mut u8, len: usize, flags: i32) -> i64 {
-    libc::msync(addr.cast(), len, flags) as i64
+  libc::msync(addr.cast(), len, flags) as i64
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 unsafe fn linux_madvise(addr: *mut u8, len: usize, advice: i32) -> i64 {
-    syscall!(SYS_MADVISE, addr, len, advice)
+  syscall!(SYS_MADVISE, addr, len, advice)
 }
 
 #[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
 unsafe fn linux_madvise(addr: *mut u8, len: usize, advice: i32) -> i64 {
-    libc::madvise(addr.cast(), len, advice) as i64
+  libc::madvise(addr.cast(), len, advice) as i64
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 unsafe fn linux_munmap(addr: *mut u8, len: usize) -> i64 {
-    syscall!(SYS_MUNMAP, addr, len)
+  syscall!(SYS_MUNMAP, addr, len)
 }
 
 #[cfg(all(target_os = "linux", not(target_arch = "x86_64")))]
 unsafe fn linux_munmap(addr: *mut u8, len: usize) -> i64 {
-    libc::munmap(addr.cast(), len) as i64
+  libc::munmap(addr.cast(), len) as i64
 }
 
 /// Memory access advice for madvise
 #[derive(Debug, Clone, Copy)]
 pub enum MadviseAdvice {
-    Normal,     // No special advice
-    Random,     // Random access pattern
-    Sequential, // Sequential access pattern
-    WillNeed,   // Will need this data soon (prefetch)
-    DontNeed,   // Don't need this data (can drop from cache)
+  Normal,     // No special advice
+  Random,     // Random access pattern
+  Sequential, // Sequential access pattern
+  WillNeed,   // Will need this data soon (prefetch)
+  DontNeed,   // Don't need this data (can drop from cache)
 }
 
 #[cfg(target_os = "linux")]
 pub struct MmapFile {
-    ptr: *mut u8,
-    len: usize,
-    writable: bool,
-    _file: File,
+  ptr: *mut u8,
+  len: usize,
+  writable: bool,
+  _file: File,
 }
 
 #[cfg(target_os = "linux")]
 impl MmapFile {
-    /// Memory-map a file for reading using raw syscalls
-    pub fn new(file: File, len: usize) -> io::Result<Self> {
-        let fd = file.as_raw_fd();
+  /// Memory-map a file for reading using raw syscalls
+  pub fn new(file: File, len: usize) -> io::Result<Self> {
+    let fd = file.as_raw_fd();
 
-        // Direct mmap syscall (ZERO dependencies!)
-        let ptr = unsafe { linux_mmap(ptr::null_mut::<u8>(), len, PROT_READ, MAP_SHARED, fd, 0) };
+    // Direct mmap syscall (ZERO dependencies!)
+    let ptr = unsafe { linux_mmap(ptr::null_mut::<u8>(), len, PROT_READ, MAP_SHARED, fd, 0) };
 
-        if ptr == MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(Self {
-            ptr: ptr as *mut u8,
-            len,
-            writable: false,
-            _file: file,
-        })
+    if ptr == MAP_FAILED {
+      return Err(io::Error::last_os_error());
     }
 
-    /// Memory-map a file for read-write using raw syscalls
-    pub fn new_mut(file: File, len: usize) -> io::Result<Self> {
-        let fd = file.as_raw_fd();
+    Ok(Self {
+      ptr: ptr as *mut u8,
+      len,
+      writable: false,
+      _file: file,
+    })
+  }
 
-        let ptr = unsafe {
-            linux_mmap(
-                ptr::null_mut::<u8>(),
-                len,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                fd,
-                0,
-            )
-        };
+  /// Memory-map a file for read-write using raw syscalls
+  pub fn new_mut(file: File, len: usize) -> io::Result<Self> {
+    let fd = file.as_raw_fd();
 
-        if ptr == MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
+    let ptr = unsafe {
+      linux_mmap(
+        ptr::null_mut::<u8>(),
+        len,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        fd,
+        0,
+      )
+    };
 
-        Ok(Self {
-            ptr: ptr as *mut u8,
-            len,
-            writable: true,
-            _file: file,
-        })
+    if ptr == MAP_FAILED {
+      return Err(io::Error::last_os_error());
     }
 
-    /// Get slice view of mapped memory
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    Ok(Self {
+      ptr: ptr as *mut u8,
+      len,
+      writable: true,
+      _file: file,
+    })
+  }
+
+  /// Get slice view of mapped memory
+  pub fn as_slice(&self) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+  }
+
+  /// Get mutable slice view (only if writable)
+  pub fn as_mut_slice(&mut self) -> io::Result<&mut [u8]> {
+    if !self.writable {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "Mmap is read-only",
+      ));
+    }
+    Ok(unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) })
+  }
+
+  /// Read u32 at offset
+  pub fn read_u32(&self, offset: usize) -> io::Result<u32> {
+    if offset + 4 > self.len {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Offset out of bounds",
+      ));
     }
 
-    /// Get mutable slice view (only if writable)
-    pub fn as_mut_slice(&mut self) -> io::Result<&mut [u8]> {
-        if !self.writable {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "Mmap is read-only",
-            ));
-        }
-        Ok(unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) })
+    let bytes = unsafe { std::slice::from_raw_parts(self.ptr.add(offset), 4) };
+
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+  }
+
+  /// Read bytes at offset
+  pub fn read_bytes(&self, offset: usize, len: usize) -> io::Result<&[u8]> {
+    if offset + len > self.len {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Offset out of bounds",
+      ));
     }
 
-    /// Read u32 at offset
-    pub fn read_u32(&self, offset: usize) -> io::Result<u32> {
-        if offset + 4 > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Offset out of bounds",
-            ));
-        }
+    Ok(unsafe { std::slice::from_raw_parts(self.ptr.add(offset), len) })
+  }
 
-        let bytes = unsafe { std::slice::from_raw_parts(self.ptr.add(offset), 4) };
-
-        Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+  /// Write bytes at offset
+  pub fn write_bytes(&mut self, offset: usize, data: &[u8]) -> io::Result<()> {
+    if !self.writable {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "Mmap is read-only",
+      ));
     }
 
-    /// Read bytes at offset
-    pub fn read_bytes(&self, offset: usize, len: usize) -> io::Result<&[u8]> {
-        if offset + len > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Offset out of bounds",
-            ));
-        }
-
-        Ok(unsafe { std::slice::from_raw_parts(self.ptr.add(offset), len) })
+    if offset + data.len() > self.len {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Write out of bounds",
+      ));
     }
 
-    /// Write bytes at offset
-    pub fn write_bytes(&mut self, offset: usize, data: &[u8]) -> io::Result<()> {
-        if !self.writable {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "Mmap is read-only",
-            ));
-        }
-
-        if offset + data.len() > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Write out of bounds",
-            ));
-        }
-
-        unsafe {
-            ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(offset), data.len());
-        }
-
-        Ok(())
+    unsafe {
+      ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(offset), data.len());
     }
 
-    /// Read struct at offset (zero-copy)
-    pub fn read_struct<T: Copy>(&self, offset: usize) -> io::Result<&T> {
-        let size = std::mem::size_of::<T>();
-        if offset + size > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Struct read out of bounds",
-            ));
-        }
+    Ok(())
+  }
 
-        unsafe { Ok(&*(self.ptr.add(offset) as *const T)) }
+  /// Read struct at offset (zero-copy)
+  pub fn read_struct<T: Copy>(&self, offset: usize) -> io::Result<&T> {
+    let size = std::mem::size_of::<T>();
+    if offset + size > self.len {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Struct read out of bounds",
+      ));
     }
 
-    /// Read mutable struct at offset (zero-copy)
-    pub fn read_struct_mut<T: Copy>(&mut self, offset: usize) -> io::Result<&mut T> {
-        if !self.writable {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "Mmap is read-only",
-            ));
-        }
+    unsafe { Ok(&*(self.ptr.add(offset) as *const T)) }
+  }
 
-        let size = std::mem::size_of::<T>();
-        if offset + size > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "Struct read out of bounds",
-            ));
-        }
-
-        unsafe { Ok(&mut *(self.ptr.add(offset) as *mut T)) }
+  /// Read mutable struct at offset (zero-copy)
+  pub fn read_struct_mut<T: Copy>(&mut self, offset: usize) -> io::Result<&mut T> {
+    if !self.writable {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "Mmap is read-only",
+      ));
     }
 
-    /// Flush changes to disk (sync)
-    pub fn flush(&self) -> io::Result<()> {
-        if !self.writable {
-            return Ok(()); // No-op for read-only
-        }
-
-        let result = unsafe { linux_msync(self.ptr, self.len, MS_SYNC) };
-
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+    let size = std::mem::size_of::<T>();
+    if offset + size > self.len {
+      return Err(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        "Struct read out of bounds",
+      ));
     }
 
-    /// Flush changes to disk (async)
-    pub fn flush_async(&self) -> io::Result<()> {
-        if !self.writable {
-            return Ok(()); // No-op for read-only
-        }
+    unsafe { Ok(&mut *(self.ptr.add(offset) as *mut T)) }
+  }
 
-        let result = unsafe { linux_msync(self.ptr, self.len, MS_ASYNC) };
-
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+  /// Flush changes to disk (sync)
+  pub fn flush(&self) -> io::Result<()> {
+    if !self.writable {
+      return Ok(()); // No-op for read-only
     }
 
-    /// Advise kernel about access pattern
-    pub fn advise(&self, advice: MadviseAdvice) -> io::Result<()> {
-        let advice_flag = match advice {
-            MadviseAdvice::Normal => MADV_NORMAL,
-            MadviseAdvice::Random => MADV_RANDOM,
-            MadviseAdvice::Sequential => MADV_SEQUENTIAL,
-            MadviseAdvice::WillNeed => MADV_WILLNEED,
-            MadviseAdvice::DontNeed => MADV_DONTNEED,
-        };
+    let result = unsafe { linux_msync(self.ptr, self.len, MS_SYNC) };
 
-        let result = unsafe { linux_madvise(self.ptr, self.len, advice_flag) };
-
-        if result < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        Ok(())
+    if result < 0 {
+      return Err(io::Error::last_os_error());
     }
 
-    /// Get size of mapped region
-    pub fn len(&self) -> usize {
-        self.len
+    Ok(())
+  }
+
+  /// Flush changes to disk (async)
+  pub fn flush_async(&self) -> io::Result<()> {
+    if !self.writable {
+      return Ok(()); // No-op for read-only
     }
 
-    /// Check if empty
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
+    let result = unsafe { linux_msync(self.ptr, self.len, MS_ASYNC) };
+
+    if result < 0 {
+      return Err(io::Error::last_os_error());
     }
+
+    Ok(())
+  }
+
+  /// Advise kernel about access pattern
+  pub fn advise(&self, advice: MadviseAdvice) -> io::Result<()> {
+    let advice_flag = match advice {
+      MadviseAdvice::Normal => MADV_NORMAL,
+      MadviseAdvice::Random => MADV_RANDOM,
+      MadviseAdvice::Sequential => MADV_SEQUENTIAL,
+      MadviseAdvice::WillNeed => MADV_WILLNEED,
+      MadviseAdvice::DontNeed => MADV_DONTNEED,
+    };
+
+    let result = unsafe { linux_madvise(self.ptr, self.len, advice_flag) };
+
+    if result < 0 {
+      return Err(io::Error::last_os_error());
+    }
+
+    Ok(())
+  }
+
+  /// Get size of mapped region
+  pub fn len(&self) -> usize {
+    self.len
+  }
+
+  /// Check if empty
+  pub fn is_empty(&self) -> bool {
+    self.len == 0
+  }
 }
 
 #[cfg(target_os = "linux")]
 impl Drop for MmapFile {
-    fn drop(&mut self) {
-        let _ = unsafe { linux_munmap(self.ptr, self.len) };
-    }
+  fn drop(&mut self) {
+    let _ = unsafe { linux_munmap(self.ptr, self.len) };
+  }
 }
 
 // Simpler fallback for non-Linux systems - just disable mmap
 #[cfg(not(target_os = "linux"))]
 pub struct MmapFile {
-    _placeholder: (),
+  _placeholder: (),
 }
 
 #[cfg(not(target_os = "linux"))]
 impl MmapFile {
-    pub fn new(_file: File, _len: usize) -> io::Result<Self> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "mmap only supported on Linux (use regular file I/O)",
-        ))
-    }
+  pub fn new(_file: File, _len: usize) -> io::Result<Self> {
+    Err(io::Error::new(
+      io::ErrorKind::Unsupported,
+      "mmap only supported on Linux (use regular file I/O)",
+    ))
+  }
 
-    pub fn as_slice(&self) -> &[u8] {
-        &[]
-    }
+  pub fn as_slice(&self) -> &[u8] {
+    &[]
+  }
 
-    pub fn read_u32(&self, _offset: usize) -> io::Result<u32> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Not implemented",
-        ))
-    }
+  pub fn read_u32(&self, _offset: usize) -> io::Result<u32> {
+    Err(io::Error::new(
+      io::ErrorKind::Unsupported,
+      "Not implemented",
+    ))
+  }
 
-    pub fn read_bytes(&self, _offset: usize, _len: usize) -> io::Result<&[u8]> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Not implemented",
-        ))
-    }
+  pub fn read_bytes(&self, _offset: usize, _len: usize) -> io::Result<&[u8]> {
+    Err(io::Error::new(
+      io::ErrorKind::Unsupported,
+      "Not implemented",
+    ))
+  }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::fs::OpenOptions;
-    use std::io::Write;
+  use super::*;
+  use std::fs::OpenOptions;
+  use std::io::Write;
 
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn test_mmap_basic() {
-        let path = "/tmp/mmap_test.dat";
+  #[test]
+  #[cfg(target_os = "linux")]
+  fn test_mmap_basic() {
+    let path = "/tmp/mmap_test.dat";
 
-        // Create test file
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)
-            .unwrap();
+    // Create test file
+    let mut file = OpenOptions::new()
+      .write(true)
+      .create(true)
+      .truncate(true)
+      .open(path)
+      .unwrap();
 
-        file.write_all(b"Hello, mmap!").unwrap();
-        drop(file);
+    file.write_all(b"Hello, mmap!").unwrap();
+    drop(file);
 
-        // Open for mmap
-        let file = OpenOptions::new().read(true).open(path).unwrap();
-        let len = file.metadata().unwrap().len() as usize;
+    // Open for mmap
+    let file = OpenOptions::new().read(true).open(path).unwrap();
+    let len = file.metadata().unwrap().len() as usize;
 
-        let mmap = MmapFile::new(file, len).unwrap();
-        let data = mmap.as_slice();
+    let mmap = MmapFile::new(file, len).unwrap();
+    let data = mmap.as_slice();
 
-        assert_eq!(data, b"Hello, mmap!");
+    assert_eq!(data, b"Hello, mmap!");
 
-        std::fs::remove_file(path).unwrap();
-    }
+    std::fs::remove_file(path).unwrap();
+  }
 }
