@@ -4,16 +4,22 @@
   "description": "JavaScript SDK wrapper for the redblue CLI",
   "type": "commonjs",
   "main": "./sdk/redblue-sdk.js",
+  "types": "./sdk/index.d.ts",
   "bin": {
     "rb": "./sdk/redblue-sdk.js",
     "redblue-cli": "./sdk/redblue-sdk.js"
   },
   "exports": {
-    ".": "./sdk/redblue-sdk.js"
+    ".": {
+      "require": "./sdk/redblue-sdk.js",
+      "types": "./sdk/index.d.ts",
+      "default": "./sdk/redblue-sdk.js"
+    }
   },
   "files": [
     "sdk/redblue-sdk.js",
-    "sdk/postinstall.js"
+    "sdk/postinstall.js",
+    "sdk/index.d.ts"
   ],
   "engines": {
     "node": ">=20"

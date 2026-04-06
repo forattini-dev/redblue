@@ -16,7 +16,11 @@ The package is a wrapper around the real redblue binary. It downloads the binary
 ## Install
 
 ```bash
+# Local install (project dependency)
 npm install redblue-cli
+
+# Optional global install
+npm i -g redblue-cli
 ```
 
 ## CLI Usage
@@ -38,7 +42,13 @@ npx rb network ports scan 192.168.1.1 --preset common
 ./node_modules/.bin/rb dns record lookup example.com --type A
 ```
 
-> **Note:** `npx rb` only works after the package is already installed locally or globally, because the published package name is `redblue-cli`. For one-shot remote execution, use `npx redblue-cli` or `npm exec --package redblue-cli rb -- ...`.
+Use global install:
+
+```bash
+rb dns record lookup example.com --type A
+```
+
+> **Note:** `npx rb` works when the package is already installed in the current project or globally. For one-shot remote execution, use `npx redblue-cli` or `npm exec --package redblue-cli rb -- ...`.
 
 ## Programmatic SDK
 
@@ -65,6 +75,43 @@ const { createClient } = require('redblue-cli');
 })();
 ```
 
+### TypeScript
+
+```ts
+import { createClient, RedblueClient } from 'redblue-cli';
+
+interface PortScanResult {
+  host: string;
+  port: number;
+  service?: string;
+}
+
+async function audit(rb: RedblueClient) {
+  const records = await rb.dns.record.lookup({
+    target: 'example.com',
+    type: 'MX'
+  });
+
+  const ports = await rb.network.ports.scan({
+    target: 'example.com',
+    preset: 'common'
+  });
+
+  return {
+    records,
+    ports: ports as Array<PortScanResult>
+  };
+}
+
+(async () => {
+  const rb = await createClient({ autoDownload: true });
+  const output = await audit(rb);
+  console.log(output.ports.length, output.records);
+})();
+```
+
+The package ships with bundled TypeScript declarations at `sdk/index.d.ts`, so editor autocomplete and typed route signatures are available after `npm install redblue-cli`.
+
 ## Binary Resolution
 
 The wrapper resolves the binary in this order:
@@ -78,7 +125,7 @@ The wrapper resolves the binary in this order:
 
 Managed wrapper installs default to `~/.local/bin`.
 
-When installed from npm, postinstall runs `--install --target-dir <package>/.redblue/bin` to keep a local managed binary available.
+When installed from npm, postinstall runs `--install --target-dir <package>/.redblue/bin` to keep a local managed binary available (unless `REDBLUE_SKIP_POSTINSTALL=1` is set). In this normal flow, `autoDownload` is usually unnecessary for SDK calls.
 
 Example with explicit binary:
 
