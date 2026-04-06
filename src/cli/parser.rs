@@ -310,6 +310,24 @@ mod tests {
         assert_eq!(ctx.target, Some("example.com".to_string()));
     }
 
+    #[test]
+    fn test_prefers_resource_first_for_crypto_hash_verify() {
+        let args = vec![
+            "crypto".to_string(),
+            "hash".to_string(),
+            "verify".to_string(),
+            "rb-linux-x86_64".to_string(),
+            "deadbeef".to_string(),
+        ];
+        let ctx = parse_args(&args).unwrap();
+
+        assert_eq!(ctx.domain, Some("crypto".to_string()));
+        assert_eq!(ctx.resource, Some("hash".to_string()));
+        assert_eq!(ctx.verb, Some("verify".to_string()));
+        assert_eq!(ctx.target, Some("rb-linux-x86_64".to_string()));
+        assert_eq!(ctx.args, vec!["deadbeef".to_string()]);
+    }
+
     // OLD pattern fallback tests: rb [domain] [resource] [verb] [target]
     #[test]
     fn test_old_pattern_network_ports_scan() {

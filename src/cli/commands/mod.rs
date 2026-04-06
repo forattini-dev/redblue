@@ -109,6 +109,7 @@ impl CommandRegistry {
             Box::new(collection::CollectCommand), // ✅ Browser collection
             Box::new(fuzz::FuzzCommand),          // ✅ Web fuzzing engine
             Box::new(file::FileCommand),          // ✅ File operations - zip/unzip/hash
+            Box::new(crypto::CryptoHashCommand),  // ✅ Hash utilities - rb crypto hash verify
             Box::new(crypto::CryptoCommand),      // ✅ File encryption vault
             Box::new(crypto::CryptoCodecCommand), // ✅ Encoding/decoding (Base64, Hex, etc.)
             Box::new(crypto::CryptoCipherCommand), // ✅ Classical ciphers (Caesar, ROT13, etc.)

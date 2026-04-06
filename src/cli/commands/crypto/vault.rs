@@ -1,6 +1,6 @@
 //! Vault command - Secure file encryption with AES-256-GCM
 
-use crate::cli::commands::{print_help, Command, Flag, Route};
+use crate::cli::commands::{print_help, Command, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::sha256::Sha256;
 use crate::crypto::{aes256_gcm_decrypt, aes256_gcm_encrypt};
@@ -15,6 +15,52 @@ use super::{
 };
 
 pub struct CryptoCommand;
+pub struct CryptoHashCommand;
+
+impl Command for CryptoHashCommand {
+    fn domain(&self) -> &str {
+        "crypto"
+    }
+
+    fn resource(&self) -> &str {
+        "hash"
+    }
+
+    fn description(&self) -> &str {
+        "Hash utilities (verify checksums)"
+    }
+
+    fn routes(&self) -> Vec<Route> {
+        vec![Route {
+            verb: "verify",
+            summary: "Verify a file checksum",
+            usage: "rb crypto hash verify <file> <expected_hash>",
+        }]
+    }
+
+    fn examples(&self) -> Vec<(&str, &str)> {
+        vec![(
+            "Verify file checksum",
+            "rb crypto hash verify ./bin/rb <sha256_hash>",
+        )]
+    }
+
+    fn execute(&self, ctx: &CliContext) -> Result<(), String> {
+        let verb = ctx.verb.as_ref().ok_or_else(|| {
+            print_help(self);
+            "No verb provided".to_string()
+        })?;
+
+        match verb.as_str() {
+            "verify" => verify_checksum(ctx),
+            "help" => {
+                print_help(self);
+                Ok(())
+            }
+            _ => Err(format!("Unknown verb '{}'. Use: rb crypto hash help", verb)),
+        }
+    }
+}
 
 impl Command for CryptoCommand {
     fn domain(&self) -> &str {
@@ -31,11 +77,6 @@ impl Command for CryptoCommand {
 
     fn routes(&self) -> Vec<Route> {
         vec![
-            Route {
-                verb: "hash",
-                summary: "Hash utilities (verify checksums)",
-                usage: "rb crypto hash verify <file> <expected_hash>",
-            },
             Route {
                 verb: "encrypt",
                 summary: "Encrypt a file with password",
@@ -54,25 +95,23 @@ impl Command for CryptoCommand {
         ]
     }
 
-    fn flags(&self) -> Vec<Flag> {
+    fn flags(&self) -> Vec<crate::cli::commands::Flag> {
         vec![
-            Flag::new("output", "Output file path")
+            crate::cli::commands::Flag::new("output", "Output file path")
                 .with_short('o')
                 .with_arg("FILE"),
-            Flag::new("format", "Output format (text, json)").with_default("text"),
-            Flag::new("password", "Password (omit for secure prompt)")
+            crate::cli::commands::Flag::new("format", "Output format (text, json)")
+                .with_default("text"),
+            crate::cli::commands::Flag::new("password", "Password (omit for secure prompt)")
                 .with_short('p')
                 .with_arg("PASS"),
-            Flag::new("force", "Overwrite existing output file").with_short('f'),
+            crate::cli::commands::Flag::new("force", "Overwrite existing output file")
+                .with_short('f'),
         ]
     }
 
     fn examples(&self) -> Vec<(&str, &str)> {
         vec![
-            (
-                "Verify file checksum",
-                "rb crypto hash verify ./bin/rb <sha256_hash>",
-            ),
             (
                 "Encrypt a file (password prompt)",
                 "rb crypto vault encrypt secrets.txt",
@@ -100,7 +139,6 @@ impl Command for CryptoCommand {
         })?;
 
         match verb.as_str() {
-            "hash" => self.hash_ops(ctx),
             "encrypt" => self.encrypt_file(ctx),
             "decrypt" => self.decrypt_file(ctx),
             "info" => self.show_info(ctx),
@@ -391,75 +429,6 @@ impl CryptoCommand {
         Ok(())
     }
 
-    fn hash_ops(&self, ctx: &CliContext) -> Result<(), String> {
-        let resource = ctx.resource.as_deref().unwrap_or("");
-
-        match resource {
-            "verify" => self.verify_checksum(ctx),
-            _ => Err(format!(
-                "Unknown hash operation '{}'. Try: rb crypto hash verify <file> <hash>",
-                resource
-            )),
-        }
-    }
-
-    fn verify_checksum(&self, ctx: &CliContext) -> Result<(), String> {
-        let file_path = ctx
-            .target
-            .as_ref()
-            .ok_or("Missing file path. Usage: rb crypto hash verify <file> <hash>")?;
-
-        // The hash should be the first argument
-        let expected_hash = ctx
-            .args
-            .get(0)
-            .ok_or("Missing expected hash. Usage: rb crypto hash verify <file> <hash>")?;
-
-        let path = Path::new(file_path);
-        if !path.exists() {
-            return Err(format!("File not found: {}", file_path));
-        }
-
-        Output::header("Checksum Verification");
-        Output::item("File", file_path);
-        Output::item("Expected", expected_hash);
-        println!();
-
-        Output::spinner_start("Calculating SHA-256");
-
-        let mut file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
-        let mut hasher = Sha256::new();
-        let mut buffer = [0u8; 8192];
-
-        loop {
-            let n = file
-                .read(&mut buffer)
-                .map_err(|e| format!("Read failed: {}", e))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-
-        let digest = hasher.finalize();
-        let actual_hash = hex_encode(&digest);
-
-        Output::spinner_done();
-
-        println!();
-        if actual_hash.eq_ignore_ascii_case(expected_hash) {
-            Output::success("Checksum MATCHED");
-            Output::item("Actual", &actual_hash);
-        } else {
-            Output::error("Checksum MISMATCH");
-            Output::item("Actual", &actual_hash);
-            Output::item("Expect", expected_hash);
-            return Err("Checksum verification failed".to_string());
-        }
-
-        Ok(())
-    }
-
     fn get_password(&self, ctx: &CliContext, confirm: bool) -> Result<String, String> {
         // Check if password provided via flag
         if let Some(pass) = ctx.get_flag("password") {
@@ -488,4 +457,60 @@ impl CryptoCommand {
 
         Ok(password)
     }
+}
+
+fn verify_checksum(ctx: &CliContext) -> Result<(), String> {
+    let file_path = ctx
+        .target
+        .as_ref()
+        .ok_or("Missing file path. Usage: rb crypto hash verify <file> <hash>")?;
+
+    let expected_hash = ctx
+        .args
+        .get(0)
+        .ok_or("Missing expected hash. Usage: rb crypto hash verify <file> <hash>")?;
+
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    Output::header("Checksum Verification");
+    Output::item("File", file_path);
+    Output::item("Expected", expected_hash);
+    println!();
+
+    Output::spinner_start("Calculating SHA-256");
+
+    let mut file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let n = file
+            .read(&mut buffer)
+            .map_err(|e| format!("Read failed: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    let digest = hasher.finalize();
+    let actual_hash = hex_encode(&digest);
+
+    Output::spinner_done();
+
+    println!();
+    if actual_hash.eq_ignore_ascii_case(expected_hash) {
+        Output::success("Checksum MATCHED");
+        Output::item("Actual", &actual_hash);
+    } else {
+        Output::error("Checksum MISMATCH");
+        Output::item("Actual", &actual_hash);
+        Output::item("Expect", expected_hash);
+        return Err("Checksum verification failed".to_string());
+    }
+
+    Ok(())
 }

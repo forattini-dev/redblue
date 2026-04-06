@@ -22,7 +22,7 @@ pub use codec::CryptoCodecCommand;
 pub use cyclic::CryptoCyclicCommand;
 pub use helpers::hex_encode;
 pub use recipe::CryptoRecipeCommand;
-pub use vault::CryptoCommand;
+pub use vault::{CryptoCommand, CryptoHashCommand};
 
 /// Magic bytes for encrypted vault files
 pub const VAULT_MAGIC: &[u8; 4] = b"RBVT";
