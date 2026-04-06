@@ -41,7 +41,7 @@ impl Http2Client {
             .ok();
 
         // Step 2: TLS handshake with ALPN negotiation for "h2"
-        let mut connector = SslConnector::builder(SslMethod::tls_client())
+        let mut connector = SslConnector::builder(SslMethod::tls())
             .map_err(|e| format!("SSL connector creation failed: {}", e))?;
 
         connector.set_verify(SslVerifyMode::PEER);
@@ -812,7 +812,7 @@ mod tests {
             .dns("localhost")
             .build(&ctx)
             .expect("test san");
-        builder.append_extension(san).expect("test append san");
+        builder.append_extension(&san).expect("test append san");
 
         builder
             .sign(&pkey, MessageDigest::sha256())

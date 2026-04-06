@@ -1140,7 +1140,7 @@ mod tests {
             .dns("localhost")
             .build(&ctx)
             .expect("test san");
-        builder.append_extension(san).expect("test append san");
+        builder.append_extension(&san).expect("test append san");
 
         builder
             .sign(&pkey, MessageDigest::sha256())

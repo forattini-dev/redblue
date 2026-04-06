@@ -465,7 +465,7 @@ impl P256Point {
                 if let Ok(bn) = BigNum::from_slice(scalar) {
                     if let Ok(point) = self.to_openssl_point(&group, &mut ctx) {
                         if let Ok(mut result) = EcPoint::new(&group) {
-                            if result.mul(&group, &point, &bn, &ctx).is_ok() {
+                            if result.mul(&group, &point, &bn, &mut ctx).is_ok() {
                                 if let Ok(converted) =
                                     Self::from_openssl_point(&group, &result, &mut ctx)
                                 {

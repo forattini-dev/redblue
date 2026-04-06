@@ -31,7 +31,7 @@ libc = "0.2"  # FFI to kernel syscalls (PTY/terminal/socket options)
 # Windows builds will have reduced TLS functionality until pure Rust TLS is complete
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-boring = "4.10.0"
+boring = "5.0.2"
 
 
 [dev-dependencies]

@@ -249,7 +249,29 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        if: matrix.target != 'aarch64-unknown-linux-musl'
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Build release binary (musl container)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        shell: bash
+        run: |
+          mkdir -p "${HOME}/.cargo/registry" "${HOME}/.cargo/git"
+
+          docker run --rm \
+            -v "${PWD}:/volume" \
+            -v "${HOME}/.cargo/registry:/root/.cargo/registry" \
+            -v "${HOME}/.cargo/git:/root/.cargo/git" \
+            -w /volume \
+            messense/rust-musl-cross:aarch64-musl \
+            bash -lc '
+              apt-get update >/dev/null &&
+              apt-get install -y golang-go ninja-build >/dev/null &&
+              export BORING_BSSL_SYSROOT="${TARGET_HOME}" &&
+              cargo build --locked --release --target aarch64-unknown-linux-musl
+            '
+
+          sudo chown -R "$(id -u):$(id -g)" target/aarch64-unknown-linux-musl
 
       - name: Strip binary (Linux x86_64)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -275,7 +297,7 @@ jobs:
         shell: bash
         run: |
           HASH=$(cat ${{ matrix.asset_name }}.sha256 | awk '{print $1}')
-          ./${{ matrix.asset_name }} crypto hash verify ${{ matrix.asset_name }} $HASH
+          ./${{ matrix.asset_name }} crypto vault hash verify ${{ matrix.asset_name }} $HASH
 
       - name: Evasion build info
         if: "!matrix.cross"

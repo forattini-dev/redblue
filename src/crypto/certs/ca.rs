@@ -178,7 +178,7 @@ impl CertificateAuthority {
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("BC extension failed: {}", e)))?;
         builder
-            .append_extension(bc)
+            .append_extension(&bc)
             .map_err(|e| CertError::InvalidFormat(format!("Append BC failed: {}", e)))?;
 
         let ku = KeyUsage::new()
@@ -188,7 +188,7 @@ impl CertificateAuthority {
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("KU extension failed: {}", e)))?;
         builder
-            .append_extension(ku)
+            .append_extension(&ku)
             .map_err(|e| CertError::InvalidFormat(format!("Append KU failed: {}", e)))?;
 
         let ctx = builder.x509v3_context(None, None);
@@ -196,7 +196,7 @@ impl CertificateAuthority {
             .build(&ctx)
             .map_err(|e| CertError::InvalidFormat(format!("SKI extension failed: {}", e)))?;
         builder
-            .append_extension(ski)
+            .append_extension(&ski)
             .map_err(|e| CertError::InvalidFormat(format!("Append SKI failed: {}", e)))?;
 
         // Sign
@@ -391,7 +391,7 @@ impl CertificateAuthority {
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("BC extension failed: {}", e)))?;
         builder
-            .append_extension(bc)
+            .append_extension(&bc)
             .map_err(|e| CertError::InvalidFormat(format!("Append BC failed: {}", e)))?;
 
         let ku = KeyUsage::new()
@@ -400,7 +400,7 @@ impl CertificateAuthority {
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("KU extension failed: {}", e)))?;
         builder
-            .append_extension(ku)
+            .append_extension(&ku)
             .map_err(|e| CertError::InvalidFormat(format!("Append KU failed: {}", e)))?;
 
         let eku = ExtendedKeyUsage::new()
@@ -409,7 +409,7 @@ impl CertificateAuthority {
             .build()
             .map_err(|e| CertError::InvalidFormat(format!("EKU extension failed: {}", e)))?;
         builder
-            .append_extension(eku)
+            .append_extension(&eku)
             .map_err(|e| CertError::InvalidFormat(format!("Append EKU failed: {}", e)))?;
 
         // Subject Alternative Names
@@ -428,7 +428,7 @@ impl CertificateAuthority {
             .build(&ctx)
             .map_err(|e| CertError::InvalidFormat(format!("SAN extension failed: {}", e)))?;
         builder
-            .append_extension(san)
+            .append_extension(&san)
             .map_err(|e| CertError::InvalidFormat(format!("Append SAN failed: {}", e)))?;
 
         // Sign with CA key

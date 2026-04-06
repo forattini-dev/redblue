@@ -230,7 +230,7 @@ impl ConnectionPool {
         }
 
         // Create new SSL context with session caching enabled
-        let mut builder = SslContext::builder(SslMethod::tls_client())
+        let mut builder = SslContext::builder(SslMethod::tls())
             .map_err(|e| format!("SSL context creation failed: {}", e))?;
 
         // Enable client-side session caching (TLS session resumption)

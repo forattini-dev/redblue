@@ -5,7 +5,7 @@
 *.rdb
 
 # Cargo
-Cargo.lock
+# Cargo.lock is versioned for reproducible CLI/release builds.
 
 # IDE
 .idea/

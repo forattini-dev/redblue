@@ -41,11 +41,11 @@ jobs:
         run: python3 scripts/check-machine-output.py
 
       - name: Run Cargo Check
-        run: cargo check --all
+        run: cargo check --locked --all
 
       - name: Run Clippy
         # -D warnings garante que warnings quebrem o build
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --locked --all -- -D warnings
 
   # Job de Testes: Roda em paralelo com Quality
   tests:
@@ -68,4 +68,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run Tests
-        run: cargo test --verbose
+        run: cargo test --locked --verbose

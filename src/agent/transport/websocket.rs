@@ -579,7 +579,7 @@ impl WebSocketTransport {
 
     #[cfg(not(target_os = "windows"))]
     fn wrap_tls(&self, host: &str, stream: TcpStream) -> TransportResult<WebSocketStream> {
-        let mut builder = SslConnector::builder(SslMethod::tls_client())
+        let mut builder = SslConnector::builder(SslMethod::tls())
             .map_err(|e| TransportError::TlsError(format!("TLS builder error: {}", e)))?;
         if self.config.base.tls_verify {
             builder.set_verify(SslVerifyMode::PEER);
