@@ -532,7 +532,7 @@ jobs:
             echo "Verified npm ${NPM_TAG} tag: $PUBLISHED_VERSION"
           fi
 
-          npx -y redblue-cli@${NPM_TAG} --sdk-help >/tmp/redblue-sdk-help.txt
+          REDBLUE_SKIP_POSTINSTALL=1 npx -y redblue-cli@${NPM_TAG} --sdk-help >/tmp/redblue-sdk-help.txt
           grep -q "redblue-cli wrapper" /tmp/redblue-sdk-help.txt
 
       - name: Job summary
