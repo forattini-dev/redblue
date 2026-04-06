@@ -1,6 +1,7 @@
 /// Dependencies command - Scan dependencies for vulnerabilities
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::collection::dependencies::{DependencyScanner, VulnSeverity};
 
 pub struct DepsCommand;
@@ -196,60 +197,26 @@ impl DepsCommand {
     }
 
     fn output_json(&self, result: &crate::modules::collection::dependencies::DependencyScanResult) {
-        println!("{{");
-        println!("  \"total_dependencies\": {},", result.total_dependencies);
-        println!(
-            "  \"vulnerable_dependencies\": {},",
-            result.vulnerable_dependencies
-        );
-        println!("  \"files_scanned\": [");
-
-        for (i, file) in result.files_scanned.iter().enumerate() {
-            let comma = if i < result.files_scanned.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    \"{}\"{}",
-                file.replace('\\', "\\\\").replace('"', "\\\""),
-                comma
-            );
-        }
-
-        println!("  ],");
-        println!("  \"vulnerabilities\": [");
-
-        for (i, vuln) in result.vulnerabilities.iter().enumerate() {
-            let comma = if i < result.vulnerabilities.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"package\": \"{}\",", vuln.package_name);
-            println!("      \"affected_version\": \"{}\",", vuln.affected_version);
-            println!("      \"severity\": \"{}\",", vuln.severity.as_str());
-
-            if let Some(cve) = &vuln.cve_id {
-                println!("      \"cve_id\": \"{}\",", cve);
-            } else {
-                println!("      \"cve_id\": null,");
-            }
-
-            println!("      \"title\": \"{}\",", vuln.title.replace('"', "\\\""));
-
-            if let Some(fixed) = &vuln.fixed_version {
-                println!("      \"fixed_version\": \"{}\"", fixed);
-            } else {
-                println!("      \"fixed_version\": null");
-            }
-
-            println!("    }}{}", comma);
-        }
-
-        println!("  ]");
-        println!("}}");
+        let vulnerabilities: Vec<_> = result
+            .vulnerabilities
+            .iter()
+            .map(|vuln| {
+                json!({
+                    "package": vuln.package_name.clone(),
+                    "affected_version": vuln.affected_version.clone(),
+                    "severity": vuln.severity.as_str(),
+                    "cve_id": vuln.cve_id.clone(),
+                    "title": vuln.title.clone(),
+                    "fixed_version": vuln.fixed_version.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "total_dependencies": result.total_dependencies,
+            "vulnerable_dependencies": result.vulnerable_dependencies,
+            "files_scanned": result.files_scanned.clone(),
+            "vulnerabilities": vulnerabilities
+        }));
     }
 
     fn output_yaml(&self, result: &crate::modules::collection::dependencies::DependencyScanResult) {

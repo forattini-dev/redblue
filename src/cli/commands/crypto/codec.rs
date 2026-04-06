@@ -3,6 +3,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::codec::CodecRegistry;
+use crate::json;
 use std::fs;
 use std::io::Write;
 
@@ -151,20 +152,24 @@ impl CryptoCodecCommand {
                 .write_all(&encoded)
                 .map_err(|e| e.to_string())?;
         } else if format == "json" {
-            println!("{{");
-            println!("  \"codec\": \"{}\",", codec_name);
-            println!("  \"operation\": \"encode\",");
-            println!("  \"input_size\": {},", input.len());
-            println!("  \"output_size\": {},", encoded.len());
-            if let Ok(s) = String::from_utf8(encoded.clone()) {
-                println!(
-                    "  \"output\": \"{}\"",
-                    s.replace('"', "\\\"").replace('\n', "\\n")
-                );
+            let value = if let Ok(s) = String::from_utf8(encoded.clone()) {
+                json!({
+                    "codec": codec_name,
+                    "operation": "encode",
+                    "input_size": input.len(),
+                    "output_size": encoded.len(),
+                    "output": s,
+                })
             } else {
-                println!("  \"output_hex\": \"{}\"", hex_encode(&encoded));
-            }
-            println!("}}");
+                json!({
+                    "codec": codec_name,
+                    "operation": "encode",
+                    "input_size": input.len(),
+                    "output_size": encoded.len(),
+                    "output_hex": hex_encode(&encoded),
+                })
+            };
+            Output::json_value(&value);
         } else if let Ok(s) = String::from_utf8(encoded.clone()) {
             println!("{}", s);
         } else {
@@ -207,20 +212,24 @@ impl CryptoCodecCommand {
                 .write_all(&decoded)
                 .map_err(|e| e.to_string())?;
         } else if format == "json" {
-            println!("{{");
-            println!("  \"codec\": \"{}\",", codec_name);
-            println!("  \"operation\": \"decode\",");
-            println!("  \"input_size\": {},", input.len());
-            println!("  \"output_size\": {},", decoded.len());
-            if let Ok(s) = String::from_utf8(decoded.clone()) {
-                println!(
-                    "  \"output\": \"{}\"",
-                    s.replace('"', "\\\"").replace('\n', "\\n")
-                );
+            let value = if let Ok(s) = String::from_utf8(decoded.clone()) {
+                json!({
+                    "codec": codec_name,
+                    "operation": "decode",
+                    "input_size": input.len(),
+                    "output_size": decoded.len(),
+                    "output": s,
+                })
             } else {
-                println!("  \"output_hex\": \"{}\"", hex_encode(&decoded));
-            }
-            println!("}}");
+                json!({
+                    "codec": codec_name,
+                    "operation": "decode",
+                    "input_size": input.len(),
+                    "output_size": decoded.len(),
+                    "output_hex": hex_encode(&decoded),
+                })
+            };
+            Output::json_value(&value);
         } else if let Ok(s) = String::from_utf8(decoded.clone()) {
             println!("{}", s);
         } else {
@@ -237,22 +246,18 @@ impl CryptoCodecCommand {
         let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
         if format == "json" {
-            println!("[");
-            for (i, name) in codecs.iter().enumerate() {
-                if let Some(codec) = registry.get(name) {
-                    print!(
-                        "  {{\"name\": \"{}\", \"description\": \"{}\"}}",
-                        name,
-                        codec.description()
-                    );
-                    if i < codecs.len() - 1 {
-                        println!(",");
-                    } else {
-                        println!();
-                    }
-                }
-            }
-            println!("]");
+            let codecs_json: Vec<_> = codecs
+                .iter()
+                .filter_map(|name| {
+                    registry.get(name).map(|codec| {
+                        json!({
+                            "name": name,
+                            "description": codec.description(),
+                        })
+                    })
+                })
+                .collect();
+            Output::json_value(&json!(codecs_json));
         } else {
             Output::header("Available Codecs");
             println!();
@@ -273,19 +278,16 @@ impl CryptoCodecCommand {
         let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
         if format == "json" {
-            println!("[");
-            for (i, det) in detections.iter().enumerate() {
-                print!(
-                    "  {{\"codec\": \"{}\", \"confidence\": {:.2}}}",
-                    det.codec_name, det.confidence
-                );
-                if i < detections.len() - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("]");
+            let detections_json: Vec<_> = detections
+                .iter()
+                .map(|det| {
+                    json!({
+                        "codec": det.codec_name,
+                        "confidence": det.confidence,
+                    })
+                })
+                .collect();
+            Output::json_value(&json!(detections_json));
         } else {
             Output::header("Encoding Detection");
             println!();

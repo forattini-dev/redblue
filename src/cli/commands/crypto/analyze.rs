@@ -3,6 +3,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::analysis::{AutoDetector, EntropyAnalyzer, FrequencyAnalyzer, HashIdentifier};
+use crate::json;
 use std::fs;
 
 /// Analysis command (hash ID, frequency, auto-detect)
@@ -130,26 +131,20 @@ impl CryptoAnalyzeCommand {
         };
 
         if format == "json" {
-            println!("[");
-            for (i, result) in results.iter().enumerate() {
-                let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
-                print!(
-                    "  {{\"name\": \"{}\", \"hashcat_mode\": {}, \"john_format\": {:?}, \"confidence\": {:.2}}}",
-                    result.name,
-                    result
-                        .hashcat_mode
-                        .map(|m| m.to_string())
-                        .unwrap_or_else(|| "null".to_string()),
-                    result.john_format,
-                    confidence.min(1.0)
-                );
-                if i < results.len() - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("]");
+            let results_json: Vec<_> = results
+                .iter()
+                .enumerate()
+                .map(|(i, result)| {
+                    let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
+                    json!({
+                        "name": result.name,
+                        "hashcat_mode": result.hashcat_mode.map(|m| m.to_string()),
+                        "john_format": result.john_format.clone(),
+                        "confidence": confidence.min(1.0),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!(results_json));
         } else {
             Output::header("Hash Identification");
             Output::item("Input", &input);
@@ -187,31 +182,31 @@ impl CryptoAnalyzeCommand {
         let analyzer = FrequencyAnalyzer::new();
         let result = analyzer.analyze(&input);
         let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+        let cipher_type = analyzer.detect_cipher_type(&input);
 
         if format == "json" {
-            println!("{{");
-            println!("  \"ioc\": {:.4},", result.ioc);
-            println!("  \"likely_language\": \"{}\",", result.likely_language);
-            println!(
-                "  \"cipher_type\": \"{}\",",
-                analyzer.detect_cipher_type(&input)
-            );
-            println!("  \"top_chars\": [");
-            for (i, (c, freq)) in result.top_chars.iter().take(10).enumerate() {
-                print!("    {{\"char\": \"{}\", \"frequency\": {:.4}}}", c, freq);
-                if i < result.top_chars.len().min(10) - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("  ]");
-            println!("}}");
+            let top_chars: Vec<_> = result
+                .top_chars
+                .iter()
+                .take(10)
+                .map(|(c, freq)| {
+                    json!({
+                        "char": c.to_string(),
+                        "frequency": freq,
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "ioc": result.ioc,
+                "likely_language": result.likely_language.clone(),
+                "cipher_type": cipher_type,
+                "top_chars": top_chars,
+            }));
         } else {
             Output::header("Frequency Analysis");
             Output::item("Index of Coincidence", &format!("{:.4}", result.ioc));
             Output::item("Likely language", &result.likely_language);
-            Output::item("Probable cipher type", &analyzer.detect_cipher_type(&input));
+            Output::item("Probable cipher type", &cipher_type);
             println!();
 
             Output::subheader("Top Characters");
@@ -252,19 +247,16 @@ impl CryptoAnalyzeCommand {
         let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
         if format == "json" {
-            println!("{{");
-            println!("  \"entropy\": {:.4},", result.entropy);
-            println!("  \"entropy_percent\": {:.2},", result.entropy_percent);
-            println!("  \"classification\": \"{}\",", result.classification);
-            println!("  \"unique_bytes\": {},", result.unique_bytes);
-            println!("  \"total_bytes\": {},", result.total_bytes);
-            println!(
-                "  \"is_likely_compressed\": {},",
-                result.is_likely_compressed
-            );
-            println!("  \"is_likely_encrypted\": {},", result.is_likely_encrypted);
-            println!("  \"is_likely_text\": {}", result.is_likely_text);
-            println!("}}");
+            Output::json_value(&json!({
+                "entropy": result.entropy,
+                "entropy_percent": result.entropy_percent,
+                "classification": format!("{}", result.classification),
+                "unique_bytes": result.unique_bytes,
+                "total_bytes": result.total_bytes,
+                "is_likely_compressed": result.is_likely_compressed,
+                "is_likely_encrypted": result.is_likely_encrypted,
+                "is_likely_text": result.is_likely_text,
+            }));
         } else {
             Output::header("Entropy Analysis");
             Output::item("Total bytes", &format!("{}", result.total_bytes));
@@ -368,24 +360,12 @@ impl CryptoAnalyzeCommand {
         };
 
         if format == "json" {
-            println!("{{");
-            println!("  \"input\": \"{}\",", input.replace('"', "\\\""));
-            println!(
-                "  \"output\": \"{}\",",
-                plaintext.replace('"', "\\\"").replace('\n', "\\n")
-            );
-            println!("  \"confidence\": {:.2},", confidence);
-            println!("  \"chain\": [");
-            for (i, step) in chain.iter().enumerate() {
-                print!("    \"{}\"", step);
-                if i < chain.len() - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&json!({
+                "input": input,
+                "output": plaintext,
+                "confidence": confidence,
+                "chain": chain,
+            }));
         } else {
             Output::header("Auto-Detect (Magic Mode)");
             Output::item("Input", &input);

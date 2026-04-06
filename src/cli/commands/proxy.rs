@@ -4,6 +4,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::json;
 use crate::modules::proxy::http::{HttpProxy, HttpProxyConfig};
 use crate::modules::proxy::socks5::{Socks5Config, Socks5Server};
 #[cfg(not(target_os = "windows"))]
@@ -632,45 +633,17 @@ impl ProxyDataCommand {
             .map_err(|e| format!("Failed to list connections: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"database\": \"{}\",",
-                db_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"total\": {},", connections.len());
-            println!("  \"limit\": {},", limit);
-            println!("  \"connections\": [");
-            for (i, conn) in connections.iter().take(limit).enumerate() {
-                let proto = match conn.protocol {
-                    0 => "TCP",
-                    1 => "UDP",
-                    2 => "TLS",
-                    _ => "UNKNOWN",
-                };
-                let comma = if i < connections.len().min(limit) - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"connection_id\": {},", conn.connection_id);
-                println!("      \"src_ip\": \"{}\",", conn.src_ip);
-                println!("      \"src_port\": {},", conn.src_port);
-                println!(
-                    "      \"dst_host\": \"{}\",",
-                    conn.dst_host.replace('"', "\\\"")
-                );
-                println!("      \"dst_port\": {},", conn.dst_port);
-                println!("      \"protocol\": \"{}\",", proto);
-                println!("      \"bytes_sent\": {},", conn.bytes_sent);
-                println!("      \"bytes_received\": {},", conn.bytes_received);
-                println!("      \"tls_intercepted\": {},", conn.tls_intercepted);
-                println!("      \"started_at\": {},", conn.started_at);
-                println!("      \"ended_at\": {}", conn.ended_at);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let connections_json: Vec<_> = connections
+                .iter()
+                .take(limit)
+                .map(proxy_connection_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "database": db_path.clone(),
+                "total": connections.len(),
+                "limit": limit,
+                "connections": connections_json
+            }));
             return Ok(());
         }
 
@@ -753,37 +726,18 @@ impl ProxyDataCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"database\": \"{}\",",
-                db_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            if let Some(ref h) = host_filter {
-                println!("  \"host_filter\": \"{}\",", h.replace('"', "\\\""));
-            }
-            println!("  \"total\": {},", filtered.len());
-            println!("  \"limit\": {},", limit);
-            println!("  \"requests\": [");
-            for (i, req) in filtered.iter().take(limit).enumerate() {
-                let comma = if i < filtered.len().min(limit) - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"connection_id\": {},", req.connection_id);
-                println!("      \"request_seq\": {},", req.request_seq);
-                println!("      \"method\": \"{}\",", req.method);
-                println!(
-                    "      \"path\": \"{}\",",
-                    req.path.replace('\\', "\\\\").replace('"', "\\\"")
-                );
-                println!("      \"host\": \"{}\",", req.host.replace('"', "\\\""));
-                println!("      \"http_version\": \"{}\"", req.http_version);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let requests_json: Vec<_> = filtered
+                .iter()
+                .take(limit)
+                .map(proxy_request_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "database": db_path.clone(),
+                "host_filter": host_filter.clone(),
+                "total": filtered.len(),
+                "limit": limit,
+                "requests": requests_json
+            }));
             return Ok(());
         }
 
@@ -857,41 +811,18 @@ impl ProxyDataCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"database\": \"{}\",",
-                db_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            if let Some(s) = status_filter {
-                println!("  \"status_filter\": {},", s);
-            }
-            println!("  \"total\": {},", filtered.len());
-            println!("  \"limit\": {},", limit);
-            println!("  \"responses\": [");
-            for (i, resp) in filtered.iter().take(limit).enumerate() {
-                let comma = if i < filtered.len().min(limit) - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"connection_id\": {},", resp.connection_id);
-                println!("      \"request_seq\": {},", resp.request_seq);
-                println!("      \"status_code\": {},", resp.status_code);
-                println!(
-                    "      \"status_text\": \"{}\",",
-                    resp.status_text.replace('"', "\\\"")
-                );
-                if let Some(ref ct) = resp.content_type {
-                    println!("      \"content_type\": \"{}\",", ct.replace('"', "\\\""));
-                } else {
-                    println!("      \"content_type\": null,");
-                }
-                println!("      \"body_size\": {}", resp.body.len());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let responses_json: Vec<_> = filtered
+                .iter()
+                .take(limit)
+                .map(proxy_response_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "database": db_path.clone(),
+                "status_filter": status_filter,
+                "total": filtered.len(),
+                "limit": limit,
+                "responses": responses_json
+            }));
             return Ok(());
         }
 
@@ -994,64 +925,26 @@ impl ProxyDataCommand {
             .collect();
 
         if is_json {
-            let proto = match conn.protocol {
-                0 => "TCP",
-                1 => "UDP",
-                2 => "TLS",
-                _ => "UNKNOWN",
-            };
-            println!("{{");
-            println!("  \"connection_id\": {},", conn.connection_id);
-            println!("  \"src_ip\": \"{}\",", conn.src_ip);
-            println!("  \"src_port\": {},", conn.src_port);
-            println!(
-                "  \"dst_host\": \"{}\",",
-                conn.dst_host.replace('"', "\\\"")
-            );
-            println!("  \"dst_port\": {},", conn.dst_port);
-            println!("  \"protocol\": \"{}\",", proto);
-            println!("  \"tls_intercepted\": {},", conn.tls_intercepted);
-            println!("  \"started_at\": {},", conn.started_at);
-            println!("  \"ended_at\": {},", conn.ended_at);
-            println!(
-                "  \"duration_seconds\": {},",
-                conn.ended_at.saturating_sub(conn.started_at)
-            );
-            println!("  \"bytes_sent\": {},", conn.bytes_sent);
-            println!("  \"bytes_received\": {},", conn.bytes_received);
-            println!("  \"requests\": [");
-            for (i, req) in conn_requests.iter().enumerate() {
-                let comma = if i < conn_requests.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"request_seq\": {},", req.request_seq);
-                println!("      \"method\": \"{}\",", req.method);
-                println!(
-                    "      \"path\": \"{}\",",
-                    req.path.replace('\\', "\\\\").replace('"', "\\\"")
+            let requests_json: Vec<_> = conn_requests
+                .iter()
+                .map(|req| proxy_request_to_json(req))
+                .collect();
+            let responses_json: Vec<_> = conn_responses
+                .iter()
+                .map(|resp| proxy_response_to_json(resp))
+                .collect();
+            let mut conn_json = proxy_connection_to_json(&conn);
+            if let Some(obj) = conn_json.as_object().cloned() {
+                let mut map = obj;
+                map.insert(
+                    "duration_seconds".to_string(),
+                    json!(conn.ended_at.saturating_sub(conn.started_at)),
                 );
-                println!("      \"http_version\": \"{}\"", req.http_version);
-                println!("    }}{}", comma);
+                map.insert("requests".to_string(), json!(requests_json));
+                map.insert("responses".to_string(), json!(responses_json));
+                conn_json = crate::serde_json::Value::Object(map);
             }
-            println!("  ],");
-            println!("  \"responses\": [");
-            for (i, resp) in conn_responses.iter().enumerate() {
-                let comma = if i < conn_responses.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"request_seq\": {},", resp.request_seq);
-                println!("      \"status_code\": {},", resp.status_code);
-                println!(
-                    "      \"status_text\": \"{}\",",
-                    resp.status_text.replace('"', "\\\"")
-                );
-                println!("      \"body_size\": {}", resp.body.len());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&conn_json);
             return Ok(());
         }
 
@@ -1154,42 +1047,26 @@ impl ProxyDataCommand {
         sorted_status.sort_by_key(|(code, _)| *code);
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"database\": \"{}\",",
-                db_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"connections\": {},", connections.len());
-            println!("  \"tls_intercepted\": {},", tls_count);
-            println!("  \"http_requests\": {},", requests.len());
-            println!("  \"http_responses\": {},", responses.len());
-            println!("  \"total_bytes_sent\": {},", total_bytes_sent);
-            println!("  \"total_bytes_received\": {},", total_bytes_recv);
-            println!("  \"top_hosts\": [");
-            for (i, (host, count)) in sorted_hosts.iter().take(10).enumerate() {
-                let comma = if i < sorted_hosts.len().min(10) - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!(
-                    "    {{ \"host\": \"{}\", \"count\": {} }}{}",
-                    host.replace('"', "\\\""),
-                    count,
-                    comma
-                );
-            }
-            println!("  ],");
-            println!("  \"status_distribution\": [");
-            for (i, (code, count)) in sorted_status.iter().enumerate() {
-                let comma = if i < sorted_status.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{ \"status_code\": {}, \"count\": {} }}{}",
-                    code, count, comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let top_hosts: Vec<_> = sorted_hosts
+                .iter()
+                .take(10)
+                .map(|(host, count)| json!({ "host": host.to_string(), "count": *count }))
+                .collect();
+            let status_distribution: Vec<_> = sorted_status
+                .iter()
+                .map(|(code, count)| json!({ "status_code": *code, "count": *count }))
+                .collect();
+            Output::json_value(&json!({
+                "database": db_path.clone(),
+                "connections": connections.len(),
+                "tls_intercepted": tls_count,
+                "http_requests": requests.len(),
+                "http_responses": responses.len(),
+                "total_bytes_sent": total_bytes_sent,
+                "total_bytes_received": total_bytes_recv,
+                "top_hosts": top_hosts,
+                "status_distribution": status_distribution
+            }));
             return Ok(());
         }
 
@@ -1246,6 +1123,57 @@ impl ProxyDataCommand {
 
         Ok(())
     }
+}
+
+fn protocol_name(protocol: u8) -> &'static str {
+    match protocol {
+        0 => "TCP",
+        1 => "UDP",
+        2 => "TLS",
+        _ => "UNKNOWN",
+    }
+}
+
+fn proxy_connection_to_json(
+    conn: &crate::storage::ProxyConnectionRecord,
+) -> crate::serde_json::Value {
+    json!({
+        "connection_id": conn.connection_id,
+        "src_ip": conn.src_ip.to_string(),
+        "src_port": conn.src_port,
+        "dst_host": conn.dst_host.clone(),
+        "dst_port": conn.dst_port,
+        "protocol": protocol_name(conn.protocol),
+        "bytes_sent": conn.bytes_sent,
+        "bytes_received": conn.bytes_received,
+        "tls_intercepted": conn.tls_intercepted,
+        "started_at": conn.started_at,
+        "ended_at": conn.ended_at
+    })
+}
+
+fn proxy_request_to_json(req: &crate::storage::ProxyHttpRequestRecord) -> crate::serde_json::Value {
+    json!({
+        "connection_id": req.connection_id,
+        "request_seq": req.request_seq,
+        "method": req.method.clone(),
+        "path": req.path.clone(),
+        "host": req.host.clone(),
+        "http_version": req.http_version.clone()
+    })
+}
+
+fn proxy_response_to_json(
+    resp: &crate::storage::ProxyHttpResponseRecord,
+) -> crate::serde_json::Value {
+    json!({
+        "connection_id": resp.connection_id,
+        "request_seq": resp.request_seq,
+        "status_code": resp.status_code,
+        "status_text": resp.status_text.clone(),
+        "content_type": resp.content_type.clone(),
+        "body_size": resp.body.len()
+    })
 }
 
 // Helper functions

@@ -1,5 +1,6 @@
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use std::fs;
 use std::path::Path;
 use std::process::Command as ProcessCommand;
@@ -72,10 +73,10 @@ impl DocsCommand {
         let docs_dir = Path::new("docs");
         if !docs_dir.exists() {
             if is_json {
-                println!("{{");
-                println!("  \"success\": false,");
-                println!("  \"error\": \"Docs directory not found\"");
-                println!("}}");
+                Output::json_value(&json!({
+                    "success": false,
+                    "error": "Docs directory not found"
+                }));
             }
             return Err("Docs directory not found. Are you in the project root?".to_string());
         }
@@ -90,27 +91,20 @@ impl DocsCommand {
             .map_err(|e| format!("Failed to run search: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
-            if output.status.success() {
+            let matches = if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = stdout.lines().collect();
-                println!("  \"total\": {},", lines.len());
-                println!("  \"matches\": [");
-                for (i, line) in lines.iter().enumerate() {
-                    let comma = if i < lines.len() - 1 { "," } else { "" };
-                    println!(
-                        "    \"{}\"{}",
-                        line.replace('"', "\\\"").replace('\\', "\\\\"),
-                        comma
-                    );
-                }
-                println!("  ]");
+                stdout
+                    .lines()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>()
             } else {
-                println!("  \"total\": 0,");
-                println!("  \"matches\": []");
-            }
-            println!("}}");
+                Vec::new()
+            };
+            Output::json_value(&json!({
+                "query": query,
+                "total": matches.len(),
+                "matches": matches
+            }));
             return Ok(());
         }
 
@@ -137,14 +131,11 @@ impl DocsCommand {
         let docs_count = fs::read_dir("docs").map(|iter| iter.count()).unwrap_or(0);
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"action\": \"{}\",",
-                if download { "download" } else { "build" }
-            );
-            println!("  \"docs_count\": {},", docs_count);
-            println!("  \"success\": true");
-            println!("}}");
+            Output::json_value(&json!({
+                "action": if download { "download" } else { "build" },
+                "docs_count": docs_count,
+                "success": true
+            }));
             return Ok(());
         }
 

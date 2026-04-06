@@ -2,6 +2,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::network::ping::{ping_system, PingConfig};
 use std::time::Duration;
 
@@ -151,44 +152,38 @@ impl PingCommand {
 
         // JSON output
         if is_json {
-            // Quality assessment
-            let quality = if result.packets_received == 0 {
-                "unreachable"
-            } else if result.avg_rtt_ms < 50.0 {
-                "excellent"
-            } else if result.avg_rtt_ms < 100.0 {
-                "good"
-            } else if result.avg_rtt_ms < 200.0 {
-                "acceptable"
-            } else if result.avg_rtt_ms < 500.0 {
-                "poor"
-            } else {
-                "very_poor"
-            };
-
-            println!("{{");
-            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-            println!("  \"config\": {{");
-            println!("    \"count\": {},", count);
-            println!("    \"interval_ms\": {},", interval.as_millis());
-            println!("    \"timeout_ms\": {},", timeout.as_millis());
-            println!("    \"packet_size\": {}", packet_size);
-            println!("  }},");
-            println!("  \"statistics\": {{");
-            println!("    \"packets_sent\": {},", result.packets_sent);
-            println!("    \"packets_received\": {},", result.packets_received);
-            println!(
-                "    \"packet_loss_percent\": {:.2}",
-                result.packet_loss_percent
-            );
-            println!("  }},");
-            println!("  \"rtt\": {{");
-            println!("    \"min_ms\": {:.3},", result.min_rtt_ms);
-            println!("    \"avg_ms\": {:.3},", result.avg_rtt_ms);
-            println!("    \"max_ms\": {:.3}", result.max_rtt_ms);
-            println!("  }},");
-            println!("  \"quality\": \"{}\"", quality);
-            println!("}}");
+            Output::json_value(&json!({
+                "host": host,
+                "config": json!({
+                    "count": count,
+                    "interval_ms": interval.as_millis() as u64,
+                    "timeout_ms": timeout.as_millis() as u64,
+                    "packet_size": packet_size
+                }),
+                "statistics": json!({
+                    "packets_sent": result.packets_sent,
+                    "packets_received": result.packets_received,
+                    "packet_loss_percent": result.packet_loss_percent
+                }),
+                "rtt": json!({
+                    "min_ms": result.min_rtt_ms,
+                    "avg_ms": result.avg_rtt_ms,
+                    "max_ms": result.max_rtt_ms
+                }),
+                "quality": if result.packets_received == 0 {
+                    "unreachable"
+                } else if result.avg_rtt_ms < 50.0 {
+                    "excellent"
+                } else if result.avg_rtt_ms < 100.0 {
+                    "good"
+                } else if result.avg_rtt_ms < 200.0 {
+                    "acceptable"
+                } else if result.avg_rtt_ms < 500.0 {
+                    "poor"
+                } else {
+                    "very_poor"
+                }
+            }));
             return Ok(());
         }
 

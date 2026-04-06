@@ -1,6 +1,7 @@
 /// Init command - Generate configuration file with all defaults
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use std::fs;
 use std::path::PathBuf;
 
@@ -83,15 +84,12 @@ impl InitCommand {
         // Check if file exists
         if path.exists() && !force {
             if is_json {
-                println!("{{");
-                println!("  \"success\": false,");
-                println!("  \"error\": \"file_exists\",");
-                println!(
-                    "  \"path\": \"{}\",",
-                    path.display().to_string().replace('"', "\\\"")
-                );
-                println!("  \"message\": \"Use --force to overwrite\"");
-                println!("}}");
+                Output::json_value(&json!({
+                    "success": false,
+                    "error": "file_exists",
+                    "path": path.display().to_string(),
+                    "message": "Use --force to overwrite"
+                }));
                 return Err("Config file already exists".to_string());
             }
             return Err(format!(
@@ -111,16 +109,13 @@ impl InitCommand {
             .map_err(|e| format!("Failed to write config file: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!("  \"success\": true,");
-            println!("  \"action\": \"create_config\",");
-            println!(
-                "  \"path\": \"{}\",",
-                path.display().to_string().replace('"', "\\\"")
-            );
-            println!("  \"force\": {},", force);
-            println!("  \"size_bytes\": {}", config_content.len());
-            println!("}}");
+            Output::json_value(&json!({
+                "success": true,
+                "action": "create_config",
+                "path": path.display().to_string(),
+                "force": force,
+                "size_bytes": config_content.len()
+            }));
             return Ok(());
         }
 

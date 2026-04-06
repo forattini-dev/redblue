@@ -149,6 +149,9 @@ npx rb network ports scan 192.168.1.1 --preset common
 
 # Managed wrapper install
 npx redblue-cli --install --print-binary-path
+
+# Postinstall installs the managed binary in node_modules/redblue-cli/.redblue/bin
+# Skip with REDBLUE_SKIP_POSTINSTALL=1 when needed
 ```
 
 ```js

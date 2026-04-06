@@ -3,6 +3,7 @@ use crate::cli::commands::{
     annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
 };
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::json;
 use crate::modules::common::Severity;
 use crate::modules::tls::auditor::{CipherStrength, TlsAuditResult, TlsAuditor};
 use crate::modules::tls::mozilla_profiles::{
@@ -854,166 +855,86 @@ impl TlsCommand {
         port: u16,
         result: &TlsAuditResult,
     ) -> Result<(), String> {
-        println!("{{");
-        println!("  \"target\": {{");
-        println!("    \"host\": \"{}\",", escape_json(host));
-        println!("    \"port\": {}", port);
-        println!("  }},");
-        println!("  \"handshake\": {{");
-        println!(
-            "    \"negotiated_version\": {},",
-            json_opt_string(result.negotiated_version.as_deref())
-        );
-        println!(
-            "    \"negotiated_cipher\": {},",
-            json_opt_string(result.negotiated_cipher.as_deref())
-        );
-        println!(
-            "    \"negotiated_cipher_code\": {},",
-            match result.negotiated_cipher_code {
-                Some(code) => code.to_string(),
-                None => "null".to_string(),
-            }
-        );
-        println!("    \"ja3\": {},", json_opt_string(result.ja3.as_deref()));
-        println!(
-            "    \"ja3_raw\": {},",
-            json_opt_string(result.ja3_raw.as_deref())
-        );
-        println!("    \"ja3s\": {},", json_opt_string(result.ja3s.as_deref()));
-        println!(
-            "    \"ja3s_raw\": {},",
-            json_opt_string(result.ja3s_raw.as_deref())
-        );
-        println!("    \"certificate_valid\": {},", result.certificate_valid);
-        println!("    \"peer_fingerprints\": [");
-        for (idx, fp) in result.peer_fingerprints.iter().enumerate() {
-            let comma = if idx + 1 < result.peer_fingerprints.len() {
-                ","
-            } else {
-                ""
-            };
-            println!("      \"{}\"{}", escape_json(fp), comma);
-        }
-        println!("    ],");
-        println!("    \"certificate_chain_pem\": [");
-        for (idx, pem) in result.certificate_chain_pem.iter().enumerate() {
-            let comma = if idx + 1 < result.certificate_chain_pem.len() {
-                ","
-            } else {
-                ""
-            };
-            println!("      \"{}\"{}", escape_json(pem), comma);
-        }
-        println!("    ]");
-        println!("  }},");
-
-        println!("  \"versions\": [");
-        for (idx, version) in result.supported_versions.iter().enumerate() {
-            let comma = if idx + 1 < result.supported_versions.len() {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"version\": \"{}\",", escape_json(&version.version));
-            println!("      \"supported\": {},", version.supported);
-            println!(
-                "      \"error\": {}",
-                json_opt_string(version.error.as_deref())
-            );
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
-
-        println!("  \"ciphers\": [");
-        for (idx, cipher) in result.supported_ciphers.iter().enumerate() {
-            let comma = if idx + 1 < result.supported_ciphers.len() {
-                ","
-            } else {
-                ""
-            };
-            let strength_label = match cipher.strength {
-                CipherStrength::Secure => "secure",
-                CipherStrength::Weak => "weak",
-                CipherStrength::Insecure => "insecure",
-                CipherStrength::NullCipher => "null",
-            };
-            println!("    {{");
-            println!("      \"name\": \"{}\",", escape_json(&cipher.name));
-            println!("      \"code\": {},", cipher.code);
-            println!("      \"strength\": \"{}\"", escape_json(strength_label));
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
-
-        println!("  \"vulnerabilities\": [");
-        for (idx, vuln) in result.vulnerabilities.iter().enumerate() {
-            let comma = if idx + 1 < result.vulnerabilities.len() {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"name\": \"{}\",", escape_json(&vuln.name));
-            println!(
-                "      \"severity\": \"{}\",",
-                escape_json(&vuln.severity.to_string())
-            );
-            println!(
-                "      \"description\": \"{}\"",
-                escape_json(&vuln.description)
-            );
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
-
-        println!("  \"certificate_chain\": [");
-        for (idx, cert) in result.certificate_chain.iter().enumerate() {
-            let comma = if idx + 1 < result.certificate_chain.len() {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"subject\": \"{}\",", escape_json(&cert.subject));
-            println!("      \"issuer\": \"{}\",", escape_json(&cert.issuer));
-            println!(
-                "      \"serial_number\": \"{}\",",
-                escape_json(&cert.serial_number)
-            );
-            println!(
-                "      \"signature_algorithm\": \"{}\",",
-                escape_json(&cert.signature_algorithm)
-            );
-            println!(
-                "      \"public_key_algorithm\": \"{}\",",
-                escape_json(&cert.public_key_algorithm)
-            );
-            println!("      \"version\": {},", cert.version);
-            println!(
-                "      \"valid_from\": \"{}\",",
-                escape_json(&cert.valid_from)
-            );
-            println!(
-                "      \"valid_until\": \"{}\",",
-                escape_json(&cert.valid_until)
-            );
-            println!("      \"self_signed\": {},", cert.is_self_signed);
-            println!("      \"sans\": [");
-            for (san_idx, san) in cert.san.iter().enumerate() {
-                let san_comma = if san_idx + 1 < cert.san.len() {
-                    ","
-                } else {
-                    ""
+        let versions: Vec<_> = result
+            .supported_versions
+            .iter()
+            .map(|version| {
+                json!({
+                    "version": version.version.clone(),
+                    "supported": version.supported,
+                    "error": version.error.clone()
+                })
+            })
+            .collect();
+        let ciphers: Vec<_> = result
+            .supported_ciphers
+            .iter()
+            .map(|cipher| {
+                let strength = match cipher.strength {
+                    CipherStrength::Secure => "secure",
+                    CipherStrength::Weak => "weak",
+                    CipherStrength::Insecure => "insecure",
+                    CipherStrength::NullCipher => "null",
                 };
-                println!("        \"{}\"{}", escape_json(san), san_comma);
-            }
-            println!("      ]");
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+                json!({
+                    "name": cipher.name.clone(),
+                    "code": cipher.code,
+                    "strength": strength
+                })
+            })
+            .collect();
+        let vulnerabilities: Vec<_> = result
+            .vulnerabilities
+            .iter()
+            .map(|vuln| {
+                json!({
+                    "name": vuln.name.clone(),
+                    "severity": vuln.severity.to_string(),
+                    "description": vuln.description.clone()
+                })
+            })
+            .collect();
+        let certificate_chain: Vec<_> = result
+            .certificate_chain
+            .iter()
+            .map(|cert| {
+                json!({
+                    "subject": cert.subject.clone(),
+                    "issuer": cert.issuer.clone(),
+                    "serial_number": cert.serial_number.clone(),
+                    "signature_algorithm": cert.signature_algorithm.clone(),
+                    "public_key_algorithm": cert.public_key_algorithm.clone(),
+                    "version": cert.version,
+                    "valid_from": cert.valid_from.clone(),
+                    "valid_until": cert.valid_until.clone(),
+                    "self_signed": cert.is_self_signed,
+                    "sans": cert.san.clone()
+                })
+            })
+            .collect();
+
+        Output::json_value(&json!({
+            "target": json!({
+                "host": host,
+                "port": port
+            }),
+            "handshake": json!({
+                "negotiated_version": result.negotiated_version.clone(),
+                "negotiated_cipher": result.negotiated_cipher.clone(),
+                "negotiated_cipher_code": result.negotiated_cipher_code,
+                "ja3": result.ja3.clone(),
+                "ja3_raw": result.ja3_raw.clone(),
+                "ja3s": result.ja3s.clone(),
+                "ja3s_raw": result.ja3s_raw.clone(),
+                "certificate_valid": result.certificate_valid,
+                "peer_fingerprints": result.peer_fingerprints.clone(),
+                "certificate_chain_pem": result.certificate_chain_pem.clone()
+            }),
+            "versions": versions,
+            "ciphers": ciphers,
+            "vulnerabilities": vulnerabilities,
+            "certificate_chain": certificate_chain
+        }));
 
         Ok(())
     }
@@ -1435,28 +1356,5 @@ impl TlsCommand {
             "Database file not found: {}.rdb\nRun `rb tls security audit {}` first to collect data",
             base, host
         ))
-    }
-}
-
-fn escape_json(input: &str) -> String {
-    let mut escaped = String::with_capacity(input.len());
-    for ch in input.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            c if c.is_control() => escaped.push_str(&format!("\\u{:04x}", c as u32)),
-            c => escaped.push(c),
-        }
-    }
-    escaped
-}
-
-fn json_opt_string(value: Option<&str>) -> String {
-    match value {
-        Some(v) => format!("\"{}\"", escape_json(v)),
-        None => "null".to_string(),
     }
 }

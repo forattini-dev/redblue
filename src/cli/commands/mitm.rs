@@ -9,6 +9,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::crypto::certs::ca::{CertificateAuthority, KeyAlgorithm};
+use crate::json;
 use crate::modules::dns::server::{DnsRule, DnsServer, DnsServerConfig};
 use crate::modules::proxy::mitm::{HookMode, LogFormat, MitmConfig, MitmProxy};
 use crate::modules::proxy::shell::MitmShell;
@@ -499,26 +500,12 @@ impl MitmCommand {
             .map_err(|e| format!("Failed to write key: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"certificate_path\": \"{}\",",
-                cert_path
-                    .display()
-                    .to_string()
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-            );
-            println!(
-                "  \"key_path\": \"{}\",",
-                key_path
-                    .display()
-                    .to_string()
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-            );
-            println!("  \"subject\": \"{}\",", ca.subject().replace('"', "\\\""));
-            println!("  \"fingerprint\": \"{}\"", ca.fingerprint());
-            println!("}}");
+            Output::json_value(&json!({
+                "certificate_path": cert_path.display().to_string(),
+                "key_path": key_path.display().to_string(),
+                "subject": ca.subject(),
+                "fingerprint": ca.fingerprint()
+            }));
             return Ok(());
         }
 
@@ -591,21 +578,18 @@ impl MitmCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"source\": \"{}\",",
-                ca_cert_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"subject\": \"{}\",", subject.replace('"', "\\\""));
-            println!("  \"fingerprint\": \"{}\",", fingerprint);
-            if !output_path.is_empty() {
-                println!(
-                    "  \"exported_to\": \"{}\",",
-                    output_path.replace('\\', "\\\\").replace('"', "\\\"")
-                );
-            }
-            println!("  \"export_format\": \"{}\"", export_format);
-            println!("}}");
+            let exported_to = if output_path.is_empty() {
+                None
+            } else {
+                Some(output_path.clone())
+            };
+            Output::json_value(&json!({
+                "source": ca_cert_path.clone(),
+                "subject": subject.to_string(),
+                "fingerprint": fingerprint,
+                "exported_to": exported_to,
+                "export_format": export_format
+            }));
             return Ok(());
         }
 

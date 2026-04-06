@@ -6,6 +6,7 @@
 /// ⚠️ AUTHORIZED USE ONLY - For penetration testing, CTFs, and educational purposes.
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::network::broker::{Broker, BrokerConfig};
 use crate::modules::network::netcat::{IpVersion, Netcat, NetcatConfig, Protocol};
 use crate::modules::network::relay::{EndpointType, Relay, RelayConfig};
@@ -432,55 +433,57 @@ impl NetcatCommand {
             let addrs: Vec<_> = match addr_str.to_socket_addrs() {
                 Ok(a) => a.collect(),
                 Err(e) => {
-                    println!("{{");
-                    println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-                    println!("  \"port\": {},", port);
-                    println!("  \"status\": \"error\",");
-                    println!(
-                        "  \"error\": \"DNS resolution failed: {}\"",
-                        e.to_string().replace('"', "\\\"")
-                    );
-                    println!("}}");
+                    crate::cli::output::Output::json_value(&json!({
+                        "host": host,
+                        "port": port,
+                        "status": "error",
+                        "error": format!("DNS resolution failed: {}", e),
+                    }));
                     return Ok(());
                 }
             };
 
             if addrs.is_empty() {
-                println!("{{");
-                println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-                println!("  \"port\": {},", port);
-                println!("  \"status\": \"error\",");
-                println!("  \"error\": \"No addresses found\"");
-                println!("}}");
+                crate::cli::output::Output::json_value(&json!({
+                    "host": host,
+                    "port": port,
+                    "status": "error",
+                    "error": "No addresses found",
+                }));
                 return Ok(());
             }
 
             // Try to connect
             let result = TcpStream::connect_timeout(&addrs[0], timeout);
-            let elapsed_ms = start.elapsed().as_millis();
+            let elapsed_ms = start.elapsed().as_millis() as u64;
 
-            println!("{{");
-            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-            println!("  \"port\": {},", port);
-            println!("  \"ip\": \"{}\",", addrs[0].ip());
-            println!("  \"timeout_secs\": {},", timeout_secs);
-            println!("  \"response_time_ms\": {},", elapsed_ms);
-
-            match result {
-                Ok(_) => {
-                    println!("  \"status\": \"open\"");
-                }
+            let value = match result {
+                Ok(_) => json!({
+                    "host": host,
+                    "port": port,
+                    "ip": addrs[0].ip().to_string(),
+                    "timeout_secs": timeout_secs,
+                    "response_time_ms": elapsed_ms,
+                    "status": "open",
+                }),
                 Err(e) => {
                     let status = if e.kind() == std::io::ErrorKind::TimedOut {
                         "filtered"
                     } else {
                         "closed"
                     };
-                    println!("  \"status\": \"{}\",", status);
-                    println!("  \"error\": \"{}\"", e.to_string().replace('"', "\\\""));
+                    json!({
+                        "host": host,
+                        "port": port,
+                        "ip": addrs[0].ip().to_string(),
+                        "timeout_secs": timeout_secs,
+                        "response_time_ms": elapsed_ms,
+                        "status": status,
+                        "error": e.to_string(),
+                    })
                 }
-            }
-            println!("}}");
+            };
+            crate::cli::output::Output::json_value(&value);
             return Ok(());
         }
 

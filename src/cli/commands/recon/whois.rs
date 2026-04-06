@@ -5,8 +5,10 @@ use crate::cli::commands::build_partition_attributes;
 use crate::cli::output::Output;
 use crate::cli::validator::Validator;
 use crate::cli::CliContext;
+use crate::json;
 use crate::protocols::rdap::{RdapClient, RdapDomainResponse, RdapIpResponse};
 use crate::protocols::whois::WhoisClient;
+use crate::serde_json::Value;
 use crate::storage::service::StorageService;
 
 pub fn whois(ctx: &CliContext) -> Result<(), String> {
@@ -69,43 +71,33 @@ pub fn whois(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == crate::cli::format::OutputFormat::Json {
-        println!("{{");
-        println!("  \"domain\": \"{}\",", domain);
+        let mut fields = vec![
+            ("domain".to_string(), json!(domain)),
+            (
+                "name_servers".to_string(),
+                json!(result.name_servers.clone()),
+            ),
+            ("status".to_string(), json!(result.status.clone())),
+        ];
         if let Some(ref registrar) = result.registrar {
-            println!("  \"registrar\": \"{}\",", registrar);
+            fields.push(("registrar".to_string(), json!(registrar)));
         }
         if let Some(ref org) = result.registrant_org {
-            println!("  \"registrant_org\": \"{}\",", org);
+            fields.push(("registrant_org".to_string(), json!(org)));
         }
         if let Some(ref country) = result.registrant_country {
-            println!("  \"registrant_country\": \"{}\",", country);
+            fields.push(("registrant_country".to_string(), json!(country)));
         }
         if let Some(ref created) = result.creation_date {
-            println!("  \"creation_date\": \"{}\",", created);
+            fields.push(("creation_date".to_string(), json!(created)));
         }
         if let Some(ref updated) = result.updated_date {
-            println!("  \"updated_date\": \"{}\",", updated);
+            fields.push(("updated_date".to_string(), json!(updated)));
         }
         if let Some(ref expires) = result.expiration_date {
-            println!("  \"expiration_date\": \"{}\",", expires);
+            fields.push(("expiration_date".to_string(), json!(expires)));
         }
-        println!("  \"name_servers\": [");
-        for (i, ns) in result.name_servers.iter().enumerate() {
-            let comma = if i < result.name_servers.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    \"{}\"{}", ns, comma);
-        }
-        println!("  ],");
-        println!("  \"status\": [");
-        for (i, status) in result.status.iter().enumerate() {
-            let comma = if i < result.status.len() - 1 { "," } else { "" };
-            println!("    \"{}\"{}", status, comma);
-        }
-        println!("  ]");
-        println!("}}");
+        Output::json_value(&Value::Object(fields.into_iter().collect()));
 
         pm.commit()?;
         return Ok(());
@@ -245,35 +237,28 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"type\": \"ip\",");
-            println!("  \"query\": \"{}\",", target);
-            println!("  \"handle\": \"{}\",", result.handle);
-            println!("  \"start_address\": \"{}\",", result.start_address);
-            println!("  \"end_address\": \"{}\",", result.end_address);
-            println!("  \"ip_version\": \"{}\",", result.ip_version);
-            if let Some(ref name) = result.name {
-                println!("  \"name\": \"{}\",", name);
-            }
-            if let Some(ref country) = result.country {
-                println!("  \"country\": \"{}\",", country);
-            }
-            println!("  \"status\": [");
-            for (i, status) in result.status.iter().enumerate() {
-                let comma = if i < result.status.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", status, comma);
-            }
-            println!("  ],");
-            println!("  \"events\": [");
-            for (i, event) in result.events.iter().enumerate() {
-                let comma = if i < result.events.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}",
-                    event.action, event.date, comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let events_json: Vec<_> = result
+                .events
+                .iter()
+                .map(|event| {
+                    json!({
+                        "action": event.action.clone(),
+                        "date": event.date.clone(),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "type": "ip",
+                "query": target,
+                "handle": result.handle.clone(),
+                "start_address": result.start_address.clone(),
+                "end_address": result.end_address.clone(),
+                "ip_version": result.ip_version.clone(),
+                "name": result.name.clone(),
+                "country": result.country.clone(),
+                "status": result.status.clone(),
+                "events": events_json,
+            }));
             return Ok(());
         }
 
@@ -362,38 +347,24 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"type\": \"domain\",");
-            println!("  \"domain\": \"{}\",", result.domain);
-            if let Some(ref registrar) = result.registrar {
-                println!("  \"registrar\": \"{}\",", registrar);
-            }
-            println!("  \"status\": [");
-            for (i, status) in result.status.iter().enumerate() {
-                let comma = if i < result.status.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", status, comma);
-            }
-            println!("  ],");
-            println!("  \"nameservers\": [");
-            for (i, ns) in result.nameservers.iter().enumerate() {
-                let comma = if i < result.nameservers.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    \"{}\"{}", ns, comma);
-            }
-            println!("  ],");
-            println!("  \"events\": [");
-            for (i, event) in result.events.iter().enumerate() {
-                let comma = if i < result.events.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{ \"action\": \"{}\", \"date\": \"{}\" }}{}",
-                    event.action, event.date, comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let events_json: Vec<_> = result
+                .events
+                .iter()
+                .map(|event| {
+                    json!({
+                        "action": event.action.clone(),
+                        "date": event.date.clone(),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "type": "domain",
+                "domain": result.domain.clone(),
+                "registrar": result.registrar.clone(),
+                "status": result.status.clone(),
+                "nameservers": result.nameservers.clone(),
+                "events": events_json,
+            }));
             return Ok(());
         }
 

@@ -8,6 +8,7 @@ use std::time::UNIX_EPOCH;
 use crate::cli::commands::annotate_query_partition;
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::storage::client::query::format as query_format;
 use crate::storage::service::StorageService;
 
@@ -88,69 +89,41 @@ impl DatabaseCommand {
         partitions.sort_by(|a, b| a.label.cmp(&b.label));
 
         if is_json {
-            println!("{{");
-            println!("  \"count\": {},", partitions.len());
-            println!(
-                "  \"segment_filter\": {},",
-                ctx.get_flag("segment")
-                    .map(|s| format!("\"{}\"", s))
-                    .unwrap_or_else(|| "null".to_string())
-            );
-            println!(
-                "  \"attr_filter\": {},",
-                ctx.get_flag("attr")
-                    .map(|s| format!("\"{}\"", s))
-                    .unwrap_or_else(|| "null".to_string())
-            );
-            println!("  \"partitions\": [");
-            for (i, meta) in partitions.iter().enumerate() {
-                let comma = if i < partitions.len() - 1 { "," } else { "" };
-                let segments: Vec<_> = meta.segments.iter().map(|k| segment_label(*k)).collect();
-                let last_refreshed = meta.last_refreshed.map(|ts| {
-                    ts.duration_since(UNIX_EPOCH)
-                        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-                        .as_secs()
-                });
-                println!("    {{");
-                println!("      \"label\": \"{}\",", meta.label.replace('"', "\\\""));
-                println!("      \"key\": \"{}\",", describe_partition_key(&meta.key));
-                println!(
-                    "      \"path\": \"{}\",",
-                    meta.storage_path
-                        .display()
-                        .to_string()
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                );
-                println!(
-                    "      \"segments\": [{}],",
-                    segments
+            let partitions_json: Vec<crate::serde_json::Value> = partitions
+                .iter()
+                .map(|meta| {
+                    let segments: Vec<String> = meta
+                        .segments
                         .iter()
-                        .map(|s| format!("\"{}\"", s))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                if let Some(epoch) = last_refreshed {
-                    println!("      \"last_refreshed\": {},", epoch);
-                } else {
-                    println!("      \"last_refreshed\": null,");
-                }
-                println!("      \"attributes\": {{");
-                let attr_items: Vec<_> = meta.attributes.iter().collect();
-                for (ai, (key, value)) in attr_items.iter().enumerate() {
-                    let attr_comma = if ai < attr_items.len() - 1 { "," } else { "" };
-                    println!(
-                        "        \"{}\": \"{}\"{}",
-                        key,
-                        value.replace('"', "\\\""),
-                        attr_comma
-                    );
-                }
-                println!("      }}");
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+                        .map(|k| segment_label(*k).to_string())
+                        .collect();
+                    let last_refreshed = meta.last_refreshed.map(|ts| {
+                        ts.duration_since(UNIX_EPOCH)
+                            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+                            .as_secs()
+                    });
+                    let mut attributes = crate::serde_json::Map::new();
+                    let mut attr_items: Vec<_> = meta.attributes.iter().collect();
+                    attr_items.sort_by(|a, b| a.0.cmp(b.0));
+                    for (key, value) in attr_items {
+                        attributes.insert(key.clone(), json!(value.clone()));
+                    }
+                    json!({
+                        "label": meta.label.clone(),
+                        "key": describe_partition_key(&meta.key),
+                        "path": meta.storage_path.display().to_string(),
+                        "segments": segments,
+                        "last_refreshed": last_refreshed,
+                        "attributes": crate::serde_json::Value::Object(attributes)
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "count": partitions.len(),
+                "segment_filter": ctx.get_flag("segment"),
+                "attr_filter": ctx.get_flag("attr"),
+                "partitions": partitions_json
+            }));
             return Ok(());
         }
 
@@ -243,20 +216,13 @@ impl DatabaseCommand {
         let file_size_kb = metadata.len() / 1024;
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                db_path
-                    .display()
-                    .to_string()
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-            );
-            println!("  \"size_kb\": {},", file_size_kb);
-            println!("  \"ports\": {},", port_scans.len());
-            println!("  \"dns\": {},", dns_records.len());
-            println!("  \"subdomains\": {}", subdomains.len());
-            println!("}}");
+            Output::json_value(&json!({
+                "file": db_path.display().to_string(),
+                "size_kb": file_size_kb,
+                "ports": port_scans.len(),
+                "dns": dns_records.len(),
+                "subdomains": subdomains.len()
+            }));
             return Ok(());
         }
 
@@ -318,23 +284,21 @@ impl DatabaseCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"count\": {},", records.len());
-            println!("  \"ports\": [");
-            for (i, record) in records.iter().enumerate() {
-                let comma = if i < records.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"ip\": \"{}\",", record.ip);
-                println!("      \"port\": {},", record.port);
-                println!(
-                    "      \"status\": \"{}\",",
-                    port_status_label(record.status)
-                );
-                println!("      \"timestamp\": {}", record.timestamp);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let ports_json: Vec<crate::serde_json::Value> = records
+                .iter()
+                .map(|record| {
+                    json!({
+                        "ip": record.ip.to_string(),
+                        "port": record.port,
+                        "status": port_status_label(record.status),
+                        "timestamp": record.timestamp
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "count": records.len(),
+                "ports": ports_json
+            }));
             return Ok(());
         }
 
@@ -386,30 +350,22 @@ impl DatabaseCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"count\": {},", records.len());
-            println!("  \"records\": [");
-            for (i, record) in records.iter().enumerate() {
-                let comma = if i < records.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!(
-                    "      \"domain\": \"{}\",",
-                    record.domain.replace('"', "\\\"")
-                );
-                println!(
-                    "      \"type\": \"{}\",",
-                    dns_type_label(record.record_type)
-                );
-                println!(
-                    "      \"value\": \"{}\",",
-                    record.value.replace('"', "\\\"")
-                );
-                println!("      \"ttl\": {},", record.ttl);
-                println!("      \"timestamp\": {}", record.timestamp);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let records_json: Vec<crate::serde_json::Value> = records
+                .iter()
+                .map(|record| {
+                    json!({
+                        "domain": record.domain.clone(),
+                        "type": dns_type_label(record.record_type),
+                        "value": record.value.clone(),
+                        "ttl": record.ttl,
+                        "timestamp": record.timestamp
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "count": records.len(),
+                "records": records_json
+            }));
             return Ok(());
         }
 
@@ -466,15 +422,14 @@ impl DatabaseCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"count\": {},", records.len());
-            println!("  \"subdomains\": [");
-            for (i, record) in records.iter().enumerate() {
-                let comma = if i < records.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", record.subdomain.replace('"', "\\\""), comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let subdomains_json: Vec<String> = records
+                .iter()
+                .map(|record| record.subdomain.clone())
+                .collect();
+            Output::json_value(&json!({
+                "count": records.len(),
+                "subdomains": subdomains_json
+            }));
             return Ok(());
         }
 
@@ -521,36 +476,24 @@ impl DatabaseCommand {
             .map_err(|e| format!("HTTP query failed: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-            println!("  \"count\": {},", records.len());
-            println!("  \"records\": [");
-            for (i, record) in records.iter().enumerate() {
-                let comma = if i < records.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!(
-                    "      \"method\": \"{}\",",
-                    record.method.replace('"', "\\\"")
-                );
-                println!("      \"url\": \"{}\",", record.url.replace('"', "\\\""));
-                println!(
-                    "      \"http_version\": \"{}\",",
-                    record.http_version.replace('"', "\\\"")
-                );
-                println!("      \"status_code\": {},", record.status_code);
-                println!(
-                    "      \"status_text\": \"{}\",",
-                    record.status_text.replace('"', "\\\"")
-                );
-                if let Some(server) = &record.server {
-                    println!("      \"server\": \"{}\"", server.replace('"', "\\\""));
-                } else {
-                    println!("      \"server\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let records_json: Vec<crate::serde_json::Value> = records
+                .iter()
+                .map(|record| {
+                    json!({
+                        "method": record.method.clone(),
+                        "url": record.url.clone(),
+                        "http_version": record.http_version.clone(),
+                        "status_code": record.status_code,
+                        "status_text": record.status_text.clone(),
+                        "server": record.server.clone()
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "host": host.clone(),
+                "count": records.len(),
+                "records": records_json
+            }));
             return Ok(());
         }
 
@@ -608,11 +551,11 @@ impl DatabaseCommand {
 
         if scans.is_empty() {
             if is_json {
-                println!("{{");
-                println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-                println!("  \"count\": 0,");
-                println!("  \"scans\": []");
-                println!("}}");
+                Output::json_value(&json!({
+                    "host": host.clone(),
+                    "count": 0,
+                    "scans": []
+                }));
                 return Ok(());
             }
             Output::warning("No TLS scans stored for this host");
@@ -620,23 +563,22 @@ impl DatabaseCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"host\": \"{}\",", host.replace('"', "\\\""));
-            println!("  \"count\": {},", scans.len());
-            println!("  \"scans\": [");
-            for (i, scan) in scans.iter().enumerate() {
-                let comma = if i < scans.len() - 1 { "," } else { "" };
-                let cipher = scan.negotiated_cipher.as_deref().unwrap_or("");
-                let version = scan.negotiated_version.as_deref().unwrap_or("");
-                println!("    {{");
-                println!("      \"port\": {},", scan.port);
-                println!("      \"protocol\": \"{}\",", version.replace('"', "\\\""));
-                println!("      \"cipher\": \"{}\",", cipher.replace('"', "\\\""));
-                println!("      \"certificate_valid\": {}", scan.certificate_valid);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let scans_json: Vec<crate::serde_json::Value> = scans
+                .iter()
+                .map(|scan| {
+                    json!({
+                        "port": scan.port,
+                        "protocol": scan.negotiated_version.clone().unwrap_or_default(),
+                        "cipher": scan.negotiated_cipher.clone().unwrap_or_default(),
+                        "certificate_valid": scan.certificate_valid
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "host": host.clone(),
+                "count": scans.len(),
+                "scans": scans_json
+            }));
             return Ok(());
         }
 
@@ -690,25 +632,13 @@ impl DatabaseCommand {
         {
             Some(record) => {
                 if is_json {
-                    println!("{{");
-                    println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
-                    println!(
-                        "  \"registrar\": \"{}\",",
-                        record.registrar.replace('"', "\\\"")
-                    );
-                    println!("  \"created_date\": {},", record.created_date);
-                    println!("  \"expires_date\": {},", record.expires_date);
-                    println!("  \"nameservers\": [");
-                    for (i, ns) in record.nameservers.iter().enumerate() {
-                        let comma = if i < record.nameservers.len() - 1 {
-                            ","
-                        } else {
-                            ""
-                        };
-                        println!("    \"{}\"{}", ns.replace('"', "\\\""), comma);
-                    }
-                    println!("  ]");
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "domain": domain.clone(),
+                        "registrar": record.registrar.clone(),
+                        "created_date": record.created_date,
+                        "expires_date": record.expires_date,
+                        "nameservers": record.nameservers.clone()
+                    }));
                     return Ok(());
                 }
 
@@ -723,10 +653,10 @@ impl DatabaseCommand {
             }
             None => {
                 if is_json {
-                    println!("{{");
-                    println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
-                    println!("  \"found\": false");
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "domain": domain.clone(),
+                        "found": false
+                    }));
                     return Ok(());
                 }
                 Output::warning("No WHOIS record stored for this domain");
@@ -767,7 +697,7 @@ impl DatabaseCommand {
             {
                 Some(record) => {
                     if is_json {
-                        self.output_host_json(&record);
+                        Output::json_value(&host_record_to_json(&record));
                         return Ok(());
                     }
                     let formatted = query_format::format_host(&record);
@@ -775,10 +705,10 @@ impl DatabaseCommand {
                 }
                 None => {
                     if is_json {
-                        println!("{{");
-                        println!("  \"ip\": \"{}\",", ip);
-                        println!("  \"found\": false");
-                        println!("}}");
+                        Output::json_value(&json!({
+                            "ip": ip.clone(),
+                            "found": false
+                        }));
                         return Ok(());
                     }
                     Output::warning("No fingerprint stored for target");
@@ -790,26 +720,21 @@ impl DatabaseCommand {
                 .map_err(|e| format!("Host query failed: {}", e))?;
             if records.is_empty() {
                 if is_json {
-                    println!("{{");
-                    println!("  \"count\": 0,");
-                    println!("  \"hosts\": []");
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "count": 0,
+                        "hosts": []
+                    }));
                     return Ok(());
                 }
                 Output::warning("No host fingerprints stored in this database");
             } else {
                 if is_json {
-                    println!("{{");
-                    println!("  \"count\": {},", records.len());
-                    println!("  \"hosts\": [");
-                    for (i, record) in records.iter().enumerate() {
-                        let comma = if i < records.len() - 1 { "," } else { "" };
-                        print!("    ");
-                        self.output_host_json_inline(record);
-                        println!("{}", comma);
-                    }
-                    println!("  ]");
-                    println!("}}");
+                    let hosts_json: Vec<crate::serde_json::Value> =
+                        records.iter().map(host_record_to_json).collect();
+                    Output::json_value(&json!({
+                        "count": records.len(),
+                        "hosts": hosts_json
+                    }));
                     return Ok(());
                 }
                 Output::header(&format!(
@@ -824,72 +749,28 @@ impl DatabaseCommand {
         }
         Ok(())
     }
+}
 
-    pub(super) fn output_host_json(&self, record: &crate::storage::records::HostIntelRecord) {
-        let os = record.os_family.as_deref().unwrap_or("");
-        println!("{{");
-        println!("  \"ip\": \"{}\",", record.ip);
-        println!("  \"os_family\": \"{}\",", os.replace('"', "\\\""));
-        println!("  \"confidence\": {},", record.confidence);
-        println!("  \"last_seen\": {},", record.last_seen);
-        println!("  \"services\": [");
-        for (i, svc) in record.services.iter().enumerate() {
-            let comma = if i < record.services.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let svc_name = svc.service_name.as_deref().unwrap_or("");
-            let banner = svc.banner.as_deref().unwrap_or("");
-            println!("    {{");
-            println!("      \"port\": {},", svc.port);
-            println!(
-                "      \"service_name\": \"{}\",",
-                svc_name.replace('"', "\\\"")
-            );
-            println!(
-                "      \"banner\": \"{}\",",
-                banner.replace('"', "\\\"").replace('\n', "\\n")
-            );
-            println!("      \"os_hints\": [");
-            for (j, hint) in svc.os_hints.iter().enumerate() {
-                let hint_comma = if j < svc.os_hints.len() - 1 { "," } else { "" };
-                println!("        \"{}\"{}", hint.replace('"', "\\\""), hint_comma);
-            }
-            println!("      ]");
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
-    }
-
-    pub(super) fn output_host_json_inline(
-        &self,
-        record: &crate::storage::records::HostIntelRecord,
-    ) {
-        let os = record.os_family.as_deref().unwrap_or("");
-        print!("{{\"ip\":\"{}\",\"os_family\":\"{}\",\"confidence\":{},\"last_seen\":{},\"services\":[",
-            record.ip, os.replace('"', "\\\""), record.confidence, record.last_seen);
-        for (i, svc) in record.services.iter().enumerate() {
-            let comma = if i < record.services.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let svc_name = svc.service_name.as_deref().unwrap_or("");
-            let banner = svc.banner.as_deref().unwrap_or("");
-            print!(
-                "{{\"port\":{},\"service_name\":\"{}\",\"banner\":\"{}\",\"os_hints\":[",
-                svc.port,
-                svc_name.replace('"', "\\\""),
-                banner.replace('"', "\\\"").replace('\n', "\\n")
-            );
-            for (j, hint) in svc.os_hints.iter().enumerate() {
-                let hint_comma = if j < svc.os_hints.len() - 1 { "," } else { "" };
-                print!("\"{}\"{}", hint.replace('"', "\\\""), hint_comma);
-            }
-            print!("]}}{}", comma);
-        }
-        print!("]}}");
-    }
+fn host_record_to_json(
+    record: &crate::storage::records::HostIntelRecord,
+) -> crate::serde_json::Value {
+    let services_json: Vec<crate::serde_json::Value> = record
+        .services
+        .iter()
+        .map(|svc| {
+            json!({
+                "port": svc.port,
+                "service_name": svc.service_name.clone().unwrap_or_default(),
+                "banner": svc.banner.clone().unwrap_or_default(),
+                "os_hints": svc.os_hints.clone()
+            })
+        })
+        .collect();
+    json!({
+        "ip": record.ip.to_string(),
+        "os_family": record.os_family.clone().unwrap_or_default(),
+        "confidence": record.confidence,
+        "last_seen": record.last_seen,
+        "services": services_json
+    })
 }

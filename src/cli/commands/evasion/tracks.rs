@@ -3,6 +3,7 @@
 use super::{colored, GREEN, RED, YELLOW};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::tracks;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -111,72 +112,29 @@ fn execute_tracks_scan(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"summary\": {{");
-        println!("    \"total_history_files\": {},", stats.history_files);
-        println!("    \"total_history_bytes\": {},", stats.history_bytes);
-        println!("    \"session_files\": {}", stats.session_files);
-        println!("  }},");
-        println!("  \"files\": {{");
-
-        // Bash
         let bash_files = collect_files(&files.bash);
-        println!("    \"bash\": [");
-        for (i, (path, size)) in bash_files.iter().enumerate() {
-            let comma = if i < bash_files.len() - 1 { "," } else { "" };
-            println!(
-                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
-                path.replace('"', "\\\""),
-                size,
-                comma
-            );
-        }
-        println!("    ],");
-
-        // Zsh
         let zsh_files = collect_files(&files.zsh);
-        println!("    \"zsh\": [");
-        for (i, (path, size)) in zsh_files.iter().enumerate() {
-            let comma = if i < zsh_files.len() - 1 { "," } else { "" };
-            println!(
-                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
-                path.replace('"', "\\\""),
-                size,
-                comma
-            );
-        }
-        println!("    ],");
-
-        // Fish
         let fish_files = collect_files(&files.fish);
-        println!("    \"fish\": [");
-        for (i, (path, size)) in fish_files.iter().enumerate() {
-            let comma = if i < fish_files.len() - 1 { "," } else { "" };
-            println!(
-                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
-                path.replace('"', "\\\""),
-                size,
-                comma
-            );
-        }
-        println!("    ],");
-
-        // Other
         let other_files = collect_files(&files.other);
-        println!("    \"other\": [");
-        for (i, (path, size)) in other_files.iter().enumerate() {
-            let comma = if i < other_files.len() - 1 { "," } else { "" };
-            println!(
-                "      {{ \"path\": \"{}\", \"size\": {} }}{}",
-                path.replace('"', "\\\""),
-                size,
-                comma
-            );
-        }
-        println!("    ]");
-
-        println!("  }}");
-        println!("}}");
+        let file_entries = |entries: Vec<(String, u64)>| {
+            entries
+                .into_iter()
+                .map(|(path, size)| json!({ "path": path, "size": size }))
+                .collect::<Vec<_>>()
+        };
+        Output::json_value(&json!({
+            "summary": json!({
+                "total_history_files": stats.history_files,
+                "total_history_bytes": stats.history_bytes,
+                "session_files": stats.session_files,
+            }),
+            "files": json!({
+                "bash": file_entries(bash_files),
+                "zsh": file_entries(zsh_files),
+                "fish": file_entries(fish_files),
+                "other": file_entries(other_files),
+            }),
+        }));
         return Ok(());
     }
 
@@ -299,45 +257,29 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"mode\": \"{}\",", mode);
-        println!("  \"secure\": {},", secure);
-        if let Some(shell) = shell_filter {
-            println!("  \"shell_filter\": \"{}\",", shell);
-        } else {
-            println!("  \"shell_filter\": null,");
-        }
-        println!("  \"success_count\": {},", success_count);
-        println!("  \"failed_count\": {},", failed_count);
-        println!("  \"total_bytes\": {},", total_bytes);
-        println!("  \"files\": [");
-        for (i, result) in results.iter().enumerate() {
-            let comma = if i < results.len() - 1 { "," } else { "" };
-            let path = result
-                .file
-                .display()
-                .to_string()
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"");
-            println!("    {{");
-            println!("      \"path\": \"{}\",", path);
-            println!("      \"success\": {},", result.success);
-            println!("      \"bytes_cleared\": {},", result.bytes_cleared);
-            if let Some(err) = &result.error {
-                println!("      \"error\": \"{}\"", err.replace('"', "\\\""));
-            } else {
-                println!("      \"error\": null");
-            }
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
         let shell = tracks::detect_shell();
-        println!("  \"detected_shell\": \"{}\",", shell);
-        println!(
-            "  \"clear_session_command\": \"{}\"",
-            tracks::get_clear_session_command(&shell).replace('"', "\\\"")
-        );
-        println!("}}");
+        let files_json: Vec<_> = results
+            .iter()
+            .map(|result| {
+                json!({
+                    "path": result.file.display().to_string(),
+                    "success": result.success,
+                    "bytes_cleared": result.bytes_cleared,
+                    "error": result.error,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "mode": mode,
+            "secure": secure,
+            "shell_filter": shell_filter,
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "total_bytes": total_bytes,
+            "files": files_json,
+            "detected_shell": shell,
+            "clear_session_command": tracks::get_clear_session_command(&shell),
+        }));
         return Ok(());
     }
 
@@ -397,12 +339,12 @@ fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
 
     if results.is_empty() {
         if is_json {
-            println!("{{");
-            println!("  \"success\": true,");
-            println!("  \"total_cleared\": 0,");
-            println!("  \"total_bytes\": 0,");
-            println!("  \"files\": []");
-            println!("}}");
+            Output::json_value(&json!({
+                "success": true,
+                "total_cleared": 0,
+                "total_bytes": 0,
+                "files": [],
+            }));
             return Ok(());
         }
         Output::info("No session files found");
@@ -420,26 +362,21 @@ fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"success\": true,");
-        println!("  \"total_cleared\": {},", success_count);
-        println!("  \"total_bytes\": {},", total_bytes);
-        println!("  \"files\": [");
-        for (i, result) in results.iter().enumerate() {
-            let comma = if i < results.len() - 1 { "," } else { "" };
-            let path = result
-                .file
-                .display()
-                .to_string()
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"");
-            println!(
-                "    {{ \"path\": \"{}\", \"bytes\": {} }}{}",
-                path, result.bytes_cleared, comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let files_json: Vec<_> = results
+            .iter()
+            .map(|result| {
+                json!({
+                    "path": result.file.display().to_string(),
+                    "bytes": result.bytes_cleared,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "success": true,
+            "total_cleared": success_count,
+            "total_bytes": total_bytes,
+            "files": files_json,
+        }));
         return Ok(());
     }
 
@@ -477,20 +414,17 @@ fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
     let clear_command = tracks::get_clear_session_command(&shell);
 
     if is_json {
-        println!("{{");
-        println!("  \"detected_shell\": \"{}\",", detected_shell);
-        println!("  \"target_shell\": \"{}\",", shell);
-        println!(
-            "  \"clear_command\": \"{}\",",
-            clear_command.replace('"', "\\\"")
-        );
-        println!("  \"all_commands\": {{");
-        println!("    \"bash\": \"history -c && history -w\",");
-        println!("    \"zsh\": \"fc -p && history -p\",");
-        println!("    \"fish\": \"history clear\",");
-        println!("    \"sh\": \"unset HISTFILE\"");
-        println!("  }}");
-        println!("}}");
+        Output::json_value(&json!({
+            "detected_shell": detected_shell,
+            "target_shell": shell,
+            "clear_command": clear_command,
+            "all_commands": json!({
+                "bash": "history -c && history -w",
+                "zsh": "fc -p && history -p",
+                "fish": "history clear",
+                "sh": "unset HISTFILE",
+            }),
+        }));
         return Ok(());
     }
 

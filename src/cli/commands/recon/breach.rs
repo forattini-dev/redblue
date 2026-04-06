@@ -2,6 +2,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::recon::breach::BreachClient;
 use crate::modules::recon::secrets::SecretsScanner;
 
@@ -37,11 +38,11 @@ pub fn breach(ctx: &CliContext) -> Result<(), String> {
 
             // JSON output
             if format == crate::cli::format::OutputFormat::Json {
-                println!("{{");
-                println!("  \"type\": \"password\",");
-                println!("  \"pwned\": {},", result.pwned);
-                println!("  \"count\": {}", result.count);
-                println!("}}");
+                Output::json_value(&json!({
+                    "type": "password",
+                    "pwned": result.pwned,
+                    "count": result.count,
+                }));
                 return Ok(());
             }
 
@@ -85,27 +86,25 @@ Usage: rb recon domain breach user@example.com --type email --hibp-key YOUR_KEY"
 
             // JSON output
             if format == crate::cli::format::OutputFormat::Json {
-                println!("{{");
-                println!("  \"type\": \"email\",");
-                println!("  \"email\": \"{}\",", result.email);
-                println!("  \"pwned\": {},", result.pwned);
-                println!("  \"breach_count\": {},", result.breach_count);
-                println!("  \"breaches\": [");
-                for (i, breach) in result.breaches.iter().enumerate() {
-                    let comma = if i < result.breaches.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    {{");
-                    println!("      \"name\": \"{}\",", breach.name);
-                    println!("      \"domain\": \"{}\",", breach.domain);
-                    println!("      \"breach_date\": \"{}\",", breach.breach_date);
-                    println!("      \"pwn_count\": {}", breach.pwn_count);
-                    println!("    }}{}", comma);
-                }
-                println!("  ]");
-                println!("}}");
+                let breaches_json: Vec<_> = result
+                    .breaches
+                    .iter()
+                    .map(|breach| {
+                        json!({
+                            "name": breach.name,
+                            "domain": breach.domain,
+                            "breach_date": breach.breach_date,
+                            "pwn_count": breach.pwn_count,
+                        })
+                    })
+                    .collect();
+                Output::json_value(&json!({
+                    "type": "email",
+                    "email": result.email,
+                    "pwned": result.pwned,
+                    "breach_count": result.breach_count,
+                    "breaches": breaches_json,
+                }));
                 return Ok(());
             }
 
@@ -182,11 +181,11 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
 
     if results.is_empty() {
         if is_json {
-            println!("{{");
-            println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
-            println!("  \"total\": 0,");
-            println!("  \"secrets\": []");
-            println!("}}");
+            Output::json_value(&json!({
+                "url": url,
+                "total": 0,
+                "secrets": [],
+            }));
             return Ok(());
         }
         Output::info("No secrets found.");
@@ -199,39 +198,22 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if is_json {
-        println!("{{");
-        println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
-        println!("  \"total\": {},", sorted_results.len());
-        println!("  \"secrets\": [");
-        for (i, result) in sorted_results.iter().enumerate() {
-            let comma = if i < sorted_results.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let severity_str = result.severity.as_str();
-            println!("    {{");
-            println!(
-                "      \"matched\": \"{}\",",
-                result.matched.replace('"', "\\\"").replace('\n', " ")
-            );
-            println!(
-                "      \"secret_type\": \"{}\",",
-                result.secret_type.replace('"', "\\\"")
-            );
-            println!("      \"severity\": \"{}\",", severity_str);
-            println!(
-                "      \"line\": {}",
-                if let Some(line) = result.line {
-                    line.to_string()
-                } else {
-                    "null".to_string()
-                }
-            );
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let secrets_json: Vec<_> = sorted_results
+            .iter()
+            .map(|result| {
+                json!({
+                    "matched": result.matched.replace('\n', " "),
+                    "secret_type": result.secret_type,
+                    "severity": result.severity.as_str(),
+                    "line": result.line,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "url": url,
+            "total": sorted_results.len(),
+            "secrets": secrets_json,
+        }));
         return Ok(());
     }
 

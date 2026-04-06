@@ -5,6 +5,7 @@ use crate::cli::output::Output;
 use crate::cli::validator::Validator;
 use crate::cli::CliContext;
 use crate::intelligence::banner_analysis::analyze_http_server;
+use crate::json;
 use crate::protocols::http::{HttpClient, HttpRequest};
 #[cfg(not(target_os = "windows"))]
 use crate::protocols::http2::{
@@ -12,6 +13,7 @@ use crate::protocols::http2::{
 };
 #[cfg(not(target_os = "windows"))]
 use crate::protocols::tls_impersonator::TlsProfile;
+use std::collections::HashMap;
 use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::sync::Arc;
@@ -21,7 +23,7 @@ use super::persist::maybe_persist_http;
 use super::persist::maybe_persist_http2;
 use super::types::{collect_request_headers, guard_plain_http};
 #[cfg(not(target_os = "windows"))]
-use super::types::{escape_json, parse_https_url, BufferingHttp2Handler};
+use super::types::{parse_https_url, BufferingHttp2Handler};
 
 /// Execute HTTP GET request
 pub fn get(ctx: &CliContext) -> Result<(), String> {
@@ -52,20 +54,18 @@ pub fn get(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == OutputFormat::Json {
-        println!("{{");
-        println!("  \"url\": \"{}\",", url);
-        println!("  \"status_code\": {},", response.status_code);
-        println!("  \"status_text\": \"{}\",", response.status_text);
-        println!("  \"body_size\": {},", response.body.len());
-        println!("  \"headers\": {{");
-        let header_count = response.headers.len();
-        for (i, (key, value)) in response.headers.iter().enumerate() {
-            let comma = if i < header_count - 1 { "," } else { "" };
-            let value_escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-            println!("    \"{}\": \"{}\"{}", key, value_escaped, comma);
-        }
-        println!("  }}");
-        println!("}}");
+        let headers: HashMap<String, String> = response
+            .headers
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        Output::json_value(&json!({
+            "url": url,
+            "status_code": response.status_code,
+            "status_text": response.status_text,
+            "body_size": response.body.len(),
+            "headers": headers
+        }));
         maybe_persist_http(ctx, url, &request, &response)?;
         return Ok(());
     }
@@ -266,36 +266,30 @@ fn render_http2_json(
     authority: &str,
     response: &Http2Response,
 ) -> Result<(), String> {
-    println!("{{");
-    println!("  \"request\": {{");
-    println!("    \"url\": \"{}\",", escape_json(url));
-    println!("    \"method\": \"{}\",", escape_json(method));
-    println!("    \"authority\": \"{}\"", escape_json(authority));
-    println!("  }},");
-    println!("  \"response\": {{");
-    println!("    \"status\": {},", response.status);
-    println!("    \"headers\": [");
-    for (idx, header) in response.headers.iter().enumerate() {
-        let comma = if idx + 1 < response.headers.len() {
-            ","
-        } else {
-            ""
-        };
-        println!(
-            "      {{ \"name\": \"{}\", \"value\": \"{}\" }}{}",
-            escape_json(&header.name),
-            escape_json(&header.value),
-            comma
-        );
-    }
-    println!("    ],");
-    println!(
-        "    \"body_text\": \"{}\",",
-        escape_json(&String::from_utf8_lossy(&response.body))
-    );
-    println!("    \"body_size\": {}", response.body.len());
-    println!("  }}");
-    println!("}}");
+    let headers: Vec<_> = response
+        .headers
+        .iter()
+        .map(|header| {
+            json!({
+                "name": header.name.clone(),
+                "value": header.value.clone()
+            })
+        })
+        .collect();
+    let body_text = String::from_utf8_lossy(&response.body).to_string();
+    Output::json_value(&json!({
+        "request": json!({
+            "url": url,
+            "method": method,
+            "authority": authority
+        }),
+        "response": json!({
+            "status": response.status,
+            "headers": headers,
+            "body_text": body_text,
+            "body_size": response.body.len()
+        })
+    }));
 
     Ok(())
 }
@@ -329,20 +323,18 @@ pub fn headers(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == OutputFormat::Json {
-        println!("{{");
-        println!("  \"url\": \"{}\",", url);
-        println!("  \"status_code\": {},", response.status_code);
-        println!("  \"status_text\": \"{}\",", response.status_text);
-        println!("  \"header_count\": {},", response.headers.len());
-        println!("  \"headers\": {{");
-        let header_count = response.headers.len();
-        for (i, (key, value)) in response.headers.iter().enumerate() {
-            let comma = if i < header_count - 1 { "," } else { "" };
-            let value_escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-            println!("    \"{}\": \"{}\"{}", key, value_escaped, comma);
-        }
-        println!("  }}");
-        println!("}}");
+        let headers: HashMap<String, String> = response
+            .headers
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        Output::json_value(&json!({
+            "url": url,
+            "status_code": response.status_code,
+            "status_text": response.status_text,
+            "header_count": response.headers.len(),
+            "headers": headers
+        }));
         maybe_persist_http(ctx, url, &request, &response)?;
         return Ok(());
     }

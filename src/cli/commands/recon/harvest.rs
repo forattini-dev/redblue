@@ -3,6 +3,7 @@
 use crate::cli::output::Output;
 use crate::cli::validator::Validator;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::recon::harvester::Harvester;
 use crate::modules::recon::urlharvest::UrlHarvester;
 use std::collections::HashMap;
@@ -37,38 +38,14 @@ pub fn harvest(ctx: &CliContext) -> Result<(), String> {
     if is_json {
         let total =
             result.emails.len() + result.subdomains.len() + result.ips.len() + result.urls.len();
-        println!("{{");
-        println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
-        println!("  \"total_items\": {},", total);
-        println!("  \"emails\": [");
-        for (i, email) in result.emails.iter().enumerate() {
-            let comma = if i < result.emails.len() - 1 { "," } else { "" };
-            println!("    \"{}\"{}", email.replace('"', "\\\""), comma);
-        }
-        println!("  ],");
-        println!("  \"subdomains\": [");
-        for (i, subdomain) in result.subdomains.iter().enumerate() {
-            let comma = if i < result.subdomains.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    \"{}\"{}", subdomain.replace('"', "\\\""), comma);
-        }
-        println!("  ],");
-        println!("  \"ips\": [");
-        for (i, ip) in result.ips.iter().enumerate() {
-            let comma = if i < result.ips.len() - 1 { "," } else { "" };
-            println!("    \"{}\"{}", ip.replace('"', "\\\""), comma);
-        }
-        println!("  ],");
-        println!("  \"urls\": [");
-        for (i, url) in result.urls.iter().enumerate() {
-            let comma = if i < result.urls.len() - 1 { "," } else { "" };
-            println!("    \"{}\"{}", url.replace('"', "\\\""), comma);
-        }
-        println!("  ]");
-        println!("}}");
+        Output::json_value(&json!({
+            "domain": domain,
+            "total_items": total,
+            "emails": result.emails,
+            "subdomains": result.subdomains,
+            "ips": result.ips,
+            "urls": result.urls,
+        }));
         return Ok(());
     }
 
@@ -162,11 +139,11 @@ pub fn urls(ctx: &CliContext) -> Result<(), String> {
 
     if urls.is_empty() {
         if is_json {
-            println!("{{");
-            println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
-            println!("  \"total\": 0,");
-            println!("  \"urls\": []");
-            println!("}}");
+            Output::json_value(&json!({
+                "domain": domain,
+                "total": 0,
+                "urls": [],
+            }));
             return Ok(());
         }
         Output::warning("No URLs found");
@@ -186,30 +163,21 @@ pub fn urls(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if is_json {
-        println!("{{");
-        println!("  \"domain\": \"{}\",", domain.replace('"', "\\\""));
-        println!("  \"total\": {},", urls.len());
-        println!("  \"urls\": [");
-        for (i, url_obj) in urls.iter().enumerate() {
-            let comma = if i < urls.len() - 1 { "," } else { "" };
-            println!("    {{");
-            println!("      \"url\": \"{}\",", url_obj.url.replace('"', "\\\""));
-            println!(
-                "      \"source\": \"{}\",",
-                url_obj.source.replace('"', "\\\"")
-            );
-            println!(
-                "      \"timestamp\": {}",
-                if let Some(ref t) = url_obj.timestamp {
-                    format!("\"{}\"", t.replace('"', "\\\""))
-                } else {
-                    "null".to_string()
-                }
-            );
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let urls_json: Vec<_> = urls
+            .iter()
+            .map(|url_obj| {
+                json!({
+                    "url": url_obj.url,
+                    "source": url_obj.source,
+                    "timestamp": url_obj.timestamp,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "domain": domain,
+            "total": urls.len(),
+            "urls": urls_json,
+        }));
         return Ok(());
     }
 

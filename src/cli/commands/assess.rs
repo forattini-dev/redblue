@@ -21,6 +21,7 @@ use crate::assess::{AssessOptions, AssessmentEngine, AssessmentOutput};
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::playbooks::types::RiskLevel;
 use crate::playbooks::{PlaybookContext, PlaybookExecutor};
 use crate::storage::service::StorageService;
@@ -194,81 +195,55 @@ impl AssessCommand {
 
     /// Print assessment result as JSON
     fn print_json(&self, result: &crate::assess::AssessmentResult, target: &str) {
-        println!("{{");
-        println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-        println!("  \"risk_score\": {},", result.risk_score);
-        println!("  \"technologies\": [");
-        for (i, tech) in result.technologies.iter().enumerate() {
-            let comma = if i < result.technologies.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"name\": \"{}\",", tech.name.replace('"', "\\\""));
-            if let Some(ref v) = tech.version {
-                println!("      \"version\": \"{}\",", v.replace('"', "\\\""));
-            } else {
-                println!("      \"version\": null,");
-            }
-            println!("      \"category\": \"{:?}\",", tech.category);
-            println!("      \"confidence\": \"{:?}\"", tech.confidence);
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
-        println!("  \"vulnerabilities\": [");
-        for (i, vuln) in result.vuln_records.iter().enumerate() {
-            let comma = if i < result.vuln_records.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!(
-                "      \"cve_id\": \"{}\",",
-                vuln.cve_id.replace('"', "\\\"")
-            );
-            println!(
-                "      \"technology\": \"{}\",",
-                vuln.technology.replace('"', "\\\"")
-            );
-            println!("      \"cvss\": {},", vuln.cvss);
-            println!("      \"risk_score\": {},", vuln.risk_score);
-            println!("      \"severity\": \"{:?}\",", vuln.severity);
-            println!("      \"exploit_available\": {},", vuln.exploit_available);
-            println!("      \"in_kev\": {},", vuln.in_kev);
-            println!("      \"source\": \"{}\"", vuln.source.replace('"', "\\\""));
-            println!("    }}{}", comma);
-        }
-        println!("  ],");
-        println!("  \"recommendations\": [");
-        for (i, rec) in result.recommendations.recommendations.iter().enumerate() {
-            let comma = if i < result.recommendations.recommendations.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!(
-                "      \"playbook_id\": \"{}\",",
-                rec.playbook_id.replace('"', "\\\"")
-            );
-            println!(
-                "      \"playbook_name\": \"{}\",",
-                rec.playbook_name.replace('"', "\\\"")
-            );
-            println!("      \"score\": {},", rec.score);
-            println!("      \"risk_level\": \"{:?}\",", rec.risk_level);
-            println!("      \"reasons\": [");
-            for (j, reason) in rec.reasons.iter().enumerate() {
-                let comma2 = if j < rec.reasons.len() - 1 { "," } else { "" };
-                println!("        \"{}\"{}", reason.replace('"', "\\\""), comma2);
-            }
-            println!("      ]");
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let technologies: Vec<_> = result
+            .technologies
+            .iter()
+            .map(|tech| {
+                json!({
+                    "name": tech.name.clone(),
+                    "version": tech.version.clone(),
+                    "category": format!("{:?}", tech.category),
+                    "confidence": format!("{:?}", tech.confidence)
+                })
+            })
+            .collect();
+        let vulnerabilities: Vec<_> = result
+            .vuln_records
+            .iter()
+            .map(|vuln| {
+                json!({
+                    "cve_id": vuln.cve_id.clone(),
+                    "technology": vuln.technology.clone(),
+                    "cvss": vuln.cvss,
+                    "risk_score": vuln.risk_score,
+                    "severity": format!("{:?}", vuln.severity),
+                    "exploit_available": vuln.exploit_available,
+                    "in_kev": vuln.in_kev,
+                    "source": vuln.source.clone()
+                })
+            })
+            .collect();
+        let recommendations: Vec<_> = result
+            .recommendations
+            .recommendations
+            .iter()
+            .map(|rec| {
+                json!({
+                    "playbook_id": rec.playbook_id.clone(),
+                    "playbook_name": rec.playbook_name.clone(),
+                    "score": rec.score,
+                    "risk_level": format!("{:?}", rec.risk_level),
+                    "reasons": rec.reasons.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "target": target,
+            "risk_score": result.risk_score,
+            "technologies": technologies,
+            "vulnerabilities": vulnerabilities,
+            "recommendations": recommendations
+        }));
     }
 
     /// Parse command options from context

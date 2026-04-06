@@ -14,6 +14,8 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 #[cfg(target_os = "linux")]
 use crate::cli::{output::Output, CliContext};
 #[cfg(target_os = "linux")]
+use crate::json;
+#[cfg(target_os = "linux")]
 use crate::modules::memory::{
     parse_maps, Pattern, PatternScanner, ProcessMemory, ScanType, Scanner, ValueType,
 };
@@ -243,45 +245,18 @@ impl MemoryCommand {
             .count();
 
         if is_json {
-            println!("{{");
-            println!("  \"current_uid\": {},", current_uid);
-            println!("  \"user_only\": {},", user_only);
-            if let Some(f) = filter {
-                println!("  \"filter\": \"{}\",", f.replace('"', "\\\""));
-            } else {
-                println!("  \"filter\": null,");
-            }
-            println!("  \"total\": {},", processes.len());
-            println!("  \"attachable\": {},", attachable_count);
-            println!("  \"processes\": [");
-            for (i, proc) in processes.iter().enumerate() {
-                let comma = if i < processes.len() - 1 { "," } else { "" };
-                let attachable = proc.uid == current_uid || current_uid == 0;
-                let state_str = match proc.state {
-                    'R' => "Running",
-                    'S' => "Sleeping",
-                    'D' => "Disk",
-                    'Z' => "Zombie",
-                    'T' => "Stopped",
-                    't' => "Traced",
-                    'X' => "Dead",
-                    _ => "Unknown",
-                };
-                println!("    {{");
-                println!("      \"pid\": {},", proc.pid);
-                println!("      \"uid\": {},", proc.uid);
-                println!("      \"name\": \"{}\",", proc.name.replace('"', "\\\""));
-                println!(
-                    "      \"cmdline\": \"{}\",",
-                    proc.cmdline.replace('"', "\\\"").replace('\\', "\\\\")
-                );
-                println!("      \"state\": \"{}\",", state_str);
-                println!("      \"vm_rss_kb\": {},", proc.vm_rss_kb);
-                println!("      \"attachable\": {}", attachable);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let processes_json: Vec<crate::serde_json::Value> = processes
+                .iter()
+                .map(|proc| process_info_to_json(proc, current_uid))
+                .collect();
+            Output::json_value(&json!({
+                "current_uid": current_uid,
+                "user_only": user_only,
+                "filter": filter.cloned(),
+                "total": processes.len(),
+                "attachable": attachable_count,
+                "processes": processes_json
+            }));
             return Ok(());
         }
 
@@ -427,32 +402,18 @@ impl MemoryCommand {
         let total_size: usize = filtered.iter().map(|r| r.size()).sum();
 
         if is_json {
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"total_regions\": {},", regions.len());
-            println!("  \"filtered_regions\": {},", filtered.len());
-            println!("  \"scannable_only\": {},", scannable_only);
-            println!("  \"total_size_bytes\": {},", total_size);
-            println!("  \"regions\": [");
-            for (i, region) in filtered.iter().enumerate() {
-                let comma = if i < filtered.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"start\": \"0x{:x}\",", region.start);
-                println!("      \"end\": \"0x{:x}\",", region.end);
-                println!("      \"size\": {},", region.size());
-                println!("      \"perms\": \"{}\",", region.perms.to_string());
-                println!(
-                    "      \"name\": \"{}\",",
-                    region.name().replace('"', "\\\"")
-                );
-                println!("      \"readable\": {},", region.is_readable());
-                println!("      \"writable\": {},", region.is_writable());
-                println!("      \"executable\": {},", region.perms.execute);
-                println!("      \"scannable\": {}", region.is_scannable());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let regions_json: Vec<crate::serde_json::Value> = filtered
+                .iter()
+                .map(|region| memory_region_to_json(region))
+                .collect();
+            Output::json_value(&json!({
+                "pid": pid,
+                "total_regions": regions.len(),
+                "filtered_regions": filtered.len(),
+                "scannable_only": scannable_only,
+                "total_size_bytes": total_size,
+                "regions": regions_json
+            }));
             return Ok(());
         }
 
@@ -532,29 +493,26 @@ impl MemoryCommand {
                     }
                 })
                 .collect();
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"address\": \"0x{:x}\",", addr);
-            println!("  \"size\": {},", data.len());
-            println!("  \"hex\": \"{}\",", hex_str);
-            println!(
-                "  \"ascii\": \"{}\",",
-                ascii_str.replace('"', "\\\"").replace('\\', "\\\\")
-            );
-            println!("  \"bytes\": [");
-            for (i, chunk) in data.chunks(16).enumerate() {
-                let offset = i * 16;
-                let hex: Vec<String> = chunk.iter().map(|b| format!("{:02X}", b)).collect();
-                let comma = if offset + 16 < data.len() { "," } else { "" };
-                println!(
-                    "    {{ \"offset\": \"0x{:08x}\", \"hex\": \"{}\" }}{}",
-                    addr + offset,
-                    hex.join(" "),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let bytes_json: Vec<crate::serde_json::Value> = data
+                .chunks(16)
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let offset = i * 16;
+                    let hex: Vec<String> = chunk.iter().map(|b| format!("{:02X}", b)).collect();
+                    json!({
+                        "offset": format!("0x{:08x}", addr + offset),
+                        "hex": hex.join(" ")
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "pid": pid,
+                "address": format!("0x{:x}", addr),
+                "size": data.len(),
+                "hex": hex_str,
+                "ascii": ascii_str,
+                "bytes": bytes_json
+            }));
             return Ok(());
         }
 
@@ -612,14 +570,14 @@ impl MemoryCommand {
         if is_json {
             let before_hex: String = before.iter().map(|b| format!("{:02X}", b)).collect();
             let after_hex: String = after.iter().map(|b| format!("{:02X}", b)).collect();
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"address\": \"0x{:x}\",", addr);
-            println!("  \"size\": {},", bytes.len());
-            println!("  \"before\": \"{}\",", before_hex);
-            println!("  \"after\": \"{}\",", after_hex);
-            println!("  \"success\": true");
-            println!("}}");
+            Output::json_value(&json!({
+                "pid": pid,
+                "address": format!("0x{:x}", addr),
+                "size": bytes.len(),
+                "before": before_hex,
+                "after": after_hex,
+                "success": true
+            }));
             return Ok(());
         }
 
@@ -715,25 +673,21 @@ impl MemoryCommand {
         let show_count = results.len().min(max_results);
 
         if is_json {
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"search_value\": \"{}\",", value_str);
-            println!("  \"value_type\": \"{}\",", value_type.name());
-            println!("  \"regions_scanned\": {},", scannable.len());
-            println!("  \"total_size_bytes\": {},", total_size);
-            println!("  \"total_results\": {},", count);
-            println!("  \"max_results\": {},", max_results);
-            println!("  \"results\": [");
-            for (i, result) in results.iter().take(show_count).enumerate() {
-                let comma = if i < show_count - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"address\": \"0x{:x}\",", result.address);
-                println!("      \"value\": {},", result.value.to_string());
-                println!("      \"hex\": \"0x{:X}\"", result.value.as_i64());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let results_json: Vec<crate::serde_json::Value> = results
+                .iter()
+                .take(show_count)
+                .map(scan_result_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "pid": pid,
+                "search_value": value_str.clone(),
+                "value_type": value_type.name(),
+                "regions_scanned": scannable.len(),
+                "total_size_bytes": total_size,
+                "total_results": count,
+                "max_results": max_results,
+                "results": results_json
+            }));
             proc.detach()?;
             return Ok(());
         }
@@ -809,27 +763,17 @@ impl MemoryCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"pattern\": \"{}\",", pattern_str.replace('"', "\\\""));
-            println!("  \"regions_scanned\": {},", readable.len());
-            println!("  \"total_size_bytes\": {},", total_size);
-            println!("  \"max_results\": {},", max_results);
-            println!("  \"total_matches\": {},", results.len());
-            println!("  \"matches\": [");
-            for (i, result) in results.iter().enumerate() {
-                let comma = if i < results.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"address\": \"0x{:x}\",", result.address);
-                println!("      \"bytes\": \"{}\",", result.bytes_hex());
-                println!(
-                    "      \"region\": \"{}\"",
-                    result.region_name.replace('"', "\\\"")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let matches_json: Vec<crate::serde_json::Value> =
+                results.iter().map(pattern_match_to_json).collect();
+            Output::json_value(&json!({
+                "pid": pid,
+                "pattern": pattern_str.clone(),
+                "regions_scanned": readable.len(),
+                "total_size_bytes": total_size,
+                "max_results": max_results,
+                "total_matches": results.len(),
+                "matches": matches_json
+            }));
             proc.detach()?;
             return Ok(());
         }
@@ -893,29 +837,24 @@ impl MemoryCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!(
-                "  \"search_string\": \"{}\",",
-                search_str.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"regions_scanned\": {},", readable.len());
-            println!("  \"total_size_bytes\": {},", total_size);
-            println!("  \"max_results\": {},", max_results);
-            println!("  \"total_matches\": {},", results.len());
-            println!("  \"matches\": [");
-            for (i, result) in results.iter().enumerate() {
-                let comma = if i < results.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"address\": \"0x{:x}\",", result.address);
-                println!(
-                    "      \"region\": \"{}\"",
-                    result.region_name.replace('"', "\\\"")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let matches_json: Vec<crate::serde_json::Value> = results
+                .iter()
+                .map(|result| {
+                    json!({
+                        "address": format!("0x{:x}", result.address),
+                        "region": result.region_name.clone()
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "pid": pid,
+                "search_string": search_str.clone(),
+                "regions_scanned": readable.len(),
+                "total_size_bytes": total_size,
+                "max_results": max_results,
+                "total_matches": results.len(),
+                "matches": matches_json
+            }));
             proc.detach()?;
             return Ok(());
         }
@@ -976,17 +915,14 @@ impl MemoryCommand {
         std::fs::write(output_file, &data).map_err(|e| format!("Failed to write file: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!("  \"pid\": {},", pid);
-            println!("  \"address\": \"0x{:x}\",", addr);
-            println!("  \"requested_size\": {},", size);
-            println!("  \"actual_size\": {},", data.len());
-            println!(
-                "  \"output_file\": \"{}\",",
-                output_file.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"success\": true");
-            println!("}}");
+            Output::json_value(&json!({
+                "pid": pid,
+                "address": format!("0x{:x}", addr),
+                "requested_size": size,
+                "actual_size": data.len(),
+                "output_file": output_file.clone(),
+                "success": true
+            }));
             proc.detach()?;
             return Ok(());
         }
@@ -1013,6 +949,70 @@ impl MemoryCommand {
 
         Ok(bytes)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn process_state_label(state: char) -> &'static str {
+    match state {
+        'R' => "Running",
+        'S' => "Sleeping",
+        'D' => "Disk",
+        'Z' => "Zombie",
+        'T' => "Stopped",
+        't' => "Traced",
+        'X' => "Dead",
+        _ => "Unknown",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_info_to_json(proc: &ProcessInfo, current_uid: u32) -> crate::serde_json::Value {
+    json!({
+        "pid": proc.pid,
+        "uid": proc.uid,
+        "name": proc.name.clone(),
+        "cmdline": proc.cmdline.clone(),
+        "state": process_state_label(proc.state),
+        "vm_rss_kb": proc.vm_rss_kb,
+        "attachable": proc.uid == current_uid || current_uid == 0
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_region_to_json(
+    region: &crate::modules::memory::MemoryRegion,
+) -> crate::serde_json::Value {
+    json!({
+        "start": format!("0x{:x}", region.start),
+        "end": format!("0x{:x}", region.end),
+        "size": region.size(),
+        "perms": region.perms.to_string(),
+        "name": region.name(),
+        "readable": region.is_readable(),
+        "writable": region.is_writable(),
+        "executable": region.perms.execute,
+        "scannable": region.is_scannable()
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn scan_result_to_json(result: &crate::modules::memory::ScanResult) -> crate::serde_json::Value {
+    json!({
+        "address": format!("0x{:x}", result.address),
+        "value": result.value.to_string(),
+        "hex": format!("0x{:X}", result.value.as_i64())
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn pattern_match_to_json(
+    result: &crate::modules::memory::pattern::PatternMatch,
+) -> crate::serde_json::Value {
+    json!({
+        "address": format!("0x{:x}", result.address),
+        "bytes": result.bytes_hex(),
+        "region": result.region_name.clone()
+    })
 }
 
 // Empty implementation for non-Linux platforms

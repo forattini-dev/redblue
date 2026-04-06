@@ -3,6 +3,7 @@
 use super::{GREEN, RESET};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::memory;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -93,13 +94,13 @@ fn execute_memory_encrypt(ctx: &CliContext) -> Result<(), String> {
     let recovered = buf.read_string();
 
     if is_json {
-        println!("{{");
-        println!("  \"original\": \"{}\",", data.replace('"', "\\\""));
-        println!("  \"size\": {},", buf.len());
-        println!("  \"integrity\": {},", integrity);
-        println!("  \"encrypted_hex\": \"{}\",", encrypted_hex);
-        println!("  \"recovered\": \"{}\"", recovered.replace('"', "\\\""));
-        println!("}}");
+        Output::json_value(&json!({
+            "original": data,
+            "size": buf.len(),
+            "integrity": integrity,
+            "encrypted_hex": encrypted_hex,
+            "recovered": recovered
+        }));
         return Ok(());
     }
 

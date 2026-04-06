@@ -1,6 +1,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::cloud::takeover::{Confidence, TakeoverChecker, TakeoverResult};
 
 pub struct TakeoverCommand;
@@ -120,28 +121,14 @@ impl TakeoverCommand {
 
     /// Print single result as JSON
     fn print_result_json(&self, result: &TakeoverResult) {
-        let confidence_str = match result.confidence {
-            Confidence::High => "high",
-            Confidence::Medium => "medium",
-            Confidence::Low => "low",
-            Confidence::None => "none",
-        };
-        println!("{{");
-        println!("  \"domain\": \"{}\",", result.domain.replace('"', "\\\""));
-        println!("  \"vulnerable\": {},", result.vulnerable);
-        println!("  \"confidence\": \"{}\",", confidence_str);
-        if let Some(ref cname) = result.cname {
-            println!("  \"cname\": \"{}\",", cname.replace('"', "\\\""));
-        } else {
-            println!("  \"cname\": null,");
-        }
-        if let Some(ref service) = result.service {
-            println!("  \"service\": \"{}\",", service.replace('"', "\\\""));
-        } else {
-            println!("  \"service\": null,");
-        }
-        println!("  \"message\": \"{}\"", result.message.replace('"', "\\\""));
-        println!("}}");
+        Output::json_value(&json!({
+            "domain": result.domain.clone(),
+            "vulnerable": result.vulnerable,
+            "confidence": confidence_label(&result.confidence),
+            "cname": result.cname.clone(),
+            "service": result.service.clone(),
+            "message": result.message.clone(),
+        }));
     }
 
     /// Scan multiple domains from a wordlist
@@ -208,59 +195,28 @@ impl TakeoverCommand {
             })
             .collect();
 
-        println!("{{");
-        println!("  \"total\": {},", stats.get("total").unwrap_or(&0));
-        println!(
-            "  \"vulnerable\": {},",
-            stats.get("vulnerable").unwrap_or(&0)
-        );
-        println!(
-            "  \"high_confidence\": {},",
-            stats.get("high_confidence").unwrap_or(&0)
-        );
-        println!(
-            "  \"medium_confidence\": {},",
-            stats.get("medium_confidence").unwrap_or(&0)
-        );
-        println!(
-            "  \"low_confidence\": {},",
-            stats.get("low_confidence").unwrap_or(&0)
-        );
-        println!("  \"min_confidence_filter\": \"{}\",", min_confidence);
-        println!("  \"results\": [");
-        for (i, result) in filtered.iter().enumerate() {
-            let confidence_str = match result.confidence {
-                Confidence::High => "high",
-                Confidence::Medium => "medium",
-                Confidence::Low => "low",
-                Confidence::None => "none",
-            };
-            let comma = if i < filtered.len() - 1 { "," } else { "" };
-            println!("    {{");
-            println!(
-                "      \"domain\": \"{}\",",
-                result.domain.replace('"', "\\\"")
-            );
-            println!("      \"vulnerable\": {},", result.vulnerable);
-            println!("      \"confidence\": \"{}\",", confidence_str);
-            if let Some(ref cname) = result.cname {
-                println!("      \"cname\": \"{}\",", cname.replace('"', "\\\""));
-            } else {
-                println!("      \"cname\": null,");
-            }
-            if let Some(ref service) = result.service {
-                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
-            } else {
-                println!("      \"service\": null,");
-            }
-            println!(
-                "      \"message\": \"{}\"",
-                result.message.replace('"', "\\\"")
-            );
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let results_json: Vec<_> = filtered
+            .iter()
+            .map(|result| {
+                json!({
+                    "domain": result.domain.clone(),
+                    "vulnerable": result.vulnerable,
+                    "confidence": confidence_label(&result.confidence),
+                    "cname": result.cname.clone(),
+                    "service": result.service.clone(),
+                    "message": result.message.clone(),
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "total": *stats.get("total").unwrap_or(&0),
+            "vulnerable": *stats.get("vulnerable").unwrap_or(&0),
+            "high_confidence": *stats.get("high_confidence").unwrap_or(&0),
+            "medium_confidence": *stats.get("medium_confidence").unwrap_or(&0),
+            "low_confidence": *stats.get("low_confidence").unwrap_or(&0),
+            "min_confidence_filter": min_confidence,
+            "results": results_json,
+        }));
     }
 
     /// List all supported vulnerable services
@@ -272,15 +228,10 @@ impl TakeoverCommand {
         let services = checker.list_services();
 
         if is_json {
-            println!("{{");
-            println!("  \"total\": {},", services.len());
-            println!("  \"services\": [");
-            for (i, service) in services.iter().enumerate() {
-                let comma = if i < services.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", service.replace('"', "\\\""), comma);
-            }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&json!({
+                "total": services.len(),
+                "services": services,
+            }));
             return Ok(());
         }
 
@@ -422,5 +373,14 @@ impl TakeoverCommand {
             println!();
             Output::success("✓ No vulnerabilities found at specified confidence level");
         }
+    }
+}
+
+fn confidence_label(confidence: &Confidence) -> &'static str {
+    match confidence {
+        Confidence::High => "high",
+        Confidence::Medium => "medium",
+        Confidence::Low => "low",
+        Confidence::None => "none",
     }
 }

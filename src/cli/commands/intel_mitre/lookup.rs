@@ -4,6 +4,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::intel::attack_database;
 
 use super::display;
@@ -36,60 +37,26 @@ pub fn get_technique(ctx: &CliContext) -> Result<(), String> {
     if is_json {
         match tech {
             Some(t) => {
-                println!("{{");
-                println!("  \"found\": true,");
-                println!("  \"technique_id\": \"{}\",", t.technique_id);
-                println!(
-                    "  \"name\": \"{}\",",
-                    t.name.replace('\\', "\\\\").replace('"', "\\\"")
-                );
-                println!("  \"is_subtechnique\": {},", t.is_subtechnique);
-                if let Some(ref parent) = t.parent_technique {
-                    println!("  \"parent_technique\": \"{}\",", parent);
-                }
-                println!(
-                    "  \"tactics\": [{}],",
-                    t.tactics
-                        .iter()
-                        .map(|s| format!("\"{}\"", s))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                println!(
-                    "  \"platforms\": [{}],",
-                    t.platforms
-                        .iter()
-                        .map(|s| format!("\"{}\"", s))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                println!(
-                    "  \"data_sources\": [{}],",
-                    t.data_sources
-                        .iter()
-                        .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                if let Some(ref url) = t.url {
-                    println!("  \"url\": \"{}\",", url);
-                }
-                println!("  \"deprecated\": {},", t.deprecated);
-                println!("  \"revoked\": {},", t.revoked);
-                println!(
-                    "  \"description\": \"{}\"",
-                    t.description
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\n', "\\n")
-                );
-                println!("}}");
+                Output::json_value(&json!({
+                    "found": true,
+                    "technique_id": t.technique_id.clone(),
+                    "name": t.name.clone(),
+                    "is_subtechnique": t.is_subtechnique,
+                    "parent_technique": t.parent_technique.clone(),
+                    "tactics": t.tactics.clone(),
+                    "platforms": t.platforms.clone(),
+                    "data_sources": t.data_sources.clone(),
+                    "url": t.url.clone(),
+                    "deprecated": t.deprecated,
+                    "revoked": t.revoked,
+                    "description": t.description.clone(),
+                }));
             }
             None => {
-                println!("{{");
-                println!("  \"found\": false,");
-                println!("  \"query\": \"{}\"", tech_id);
-                println!("}}");
+                Output::json_value(&json!({
+                    "found": false,
+                    "query": tech_id,
+                }));
             }
         }
         return Ok(());
@@ -140,47 +107,21 @@ pub fn get_group(ctx: &CliContext) -> Result<(), String> {
     if is_json {
         match group {
             Some(g) => {
-                println!("{{");
-                println!("  \"found\": true,");
-                println!("  \"group_id\": \"{}\",", g.group_id);
-                println!(
-                    "  \"name\": \"{}\",",
-                    g.name.replace('\\', "\\\\").replace('"', "\\\"")
-                );
-                println!(
-                    "  \"aliases\": [{}],",
-                    g.aliases
-                        .iter()
-                        .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                println!(
-                    "  \"associated_techniques\": [{}],",
-                    g.associated_techniques
-                        .iter()
-                        .map(|s| format!("\"{}\"", s))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                println!(
-                    "  \"url\": \"https://attack.mitre.org/groups/{}/\",",
-                    g.group_id
-                );
-                println!(
-                    "  \"description\": \"{}\"",
-                    g.description
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\n', "\\n")
-                );
-                println!("}}");
+                Output::json_value(&json!({
+                    "found": true,
+                    "group_id": g.group_id.clone(),
+                    "name": g.name.clone(),
+                    "aliases": g.aliases.clone(),
+                    "associated_techniques": g.associated_techniques.clone(),
+                    "url": format!("https://attack.mitre.org/groups/{}/", g.group_id),
+                    "description": g.description.clone(),
+                }));
             }
             None => {
-                println!("{{");
-                println!("  \"found\": false,");
-                println!("  \"query\": \"{}\"", group_id);
-                println!("}}");
+                Output::json_value(&json!({
+                    "found": false,
+                    "query": group_id,
+                }));
             }
         }
         return Ok(());
@@ -229,50 +170,34 @@ pub fn search(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"query\": \"{}\",", query);
-        println!("  \"total_results\": {},", techniques.len() + groups.len());
-        println!("  \"techniques\": [");
-        for (i, t) in techniques.iter().take(limit).enumerate() {
-            let comma = if i < techniques.len().min(limit) - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactics\": [{}]}}{}",
-                t.technique_id,
-                t.name.replace('"', "\\\""),
-                t.tactics
-                    .iter()
-                    .map(|s| format!("\"{}\"", s))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                comma
-            );
-        }
-        println!("  ],");
-        println!("  \"groups\": [");
-        for (i, g) in groups.iter().take(limit).enumerate() {
-            let comma = if i < groups.len().min(limit) - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    {{\"group_id\": \"{}\", \"name\": \"{}\", \"aliases\": [{}]}}{}",
-                g.group_id,
-                g.name.replace('"', "\\\""),
-                g.aliases
-                    .iter()
-                    .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let techniques_json: Vec<_> = techniques
+            .iter()
+            .take(limit)
+            .map(|t| {
+                json!({
+                    "technique_id": t.technique_id.clone(),
+                    "name": t.name.clone(),
+                    "tactics": t.tactics.clone(),
+                })
+            })
+            .collect();
+        let groups_json: Vec<_> = groups
+            .iter()
+            .take(limit)
+            .map(|g| {
+                json!({
+                    "group_id": g.group_id.clone(),
+                    "name": g.name.clone(),
+                    "aliases": g.aliases.clone(),
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "query": query,
+            "total_results": techniques.len() + groups.len(),
+            "techniques": techniques_json,
+            "groups": groups_json,
+        }));
         return Ok(());
     }
 

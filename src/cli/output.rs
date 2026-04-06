@@ -37,6 +37,12 @@ fn write_target(args: std::fmt::Arguments<'_>) {
     }
 }
 
+fn write_stdout(args: std::fmt::Arguments<'_>) {
+    let mut stdout = io::stdout();
+    let _ = stdout.write_fmt(args);
+    let _ = stdout.flush();
+}
+
 macro_rules! out_print {
     ($($arg:tt)*) => {{
         write_target(format_args!($($arg)*));
@@ -158,7 +164,12 @@ impl Output {
 
     #[allow(dead_code)]
     pub fn json(data: &str) {
-        out_println!("{}", data);
+        write_stdout(format_args!("{}", data));
+        write_stdout(format_args!("\n"));
+    }
+
+    pub fn json_value(value: &crate::serde_json::Value) {
+        Self::json(&value.to_string_pretty());
     }
 
     pub fn spinner_start(msg: &str) {

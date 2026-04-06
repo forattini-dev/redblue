@@ -12,6 +12,7 @@ use std::path::Path;
 
 use crate::cli::commands::print_help;
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::storage::engine::{Database, DatabaseConfig};
 
 use super::DatabaseCommand;
@@ -79,16 +80,13 @@ fn engine_open(ctx: &CliContext) -> Result<(), String> {
     let page_count = db.page_count();
 
     if is_json {
-        println!("{{");
-        println!("  \"status\": \"opened\",");
-        println!(
-            "  \"path\": \"{}\",",
-            db_path.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        println!("  \"page_count\": {},", page_count);
-        println!("  \"file_size_bytes\": {},", file_size);
-        println!("  \"read_only\": {}", read_only);
-        println!("}}");
+        Output::json_value(&json!({
+            "status": "opened",
+            "path": db_path,
+            "page_count": page_count,
+            "file_size_bytes": file_size,
+            "read_only": read_only,
+        }));
     } else {
         Output::success(&format!("Database opened: {}", db_path));
         Output::summary_line(&[
@@ -140,17 +138,14 @@ fn engine_info(ctx: &CliContext) -> Result<(), String> {
     };
 
     if is_json {
-        println!("{{");
-        println!(
-            "  \"path\": \"{}\",",
-            db_path.replace('\\', "\\\\").replace('"', "\\\"")
-        );
-        println!("  \"page_count\": {},", page_count);
-        println!("  \"file_size_bytes\": {},", file_size);
-        println!("  \"page_size_bytes\": 4096,");
-        println!("  \"wal_exists\": {},", wal_exists);
-        println!("  \"wal_size_bytes\": {}", wal_size);
-        println!("}}");
+        Output::json_value(&json!({
+            "path": db_path,
+            "page_count": page_count,
+            "file_size_bytes": file_size,
+            "page_size_bytes": 4096,
+            "wal_exists": wal_exists,
+            "wal_size_bytes": wal_size,
+        }));
     } else {
         Output::header(&format!("Database: {}", db_path));
         println!();
@@ -195,22 +190,22 @@ fn engine_stats(ctx: &CliContext) -> Result<(), String> {
 
     let stats = db.cache_stats();
     let page_count = db.page_count();
+    let hit_rate = if stats.hits + stats.misses > 0 {
+        (stats.hits as f64 / (stats.hits + stats.misses) as f64) * 100.0
+    } else {
+        0.0
+    };
 
     if is_json {
-        println!("{{");
-        println!("  \"cache\": {{");
-        println!("    \"hits\": {},", stats.hits);
-        println!("    \"misses\": {},", stats.misses);
-        println!("    \"evictions\": {},", stats.evictions);
-        let hit_rate = if stats.hits + stats.misses > 0 {
-            (stats.hits as f64 / (stats.hits + stats.misses) as f64) * 100.0
-        } else {
-            0.0
-        };
-        println!("    \"hit_rate_percent\": {:.2}", hit_rate);
-        println!("  }},");
-        println!("  \"pages\": {}", page_count);
-        println!("}}");
+        Output::json_value(&json!({
+            "cache": json!({
+                "hits": stats.hits,
+                "misses": stats.misses,
+                "evictions": stats.evictions,
+                "hit_rate_percent": hit_rate,
+            }),
+            "pages": page_count,
+        }));
     } else {
         Output::header(&format!("Database Stats: {}", db_path));
         println!();
@@ -218,11 +213,6 @@ fn engine_stats(ctx: &CliContext) -> Result<(), String> {
         println!("  Hits:      {}", stats.hits);
         println!("  Misses:    {}", stats.misses);
         println!("  Evictions: {}", stats.evictions);
-        let hit_rate = if stats.hits + stats.misses > 0 {
-            (stats.hits as f64 / (stats.hits + stats.misses) as f64) * 100.0
-        } else {
-            0.0
-        };
         println!("  Hit rate:  {:.2}%", hit_rate);
         println!();
         Output::subheader("Storage");
@@ -269,14 +259,11 @@ fn engine_checkpoint(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"status\": \"completed\",");
-        println!("  \"pages_checkpointed\": {},", result.pages_checkpointed);
-        println!(
-            "  \"transactions_processed\": {}",
-            result.transactions_processed
-        );
-        println!("}}");
+        Output::json_value(&json!({
+            "status": "completed",
+            "pages_checkpointed": result.pages_checkpointed,
+            "transactions_processed": result.transactions_processed,
+        }));
     } else {
         Output::success("Checkpoint completed");
         Output::summary_line(&[

@@ -37,6 +37,9 @@ jobs:
       - name: Check Formatting
         run: cargo fmt --all -- --check
 
+      - name: Audit Machine Output Regressions
+        run: python3 scripts/check-machine-output.py
+
       - name: Run Cargo Check
         run: cargo check --all
 

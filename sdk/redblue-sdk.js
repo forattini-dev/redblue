@@ -169,6 +169,12 @@ function resolveLegacyBinaryPath(options = {}) {
   return path.resolve(legacyInstallDir(), options.binaryName || DEFAULT_BINARY_NAME);
 }
 
+function resolvePackageLocalBinaryPath(options = {}) {
+  const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
+  const packageRoot = path.resolve(__dirname, '..');
+  return path.resolve(packageRoot, '.redblue', 'bin', binaryName);
+}
+
 function resolveAssetName(options = {}) {
   const platform = options.platform || process.platform;
   const arch = options.arch || process.arch;
@@ -365,6 +371,14 @@ async function resolveBinaryWithInfo(options = {}) {
     return {
       binaryPath: installedCandidate,
       source: 'managed'
+    };
+  }
+
+  const packageCandidate = resolvePackageLocalBinaryPath(options);
+  if (exists(packageCandidate)) {
+    return {
+      binaryPath: packageCandidate,
+      source: 'package'
     };
   }
 
@@ -812,6 +826,7 @@ function formatWrapperHelp() {
     'Notes:',
     '  Wrapper options must come before the redblue command.',
     '  Managed installs default to ~/.local/bin and still detect legacy ~/.redblue/bin installs.',
+    '  When installed from npm, the package postinstall step stores the managed binary in package-local .redblue/bin and the wrapper can use it automatically.',
     '  Use "rb --version" to query the real redblue binary version after installation.',
     '  The exact command "npx rb" only works when a package named "rb" exists or when this package is already installed and exposes the rb bin.',
     ''
@@ -1274,6 +1289,7 @@ module.exports._internal = {
   resolveFromPath,
   resolveBinaryWithInfo,
   resolveLegacyBinaryPath,
+  resolvePackageLocalBinaryPath,
   resolveManagedBinaryPath,
   resolveManagedUpgradeDestination,
   sha256File,

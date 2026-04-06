@@ -5,6 +5,7 @@ use crate::cli::format::OutputFormat;
 use crate::cli::output::Output;
 use crate::cli::validator::Validator;
 use crate::cli::CliContext;
+use crate::json;
 use crate::protocols::http::HttpClient;
 use crate::storage::records::HttpHeadersRecord;
 use crate::storage::service::StorageService;
@@ -99,31 +100,22 @@ pub fn security(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == OutputFormat::Json {
-        println!("{{");
-        println!("  \"url\": \"{}\",", url);
-        println!("  \"security_headers\": [");
-        for (i, (header, description)) in security_headers.iter().enumerate() {
-            let comma = if i < security_headers.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let present = response.headers.get(*header).is_some();
-            println!("    {{");
-            println!("      \"header\": \"{}\",", header);
-            println!("      \"description\": \"{}\",", description);
-            println!("      \"present\": {},", present);
-            if present {
-                let value = response.headers.get(*header).unwrap();
-                let value_escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-                println!("      \"value\": \"{}\"", value_escaped);
-            } else {
-                println!("      \"value\": null");
-            }
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let security_headers: Vec<_> = security_headers
+            .iter()
+            .map(|(header, description)| {
+                let value = response.headers.get(*header).cloned();
+                json!({
+                    "header": *header,
+                    "description": *description,
+                    "present": value.is_some(),
+                    "value": value
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "url": url,
+            "security_headers": security_headers
+        }));
         return Ok(());
     }
 
@@ -421,22 +413,23 @@ pub fn grade(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == OutputFormat::Json {
-        println!("{{");
-        println!("  \"url\": \"{}\",", url);
-        println!("  \"score\": {},", score);
-        println!("  \"grade\": \"{}\",", grade);
-        println!("  \"findings\": [");
-        for (i, (header, status, deduction, details)) in findings.iter().enumerate() {
-            let comma = if i < findings.len() - 1 { "," } else { "" };
-            println!("    {{");
-            println!("      \"header\": \"{}\",", header);
-            println!("      \"status\": \"{}\",", status);
-            println!("      \"deduction\": {},", deduction);
-            println!("      \"details\": \"{}\"", details.replace('"', "\\\""));
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let findings_json: Vec<_> = findings
+            .iter()
+            .map(|(header, status, deduction, details)| {
+                json!({
+                    "header": *header,
+                    "status": *status,
+                    "deduction": *deduction,
+                    "details": details.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "url": url,
+            "score": score,
+            "grade": grade,
+            "findings": findings_json
+        }));
         return Ok(());
     }
 

@@ -12,7 +12,8 @@
     ".": "./sdk/redblue-sdk.js"
   },
   "files": [
-    "sdk/redblue-sdk.js"
+    "sdk/redblue-sdk.js",
+    "sdk/postinstall.js"
   ],
   "engines": {
     "node": ">=20"
@@ -44,6 +45,7 @@
     "cli-args-parser": "^1.0.6"
   },
   "scripts": {
+    "postinstall": "node sdk/postinstall.js",
     "build": "node --check sdk/redblue-sdk.js",
     "test": "node --test --test-reporter=spec sdk/test/*.test.js",
     "coverage": "node scripts/check-sdk-coverage.js",

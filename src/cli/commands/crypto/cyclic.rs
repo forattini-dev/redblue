@@ -3,6 +3,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::analysis::CyclicGenerator;
+use crate::json;
 
 use super::helpers::hex_encode;
 
@@ -122,15 +123,20 @@ impl CryptoCyclicCommand {
 
         match format.as_str() {
             "json" => {
-                println!("{{");
-                println!("  \"length\": {},", pattern.len());
-                println!("  \"pattern_size\": {},", n);
-                if let Ok(s) = String::from_utf8(pattern.clone()) {
-                    println!("  \"pattern\": \"{}\"", s);
+                let value = if let Ok(s) = String::from_utf8(pattern.clone()) {
+                    json!({
+                        "length": pattern.len(),
+                        "pattern_size": n,
+                        "pattern": s,
+                    })
                 } else {
-                    println!("  \"pattern_hex\": \"{}\"", hex_encode(&pattern));
-                }
-                println!("}}");
+                    json!({
+                        "length": pattern.len(),
+                        "pattern_size": n,
+                        "pattern_hex": hex_encode(&pattern),
+                    })
+                };
+                Output::json_value(&value);
             }
             "raw" => {
                 // Write raw bytes to stdout
@@ -223,17 +229,12 @@ impl CryptoCyclicCommand {
 
         match format.as_str() {
             "json" => {
-                println!("{{");
-                println!("  \"pattern\": \"{}\",", pattern_input);
-                println!("  \"pattern_size\": {},", n);
-                if let Some(offset) = result {
-                    println!("  \"found\": true,");
-                    println!("  \"offset\": {}", offset);
-                } else {
-                    println!("  \"found\": false,");
-                    println!("  \"offset\": null");
-                }
-                println!("}}");
+                Output::json_value(&json!({
+                    "pattern": pattern_input,
+                    "pattern_size": n,
+                    "found": result.is_some(),
+                    "offset": result,
+                }));
             }
             _ => {
                 if let Some(offset) = result {
@@ -294,15 +295,20 @@ impl CryptoCyclicCommand {
 
         match format.as_str() {
             "json" => {
-                println!("{{");
-                println!("  \"offset\": {},", offset);
-                println!("  \"length\": {},", pattern.len());
-                if let Ok(s) = String::from_utf8(pattern.clone()) {
-                    println!("  \"pattern\": \"{}\"", s);
+                let value = if let Ok(s) = String::from_utf8(pattern.clone()) {
+                    json!({
+                        "offset": offset,
+                        "length": pattern.len(),
+                        "pattern": s,
+                    })
                 } else {
-                    println!("  \"pattern_hex\": \"{}\"", hex_encode(&pattern));
-                }
-                println!("}}");
+                    json!({
+                        "offset": offset,
+                        "length": pattern.len(),
+                        "pattern_hex": hex_encode(&pattern),
+                    })
+                };
+                Output::json_value(&value);
             }
             _ => {
                 Output::header("Pattern at Offset");

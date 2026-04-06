@@ -4,6 +4,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::recon::mitre::MitreClient;
 
 /// Manage ATT&CK data cache
@@ -20,7 +21,7 @@ pub fn manage_cache(ctx: &CliContext) -> Result<(), String> {
         MitreClient::clear_cache()?;
 
         if is_json {
-            println!("{{\"status\": \"cleared\"}}");
+            Output::json_value(&json!({ "status": "cleared" }));
         } else {
             Output::spinner_done();
             Output::success("ATT&CK cache cleared successfully");
@@ -33,17 +34,13 @@ pub fn manage_cache(ctx: &CliContext) -> Result<(), String> {
     let info = client.cache_info();
 
     if is_json {
-        println!("{{");
-        if let Some(ref path) = info.path {
-            println!("  \"path\": \"{}\",", path.display());
-        } else {
-            println!("  \"path\": null,");
-        }
-        println!("  \"exists\": {},", info.exists);
-        println!("  \"size_bytes\": {},", info.size_bytes);
-        println!("  \"age_secs\": {},", info.age_secs);
-        println!("  \"expired\": {}", info.expired);
-        println!("}}");
+        Output::json_value(&json!({
+            "path": info.path.as_ref().map(|path| path.display().to_string()),
+            "exists": info.exists,
+            "size_bytes": info.size_bytes,
+            "age_secs": info.age_secs,
+            "expired": info.expired
+        }));
         return Ok(());
     }
 

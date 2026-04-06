@@ -8,6 +8,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::intel::{Ioc, IocCollection, IocConfidence, IocExtractor, IocSource, IocType};
 use std::net::Ipv4Addr;
 
@@ -283,7 +284,10 @@ impl IntelIocCommand {
 
         if collection.is_empty() {
             if is_json {
-                println!("{{\"error\": \"No IOCs extracted\", \"iocs\": []}}");
+                Output::json_value(&json!({
+                    "error": "No IOCs extracted",
+                    "iocs": []
+                }));
                 return Ok(());
             }
             Output::warning("No IOCs extracted. Provide data using key=value pairs:");
@@ -302,38 +306,18 @@ impl IntelIocCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target);
-            println!("  \"total\": {},", collection.len());
-            let counts = collection.count_by_type();
-            println!("  \"by_type\": {{");
-            for (i, (ioc_type, count)) in counts.iter().enumerate() {
-                let comma = if i < counts.len() - 1 { "," } else { "" };
-                println!("    \"{}\": {}{}", ioc_type, count, comma);
-            }
-            println!("  }},");
-            println!("  \"iocs\": [");
             let all_iocs = collection.all();
-            for (i, ioc) in all_iocs.iter().enumerate() {
-                let conf_str = match ioc.confidence {
-                    IocConfidence::High => "high",
-                    IocConfidence::Medium => "medium",
-                    IocConfidence::Low => "low",
-                };
-                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"techniques\": [{}], \"tags\": [{}]}}{}",
-                    ioc.ioc_type,
-                    ioc.value.replace('"', "\\\""),
-                    conf_str,
-                    ioc.source,
-                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
-                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let iocs_json: Vec<crate::serde_json::Value> = all_iocs
+                .iter()
+                .map(|ioc| extract_ioc_to_json(ioc))
+                .collect();
+            let counts = collection.count_by_type();
+            Output::json_value(&json!({
+                "target": target.clone(),
+                "total": collection.len(),
+                "by_type": counts_by_type_to_json(&counts),
+                "iocs": iocs_json
+            }));
             return Ok(());
         }
 
@@ -503,22 +487,21 @@ impl IntelIocCommand {
         ];
 
         if is_json {
-            println!("{{");
-            println!("  \"types\": [");
-            for (i, (name, desc, example, category)) in types.iter().enumerate() {
-                let comma = if i < types.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"name\": \"{}\", \"description\": \"{}\", \"example\": \"{}\", \"category\": \"{}\"}}{}",
-                    name,
-                    desc.replace('"', "\\\""),
-                    example.replace('"', "\\\"").replace('\\', "\\\\"),
-                    category,
-                    comma
-                );
-            }
-            println!("  ],");
-            println!("  \"total\": {}", types.len());
-            println!("}}");
+            let types_json: Vec<crate::serde_json::Value> = types
+                .iter()
+                .map(|(name, desc, example, category)| {
+                    json!({
+                        "name": *name,
+                        "description": *desc,
+                        "example": *example,
+                        "category": *category
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "types": types_json,
+                "total": types.len()
+            }));
             return Ok(());
         }
 
@@ -596,58 +579,25 @@ impl IntelIocCommand {
         if is_json {
             let counts = collection.count_by_type();
             let conf_counts = collection.count_by_confidence();
-
-            println!("{{");
-            println!("  \"target\": \"{}\",", target);
-            println!("  \"sources\": {{");
-            println!("    \"port_scan\": {},", port_iocs.len());
-            println!("    \"dns\": {},", dns_iocs.len());
-            println!("    \"tls\": {},", tls_iocs.len());
-            println!("    \"subdomains\": {}", subdomain_iocs.len());
-            println!("  }},");
-            println!("  \"total\": {},", collection.len());
-            println!("  \"by_type\": {{");
-            for (i, (ioc_type, count)) in counts.iter().enumerate() {
-                let comma = if i < counts.len() - 1 { "," } else { "" };
-                println!("    \"{}\": {}{}", ioc_type, count, comma);
-            }
-            println!("  }},");
-            println!("  \"by_confidence\": {{");
-            println!(
-                "    \"high\": {},",
-                conf_counts.get(&IocConfidence::High).unwrap_or(&0)
-            );
-            println!(
-                "    \"medium\": {},",
-                conf_counts.get(&IocConfidence::Medium).unwrap_or(&0)
-            );
-            println!(
-                "    \"low\": {}",
-                conf_counts.get(&IocConfidence::Low).unwrap_or(&0)
-            );
-            println!("  }},");
-            println!("  \"iocs\": [");
             let all_iocs = collection.all();
-            for (i, ioc) in all_iocs.iter().enumerate() {
-                let conf_str = match ioc.confidence {
-                    IocConfidence::High => "high",
-                    IocConfidence::Medium => "medium",
-                    IocConfidence::Low => "low",
-                };
-                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"techniques\": [{}], \"tags\": [{}]}}{}",
-                    ioc.ioc_type,
-                    ioc.value.replace('"', "\\\""),
-                    conf_str,
-                    ioc.source,
-                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
-                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let iocs_json: Vec<crate::serde_json::Value> = all_iocs
+                .iter()
+                .map(|ioc| extract_ioc_to_json(ioc))
+                .collect();
+            let sources_json = json!({
+                "port_scan": port_iocs.len(),
+                "dns": dns_iocs.len(),
+                "tls": tls_iocs.len(),
+                "subdomains": subdomain_iocs.len()
+            });
+            Output::json_value(&json!({
+                "target": target,
+                "sources": sources_json,
+                "total": collection.len(),
+                "by_type": counts_by_type_to_json(&counts),
+                "by_confidence": counts_by_confidence_to_json(&conf_counts),
+                "iocs": iocs_json
+            }));
             return Ok(());
         }
 
@@ -760,7 +710,7 @@ impl IntelIocCommand {
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
                 if is_json {
-                    println!("{{\"error\": \"No file specified\"}}");
+                    Output::json_value(&json!({ "error": "No file specified" }));
                 } else {
                     Output::error("No file specified");
                     println!();
@@ -827,11 +777,12 @@ impl IntelIocCommand {
 
         if import_count == 0 {
             if is_json {
-                println!(
-                    "{{\"file\": \"{}\", \"format\": \"{}\", \"imported\": 0, \"iocs\": []}}",
-                    file_path.replace('"', "\\\""),
-                    file_format
-                );
+                Output::json_value(&json!({
+                    "file": file_path.clone(),
+                    "format": file_format.clone(),
+                    "imported": 0,
+                    "iocs": []
+                }));
             } else {
                 Output::warning("No IOCs found in file");
             }
@@ -840,38 +791,16 @@ impl IntelIocCommand {
 
         if is_json {
             let counts = collection.count_by_type();
-
-            println!("{{");
-            println!("  \"file\": \"{}\",", file_path.replace('"', "\\\""));
-            println!("  \"format\": \"{}\",", file_format);
-            println!("  \"imported\": {},", import_count);
-            println!("  \"by_type\": {{");
-            for (i, (ioc_type, count)) in counts.iter().enumerate() {
-                let comma = if i < counts.len() - 1 { "," } else { "" };
-                println!("    \"{}\": {}{}", ioc_type, count, comma);
-            }
-            println!("  }},");
-            println!("  \"iocs\": [");
             let all_iocs = collection.all();
-            for (i, ioc) in all_iocs.iter().enumerate() {
-                let conf_str = match ioc.confidence {
-                    IocConfidence::High => "high",
-                    IocConfidence::Medium => "medium",
-                    IocConfidence::Low => "low",
-                };
-                let comma = if i < all_iocs.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"tags\": [{}]}}{}",
-                    ioc.ioc_type,
-                    ioc.value.replace('"', "\\\""),
-                    conf_str,
-                    ioc.source,
-                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let iocs_json: Vec<crate::serde_json::Value> =
+                all_iocs.iter().map(|ioc| import_ioc_to_json(ioc)).collect();
+            Output::json_value(&json!({
+                "file": file_path.clone(),
+                "format": file_format.clone(),
+                "imported": import_count,
+                "by_type": counts_by_type_to_json(&counts),
+                "iocs": iocs_json
+            }));
             return Ok(());
         }
 
@@ -1187,7 +1116,10 @@ impl IntelIocCommand {
             .or_else(|| ctx.args.first())
             .ok_or_else(|| {
                 if is_json {
-                    println!("{{\"error\": \"No search query specified\", \"results\": []}}");
+                    Output::json_value(&json!({
+                        "error": "No search query specified",
+                        "results": []
+                    }));
                 } else {
                     Output::error("No search query specified");
                     println!();
@@ -1264,40 +1196,22 @@ impl IntelIocCommand {
         results.sort_by(|a, b| b.confidence_score.cmp(&a.confidence_score));
 
         if is_json {
-            println!("{{");
-            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
+            let results_json: Vec<crate::serde_json::Value> =
+                results.iter().map(|ioc| search_ioc_to_json(ioc)).collect();
+            let mut payload = crate::serde_json::Map::new();
+            payload.insert("query".to_string(), json!(query.clone()));
             if let Some(ref t) = type_filter {
-                println!("  \"type_filter\": \"{}\",", t);
+                payload.insert("type_filter".to_string(), json!(t.clone()));
             }
             if let Some(ref t) = tag_filter {
-                println!("  \"tag_filter\": \"{}\",", t.replace('"', "\\\""));
+                payload.insert("tag_filter".to_string(), json!(t.clone()));
             }
             if let Some(ref c) = confidence_filter {
-                println!("  \"confidence_filter\": \"{}\",", c);
+                payload.insert("confidence_filter".to_string(), json!(c.clone()));
             }
-            println!("  \"total\": {},", results.len());
-            println!("  \"results\": [");
-            for (i, ioc) in results.iter().enumerate() {
-                let conf_str = match ioc.confidence {
-                    IocConfidence::High => "high",
-                    IocConfidence::Medium => "medium",
-                    IocConfidence::Low => "low",
-                };
-                let comma = if i < results.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"type\": \"{}\", \"value\": \"{}\", \"confidence\": \"{}\", \"source\": \"{}\", \"context\": {}, \"techniques\": [{}], \"tags\": [{}]}}{}",
-                    ioc.ioc_type,
-                    ioc.value.replace('"', "\\\""),
-                    conf_str,
-                    ioc.source,
-                    ioc.context.as_ref().map(|c| format!("\"{}\"", c.replace('"', "\\\""))).unwrap_or_else(|| "null".to_string()),
-                    ioc.mitre_techniques.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(", "),
-                    ioc.tags.iter().map(|s| format!("\"{}\"", s.replace('"', "\\\""))).collect::<Vec<_>>().join(", "),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            payload.insert("total".to_string(), json!(results.len()));
+            payload.insert("results".to_string(), json!(results_json));
+            Output::json_value(&crate::serde_json::Value::Object(payload));
             return Ok(());
         }
 
@@ -1665,4 +1579,67 @@ fn format_timestamp(ts: u64) -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, month, day, hours, minutes, seconds
     )
+}
+
+fn ioc_confidence_label(confidence: IocConfidence) -> &'static str {
+    match confidence {
+        IocConfidence::High => "high",
+        IocConfidence::Medium => "medium",
+        IocConfidence::Low => "low",
+    }
+}
+
+fn counts_by_type_to_json(
+    counts: &std::collections::HashMap<IocType, usize>,
+) -> crate::serde_json::Value {
+    let mut map = crate::serde_json::Map::new();
+    let mut entries: Vec<_> = counts.iter().collect();
+    entries.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+    for (ioc_type, count) in entries {
+        map.insert(ioc_type.to_string(), json!(*count));
+    }
+    crate::serde_json::Value::Object(map)
+}
+
+fn counts_by_confidence_to_json(
+    counts: &std::collections::HashMap<IocConfidence, usize>,
+) -> crate::serde_json::Value {
+    json!({
+        "high": *counts.get(&IocConfidence::High).unwrap_or(&0),
+        "medium": *counts.get(&IocConfidence::Medium).unwrap_or(&0),
+        "low": *counts.get(&IocConfidence::Low).unwrap_or(&0)
+    })
+}
+
+fn extract_ioc_to_json(ioc: &Ioc) -> crate::serde_json::Value {
+    json!({
+        "type": ioc.ioc_type.to_string(),
+        "value": ioc.value.clone(),
+        "confidence": ioc_confidence_label(ioc.confidence),
+        "source": ioc.source.to_string(),
+        "techniques": ioc.mitre_techniques.clone(),
+        "tags": ioc.tags.clone()
+    })
+}
+
+fn import_ioc_to_json(ioc: &Ioc) -> crate::serde_json::Value {
+    json!({
+        "type": ioc.ioc_type.to_string(),
+        "value": ioc.value.clone(),
+        "confidence": ioc_confidence_label(ioc.confidence),
+        "source": ioc.source.to_string(),
+        "tags": ioc.tags.clone()
+    })
+}
+
+fn search_ioc_to_json(ioc: &Ioc) -> crate::serde_json::Value {
+    json!({
+        "type": ioc.ioc_type.to_string(),
+        "value": ioc.value.clone(),
+        "confidence": ioc_confidence_label(ioc.confidence),
+        "source": ioc.source.to_string(),
+        "context": ioc.context.clone(),
+        "techniques": ioc.mitre_techniques.clone(),
+        "tags": ioc.tags.clone()
+    })
 }

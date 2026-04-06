@@ -4,6 +4,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::intel::attack_database::{self, AttackTechnique};
 use crate::modules::intel::{Confidence, Findings, TechniqueMapper};
 
@@ -77,29 +78,33 @@ pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
     let subtechniques = total_techniques - parent_techniques;
 
     if is_json {
-        println!("{{");
-        println!("  \"summary\": {{");
-        println!("    \"total_techniques\": {},", total_techniques);
-        println!("    \"parent_techniques\": {},", parent_techniques);
-        println!("    \"subtechniques\": {},", subtechniques);
-        println!("    \"threat_groups\": {}", db.groups.len());
-        println!("  }},");
-        println!("  \"tactics\": [");
-        for (i, (tactic_key, tactic_id, display_name)) in tactics_order.iter().enumerate() {
-            let techs = tactic_counts
-                .get(*tactic_key)
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            let count = techs.len();
-            let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
-            let comma = if i < tactics_order.len() - 1 { "," } else { "" };
-            println!(
-                "    {{\"id\": \"{}\", \"name\": \"{}\", \"technique_count\": {}, \"parent_count\": {}}}{}",
-                tactic_id, display_name, count, parent_count, comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let tactics_json: Vec<_> = tactics_order
+            .iter()
+            .map(|(tactic_key, tactic_id, display_name)| {
+                let techs = tactic_counts
+                    .get(*tactic_key)
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                let count = techs.len();
+                let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
+                json!({
+                    "id": tactic_id,
+                    "name": display_name,
+                    "technique_count": count,
+                    "parent_count": parent_count,
+                })
+            })
+            .collect();
+        let summary_json = json!({
+            "total_techniques": total_techniques,
+            "parent_techniques": parent_techniques,
+            "subtechniques": subtechniques,
+            "threat_groups": db.groups.len(),
+        });
+        Output::json_value(&json!({
+            "summary": summary_json,
+            "tactics": tactics_json,
+        }));
         return Ok(());
     }
 
@@ -500,11 +505,11 @@ pub fn show_stats(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"techniques\": {},", db.techniques.len());
-        println!("  \"groups\": {},", db.groups.len());
-        println!("  \"data_source\": \"Embedded Enterprise ATT&CK Data\"");
-        println!("}}");
+        Output::json_value(&json!({
+            "techniques": db.techniques.len(),
+            "groups": db.groups.len(),
+            "data_source": "Embedded Enterprise ATT&CK Data",
+        }));
         return Ok(());
     }
 

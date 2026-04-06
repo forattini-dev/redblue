@@ -605,7 +605,7 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 
 ### JavaScript / npm
 
-The npm package is a wrapper and SDK. It does not bundle the release binary inside the package.
+The npm package is a wrapper and SDK. The release binary is fetched after install and stored in the package-local path `node_modules/redblue-cli/.redblue/bin`.
 
 ```bash
 # Add the wrapper to your project
@@ -638,7 +638,9 @@ const { createClient } = require('redblue-cli');
 })();
 ```
 
-If you want the wrapper to manage the binary for you, use `--install`, `--check-update`, or `--upgrade`. Managed installs default to `~/.local/bin`, and the wrapper still detects legacy installs in `~/.redblue/bin`. For SDK consumers, `autoDownload: true` still works and can be combined with a custom `targetDir`.
+If you want the wrapper to manage the binary explicitly, use `--install`, `--check-update`, or `--upgrade`. Managed installs default to `~/.local/bin`, and the wrapper still detects legacy installs in `~/.redblue/bin`. For SDK consumers, `autoDownload: true` still works and can be combined with a custom `targetDir`.
+
+`npm install redblue-cli` also runs a `postinstall` hook by default to populate `node_modules/redblue-cli/.redblue/bin` (skip it with `REDBLUE_SKIP_POSTINSTALL=1`).
 
 > **Note:** the exact command `npx rb` works after `redblue-cli` is installed in the project or globally. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`. Use bare `rb --version` to query the real binary version; use wrapper `--version <tag>` or `--release-version <tag>` before the command when you want to pin a release download.
 

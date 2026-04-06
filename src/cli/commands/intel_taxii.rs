@@ -6,7 +6,9 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::intel::taxii::TaxiiClient;
+use crate::serde_json::Value;
 
 pub struct IntelTaxiiCommand;
 
@@ -133,28 +135,22 @@ impl IntelTaxiiCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"url\": \"{}\",", url.replace('"', "\\\""));
-            println!("  \"total\": {},", collections.len());
-            println!("  \"collections\": [");
-            for (i, col) in collections.iter().enumerate() {
-                let comma = if i < collections.len() - 1 { "," } else { "" };
-                let desc = col
-                    .description
-                    .as_ref()
-                    .map(|d| format!("\"{}\"", d.replace('"', "\\\"")))
-                    .unwrap_or_else(|| "null".to_string());
-                println!(
-                    "    {{\"id\": \"{}\", \"title\": \"{}\", \"description\": {}, \"can_read\": {}}}{}",
-                    col.id.replace('"', "\\\""),
-                    col.title.replace('"', "\\\""),
-                    desc,
-                    col.can_read,
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let collections_json: Vec<_> = collections
+                .iter()
+                .map(|col| {
+                    json!({
+                        "id": col.id.clone(),
+                        "title": col.title.clone(),
+                        "description": col.description.clone(),
+                        "can_read": col.can_read,
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "url": url,
+                "total": collections.len(),
+                "collections": collections_json,
+            }));
             return Ok(());
         }
 
@@ -191,20 +187,19 @@ impl IntelTaxiiCommand {
             let collections = client.list_collections()?;
 
             if is_json {
-                println!("{{");
-                println!("  \"error\": \"No collection specified\",");
-                println!("  \"available_collections\": [");
-                for (i, col) in collections.iter().enumerate() {
-                    let comma = if i < collections.len() - 1 { "," } else { "" };
-                    println!(
-                        "    {{\"id\": \"{}\", \"title\": \"{}\"}}{}",
-                        col.id.replace('"', "\\\""),
-                        col.title.replace('"', "\\\""),
-                        comma
-                    );
-                }
-                println!("  ]");
-                println!("}}");
+                let collections_json: Vec<_> = collections
+                    .iter()
+                    .map(|col| {
+                        json!({
+                            "id": col.id.clone(),
+                            "title": col.title.clone(),
+                        })
+                    })
+                    .collect();
+                Output::json_value(&json!({
+                    "error": "No collection specified",
+                    "available_collections": collections_json,
+                }));
                 return Ok(());
             }
 
@@ -262,57 +257,57 @@ impl IntelTaxiiCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"collection_id\": \"{}\",",
-                collection_id.replace('"', "\\\"")
+            let mut sorted_types: Vec<_> = type_counts.iter().collect();
+            sorted_types.sort_by(|a, b| a.0.cmp(b.0));
+            let by_type = Value::Object(
+                sorted_types
+                    .iter()
+                    .map(|(obj_type, count)| (obj_type.to_string(), json!(**count)))
+                    .collect(),
             );
+            let objects_json: Vec<_> = objects
+                .iter()
+                .map(|obj| {
+                    let obj_type = obj
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let ext_id = obj
+                        .get("external_references")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| {
+                            arr.iter().find(|r| {
+                                r.get("source_name").and_then(|s| s.as_str())
+                                    == Some("mitre-attack")
+                            })
+                        })
+                        .and_then(|r| r.get("external_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    json!({
+                        "type": obj_type,
+                        "id": id,
+                        "name": name,
+                        "external_id": ext_id,
+                    })
+                })
+                .collect();
+            let mut fields = vec![
+                ("collection_id".to_string(), json!(collection_id)),
+                ("total".to_string(), json!(objects.len())),
+                ("more".to_string(), json!(envelope.more.unwrap_or(false))),
+                ("by_type".to_string(), by_type),
+                ("objects".to_string(), json!(objects_json)),
+            ];
             if let Some(ref t) = obj_type {
-                println!("  \"type_filter\": \"{}\",", t);
+                fields.push(("type_filter".to_string(), json!(t)));
             }
             if let Some(ref a) = added_after {
-                println!("  \"added_after\": \"{}\",", a);
+                fields.push(("added_after".to_string(), json!(a)));
             }
-            println!("  \"total\": {},", objects.len());
-            println!("  \"more\": {},", envelope.more.unwrap_or(false));
-            println!("  \"by_type\": {{");
-            let sorted_types: Vec<_> = type_counts.iter().collect();
-            for (i, (obj_type, count)) in sorted_types.iter().enumerate() {
-                let comma = if i < sorted_types.len() - 1 { "," } else { "" };
-                println!("    \"{}\": {}{}", obj_type, count, comma);
-            }
-            println!("  }},");
-            println!("  \"objects\": [");
-            for (i, obj) in objects.iter().enumerate() {
-                let comma = if i < objects.len() - 1 { "," } else { "" };
-                let obj_type = obj
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-                let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let ext_id = obj
-                    .get("external_references")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| {
-                        arr.iter().find(|r| {
-                            r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack")
-                        })
-                    })
-                    .and_then(|r| r.get("external_id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                println!(
-                    "    {{\"type\": \"{}\", \"id\": \"{}\", \"name\": \"{}\", \"external_id\": \"{}\"}}{}",
-                    obj_type,
-                    id.replace('"', "\\\""),
-                    name.replace('"', "\\\""),
-                    ext_id,
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&Value::Object(fields.into_iter().collect()));
             return Ok(());
         }
 

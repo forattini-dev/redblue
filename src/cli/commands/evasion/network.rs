@@ -2,6 +2,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::network;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -109,13 +110,13 @@ fn execute_network_jitter(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"base_ms\": {},", base_ms);
-        println!("  \"jitter_percent\": {},", jitter_percent);
-        println!("  \"min_ms\": {},", min);
-        println!("  \"max_ms\": {},", max);
-        println!("  \"samples\": {:?}", samples);
-        println!("}}");
+        Output::json_value(&json!({
+            "base_ms": base_ms,
+            "jitter_percent": jitter_percent,
+            "min_ms": min,
+            "max_ms": max,
+            "samples": samples
+        }));
         return Ok(());
     }
 

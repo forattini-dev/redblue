@@ -12,6 +12,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::common::Severity as StorageSeverity;
 use crate::playbooks::{
     all_playbooks, get_apt_playbook, get_playbook, list_apt_groups, DetectedOS, PlaybookContext,
@@ -229,11 +230,11 @@ impl AttackCommand {
             Err(_) => {
                 // Handle case where no DB exists yet
                 if is_json {
-                    println!("{{");
-                    println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-                    println!("  \"error\": \"no_recon_data\",");
-                    println!("  \"message\": \"No reconnaissance data found for target\"");
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "target": target.clone(),
+                        "error": "no_recon_data",
+                        "message": "No reconnaissance data found for target"
+                    }));
                     return Ok(());
                 }
                 println!();
@@ -278,53 +279,36 @@ impl AttackCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"findings\": {{");
-            println!(
-                "    \"open_ports\": {},",
-                findings
+            let recommendations_json: Vec<_> = result
+                .recommendations
+                .iter()
+                .map(playbook_recommendation_to_json)
+                .collect();
+            let findings_json = json!({
+                "open_ports": findings
                     .ports
                     .iter()
                     .filter(|p| p.status == PortStatus::Open)
-                    .count()
-            );
-            println!("    \"vulnerabilities\": {},", findings.vulns.len());
-            println!("    \"fingerprints\": {},", findings.fingerprints.len());
-            if let Some(ref os) = findings.detected_os {
-                println!("    \"detected_os\": \"{:?}\"", os);
-            } else {
-                println!("    \"detected_os\": null");
-            }
-            println!("  }},");
-            println!("  \"recommendations\": [");
-            for (i, rec) in result.recommendations.iter().enumerate() {
-                let comma = if i < result.recommendations.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!(
-                    "      \"playbook_id\": \"{}\",",
-                    rec.playbook_id.replace('"', "\\\"")
-                );
-                println!(
-                    "      \"playbook_name\": \"{}\",",
-                    rec.playbook_name.replace('"', "\\\"")
-                );
-                println!("      \"score\": {},", rec.score);
-                println!("      \"risk_level\": \"{:?}\",", rec.risk_level);
-                println!("      \"reasons\": [");
-                for (j, reason) in rec.reasons.iter().enumerate() {
-                    let rcomma = if j < rec.reasons.len() - 1 { "," } else { "" };
-                    println!("        \"{}\"{}", reason.replace('"', "\\\""), rcomma);
-                }
-                println!("      ]");
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+                    .count(),
+                "vulnerabilities": findings.vulns.len(),
+                "fingerprints": findings.fingerprints.len(),
+                "detected_os": findings.detected_os.as_ref().map(|os| format!("{:?}", os))
+            });
+            let summary_json = json!({
+                "total_matched": result.summary.total_matched,
+                "high_risk_count": result.summary.high_risk_count,
+                "medium_risk_count": result.summary.medium_risk_count,
+                "low_risk_count": result.summary.low_risk_count,
+                "has_critical_findings": result.summary.has_critical_findings,
+                "top_recommendation": result.summary.top_recommendation.clone(),
+                "apt_playbooks_matched": result.summary.apt_playbooks_matched
+            });
+            Output::json_value(&json!({
+                "target": target.clone(),
+                "findings": findings_json,
+                "summary": summary_json,
+                "recommendations": recommendations_json
+            }));
             return Ok(());
         }
 
@@ -427,37 +411,26 @@ impl AttackCommand {
         // Dry run check
         if ctx.has_flag("dry-run") {
             if is_json {
-                println!("{{");
-                println!(
-                    "  \"playbook_id\": \"{}\",",
-                    playbook.metadata.id.replace('"', "\\\"")
-                );
-                println!(
-                    "  \"playbook_name\": \"{}\",",
-                    playbook.metadata.name.replace('"', "\\\"")
-                );
-                println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-                println!("  \"dry_run\": true,");
-                println!("  \"is_apt\": {},", is_apt);
-                println!("  \"steps\": [");
-                for (i, step) in playbook.steps.iter().enumerate() {
-                    let comma = if i < playbook.steps.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    {{");
-                    println!("      \"number\": {},", step.number);
-                    println!("      \"name\": \"{}\",", step.name.replace('"', "\\\""));
-                    println!("      \"phase\": \"{}\",", step.phase.as_str());
-                    println!(
-                        "      \"description\": \"{}\",",
-                        step.description.replace('"', "\\\"").replace('\n', " ")
-                    );
-                    println!("    }}{}", comma);
-                }
-                println!("  ]");
-                println!("}}");
+                let steps_json: Vec<_> = playbook
+                    .steps
+                    .iter()
+                    .map(|step| {
+                        json!({
+                            "number": step.number,
+                            "name": step.name.clone(),
+                            "phase": step.phase.as_str(),
+                            "description": step.description.replace('\n', " ")
+                        })
+                    })
+                    .collect();
+                Output::json_value(&json!({
+                    "playbook_id": playbook.metadata.id.clone(),
+                    "playbook_name": playbook.metadata.name.clone(),
+                    "target": target.clone(),
+                    "dry_run": true,
+                    "is_apt": is_apt,
+                    "steps": steps_json
+                }));
                 return Ok(());
             }
             println!();
@@ -499,55 +472,17 @@ impl AttackCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!(
-                "  \"playbook_id\": \"{}\",",
-                playbook.metadata.id.replace('"', "\\\"")
-            );
-            println!(
-                "  \"playbook_name\": \"{}\",",
-                playbook.metadata.name.replace('"', "\\\"")
-            );
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"is_apt\": {},", is_apt);
-            println!("  \"success\": {},", result.success);
-            println!(
-                "  \"summary\": \"{}\",",
-                result.summary.replace('"', "\\\"")
-            );
-            println!("  \"steps_completed\": {},", result.steps_completed);
-            println!("  \"steps_skipped\": {},", result.steps_skipped);
-            println!("  \"steps_failed\": {},", result.steps_failed);
-            println!("  \"duration_secs\": {:.2},", result.duration.as_secs_f64());
-            println!("  \"step_results\": [");
-            for (i, step) in result.step_results.iter().enumerate() {
-                let comma = if i < result.step_results.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"step_number\": {},", step.step_number);
-                println!(
-                    "      \"step_name\": \"{}\",",
-                    step.step_name.replace('"', "\\\"")
+            let mut result_json = json!(result.clone());
+            if let Some(obj) = result_json.as_object().cloned() {
+                let mut map = obj;
+                map.insert("is_apt".to_string(), json!(is_apt));
+                map.insert(
+                    "duration_secs".to_string(),
+                    json!(result.duration.as_secs_f64()),
                 );
-                println!(
-                    "      \"status\": \"{}\",",
-                    step.status.replace('"', "\\\"")
-                );
-                if let Some(ref err) = step.error {
-                    println!(
-                        "      \"error\": \"{}\"",
-                        err.replace('"', "\\\"").replace('\n', " ")
-                    );
-                } else {
-                    println!("      \"error\": null");
-                }
-                println!("    }}{}", comma);
+                result_json = crate::serde_json::Value::Object(map);
             }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&result_json);
             return Ok(());
         }
 
@@ -613,31 +548,25 @@ impl AttackCommand {
             let playbooks = all_playbooks();
             let apt_groups = list_apt_groups();
 
-            println!("{{");
-            println!("  \"playbooks\": [");
-            for (i, pb) in playbooks.iter().enumerate() {
-                let comma = if i < playbooks.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"id\": \"{}\",", pb.metadata.id.replace('"', "\\\""));
-                println!(
-                    "      \"name\": \"{}\",",
-                    pb.metadata.name.replace('"', "\\\"")
-                );
-                println!("      \"risk_level\": \"{:?}\",", pb.metadata.risk_level);
-                println!("      \"steps\": {}", pb.steps.len());
-                println!("    }}{}", comma);
-            }
-            println!("  ],");
-            println!("  \"apt_groups\": [");
-            for (i, (id, name)) in apt_groups.iter().enumerate() {
-                let comma = if i < apt_groups.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"id\": \"{}\",", id.replace('"', "\\\""));
-                println!("      \"name\": \"{}\"", name.replace('"', "\\\""));
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let playbooks_json: Vec<_> = playbooks
+                .iter()
+                .map(|pb| {
+                    json!({
+                        "id": pb.metadata.id.clone(),
+                        "name": pb.metadata.name.clone(),
+                        "risk_level": format!("{:?}", pb.metadata.risk_level),
+                        "steps": pb.steps.len()
+                    })
+                })
+                .collect();
+            let apt_groups_json: Vec<_> = apt_groups
+                .iter()
+                .map(|(id, name)| json!({ "id": id.to_string(), "name": name.to_string() }))
+                .collect();
+            Output::json_value(&json!({
+                "playbooks": playbooks_json,
+                "apt_groups": apt_groups_json
+            }));
             return Ok(());
         }
 
@@ -696,83 +625,7 @@ impl AttackCommand {
 
             // JSON output for specific playbook
             if is_json {
-                println!("{{");
-                println!(
-                    "  \"id\": \"{}\",",
-                    playbook.metadata.id.replace('"', "\\\"")
-                );
-                println!(
-                    "  \"name\": \"{}\",",
-                    playbook.metadata.name.replace('"', "\\\"")
-                );
-                println!(
-                    "  \"objective\": \"{}\",",
-                    playbook.metadata.objective.replace('"', "\\\"")
-                );
-                println!(
-                    "  \"risk_level\": \"{}\",",
-                    playbook.metadata.risk_level.as_str()
-                );
-                println!("  \"preconditions\": [");
-                for (i, cond) in playbook.preconditions.iter().enumerate() {
-                    let comma = if i < playbook.preconditions.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    \"{}\"{}", cond.description.replace('"', "\\\""), comma);
-                }
-                println!("  ],");
-                println!("  \"steps\": [");
-                for (i, step) in playbook.steps.iter().enumerate() {
-                    let comma = if i < playbook.steps.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    {{");
-                    println!("      \"number\": {},", step.number);
-                    println!("      \"name\": \"{}\",", step.name.replace('"', "\\\""));
-                    println!("      \"phase\": \"{}\",", step.phase.as_str());
-                    println!(
-                        "      \"description\": \"{}\",",
-                        step.description.replace('"', "\\\"").replace('\n', " ")
-                    );
-                    if let Some(ref tech) = step.mitre_technique {
-                        println!(
-                            "      \"mitre_technique\": \"{}\"",
-                            tech.replace('"', "\\\"")
-                        );
-                    } else {
-                        println!("      \"mitre_technique\": null");
-                    }
-                    println!("    }}{}", comma);
-                }
-                println!("  ],");
-                println!("  \"evidence\": [");
-                for (i, ev) in playbook.evidence.iter().enumerate() {
-                    let comma = if i < playbook.evidence.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    \"{}\"{}", ev.description.replace('"', "\\\""), comma);
-                }
-                println!("  ],");
-                println!("  \"failed_controls\": [");
-                for (i, ctrl) in playbook.failed_controls.iter().enumerate() {
-                    let comma = if i < playbook.failed_controls.len() - 1 {
-                        ","
-                    } else {
-                        ""
-                    };
-                    println!("    {{");
-                    println!("      \"name\": \"{}\",", ctrl.name.replace('"', "\\\""));
-                    println!("      \"reason\": \"{}\"", ctrl.reason.replace('"', "\\\""));
-                    println!("    }}{}", comma);
-                }
-                println!("  ]");
-                println!("}}");
+                Output::json_value(&json!(playbook.clone()));
                 return Ok(());
             }
 
@@ -838,17 +691,13 @@ impl AttackCommand {
             // JSON output for listing all APT groups
             if is_json {
                 let apt_groups = list_apt_groups();
-                println!("{{");
-                println!("  \"apt_groups\": [");
-                for (i, (id, name)) in apt_groups.iter().enumerate() {
-                    let comma = if i < apt_groups.len() - 1 { "," } else { "" };
-                    println!("    {{");
-                    println!("      \"id\": \"{}\",", id.replace('"', "\\\""));
-                    println!("      \"name\": \"{}\"", name.replace('"', "\\\""));
-                    println!("    }}{}", comma);
-                }
-                println!("  ]");
-                println!("}}");
+                let apt_groups_json: Vec<_> = apt_groups
+                    .iter()
+                    .map(|(id, name)| json!({ "id": id.to_string(), "name": name.to_string() }))
+                    .collect();
+                Output::json_value(&json!({
+                    "apt_groups": apt_groups_json
+                }));
                 return Ok(());
             }
 
@@ -1212,4 +1061,16 @@ impl AttackCommand {
             _ => "\x1b[0m",
         }
     }
+}
+
+fn playbook_recommendation_to_json(rec: &PlaybookRecommendation) -> crate::serde_json::Value {
+    json!({
+        "playbook_id": rec.playbook_id.clone(),
+        "playbook_name": rec.playbook_name.clone(),
+        "score": rec.score,
+        "risk_level": format!("{:?}", rec.risk_level),
+        "reasons": rec.reasons.clone(),
+        "related_attacks": rec.related_attacks.clone(),
+        "is_apt_playbook": rec.is_apt_playbook
+    })
 }

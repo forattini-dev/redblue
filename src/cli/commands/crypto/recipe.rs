@@ -3,6 +3,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::recipe::RecipeExecutor;
+use crate::json;
 use std::fs;
 
 use super::helpers::hex_encode;
@@ -114,32 +115,29 @@ impl CryptoRecipeCommand {
         }
 
         if format == "json" {
-            println!("{{");
-            println!("  \"success\": true,");
-            println!("  \"steps\": [");
-            for (i, step) in result.steps.iter().enumerate() {
-                print!(
-                    "    {{\"operation\": \"{}\", \"mode\": \"{}\", \"output_size\": {}}}",
-                    step.operation,
-                    step.mode,
-                    step.output.len()
-                );
-                if i < result.steps.len() - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("  ],");
-            if let Ok(s) = String::from_utf8(result.output.clone()) {
-                println!(
-                    "  \"output\": \"{}\"",
-                    s.replace('"', "\\\"").replace('\n', "\\n")
-                );
+            let steps: Vec<_> = result
+                .steps
+                .iter()
+                .map(|step| {
+                    json!({
+                        "operation": step.operation.clone(),
+                        "mode": step.mode.clone(),
+                        "output_size": step.output.len()
+                    })
+                })
+                .collect();
+            let output = String::from_utf8(result.output.clone()).ok();
+            let output_hex = if output.is_none() {
+                Some(hex_encode(&result.output))
             } else {
-                println!("  \"output_hex\": \"{}\"", hex_encode(&result.output));
-            }
-            println!("}}");
+                None
+            };
+            Output::json_value(&json!({
+                "success": true,
+                "steps": steps,
+                "output": output,
+                "output_hex": output_hex
+            }));
         } else {
             if verbose {
                 Output::header("Recipe Execution");

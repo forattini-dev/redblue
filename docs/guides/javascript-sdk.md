@@ -2,13 +2,14 @@
 
 Use the `redblue-cli` package when you want to call redblue from Node.js or expose `rb` through npm tooling.
 
-The package is a wrapper around the real redblue binary. It does not embed the binary inside the npm tarball.
+The package is a wrapper around the real redblue binary. It downloads the binary during `postinstall` to `node_modules/redblue-cli/.redblue/bin` when the package is installed.
 
 ## Requirements
 
 - Node.js 20+
 - A redblue binary available through one of these paths:
   - explicit `binaryPath`
+  - npm package local install in `./node_modules/redblue-cli/.redblue/bin` (during `npm install`)
   - already installed in `PATH`
   - downloaded on demand with `autoDownload: true`
 
@@ -70,11 +71,14 @@ The wrapper resolves the binary in this order:
 
 1. `binaryPath`
 2. `targetDir`
-3. `PATH`
-4. legacy managed install in `~/.redblue/bin`
-5. release download when `autoDownload: true`
+3. package-local `./.redblue/bin`
+4. `PATH`
+5. legacy managed install in `~/.redblue/bin`
+6. release download when `autoDownload: true`
 
 Managed wrapper installs default to `~/.local/bin`.
+
+When installed from npm, postinstall runs `--install --target-dir <package>/.redblue/bin` to keep a local managed binary available.
 
 Example with explicit binary:
 

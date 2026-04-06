@@ -3,6 +3,7 @@
 use super::{colored, GREEN, RED};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::sandbox;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -93,16 +94,20 @@ fn execute_sandbox_check(ctx: &CliContext) -> Result<(), String> {
     ];
 
     if is_json {
-        println!("{{");
-        println!("  \"sandbox_detected\": {},", is_sandbox);
-        println!("  \"checks\": {{");
-        for (i, (name, detected)) in checks.iter().enumerate() {
-            let comma = if i < checks.len() - 1 { "," } else { "" };
-            let key = name.to_lowercase().replace(' ', "_");
-            println!("    \"{}\": {}{}", key, detected, comma);
-        }
-        println!("  }}");
-        println!("}}");
+        let checks_json: Vec<_> = checks
+            .iter()
+            .map(|(name, detected)| {
+                json!({
+                    "name": name,
+                    "key": name.to_lowercase().replace(' ', "_"),
+                    "detected": detected,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "sandbox_detected": is_sandbox,
+            "checks": checks_json,
+        }));
         return Ok(());
     }
 
@@ -161,42 +166,37 @@ fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
         } else {
             "low"
         };
-        println!("{{");
-        println!("  \"score\": {},", score);
-        println!("  \"risk\": \"{}\",", risk);
-        println!("  \"breakdown\": {{");
-        println!(
-            "    \"vm_files\": {{ \"detected\": {}, \"points\": {} }},",
-            vm_files,
-            if vm_files { 20 } else { 0 }
-        );
-        println!(
-            "    \"sandbox_processes\": {{ \"detected\": {}, \"points\": {} }},",
-            sandbox_procs,
-            if sandbox_procs { 20 } else { 0 }
-        );
-        println!(
-            "    \"timing_anomaly\": {{ \"detected\": {}, \"points\": {} }},",
-            timing,
-            if timing { 25 } else { 0 }
-        );
-        println!(
-            "    \"low_resources\": {{ \"detected\": {}, \"points\": {} }},",
-            low_res,
-            if low_res { 15 } else { 0 }
-        );
-        println!(
-            "    \"suspicious_user\": {{ \"detected\": {}, \"points\": {} }},",
-            susp_user,
-            if susp_user { 10 } else { 0 }
-        );
-        println!(
-            "    \"debugger_present\": {{ \"detected\": {}, \"points\": {} }}",
-            debugger,
-            if debugger { 10 } else { 0 }
-        );
-        println!("  }}");
-        println!("}}");
+        let breakdown = json!({
+            "vm_files": json!({
+                "detected": vm_files,
+                "points": if vm_files { 20 } else { 0 }
+            }),
+            "sandbox_processes": json!({
+                "detected": sandbox_procs,
+                "points": if sandbox_procs { 20 } else { 0 }
+            }),
+            "timing_anomaly": json!({
+                "detected": timing,
+                "points": if timing { 25 } else { 0 }
+            }),
+            "low_resources": json!({
+                "detected": low_res,
+                "points": if low_res { 15 } else { 0 }
+            }),
+            "suspicious_user": json!({
+                "detected": susp_user,
+                "points": if susp_user { 10 } else { 0 }
+            }),
+            "debugger_present": json!({
+                "detected": debugger,
+                "points": if debugger { 10 } else { 0 }
+            })
+        });
+        Output::json_value(&json!({
+            "score": score,
+            "risk": risk,
+            "breakdown": breakdown,
+        }));
         return Ok(());
     }
 
@@ -259,16 +259,33 @@ fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_sandbox_delay(ctx: &CliContext) -> Result<(), String> {
+    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let is_json = format == "json";
     let delay_ms: u64 = ctx
         .target
         .as_ref()
         .and_then(|s| s.parse().ok())
         .unwrap_or(300_000);
 
-    Output::header("Sandbox-Aware Delay");
-    println!();
+    if !is_json {
+        Output::header("Sandbox-Aware Delay");
+        println!();
+    }
 
     let is_sandbox = sandbox::detect_sandbox();
+
+    if is_sandbox {
+        sandbox::delay_execution(delay_ms);
+    }
+
+    if is_json {
+        Output::json_value(&json!({
+            "sandbox_detected": is_sandbox,
+            "delay_ms": delay_ms,
+            "delayed": is_sandbox,
+        }));
+        return Ok(());
+    }
 
     if is_sandbox {
         Output::warning(&format!(
@@ -276,7 +293,6 @@ fn execute_sandbox_delay(ctx: &CliContext) -> Result<(), String> {
             delay_ms,
             delay_ms / 1000
         ));
-        sandbox::delay_execution(delay_ms);
         Output::success("Delay complete");
     } else {
         Output::info("No sandbox detected - no delay needed");

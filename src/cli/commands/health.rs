@@ -4,6 +4,7 @@
 /// Commands: check, diff, watch
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::json;
 use crate::modules::network::health::{
     PortCheckResult, PortDiff, PortHealthChecker, PortWatcher, WatchConfig,
 };
@@ -248,41 +249,33 @@ impl HealthCommand {
     ) {
         let open_count = results.iter().filter(|r| r.is_open).count();
         let closed_count = results.len() - open_count;
+        let open_ports: Vec<_> = results
+            .iter()
+            .filter(|r| r.is_open)
+            .map(|result| {
+                json!({
+                    "port": result.port,
+                    "service": result.service,
+                    "response_time_ms": result.response_time_ms
+                })
+            })
+            .collect();
+        let closed_ports: Vec<_> = results
+            .iter()
+            .filter(|r| !r.is_open)
+            .map(|result| result.port)
+            .collect();
 
-        println!("{{");
-        println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-        println!("  \"timeout_ms\": {},", timeout_ms);
-        println!("  \"threads\": {},", threads);
-        println!("  \"total_ports\": {},", results.len());
-        println!("  \"open_count\": {},", open_count);
-        println!("  \"closed_count\": {},", closed_count);
-        println!("  \"open_ports\": [");
-
-        let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
-        for (i, result) in open_ports.iter().enumerate() {
-            let comma = if i < open_ports.len() - 1 { "," } else { "" };
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .unwrap_or_else(|| "null".to_string());
-            println!(
-                "    {{\"port\": {}, \"service\": {}, \"response_time_ms\": {}}}{}",
-                result.port, service, result.response_time_ms, comma
-            );
-        }
-
-        println!("  ],");
-        println!("  \"closed_ports\": [");
-
-        let closed_ports: Vec<_> = results.iter().filter(|r| !r.is_open).collect();
-        for (i, result) in closed_ports.iter().enumerate() {
-            let comma = if i < closed_ports.len() - 1 { "," } else { "" };
-            println!("    {}{}", result.port, comma);
-        }
-
-        println!("  ]");
-        println!("}}");
+        Output::json_value(&json!({
+            "target": target,
+            "timeout_ms": timeout_ms,
+            "threads": threads,
+            "total_ports": results.len(),
+            "open_count": open_count,
+            "closed_count": closed_count,
+            "open_ports": open_ports,
+            "closed_ports": closed_ports
+        }));
     }
 
     /// Compare current scan with previous scan from database
@@ -297,15 +290,15 @@ impl HealthCommand {
         let is_json = format == crate::cli::format::OutputFormat::Json;
 
         if is_json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"status\": \"not_implemented\",");
-            println!("  \"message\": \"Database integration not yet implemented\",");
-            println!("  \"suggestions\": [");
-            println!("    \"Use 'rb network health check' to scan ports first\",");
-            println!("    \"Use 'rb network health watch' for continuous monitoring\"");
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&json!({
+                "target": target,
+                "status": "not_implemented",
+                "message": "Database integration not yet implemented",
+                "suggestions": vec![
+                    "Use 'rb network health check' to scan ports first",
+                    "Use 'rb network health watch' for continuous monitoring"
+                ]
+            }));
             return Ok(());
         }
 
@@ -371,18 +364,16 @@ impl HealthCommand {
         };
 
         if is_json {
-            // For JSON mode, output as a JSON array of iterations
-            println!("{{");
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"interval_secs\": {},", interval_secs);
-            println!("  \"timeout_ms\": {},", timeout_ms);
-            println!("  \"ports_monitored\": {},", ports.len());
-            if let Some(max) = max_iterations {
-                println!("  \"max_iterations\": {},", max);
-            } else {
-                println!("  \"max_iterations\": null,");
+            Output::json("{");
+            Output::json(&format!("  \"target\": {},", json!(target)));
+            Output::json(&format!("  \"interval_secs\": {},", interval_secs));
+            Output::json(&format!("  \"timeout_ms\": {},", timeout_ms));
+            Output::json(&format!("  \"ports_monitored\": {},", ports.len()));
+            match max_iterations {
+                Some(max) => Output::json(&format!("  \"max_iterations\": {},", max)),
+                None => Output::json("  \"max_iterations\": null,"),
             }
-            println!("  \"iterations\": [");
+            Output::json("  \"iterations\": [");
         } else {
             Output::header(&format!("Port Health Watch: {}", target));
             Output::info(&format!(
@@ -411,22 +402,17 @@ impl HealthCommand {
 
         let watcher = PortWatcher::new(checker, config);
 
-        // Track iteration count for JSON comma handling
-        let iteration_count = std::cell::Cell::new(0u32);
-        let max_iter_for_comma = max_iterations;
-
         watcher.watch(target, &ports, |results, diff, iteration| {
-            iteration_count.set(iteration);
             if is_json {
-                self.display_watch_iteration_json(results, diff, iteration, max_iter_for_comma);
+                self.display_watch_iteration_json(results, diff, iteration, max_iterations);
             } else {
                 self.display_watch_iteration(results, diff, iteration);
             }
         });
 
         if is_json {
-            println!("  ]");
-            println!("}}");
+            Output::json("  ]");
+            Output::json("}");
         } else {
             Output::success("Watch complete");
         }
@@ -508,93 +494,47 @@ impl HealthCommand {
             None => true, // In infinite mode, always add comma (streaming)
         };
         let comma = if needs_comma { "," } else { "" };
-
-        println!("    {{");
-        println!("      \"iteration\": {},", iteration);
-        println!("      \"timestamp\": \"{}\",", timestamp);
-        println!("      \"open_count\": {},", open_count);
-        println!("      \"closed_count\": {},", closed_count);
-        println!("      \"has_changes\": {},", diff.has_changes());
-        println!("      \"total_changes\": {},", diff.total_changes());
-
-        // Open ports
-        println!("      \"open_ports\": [");
-        let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
-        for (i, result) in open_ports.iter().enumerate() {
-            let port_comma = if i < open_ports.len() - 1 { "," } else { "" };
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .unwrap_or_else(|| "null".to_string());
-            println!(
-                "        {{\"port\": {}, \"service\": {}, \"response_time_ms\": {}}}{}",
-                result.port, service, result.response_time_ms, port_comma
-            );
-        }
-        println!("      ],");
-
-        // Changes
-        println!("      \"changes\": {{");
-
-        // Now open
-        println!("        \"now_open\": [");
-        for (i, result) in diff.now_open.iter().enumerate() {
-            let change_comma = if i < diff.now_open.len() - 1 { "," } else { "" };
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .unwrap_or_else(|| "null".to_string());
-            println!(
-                "          {{\"port\": {}, \"service\": {}}}{}",
-                result.port, service, change_comma
-            );
-        }
-        println!("        ],");
-
-        // Now closed
-        println!("        \"now_closed\": [");
-        for (i, result) in diff.now_closed.iter().enumerate() {
-            let change_comma = if i < diff.now_closed.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .unwrap_or_else(|| "null".to_string());
-            println!(
-                "          {{\"port\": {}, \"service\": {}}}{}",
-                result.port, service, change_comma
-            );
-        }
-        println!("        ],");
-
-        // New ports
-        println!("        \"new_ports\": [");
-        for (i, result) in diff.new_ports.iter().enumerate() {
-            let change_comma = if i < diff.new_ports.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            let service = result
-                .service
-                .as_ref()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .unwrap_or_else(|| "null".to_string());
-            println!(
-                "          {{\"port\": {}, \"service\": {}}}{}",
-                result.port, service, change_comma
-            );
-        }
-        println!("        ]");
-
-        println!("      }}");
-        println!("    }}{}", comma);
+        let open_ports: Vec<_> = results
+            .iter()
+            .filter(|r| r.is_open)
+            .map(|result| {
+                json!({
+                    "port": result.port,
+                    "service": result.service,
+                    "response_time_ms": result.response_time_ms
+                })
+            })
+            .collect();
+        let now_open: Vec<_> = diff
+            .now_open
+            .iter()
+            .map(|result| json!({"port": result.port, "service": result.service}))
+            .collect();
+        let now_closed: Vec<_> = diff
+            .now_closed
+            .iter()
+            .map(|result| json!({"port": result.port, "service": result.service}))
+            .collect();
+        let new_ports: Vec<_> = diff
+            .new_ports
+            .iter()
+            .map(|result| json!({"port": result.port, "service": result.service}))
+            .collect();
+        let payload = json!({
+            "iteration": iteration,
+            "timestamp": timestamp,
+            "open_count": open_count,
+            "closed_count": closed_count,
+            "has_changes": diff.has_changes(),
+            "total_changes": diff.total_changes(),
+            "open_ports": open_ports,
+            "changes": json!({
+                "now_open": now_open,
+                "now_closed": now_closed,
+                "new_ports": new_ports
+            })
+        });
+        Output::json(&format!("    {}{}", payload.to_string_pretty(), comma));
     }
 }
 

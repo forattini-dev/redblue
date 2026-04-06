@@ -1,6 +1,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::cloud::s3_scanner::S3Scanner;
 
 pub struct CloudCommand;
@@ -155,19 +156,15 @@ impl CloudCommand {
             }
 
             if is_json {
-                println!("{{");
-                println!("  \"bucket\": \"{}\",", bucket.name.replace('"', "\\\""));
-                println!("  \"exists\": {},", bucket.exists);
-                println!("  \"accessible\": {},", bucket.accessible);
-                println!("  \"public_list\": {},", bucket.public_list);
-                println!("  \"public_read\": {},", bucket.public_read);
-                if let Some(region) = &bucket.region {
-                    println!("  \"region\": \"{}\",", region);
-                } else {
-                    println!("  \"region\": null,");
-                }
-                println!("  \"message\": \"{}\"", bucket.message.replace('"', "\\\""));
-                println!("}}");
+                Output::json_value(&json!({
+                    "bucket": bucket.name.clone(),
+                    "exists": bucket.exists,
+                    "accessible": bucket.accessible,
+                    "public_list": bucket.public_list,
+                    "public_read": bucket.public_read,
+                    "region": bucket.region.clone(),
+                    "message": bucket.message.clone(),
+                }));
                 return Ok(());
             }
 
@@ -260,33 +257,27 @@ impl CloudCommand {
         let is_json = format == crate::cli::format::OutputFormat::Json;
 
         if is_json {
-            println!("{{");
-            println!("  \"total_scanned\": {},", result.total_scanned);
-            println!("  \"total_exists\": {},", result.total_exists);
-            println!("  \"total_public\": {},", result.total_public);
-            println!("  \"buckets\": [");
             let existing: Vec<_> = result.buckets.iter().filter(|b| b.exists).collect();
-            for (i, bucket) in existing.iter().enumerate() {
-                let comma = if i < existing.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"name\": \"{}\",", bucket.name.replace('"', "\\\""));
-                println!("      \"exists\": {},", bucket.exists);
-                println!("      \"accessible\": {},", bucket.accessible);
-                println!("      \"public_list\": {},", bucket.public_list);
-                println!("      \"public_read\": {},", bucket.public_read);
-                if let Some(region) = &bucket.region {
-                    println!("      \"region\": \"{}\",", region);
-                } else {
-                    println!("      \"region\": null,");
-                }
-                println!(
-                    "      \"message\": \"{}\"",
-                    bucket.message.replace('"', "\\\"")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let buckets_json: Vec<_> = existing
+                .iter()
+                .map(|bucket| {
+                    json!({
+                        "name": bucket.name.clone(),
+                        "exists": bucket.exists,
+                        "accessible": bucket.accessible,
+                        "public_list": bucket.public_list,
+                        "public_read": bucket.public_read,
+                        "region": bucket.region.clone(),
+                        "message": bucket.message.clone(),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "total_scanned": result.total_scanned,
+                "total_exists": result.total_exists,
+                "total_public": result.total_public,
+                "buckets": buckets_json,
+            }));
             return;
         }
 

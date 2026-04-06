@@ -12,6 +12,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::service::{
     get_service_manager, ListenerProtocol, ServiceConfig, ServiceStatus, ServiceType,
 };
@@ -248,24 +249,17 @@ impl ServiceCommand {
         let installed = manager.install(&config)?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"install\",");
-            println!("  \"success\": true,");
-            println!("  \"service\": {{");
-            println!("    \"name\": \"{}\",", installed.name.replace('"', "\\\""));
-            println!("    \"type\": \"{}\",", service_type_name);
-            println!("    \"port\": {},", port);
-            println!("    \"auto_start\": {},", config.auto_start);
-            println!(
-                "    \"config_path\": \"{}\"",
-                installed
-                    .config_path
-                    .display()
-                    .to_string()
-                    .replace('"', "\\\"")
-            );
-            println!("  }}");
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "install",
+                "success": true,
+                "service": json!({
+                    "name": installed.name,
+                    "type": service_type_name,
+                    "port": port,
+                    "auto_start": config.auto_start,
+                    "config_path": installed.config_path.display().to_string()
+                })
+            }));
             return Ok(());
         }
 
@@ -299,11 +293,11 @@ impl ServiceCommand {
         manager.uninstall(name)?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"uninstall\",");
-            println!("  \"success\": true,");
-            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "uninstall",
+                "success": true,
+                "name": name
+            }));
             return Ok(());
         }
 
@@ -327,11 +321,11 @@ impl ServiceCommand {
         manager.start(name)?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"start\",");
-            println!("  \"success\": true,");
-            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "start",
+                "success": true,
+                "name": name
+            }));
             return Ok(());
         }
 
@@ -353,11 +347,11 @@ impl ServiceCommand {
         manager.stop(name)?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"stop\",");
-            println!("  \"success\": true,");
-            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "stop",
+                "success": true,
+                "name": name
+            }));
             return Ok(());
         }
 
@@ -379,11 +373,11 @@ impl ServiceCommand {
         manager.restart(name)?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"restart\",");
-            println!("  \"success\": true,");
-            println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "restart",
+                "success": true,
+                "name": name
+            }));
             return Ok(());
         }
 
@@ -402,10 +396,10 @@ impl ServiceCommand {
             let status = manager.status(name)?;
 
             if is_json {
-                println!("{{");
-                println!("  \"name\": \"{}\",", name.replace('"', "\\\""));
-                println!("  \"status\": \"{}\"", status.as_str());
-                println!("}}");
+                Output::json_value(&json!({
+                    "name": name,
+                    "status": status.as_str()
+                }));
                 return Ok(());
             }
 
@@ -436,27 +430,20 @@ impl ServiceCommand {
         let services = manager.list()?;
 
         if is_json {
-            println!("{{");
-            println!("  \"total\": {},", services.len());
-            println!("  \"services\": [");
-
-            for (i, service) in services.iter().enumerate() {
-                let comma = if i < services.len() - 1 { "," } else { "" };
-                let desc = service
-                    .description
-                    .as_ref()
-                    .map(|d| format!("\"{}\"", d.replace('"', "\\\"")))
-                    .unwrap_or_else(|| "null".to_string());
-
-                println!("    {{");
-                println!("      \"name\": \"{}\",", service.name.replace('"', "\\\""));
-                println!("      \"status\": \"{}\",", service.status.as_str());
-                println!("      \"description\": {}", desc);
-                println!("    }}{}", comma);
-            }
-
-            println!("  ]");
-            println!("}}");
+            let payload: Vec<_> = services
+                .iter()
+                .map(|service| {
+                    json!({
+                        "name": service.name,
+                        "status": service.status.as_str(),
+                        "description": service.description
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "total": services.len(),
+                "services": payload
+            }));
             return Ok(());
         }
 

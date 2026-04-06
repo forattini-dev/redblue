@@ -9,6 +9,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::hex::OffsetFormat;
 use crate::modules::hex::{
     parse_hex, replace, replace_all, search_text, to_hex, BoyerMooreSearcher, DataInterpreter,
@@ -187,8 +188,7 @@ impl HexCommand {
     }
 
     fn cmd_view(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let offset = Self::parse_offset(ctx.get_flag("offset").as_deref().unwrap_or("0"))?;
@@ -222,49 +222,19 @@ impl HexCommand {
             let data = buffer
                 .read(offset, total_bytes)
                 .map_err(|e| format!("Read error: {}", e))?;
+            let lines_json: Vec<_> = data
+                .chunks(bytes_per_line)
+                .enumerate()
+                .map(|(i, chunk)| hex_line_to_json(offset + (i * bytes_per_line) as u64, chunk))
+                .collect();
 
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"offset\": \"0x{:x}\",", offset);
-            println!("  \"size\": {},", buffer.size());
-            println!("  \"bytes_read\": {},", data.len());
-            println!("  \"lines\": [");
-
-            for (i, chunk) in data.chunks(bytes_per_line).enumerate() {
-                let line_offset = offset + (i * bytes_per_line) as u64;
-                let hex: String = chunk
-                    .iter()
-                    .map(|b| format!("{:02X}", b))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let ascii: String = chunk
-                    .iter()
-                    .map(|&b| {
-                        if b.is_ascii_graphic() || b == b' ' {
-                            b as char
-                        } else {
-                            '.'
-                        }
-                    })
-                    .collect();
-                let comma = if i < (data.len() / bytes_per_line).saturating_sub(1) {
-                    ","
-                } else {
-                    ""
-                };
-                println!(
-                    "    {{ \"offset\": \"0x{:08x}\", \"hex\": \"{}\", \"ascii\": \"{}\" }}{}",
-                    line_offset,
-                    hex,
-                    ascii.replace('\\', "\\\\").replace('"', "\\\""),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "offset": format!("0x{:x}", offset),
+                "size": buffer.size(),
+                "bytes_read": data.len(),
+                "lines": lines_json
+            }));
             return Ok(());
         }
 
@@ -283,8 +253,7 @@ impl HexCommand {
     }
 
     fn cmd_read(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
@@ -306,29 +275,13 @@ impl HexCommand {
 
         if is_json {
             let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
-            let ascii_str: String = data
-                .iter()
-                .map(|&b| {
-                    if b.is_ascii_graphic() || b == b' ' {
-                        b as char
-                    } else {
-                        '.'
-                    }
-                })
-                .collect();
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"offset\": \"0x{:x}\",", offset);
-            println!("  \"size\": {},", data.len());
-            println!("  \"hex\": \"{}\",", hex_str);
-            println!(
-                "  \"ascii\": \"{}\"",
-                ascii_str.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("}}");
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "offset": format!("0x{:x}", offset),
+                "size": data.len(),
+                "hex": hex_str,
+                "ascii": ascii_preview(&data)
+            }));
             return Ok(());
         }
 
@@ -345,8 +298,7 @@ impl HexCommand {
     }
 
     fn cmd_write(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
@@ -379,23 +331,14 @@ impl HexCommand {
         buffer.flush().map_err(|e| format!("Flush error: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"offset\": \"0x{:x}\",", offset);
-            println!("  \"size\": {},", bytes.len());
-            println!(
-                "  \"before\": \"{}\",",
-                to_hex(&old_bytes, true).replace(' ', "")
-            );
-            println!(
-                "  \"after\": \"{}\",",
-                to_hex(&bytes, true).replace(' ', "")
-            );
-            println!("  \"success\": true");
-            println!("}}");
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "offset": format!("0x{:x}", offset),
+                "size": bytes.len(),
+                "before": to_hex(&old_bytes, true).replace(' ', ""),
+                "after": to_hex(&bytes, true).replace(' ', ""),
+                "success": true
+            }));
             return Ok(());
         }
 
@@ -411,8 +354,7 @@ impl HexCommand {
     }
 
     fn cmd_search(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let pattern_str = ctx.args.get(0).ok_or("Missing pattern argument")?;
@@ -477,25 +419,18 @@ impl HexCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!(
-                "  \"pattern\": \"{}\",",
-                pattern_str.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"is_text\": {},", is_text);
-            println!("  \"case_insensitive\": {},", case_insensitive);
-            println!("  \"total_matches\": {},", results.len());
-            println!("  \"matches\": [");
-            for (i, &offset) in results.iter().enumerate() {
-                let comma = if i < results.len() - 1 { "," } else { "" };
-                println!("    {{ \"offset\": \"0x{:x}\" }}{}", offset, comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let matches_json: Vec<_> = results
+                .iter()
+                .map(|offset| json!({ "offset": format!("0x{:x}", offset) }))
+                .collect();
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "pattern": pattern_str.clone(),
+                "is_text": is_text,
+                "case_insensitive": case_insensitive,
+                "total_matches": results.len(),
+                "matches": matches_json
+            }));
             return Ok(());
         }
 
@@ -527,8 +462,7 @@ impl HexCommand {
     }
 
     fn cmd_replace(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let find_hex = ctx.args.get(0).ok_or("Missing find pattern")?;
@@ -571,23 +505,14 @@ impl HexCommand {
         buffer.flush().map_err(|e| format!("Flush error: {}", e))?;
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!(
-                "  \"find\": \"{}\",",
-                to_hex(&find_bytes, true).replace(' ', "")
-            );
-            println!(
-                "  \"replace\": \"{}\",",
-                to_hex(&replace_bytes, true).replace(' ', "")
-            );
-            println!("  \"replace_all\": {},", replace_all_flag);
-            println!("  \"replacements\": {},", count);
-            println!("  \"success\": true");
-            println!("}}");
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "find": to_hex(&find_bytes, true).replace(' ', ""),
+                "replace": to_hex(&replace_bytes, true).replace(' ', ""),
+                "replace_all": replace_all_flag,
+                "replacements": count,
+                "success": true
+            }));
             return Ok(());
         }
 
@@ -601,8 +526,7 @@ impl HexCommand {
     }
 
     fn cmd_inspect(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
         let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
@@ -628,38 +552,17 @@ impl HexCommand {
         let values = interp.interpret_all(&data);
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"offset\": \"0x{:x}\",", offset);
-            println!(
-                "  \"endian\": \"{}\",",
-                if endian == Endian::Little {
-                    "little"
-                } else {
-                    "big"
-                }
-            );
-            println!(
-                "  \"raw_bytes\": \"{}\",",
-                to_hex(&data[..8.min(data.len())], true).replace(' ', "")
-            );
-            println!("  \"interpretations\": {{");
-            for (i, (name, value)) in values.iter().enumerate() {
-                let comma = if i < values.len() - 1 { "," } else { "" };
-                println!(
-                    "    \"{}\": \"{}\"{}",
-                    name,
-                    format!("{}", value)
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\""),
-                    comma
-                );
-            }
-            println!("  }}");
-            println!("}}");
+            let interpretations = values
+                .iter()
+                .map(|(name, value)| (name.to_string(), json!(format!("{}", value))))
+                .collect::<crate::serde_json::Map<_, _>>();
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "offset": format!("0x{:x}", offset),
+                "endian": if endian == Endian::Little { "little" } else { "big" },
+                "raw_bytes": to_hex(&data[..8.min(data.len())], true).replace(' ', ""),
+                "interpretations": crate::serde_json::Value::Object(interpretations)
+            }));
             return Ok(());
         }
 
@@ -690,8 +593,7 @@ impl HexCommand {
     }
 
     fn cmd_info(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file_path = Self::get_file_path(ctx)?;
 
@@ -712,21 +614,15 @@ impl HexCommand {
         let entropy = Self::calculate_entropy(&sample);
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file\": \"{}\",",
-                file_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"size_bytes\": {},", size);
-            println!("  \"size_kb\": {:.2},", size as f64 / 1024.0);
-            println!("  \"size_mb\": {:.2},", size as f64 / 1024.0 / 1024.0);
-            println!(
-                "  \"magic_bytes\": \"{}\",",
-                to_hex(&first_bytes[..4.min(first_bytes.len())], true).replace(' ', "")
-            );
-            println!("  \"detected_type\": \"{}\",", file_type);
-            println!("  \"entropy\": {:.4}", entropy);
-            println!("}}");
+            Output::json_value(&json!({
+                "file": file_path.to_string(),
+                "size_bytes": size,
+                "size_kb": size as f64 / 1024.0,
+                "size_mb": size as f64 / 1024.0 / 1024.0,
+                "magic_bytes": to_hex(&first_bytes[..4.min(first_bytes.len())], true).replace(' ', ""),
+                "detected_type": file_type,
+                "entropy": entropy
+            }));
             return Ok(());
         }
 
@@ -753,8 +649,7 @@ impl HexCommand {
     }
 
     fn cmd_compare(&self, ctx: &CliContext) -> Result<(), String> {
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let file1_path = Self::get_file_path(ctx)?;
         let file2_path = ctx.args.get(0).ok_or("Missing second file path")?;
@@ -809,36 +704,28 @@ impl HexCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"file1\": \"{}\",",
-                file1_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"file1_size\": {},", size1);
-            println!(
-                "  \"file2\": \"{}\",",
-                file2_path.replace('\\', "\\\\").replace('"', "\\\"")
-            );
-            println!("  \"file2_size\": {},", size2);
-            println!(
-                "  \"size_difference\": {},",
-                (size1 as i64 - size2 as i64).abs()
-            );
-            println!("  \"bytes_compared\": {},", compare_size);
-            println!("  \"differences_found\": {},", differences.len());
-            println!("  \"max_shown\": {},", max_diffs);
-            println!("  \"differences\": [");
-            for (i, (off, b1, b2)) in differences.iter().enumerate() {
-                let comma = if i < differences.len() - 1 { "," } else { "" };
-                println!("    {{ \"offset\": \"0x{:x}\", \"file1\": \"0x{:02X}\", \"file2\": \"0x{:02X}\" }}{}",
-                    off, b1, b2, comma);
-            }
-            println!("  ],");
-            println!(
-                "  \"identical\": {}",
-                differences.is_empty() && size1 == size2
-            );
-            println!("}}");
+            let differences_json: Vec<_> = differences
+                .iter()
+                .map(|(off, b1, b2)| {
+                    json!({
+                        "offset": format!("0x{:x}", off),
+                        "file1": format!("0x{:02X}", b1),
+                        "file2": format!("0x{:02X}", b2)
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "file1": file1_path.to_string(),
+                "file1_size": size1,
+                "file2": file2_path.clone(),
+                "file2_size": size2,
+                "size_difference": (size1 as i64 - size2 as i64).abs(),
+                "bytes_compared": compare_size,
+                "differences_found": differences.len(),
+                "max_shown": max_diffs,
+                "differences": differences_json,
+                "identical": differences.is_empty() && size1 == size2
+            }));
             return Ok(());
         }
 
@@ -963,4 +850,30 @@ impl HexCommand {
 
         entropy
     }
+}
+
+fn ascii_preview(data: &[u8]) -> String {
+    data.iter()
+        .map(|&b| {
+            if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                '.'
+            }
+        })
+        .collect()
+}
+
+fn hex_line_to_json(offset: u64, data: &[u8]) -> crate::serde_json::Value {
+    let hex = data
+        .iter()
+        .map(|b| format!("{:02X}", b))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    json!({
+        "offset": format!("0x{:08x}", offset),
+        "hex": hex,
+        "ascii": ascii_preview(data)
+    })
 }

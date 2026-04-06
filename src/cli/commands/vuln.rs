@@ -8,6 +8,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::recon::fingerprint::FingerprintEngine;
 use crate::modules::recon::vuln::{
     correlator::{CorrelatorConfig, CorrelationReport, VulnCorrelator},
@@ -279,11 +280,13 @@ impl VulnCommand {
         // Display results
         if vulns.is_empty() {
             if is_json {
-                println!("{{\"technology\": \"{}\", \"version\": {}, \"source\": \"{}\", \"total\": 0, \"vulnerabilities\": []}}",
-                    tech.replace('"', "\\\""),
-                    version.as_ref().map(|v| format!("\"{}\"", v.replace('"', "\\\""))).unwrap_or_else(|| "null".to_string()),
-                    source
-                );
+                Output::json_value(&json!({
+                    "technology": tech.clone(),
+                    "version": version.clone(),
+                    "source": source.clone(),
+                    "total": 0,
+                    "vulnerabilities": []
+                }));
             } else {
                 println!();
                 Output::info("No vulnerabilities found.");
@@ -292,35 +295,19 @@ impl VulnCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"technology\": \"{}\",", tech.replace('"', "\\\""));
-            if let Some(ref ver) = version {
-                println!("  \"version\": \"{}\",", ver.replace('"', "\\\""));
-            } else {
-                println!("  \"version\": null,");
-            }
-            println!("  \"source\": \"{}\",", source);
-            println!("  \"total\": {},", vulns.len());
-            println!("  \"showing\": {},", limit.min(vulns.len()));
-            println!("  \"vulnerabilities\": [");
-            for (i, vuln) in vulns.iter().take(limit).enumerate() {
-                let comma = if i < limit.min(vulns.len()) - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"id\": \"{}\",", vuln.id.replace('"', "\\\""));
-                println!("      \"title\": \"{}\",", vuln.title.replace('"', "\\\"").replace('\n', " "));
-                println!("      \"severity\": \"{:?}\",", vuln.severity);
-                println!("      \"risk_score\": {},", vuln.risk_score.unwrap_or(0));
-                if let Some(cvss) = vuln.cvss_v3 {
-                    println!("      \"cvss_v3\": {:.1},", cvss);
-                } else {
-                    println!("      \"cvss_v3\": null,");
-                }
-                println!("      \"cisa_kev\": {},", vuln.cisa_kev);
-                println!("      \"has_exploit\": {}", vuln.has_exploit());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let vulnerabilities_json: Vec<crate::serde_json::Value> = vulns
+                .iter()
+                .take(limit)
+                .map(vuln_summary_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "technology": tech.clone(),
+                "version": version.clone(),
+                "source": source.clone(),
+                "total": vulns.len(),
+                "showing": limit.min(vulns.len()),
+                "vulnerabilities": vulnerabilities_json
+            }));
             return Ok(());
         }
 
@@ -365,8 +352,10 @@ impl VulnCommand {
                     Output::spinner_done();
                     Output::warning(&format!("CVE {} not found in NVD", cve_id));
                 } else {
-                    println!("{{\"error\": \"CVE not found\", \"cve_id\": \"{}\"}}",
-                        cve_id.replace('"', "\\\""));
+                    Output::json_value(&json!({
+                        "error": "CVE not found",
+                        "cve_id": cve_id.clone()
+                    }));
                 }
                 return Ok(());
             }
@@ -395,37 +384,7 @@ impl VulnCommand {
 
         // Output
         if is_json {
-            println!("{{");
-            println!("  \"id\": \"{}\",", vuln.id.replace('"', "\\\""));
-            println!("  \"title\": \"{}\",", vuln.title.replace('"', "\\\"").replace('\n', " "));
-            println!("  \"description\": \"{}\",", vuln.description.replace('"', "\\\"").replace('\n', " "));
-            println!("  \"severity\": \"{:?}\",", vuln.severity);
-            println!("  \"risk_score\": {},", vuln.risk_score.unwrap_or(0));
-            if let Some(cvss) = vuln.cvss_v3 {
-                println!("  \"cvss_v3\": {:.1},", cvss);
-            } else {
-                println!("  \"cvss_v3\": null,");
-            }
-            if let Some(cvss) = vuln.cvss_v2 {
-                println!("  \"cvss_v2\": {:.1},", cvss);
-            } else {
-                println!("  \"cvss_v2\": null,");
-            }
-            println!("  \"cisa_kev\": {},", vuln.cisa_kev);
-            if let Some(ref due) = vuln.kev_due_date {
-                println!("  \"kev_due_date\": \"{}\",", due.replace('"', "\\\""));
-            } else {
-                println!("  \"kev_due_date\": null,");
-            }
-            println!("  \"has_exploit\": {},", vuln.has_exploit());
-            println!("  \"exploit_count\": {},", vuln.exploits.len());
-            println!("  \"cwes\": [{}],", vuln.cwes.iter()
-                .map(|c| format!("\"{}\"", c.replace('"', "\\\"")))
-                .collect::<Vec<_>>().join(", "));
-            println!("  \"references\": [{}]", vuln.references.iter().take(5)
-                .map(|r| format!("\"{}\"", r.replace('"', "\\\"")))
-                .collect::<Vec<_>>().join(", "));
-            println!("}}");
+            Output::json_value(&vuln_detail_to_json(&vuln));
             return Ok(());
         }
 
@@ -466,17 +425,21 @@ impl VulnCommand {
             let stats = kev.stats()?;
 
             if is_json {
-                println!("{{");
-                println!("  \"type\": \"kev_stats\",");
-                println!("  \"total\": {},", stats.total);
-                println!("  \"ransomware_count\": {},", stats.ransomware_count);
-                println!("  \"top_vendors\": [");
-                for (i, (vendor, count)) in stats.top_vendors.iter().take(10).enumerate() {
-                    let comma = if i < stats.top_vendors.len().min(10) - 1 { "," } else { "" };
-                    println!("    {{ \"vendor\": \"{}\", \"count\": {} }}{}", vendor.replace('"', "\\\""), count, comma);
-                }
-                println!("  ]");
-                println!("}}");
+                let top_vendors_json: Vec<crate::serde_json::Value> = stats
+                    .top_vendors
+                    .iter()
+                    .take(10)
+                    .map(|(vendor, count)| json!({
+                        "vendor": vendor.clone(),
+                        "count": *count
+                    }))
+                    .collect();
+                Output::json_value(&json!({
+                    "type": "kev_stats",
+                    "total": stats.total,
+                    "ransomware_count": stats.ransomware_count,
+                    "top_vendors": top_vendors_json
+                }));
                 return Ok(());
             }
 
@@ -502,31 +465,23 @@ impl VulnCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"type\": \"kev_entries\",");
+            let entries_json: Vec<crate::serde_json::Value> = entries
+                .iter()
+                .take(limit)
+                .map(kev_entry_to_json)
+                .collect();
+            let mut payload = crate::serde_json::Map::new();
+            payload.insert("type".to_string(), json!("kev_entries"));
             if let Some(ref v) = vendor {
-                println!("  \"filter_vendor\": \"{}\",", v.replace('"', "\\\""));
+                payload.insert("filter_vendor".to_string(), json!(v.clone()));
             }
             if let Some(ref p) = product {
-                println!("  \"filter_product\": \"{}\",", p.replace('"', "\\\""));
+                payload.insert("filter_product".to_string(), json!(p.clone()));
             }
-            println!("  \"total\": {},", entries.len());
-            println!("  \"showing\": {},", limit.min(entries.len()));
-            println!("  \"entries\": [");
-            for (i, entry) in entries.iter().take(limit).enumerate() {
-                let comma = if i < limit.min(entries.len()) - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"cve_id\": \"{}\",", entry.cve_id.replace('"', "\\\""));
-                println!("      \"vulnerability_name\": \"{}\",", entry.vulnerability_name.replace('"', "\\\"").replace('\n', " "));
-                println!("      \"vendor\": \"{}\",", entry.vendor_project.replace('"', "\\\""));
-                println!("      \"product\": \"{}\",", entry.product.replace('"', "\\\""));
-                println!("      \"date_added\": \"{}\",", entry.date_added.replace('"', "\\\""));
-                println!("      \"due_date\": \"{}\",", entry.due_date.replace('"', "\\\""));
-                println!("      \"known_ransomware_use\": {}", entry.known_ransomware_use);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            payload.insert("total".to_string(), json!(entries.len()));
+            payload.insert("showing".to_string(), json!(limit.min(entries.len())));
+            payload.insert("entries".to_string(), json!(entries_json));
+            Output::json_value(&crate::serde_json::Value::Object(payload));
             return Ok(());
         }
 
@@ -574,11 +529,11 @@ impl VulnCommand {
 
         if results.is_empty() {
             if is_json {
-                println!("{{");
-                println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
-                println!("  \"total\": 0,");
-                println!("  \"exploits\": []");
-                println!("}}");
+                Output::json_value(&json!({
+                    "query": query.clone(),
+                    "total": 0,
+                    "exploits": []
+                }));
                 return Ok(());
             }
             Output::info("No exploits found.");
@@ -586,42 +541,17 @@ impl VulnCommand {
         }
 
         if is_json {
-            println!("{{");
-            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
-            println!("  \"total\": {},", results.len());
-            println!("  \"showing\": {},", limit.min(results.len()));
-            println!("  \"exploits\": [");
-            for (i, entry) in results.iter().take(limit).enumerate() {
-                let comma = if i < limit.min(results.len()) - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"id\": \"{}\",", entry.id.replace('"', "\\\""));
-                println!("      \"title\": \"{}\",", entry.title.replace('"', "\\\"").replace('\n', " "));
-                if let Some(ref platform) = entry.platform {
-                    println!("      \"platform\": \"{}\",", platform.replace('"', "\\\""));
-                } else {
-                    println!("      \"platform\": null,");
-                }
-                if let Some(ref etype) = entry.exploit_type {
-                    println!("      \"type\": \"{}\",", etype.replace('"', "\\\""));
-                } else {
-                    println!("      \"type\": null,");
-                }
-                if let Some(ref date) = entry.date {
-                    println!("      \"date\": \"{}\",", date.replace('"', "\\\""));
-                } else {
-                    println!("      \"date\": null,");
-                }
-                println!("      \"cve_ids\": [");
-                for (j, cve) in entry.cve_ids.iter().enumerate() {
-                    let cve_comma = if j < entry.cve_ids.len() - 1 { "," } else { "" };
-                    println!("        \"{}\"{}", cve.replace('"', "\\\""), cve_comma);
-                }
-                println!("      ],");
-                println!("      \"verified\": {}", entry.verified);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let exploits_json: Vec<crate::serde_json::Value> = results
+                .iter()
+                .take(limit)
+                .map(exploit_entry_to_json)
+                .collect();
+            Output::json_value(&json!({
+                "query": query.clone(),
+                "total": results.len(),
+                "showing": limit.min(results.len()),
+                "exploits": exploits_json
+            }));
             return Ok(());
         }
 
@@ -710,34 +640,29 @@ impl VulnCommand {
                 let cat_name = format!("{:?}", cpe.category);
                 by_category.entry(cat_name).or_default().push(*cpe);
             }
+            let mut categories_json = crate::serde_json::Map::new();
+            let mut category_names: Vec<_> = by_category.keys().cloned().collect();
+            category_names.sort();
+            for cat in category_names {
+                let cpes = by_category.get(&cat).unwrap();
+                let cpes_json: Vec<crate::serde_json::Value> =
+                    cpes.iter().map(cpe_mapping_to_json).collect();
+                categories_json.insert(cat, json!(cpes_json));
+            }
 
-            println!("{{");
+            let mut payload = crate::serde_json::Map::new();
             if let Some(ref cat) = category {
-                println!("  \"filter_category\": \"{}\",", cat.replace('"', "\\\""));
+                payload.insert("filter_category".to_string(), json!(cat.clone()));
             }
             if let Some(ref s) = search {
-                println!("  \"filter_search\": \"{}\",", s.replace('"', "\\\""));
+                payload.insert("filter_search".to_string(), json!(s.clone()));
             }
-            println!("  \"total\": {},", filtered.len());
-            println!("  \"categories\": {{");
-            let cat_count = by_category.len();
-            for (i, (cat, cpes)) in by_category.iter().enumerate() {
-                let cat_comma = if i < cat_count - 1 { "," } else { "" };
-                println!("    \"{}\": [", cat);
-                for (j, cpe) in cpes.iter().enumerate() {
-                    let cpe_comma = if j < cpes.len() - 1 { "," } else { "" };
-                    let example_cpe = generate_cpe(cpe.tech_name, Some("1.0")).unwrap_or_default();
-                    println!("      {{");
-                    println!("        \"tech_name\": \"{}\",", cpe.tech_name.replace('"', "\\\""));
-                    println!("        \"vendor\": \"{}\",", cpe.vendor.replace('"', "\\\""));
-                    println!("        \"product\": \"{}\",", cpe.product.replace('"', "\\\""));
-                    println!("        \"example_cpe\": \"{}\"", example_cpe.replace('"', "\\\""));
-                    println!("      }}{}", cpe_comma);
-                }
-                println!("    ]{}", cat_comma);
-            }
-            println!("  }}");
-            println!("}}");
+            payload.insert("total".to_string(), json!(filtered.len()));
+            payload.insert(
+                "categories".to_string(),
+                crate::serde_json::Value::Object(categories_json),
+            );
+            Output::json_value(&crate::serde_json::Value::Object(payload));
             return Ok(());
         }
 
@@ -1110,34 +1035,23 @@ impl VulnCommand {
     /// Output report as JSON
     fn output_report_json(&self, report: &CorrelationReport) {
         let summary = &report.summary;
-
-        println!("{{");
-        println!("  \"total_technologies\": {},", summary.techs_scanned);
-        println!("  \"technologies_with_vulns\": {},", summary.techs_vulnerable);
-        println!("  \"total_vulnerabilities\": {},", summary.total_vulns);
-        println!("  \"critical\": {},", summary.critical_count);
-        println!("  \"high\": {},", summary.high_count);
-        println!("  \"medium\": {},", summary.medium_count);
-        println!("  \"low\": {},", summary.low_count);
-        println!("  \"kev_count\": {},", summary.kev_count);
-        println!("  \"exploit_count\": {},", summary.exploitable_count);
-
-        println!("  \"top_risks\": [");
-        let top = report.top_risks(10);
-        for (i, vuln) in top.iter().enumerate() {
-            let comma = if i < top.len() - 1 { "," } else { "" };
-            println!(
-                "    {{\"id\": \"{}\", \"risk_score\": {}, \"severity\": \"{:?}\", \"kev\": {}, \"title\": \"{}\"}}{}",
-                vuln.id,
-                vuln.risk_score.unwrap_or(0),
-                vuln.severity,
-                vuln.cisa_kev,
-                vuln.title.replace('"', "\\\""),
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let top_risks_json: Vec<crate::serde_json::Value> = report
+            .top_risks(10)
+            .iter()
+            .map(top_risk_to_json)
+            .collect();
+        Output::json_value(&json!({
+            "total_technologies": summary.techs_scanned,
+            "technologies_with_vulns": summary.techs_vulnerable,
+            "total_vulnerabilities": summary.total_vulns,
+            "critical": summary.critical_count,
+            "high": summary.high_count,
+            "medium": summary.medium_count,
+            "low": summary.low_count,
+            "kev_count": summary.kev_count,
+            "exploit_count": summary.exploitable_count,
+            "top_risks": top_risks_json
+        }));
     }
 
     /// Output report as Markdown
@@ -1375,4 +1289,84 @@ fn wrap_text(s: &str, width: usize) -> String {
     }
 
     result
+}
+
+fn vuln_summary_to_json(vuln: &Vulnerability) -> crate::serde_json::Value {
+    json!({
+        "id": vuln.id.clone(),
+        "title": vuln.title.replace('\n', " "),
+        "severity": format!("{:?}", vuln.severity),
+        "risk_score": vuln.risk_score.unwrap_or(0),
+        "cvss_v3": vuln.cvss_v3,
+        "cisa_kev": vuln.cisa_kev,
+        "has_exploit": vuln.has_exploit()
+    })
+}
+
+fn vuln_detail_to_json(vuln: &Vulnerability) -> crate::serde_json::Value {
+    json!({
+        "id": vuln.id.clone(),
+        "title": vuln.title.replace('\n', " "),
+        "description": vuln.description.replace('\n', " "),
+        "severity": format!("{:?}", vuln.severity),
+        "risk_score": vuln.risk_score.unwrap_or(0),
+        "cvss_v3": vuln.cvss_v3,
+        "cvss_v2": vuln.cvss_v2,
+        "cisa_kev": vuln.cisa_kev,
+        "kev_due_date": vuln.kev_due_date.clone(),
+        "has_exploit": vuln.has_exploit(),
+        "exploit_count": vuln.exploits.len(),
+        "cwes": vuln.cwes.clone(),
+        "references": vuln.references.iter().take(5).cloned().collect::<Vec<_>>()
+    })
+}
+
+fn kev_entry_to_json(
+    entry: &crate::modules::recon::vuln::kev::KevEntry,
+) -> crate::serde_json::Value {
+    json!({
+        "cve_id": entry.cve_id.clone(),
+        "vulnerability_name": entry.vulnerability_name.replace('\n', " "),
+        "vendor": entry.vendor_project.clone(),
+        "product": entry.product.clone(),
+        "date_added": entry.date_added.clone(),
+        "due_date": entry.due_date.clone(),
+        "known_ransomware_use": entry.known_ransomware_use
+    })
+}
+
+fn exploit_entry_to_json(
+    entry: &crate::modules::recon::vuln::exploitdb::ExploitDbEntry,
+) -> crate::serde_json::Value {
+    json!({
+        "id": entry.id.clone(),
+        "title": entry.title.replace('\n', " "),
+        "platform": entry.platform.clone(),
+        "type": entry.exploit_type.clone(),
+        "date": entry.date.clone(),
+        "cve_ids": entry.cve_ids.clone(),
+        "verified": entry.verified
+    })
+}
+
+fn cpe_mapping_to_json(
+    cpe: &&crate::modules::recon::vuln::cpe::CpeMapping,
+) -> crate::serde_json::Value {
+    let example_cpe = generate_cpe(cpe.tech_name, Some("1.0")).unwrap_or_default();
+    json!({
+        "tech_name": cpe.tech_name,
+        "vendor": cpe.vendor,
+        "product": cpe.product,
+        "example_cpe": example_cpe
+    })
+}
+
+fn top_risk_to_json(vuln: &&Vulnerability) -> crate::serde_json::Value {
+    json!({
+        "id": vuln.id.clone(),
+        "risk_score": vuln.risk_score.unwrap_or(0),
+        "severity": format!("{:?}", vuln.severity),
+        "kev": vuln.cisa_kev,
+        "title": vuln.title.clone()
+    })
 }

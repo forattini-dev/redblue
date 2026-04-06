@@ -6,6 +6,7 @@
 /// - Breach checking
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::recon::breach::BreachClient;
 use crate::modules::recon::osint::{
     platforms::get_all_platforms, EmailIntel, OsintConfig, PlatformCategory, UsernameEnumerator,
@@ -138,6 +139,7 @@ impl ReconIdentityCommand {
         let username = ctx.target.as_ref().ok_or(
             "Missing username.\nUsage: rb recon identity username <username>\nExample: rb recon identity username johndoe",
         )?;
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let category_filter = ctx.get_flag("category");
         let platforms_filter = ctx.get_flag("platforms");
@@ -207,56 +209,47 @@ impl ReconIdentityCommand {
             platform_count = max_sites;
         }
 
-        Output::header(&format!("Username Search: {}", username));
+        if !is_json {
+            Output::header(&format!("Username Search: {}", username));
 
-        if let Some(cat) = &category_filter {
-            Output::item("Category Filter", cat);
+            if let Some(cat) = &category_filter {
+                Output::item("Category Filter", cat);
+            }
+            Output::item("Platforms", &format!("{}", platform_count));
+            Output::item("Threads", &format!("{}", threads));
+
+            Output::spinner_start(&format!(
+                "Searching {} across {} platforms",
+                username, platform_count
+            ));
         }
-        Output::item("Platforms", &format!("{}", platform_count));
-        Output::item("Threads", &format!("{}", threads));
-
-        Output::spinner_start(&format!(
-            "Searching {} across {} platforms",
-            username, platform_count
-        ));
 
         let enumerator = UsernameEnumerator::new(config);
         let result = enumerator.enumerate(username);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
-        // Check for JSON output
-        let format = ctx.get_output_format();
-        if format == crate::cli::format::OutputFormat::Json {
-            let found: Vec<_> = result
+        if is_json {
+            let mut found: Vec<_> = result
                 .by_category
                 .values()
                 .flat_map(|v| v.iter())
                 .filter(|r| r.exists)
                 .collect();
-            println!("{{");
-            println!("  \"username\": \"{}\",", username);
-            println!("  \"total_checked\": {},", result.total_checked);
-            println!("  \"found_count\": {},", result.found_count);
-            println!("  \"error_count\": {},", result.error_count);
-            println!("  \"duration_ms\": {},", result.duration.as_millis());
-            println!("  \"profiles\": [");
-            for (i, profile) in found.iter().enumerate() {
-                println!("    {{");
-                println!("      \"platform\": \"{}\",", profile.platform);
-                println!("      \"category\": \"{:?}\",", profile.category);
-                println!(
-                    "      \"url\": \"{}\"",
-                    profile.url.as_ref().unwrap_or(&String::new())
-                );
-                if i < found.len() - 1 {
-                    println!("    }},");
-                } else {
-                    println!("    }}");
-                }
-            }
-            println!("  ]");
-            println!("}}");
+            found.sort_by(|a, b| a.platform.cmp(&b.platform));
+            let profiles_json: Vec<_> = found.into_iter().map(profile_result_to_json).collect();
+
+            Output::json_value(&json!({
+                "username": username.clone(),
+                "category_filter": category_filter.clone(),
+                "total_checked": result.total_checked,
+                "found_count": result.found_count,
+                "error_count": result.error_count,
+                "duration_ms": result.duration.as_millis() as u64,
+                "profiles": profiles_json
+            }));
             return Ok(());
         }
 
@@ -309,20 +302,23 @@ impl ReconIdentityCommand {
 
     fn username_check(
         &self,
-        _ctx: &CliContext,
+        ctx: &CliContext,
         username: &str,
         platforms_str: &str,
     ) -> Result<(), String> {
         let platform_names: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
-        Output::header(&format!("Username Check: {}", username));
-        Output::item("Platforms", &platform_names.join(", "));
+        if !is_json {
+            Output::header(&format!("Username Check: {}", username));
+            Output::item("Platforms", &platform_names.join(", "));
 
-        Output::spinner_start(&format!(
-            "Checking {} on {} platforms",
-            username,
-            platform_names.len()
-        ));
+            Output::spinner_start(&format!(
+                "Checking {} on {} platforms",
+                username,
+                platform_names.len()
+            ));
+        }
 
         // Filter platforms by name from the full list
         let all_platforms = get_all_platforms();
@@ -368,12 +364,11 @@ impl ReconIdentityCommand {
         let enumerator = UsernameEnumerator::new(config);
         let result = enumerator.enumerate(username);
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
-        // Display results
-        println!();
-        Output::subheader("Results");
-
+        let mut filtered_profiles = Vec::new();
         let mut found_count = 0;
         for profiles in result.by_category.values() {
             for profile in profiles {
@@ -389,20 +384,62 @@ impl ReconIdentityCommand {
 
                 if profile.exists {
                     found_count += 1;
-                    let url = profile.url.as_deref().unwrap_or("N/A");
-                    println!(
-                        "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
-                        profile.platform, url
-                    );
-                } else if profile.error.is_some() {
-                    println!(
-                        "  \x1b[33m?\x1b[0m {} - error: {}",
-                        profile.platform,
-                        profile.error.as_ref().unwrap()
-                    );
-                } else {
-                    println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
                 }
+                filtered_profiles.push(profile);
+            }
+        }
+        filtered_profiles.sort_by(|a, b| a.platform.cmp(&b.platform));
+
+        if is_json {
+            let profiles_json: Vec<_> = filtered_profiles
+                .iter()
+                .map(|profile| {
+                    let status = if profile.exists {
+                        "found"
+                    } else if profile.error.is_some() {
+                        "error"
+                    } else {
+                        "not_found"
+                    };
+                    let mut value = profile_result_to_json(profile);
+                    if let Some(obj) = value.as_object().cloned() {
+                        let mut map = obj;
+                        map.insert("status".to_string(), json!(status));
+                        value = crate::serde_json::Value::Object(map);
+                    }
+                    value
+                })
+                .collect();
+
+            Output::json_value(&json!({
+                "username": username.to_string(),
+                "requested_platforms": platform_names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+                "checked_profiles": filtered_profiles.len(),
+                "found_count": found_count,
+                "profiles": profiles_json
+            }));
+            return Ok(());
+        }
+
+        // Display results
+        println!();
+        Output::subheader("Results");
+
+        for profile in filtered_profiles {
+            if profile.exists {
+                let url = profile.url.as_deref().unwrap_or("N/A");
+                println!(
+                    "  \x1b[32m✓\x1b[0m {} - \x1b[36m{}\x1b[0m",
+                    profile.platform, url
+                );
+            } else if profile.error.is_some() {
+                println!(
+                    "  \x1b[33m?\x1b[0m {} - error: {}",
+                    profile.platform,
+                    profile.error.as_ref().unwrap()
+                );
+            } else {
+                println!("  \x1b[31m✗\x1b[0m {} - not found", profile.platform);
             }
         }
 
@@ -446,8 +483,7 @@ impl ReconIdentityCommand {
             return Err(format!("Invalid email format: {}", email));
         }
 
-        let format = ctx.get_output_format();
-        let is_json = format == crate::cli::format::OutputFormat::Json;
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         if !is_json {
             Output::header(&format!("Email Intelligence: {}", email));
@@ -472,63 +508,22 @@ impl ReconIdentityCommand {
             Output::spinner_done();
         }
 
-        // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"email\": \"{}\",", email.replace('"', "\\\""));
-            println!(
-                "  \"provider\": {},",
-                if let Some(ref p) = result.provider {
-                    format!("\"{}\"", p.replace('"', "\\\""))
-                } else {
-                    "null".to_string()
-                }
-            );
-            println!("  \"valid\": {},", result.valid);
-            println!("  \"services\": [");
-            for (i, service) in result.services.iter().enumerate() {
-                let comma = if i < result.services.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    \"{}\"{}", service.replace('"', "\\\""), comma);
-            }
-            println!("  ],");
-            println!("  \"social_profiles\": [");
-            for (i, profile) in result.social_profiles.iter().enumerate() {
-                let comma = if i < result.social_profiles.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!(
-                    "      \"platform\": \"{}\",",
-                    profile.platform.replace('"', "\\\"")
-                );
-                println!(
-                    "      \"url\": {}",
-                    if let Some(ref u) = profile.url {
-                        format!("\"{}\"", u.replace('"', "\\\""))
-                    } else {
-                        "null".to_string()
-                    }
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ],");
-            println!("  \"breaches\": [");
-            for (i, breach) in result.breaches.iter().enumerate() {
-                let comma = if i < result.breaches.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    \"{}\"{}", breach.name.replace('"', "\\\""), comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let social_profiles: Vec<_> = result
+                .social_profiles
+                .iter()
+                .map(profile_result_to_json)
+                .collect();
+            let breaches: Vec<_> = result.breaches.iter().map(email_breach_to_json).collect();
+
+            Output::json_value(&json!({
+                "email": email.clone(),
+                "provider": result.provider.clone(),
+                "valid": result.valid,
+                "services": result.services.clone(),
+                "social_profiles": social_profiles,
+                "breaches": breaches
+            }));
             return Ok(());
         }
 
@@ -595,8 +590,7 @@ impl ReconIdentityCommand {
             .unwrap_or_else(|| "password".to_string());
         let hibp_key = ctx.get_flag("hibp-key");
 
-        let format = ctx.get_output_format();
-        let is_json = format == crate::cli::format::OutputFormat::Json;
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         if !is_json {
             Output::header("Breach Check (HIBP)");
@@ -610,41 +604,24 @@ impl ReconIdentityCommand {
             client.set_api_key(&key);
         }
 
-        if !is_json {
-            Output::spinner_done();
-        }
-
         match check_type.as_str() {
             "email" => {
-                let result = client.check_email(target)?;
+                let result = client.check_email(target);
+                if !is_json {
+                    Output::spinner_done();
+                }
+                let result = result?;
 
                 if is_json {
-                    println!("{{");
-                    println!("  \"type\": \"email\",");
-                    println!(
-                        "  \"target_masked\": \"{}****\",",
-                        &target[..target.len().min(4)]
-                    );
-                    println!("  \"pwned\": {},", result.pwned);
-                    println!("  \"breach_count\": {},", result.breach_count);
-                    println!("  \"breaches\": [");
-                    for (i, breach) in result.breaches.iter().enumerate() {
-                        let comma = if i < result.breaches.len() - 1 {
-                            ","
-                        } else {
-                            ""
-                        };
-                        println!("    {{");
-                        println!("      \"name\": \"{}\",", breach.name.replace('"', "\\\""));
-                        println!(
-                            "      \"breach_date\": \"{}\",",
-                            breach.breach_date.replace('"', "\\\"")
-                        );
-                        println!("      \"pwn_count\": {}", breach.pwn_count);
-                        println!("    }}{}", comma);
-                    }
-                    println!("  ]");
-                    println!("}}");
+                    let breaches: Vec<_> =
+                        result.breaches.iter().map(hibp_breach_to_json).collect();
+                    Output::json_value(&json!({
+                        "type": "email",
+                        "target_masked": format!("{}****", &target[..target.len().min(4)]),
+                        "pwned": result.pwned,
+                        "breach_count": result.breach_count,
+                        "breaches": breaches
+                    }));
                     return Ok(());
                 }
 
@@ -669,14 +646,18 @@ impl ReconIdentityCommand {
                 }
             }
             _ => {
-                let result = client.check_password(target)?;
+                let result = client.check_password(target);
+                if !is_json {
+                    Output::spinner_done();
+                }
+                let result = result?;
 
                 if is_json {
-                    println!("{{");
-                    println!("  \"type\": \"password\",");
-                    println!("  \"pwned\": {},", result.pwned);
-                    println!("  \"count\": {}", result.count);
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "type": "password",
+                        "pwned": result.pwned,
+                        "count": result.count
+                    }));
                     return Ok(());
                 }
 
@@ -693,4 +674,59 @@ impl ReconIdentityCommand {
 
         Ok(())
     }
+}
+
+fn profile_result_to_json(
+    profile: &crate::modules::recon::osint::ProfileResult,
+) -> crate::serde_json::Value {
+    let metadata = json!({
+        "display_name": profile.metadata.display_name.clone(),
+        "bio": profile.metadata.bio.clone(),
+        "avatar_url": profile.metadata.avatar_url.clone(),
+        "followers": profile.metadata.followers,
+        "following": profile.metadata.following,
+        "post_count": profile.metadata.post_count,
+        "created_at": profile.metadata.created_at.clone(),
+        "last_active": profile.metadata.last_active.clone(),
+        "location": profile.metadata.location.clone(),
+        "website": profile.metadata.website.clone(),
+        "email": profile.metadata.email.clone(),
+        "verified": profile.metadata.verified
+    });
+
+    json!({
+        "platform": profile.platform.clone(),
+        "category": format!("{:?}", profile.category),
+        "exists": profile.exists,
+        "url": profile.url.clone(),
+        "duration_ms": profile.duration.as_millis() as u64,
+        "error": profile.error.clone(),
+        "metadata": metadata
+    })
+}
+
+fn email_breach_to_json(
+    breach: &crate::modules::recon::osint::BreachInfo,
+) -> crate::serde_json::Value {
+    json!({
+        "name": breach.name.clone(),
+        "date": breach.date.clone(),
+        "accounts": breach.accounts,
+        "data_types": breach.data_types.clone(),
+        "description": breach.description.clone(),
+        "verified": breach.verified,
+        "sensitive": breach.sensitive
+    })
+}
+
+fn hibp_breach_to_json(
+    breach: &crate::modules::recon::breach::BreachInfo,
+) -> crate::serde_json::Value {
+    json!({
+        "name": breach.name.clone(),
+        "domain": breach.domain.clone(),
+        "breach_date": breach.breach_date.clone(),
+        "pwn_count": breach.pwn_count,
+        "data_classes": breach.data_classes.clone()
+    })
 }

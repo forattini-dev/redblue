@@ -5,6 +5,7 @@ use crate::cli::commands::{
 use crate::cli::{output::Output, validator::Validator, CliContext};
 use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
+use crate::json;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::doh::{DohClient, PropagationStatus, DOH_PROVIDERS};
 use crate::storage::client::ActionRecorder;
@@ -275,22 +276,23 @@ impl DnsCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"domain\": \"{}\",", domain);
-            println!("  \"record_type\": \"{}\",", record_type_str);
-            println!("  \"server\": \"{}\",", server);
-            println!("  \"count\": {},", answers.len());
-            println!("  \"records\": [");
-            for (i, answer) in answers.iter().enumerate() {
-                let comma = if i < answers.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"type\": \"{}\",", answer.type_string());
-                println!("      \"value\": \"{}\",", answer.display_value());
-                println!("      \"ttl\": {}", answer.ttl);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let records: Vec<_> = answers
+                .iter()
+                .map(|answer| {
+                    json!({
+                        "type": answer.type_string(),
+                        "value": answer.display_value(),
+                        "ttl": answer.ttl
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "domain": domain,
+                "record_type": record_type_str,
+                "server": server,
+                "count": answers.len(),
+                "records": records
+            }));
 
             // Commit database for JSON output
             pm.commit()?;
@@ -546,35 +548,30 @@ impl DnsCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"domain\": \"{}\",", domain);
-            println!("  \"server\": \"{}\",", server);
-            println!("  \"record_types\": [");
-
-            for (i, (record_type, answers)) in all_results.iter().enumerate() {
-                let comma = if i < all_results.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!(
-                    "      \"type\": \"{}\",",
-                    Self::record_type_to_string(*record_type)
-                );
-                println!("      \"count\": {},", answers.len());
-                println!("      \"records\": [");
-
-                for (j, answer) in answers.iter().enumerate() {
-                    let comma2 = if j < answers.len() - 1 { "," } else { "" };
-                    println!("        {{");
-                    println!("          \"value\": \"{}\",", answer.display_value());
-                    println!("          \"ttl\": {}", answer.ttl);
-                    println!("        }}{}", comma2);
-                }
-
-                println!("      ]");
-                println!("    }}{}", comma);
-            }
-
-            println!("  ]");
-            println!("}}");
+            let record_types: Vec<_> = all_results
+                .iter()
+                .map(|(record_type, answers)| {
+                    let records: Vec<_> = answers
+                        .iter()
+                        .map(|answer| {
+                            json!({
+                                "value": answer.display_value(),
+                                "ttl": answer.ttl
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "type": Self::record_type_to_string(*record_type),
+                        "count": answers.len(),
+                        "records": records
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "domain": domain,
+                "server": server,
+                "record_types": record_types
+            }));
             return Ok(());
         }
 
@@ -883,50 +880,30 @@ impl DnsCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"domain\": \"{}\",", domain);
-            println!("  \"record_type\": \"{}\",", record_type_str);
-            println!("  \"is_propagated\": {},", result.is_propagated);
-            println!("  \"consensus_values\": [");
-            for (i, value) in result.consensus_values.iter().enumerate() {
-                let comma = if i < result.consensus_values.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    \"{}\"{}", value, comma);
-            }
-            println!("  ],");
-            println!("  \"providers\": [");
-            for (i, pr) in result.results.iter().enumerate() {
-                let comma = if i < result.results.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                let status_str = match pr.status {
-                    PropagationStatus::Success => "success",
-                    PropagationStatus::NoRecords => "no_records",
-                    PropagationStatus::Error => "error",
-                };
-                println!("    {{");
-                println!("      \"provider\": \"{}\",", pr.provider);
-                println!("      \"status\": \"{}\",", status_str);
-                println!("      \"values\": [");
-                for (j, v) in pr.values.iter().enumerate() {
-                    let comma2 = if j < pr.values.len() - 1 { "," } else { "" };
-                    println!("        \"{}\"{}", v, comma2);
-                }
-                println!("      ],");
-                if let Some(ttl) = pr.ttl {
-                    println!("      \"ttl\": {}", ttl);
-                } else {
-                    println!("      \"ttl\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let providers: Vec<_> = result
+                .results
+                .iter()
+                .map(|provider_result| {
+                    let status = match provider_result.status {
+                        PropagationStatus::Success => "success",
+                        PropagationStatus::NoRecords => "no_records",
+                        PropagationStatus::Error => "error",
+                    };
+                    json!({
+                        "provider": provider_result.provider.clone(),
+                        "status": status,
+                        "values": provider_result.values.clone(),
+                        "ttl": provider_result.ttl
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "domain": domain,
+                "record_type": record_type_str,
+                "is_propagated": result.is_propagated,
+                "consensus_values": result.consensus_values.clone(),
+                "providers": providers
+            }));
             return Ok(());
         }
 
@@ -1190,58 +1167,44 @@ impl DnsCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"domain\": \"{}\",", domain);
-            println!("  \"score\": {},", score);
-            println!("  \"max_score\": {},", max_score);
-            println!("  \"grade\": \"{}\",", grade);
-            println!("  \"spf\": {{");
-            println!("    \"present\": {},", spf_record.is_some());
-            if let Some(ref spf) = spf_record {
-                println!("    \"record\": \"{}\",", spf.replace('"', "\\\""));
-            } else {
-                println!("    \"record\": null,");
-            }
-            println!("    \"score\": {}", spf_score);
-            println!("  }},");
-            println!("  \"dkim\": {{");
-            println!("    \"present\": {},", !dkim_results.is_empty());
-            println!("    \"selectors\": [");
-            for (i, (selector, record)) in dkim_results.iter().enumerate() {
-                let comma = if i < dkim_results.len() - 1 { "," } else { "" };
-                println!("      {{");
-                println!("        \"selector\": \"{}\",", selector);
-                if let Some(r) = record {
-                    let truncated = if r.len() > 80 {
-                        format!("{}...", &r[..80])
-                    } else {
-                        r.clone()
-                    };
-                    println!("        \"record\": \"{}\"", truncated.replace('"', "\\\""));
-                } else {
-                    println!("        \"record\": null");
-                }
-                println!("      }}{}", comma);
-            }
-            println!("    ],");
-            println!("    \"score\": {}", dkim_score);
-            println!("  }},");
-            println!("  \"dmarc\": {{");
-            println!("    \"present\": {},", dmarc_record.is_some());
-            if let Some(ref dmarc) = dmarc_record {
-                println!("    \"record\": \"{}\",", dmarc.replace('"', "\\\""));
-            } else {
-                println!("    \"record\": null,");
-            }
-            println!("    \"score\": {}", dmarc_score);
-            println!("  }},");
-            println!("  \"mx\": [");
-            for (i, mx) in mx_records.iter().enumerate() {
-                let comma = if i < mx_records.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", mx, comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let selectors: Vec<_> = dkim_results
+                .iter()
+                .map(|(selector, record)| {
+                    let truncated = record.as_ref().map(|value| {
+                        if value.len() > 80 {
+                            format!("{}...", &value[..80])
+                        } else {
+                            value.clone()
+                        }
+                    });
+                    json!({
+                        "selector": selector.clone(),
+                        "record": truncated
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "domain": domain,
+                "score": score,
+                "max_score": max_score,
+                "grade": grade,
+                "spf": json!({
+                    "present": spf_record.is_some(),
+                    "record": spf_record.clone(),
+                    "score": spf_score
+                }),
+                "dkim": json!({
+                    "present": !dkim_results.is_empty(),
+                    "selectors": selectors,
+                    "score": dkim_score
+                }),
+                "dmarc": json!({
+                    "present": dmarc_record.is_some(),
+                    "record": dmarc_record.clone(),
+                    "score": dmarc_score
+                }),
+                "mx": mx_records.clone()
+            }));
             return Ok(());
         }
 

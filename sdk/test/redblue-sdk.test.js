@@ -361,6 +361,7 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
   const defaultBinaryName = getDefaultBinaryName(process.platform);
   const defaultNamedInstalledPath = path.join(installDir, defaultBinaryName);
   const originalPath = process.env.PATH;
+  const packageLocalBinaryPath = path.join(process.cwd(), '.redblue', 'bin', defaultBinaryName);
 
   await installFixtureBinary(installedPath);
   assert.equal(await sdk.resolveBinary({ binaryPath: installedPath }), installedPath);
@@ -397,7 +398,31 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
   await fsp.rm(installedPath);
   assert.equal(await sdk.resolveBinary({ targetDir: installDir }), defaultNamedInstalledPath);
   await fsp.rm(defaultNamedInstalledPath);
-
+  {
+    const packageHomeKey = process.platform === 'win32' ? 'USERPROFILE' : 'HOME';
+    const originalHome = process.env[packageHomeKey];
+    const originalPathForPackage = process.env.PATH;
+    const packageHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-home-'));
+    process.env[packageHomeKey] = packageHome;
+    process.env.PATH = '';
+    try {
+      await fsp.mkdir(path.join(process.cwd(), '.redblue', 'bin'), { recursive: true });
+      await installFixtureBinary(packageLocalBinaryPath);
+      assert.deepEqual(await resolveBinaryWithInfo({}), {
+        binaryPath: packageLocalBinaryPath,
+        source: 'package'
+      });
+    } finally {
+      await fsp.rm(packageLocalBinaryPath, { force: true });
+      if (originalHome === undefined) {
+        delete process.env[packageHomeKey];
+      } else {
+        process.env[packageHomeKey] = originalHome;
+      }
+      process.env.PATH = originalPathForPackage;
+      await fsp.rm(packageHome, { recursive: true, force: true });
+    }
+  }
   await withHttpsMock(
     [
       { statusCode: 200, body: '{"tag_name":"v0.1.0"}' },

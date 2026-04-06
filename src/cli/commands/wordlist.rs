@@ -1,6 +1,7 @@
 /// Wordlist management command
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::wordlists::{get_wordlist_sources, Downloader, WordlistCategory, WordlistManager};
 
 pub struct WordlistCommand;
@@ -169,20 +170,12 @@ impl WordlistCommand {
             .collect();
 
         if is_json {
-            println!("{{");
-            println!("  \"total\": {},", filtered.len());
-            println!("  \"wordlists\": [");
-            for (i, w) in filtered.iter().enumerate() {
-                let comma = if i < filtered.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"name\": \"{}\",", w.name.replace('"', "\\\""));
-                println!("      \"source\": \"{}\",", w.source);
-                println!("      \"line_count\": {},", w.line_count);
-                println!("      \"size_kb\": {}", w.size_kb);
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let wordlists_json: Vec<crate::serde_json::Value> =
+                filtered.iter().map(|w| wordlist_info_to_json(w)).collect();
+            Output::json_value(&json!({
+                "total": filtered.len(),
+                "wordlists": wordlists_json
+            }));
             return Ok(());
         }
 
@@ -292,20 +285,15 @@ impl WordlistCommand {
                 };
 
                 if is_json {
-                    println!("{{");
-                    println!("  \"name\": \"{}\",", name.replace('"', "\\\""));
-                    println!("  \"lines\": {},", wordlist.len());
-                    println!("  \"size_bytes\": {},", size_bytes);
-                    println!("  \"size_kb\": {},", size_kb);
-                    println!("  \"source\": \"{}\",", source);
-                    println!("  \"preview\": [");
-                    let preview: Vec<_> = wordlist.iter().take(10).collect();
-                    for (i, entry) in preview.iter().enumerate() {
-                        let comma = if i < preview.len() - 1 { "," } else { "" };
-                        println!("    \"{}\"{}", entry.replace('"', "\\\""), comma);
-                    }
-                    println!("  ]");
-                    println!("}}");
+                    let preview: Vec<String> = wordlist.iter().take(10).cloned().collect();
+                    Output::json_value(&json!({
+                        "name": name.clone(),
+                        "lines": wordlist.len(),
+                        "size_bytes": size_bytes,
+                        "size_kb": size_kb,
+                        "source": source,
+                        "preview": preview
+                    }));
                     return Ok(());
                 }
 
@@ -336,11 +324,11 @@ impl WordlistCommand {
             }
             Err(e) => {
                 if is_json {
-                    println!("{{");
-                    println!("  \"success\": false,");
-                    println!("  \"error\": \"{}\",", e.replace('"', "\\\""));
-                    println!("  \"name\": \"{}\"", name.replace('"', "\\\""));
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "success": false,
+                        "error": e.clone(),
+                        "name": name.clone()
+                    }));
                 } else {
                     Output::error(&format!("Failed to load wordlist: {}", e));
                 }
@@ -369,20 +357,18 @@ impl WordlistCommand {
         let cached_count = wordlists.iter().filter(|w| w.source == "cached").count();
 
         if is_json {
-            println!("{{");
-            println!(
-                "  \"cache_directory\": \"{}\",",
-                cache_dir.display().to_string().replace('"', "\\\"")
-            );
-            println!("  \"directory_exists\": {},", dir_exists);
-            println!("  \"cache_size_bytes\": {},", cache_size);
-            println!("  \"cache_size_mb\": {},", size_mb);
-            println!("  \"counts\": {{");
-            println!("    \"embedded\": {},", embedded_count);
-            println!("    \"cached\": {},", cached_count);
-            println!("    \"total\": {}", embedded_count + cached_count);
-            println!("  }}");
-            println!("}}");
+            let counts_json = json!({
+                "embedded": embedded_count,
+                "cached": cached_count,
+                "total": embedded_count + cached_count
+            });
+            Output::json_value(&json!({
+                "cache_directory": cache_dir.display().to_string(),
+                "directory_exists": dir_exists,
+                "cache_size_bytes": cache_size,
+                "cache_size_mb": size_mb,
+                "counts": counts_json
+            }));
             return Ok(());
         }
 
@@ -473,11 +459,11 @@ impl WordlistCommand {
                 sources.into_iter().filter(|s| s.category == c).collect()
             } else {
                 if is_json {
-                    println!("{{");
-                    println!("  \"success\": false,");
-                    println!("  \"error\": \"unknown_category\",");
-                    println!("  \"category\": \"{}\"", cat.replace('"', "\\\""));
-                    println!("}}");
+                    Output::json_value(&json!({
+                        "success": false,
+                        "error": "unknown_category",
+                        "category": cat.clone()
+                    }));
                 } else {
                     Output::warning(&format!("Unknown category: {}", cat));
                     println!("Available: passwords, subdomains, dirs, usernames, vhosts");
@@ -489,31 +475,14 @@ impl WordlistCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"total\": {},", filtered.len());
-            println!("  \"sources\": [");
-            for (i, s) in filtered.iter().enumerate() {
-                let comma = if i < filtered.len() - 1 { "," } else { "" };
-                let cat = match s.category {
-                    WordlistCategory::Passwords => "passwords",
-                    WordlistCategory::Subdomains => "subdomains",
-                    WordlistCategory::Directories => "directories",
-                    WordlistCategory::Usernames => "usernames",
-                    WordlistCategory::Vhosts => "vhosts",
-                    WordlistCategory::Mixed => "mixed",
-                };
-                println!("    {{");
-                println!("      \"name\": \"{}\",", s.name.replace('"', "\\\""));
-                println!("      \"category\": \"{}\",", cat);
-                println!("      \"size_hint\": \"{}\",", s.size_hint);
-                println!(
-                    "      \"description\": \"{}\"",
-                    s.description.replace('"', "\\\"")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let sources_json: Vec<crate::serde_json::Value> = filtered
+                .iter()
+                .map(|s| wordlist_source_to_json(s))
+                .collect();
+            Output::json_value(&json!({
+                "total": filtered.len(),
+                "sources": sources_json
+            }));
             return Ok(());
         }
 
@@ -583,32 +552,13 @@ impl WordlistCommand {
         let results = downloader.search_sources(query);
 
         if is_json {
-            println!("{{");
-            println!("  \"query\": \"{}\",", query.replace('"', "\\\""));
-            println!("  \"total\": {},", results.len());
-            println!("  \"results\": [");
-            for (i, s) in results.iter().enumerate() {
-                let comma = if i < results.len() - 1 { "," } else { "" };
-                let cat = match s.category {
-                    WordlistCategory::Passwords => "passwords",
-                    WordlistCategory::Subdomains => "subdomains",
-                    WordlistCategory::Directories => "directories",
-                    WordlistCategory::Usernames => "usernames",
-                    WordlistCategory::Vhosts => "vhosts",
-                    WordlistCategory::Mixed => "mixed",
-                };
-                println!("    {{");
-                println!("      \"name\": \"{}\",", s.name.replace('"', "\\\""));
-                println!("      \"category\": \"{}\",", cat);
-                println!("      \"size_hint\": \"{}\",", s.size_hint);
-                println!(
-                    "      \"description\": \"{}\"",
-                    s.description.replace('"', "\\\"")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let results_json: Vec<crate::serde_json::Value> =
+                results.iter().map(|s| wordlist_source_to_json(s)).collect();
+            Output::json_value(&json!({
+                "query": query.clone(),
+                "total": results.len(),
+                "results": results_json
+            }));
             return Ok(());
         }
 
@@ -815,11 +765,11 @@ impl WordlistFileCommand {
 
         if !path.exists() {
             if is_json {
-                println!("{{");
-                println!("  \"success\": false,");
-                println!("  \"error\": \"File not found\",");
-                println!("  \"path\": \"{}\"", path_str.replace('"', "\\\""));
-                println!("}}");
+                Output::json_value(&json!({
+                    "success": false,
+                    "error": "File not found",
+                    "path": path_str.clone()
+                }));
             }
             return Err(format!("File not found: {}", path_str));
         }
@@ -837,22 +787,17 @@ impl WordlistFileCommand {
         let stats = Analyzer::analyze(&lines);
 
         if is_json {
-            println!("{{");
-            println!("  \"path\": \"{}\",", path_str.replace('"', "\\\""));
-            println!("  \"line_count\": {},", stats.line_count);
-            println!("  \"unique_count\": {},", stats.unique_count);
-            println!("  \"avg_length\": {:.1},", stats.avg_length);
-            println!("  \"min_length\": {},", stats.min_length);
-            println!("  \"max_length\": {},", stats.max_length);
-            println!("  \"charset\": \"{}\",", stats.charset);
-            println!("  \"preview\": [");
-            let preview: Vec<_> = lines.iter().take(10).collect();
-            for (i, line) in preview.iter().enumerate() {
-                let comma = if i < preview.len() - 1 { "," } else { "" };
-                println!("    \"{}\"{}", line.replace('"', "\\\""), comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let preview: Vec<String> = lines.iter().take(10).cloned().collect();
+            Output::json_value(&json!({
+                "path": path_str.clone(),
+                "line_count": stats.line_count,
+                "unique_count": stats.unique_count,
+                "avg_length": stats.avg_length,
+                "min_length": stats.min_length,
+                "max_length": stats.max_length,
+                "charset": stats.charset.clone(),
+                "preview": preview
+            }));
             return Ok(());
         }
 
@@ -1056,20 +1001,15 @@ impl WordlistIntelCommand {
         let recommendations = ContextResolver::recommended_wordlists(&context);
 
         if is_json {
-            println!("{{");
-            println!("  \"context\": \"{:?}\",", context);
-            println!("  \"size\": \"{:?}\",", size);
-            println!("  \"wordlists\": [");
-            for (i, name) in recommendations.iter().enumerate() {
-                let comma = if i < recommendations.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    \"{}\"{}", name, comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let wordlists: Vec<String> = recommendations
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect();
+            Output::json_value(&json!({
+                "context": format!("{:?}", context),
+                "size": format!("{:?}", size),
+                "wordlists": wordlists
+            }));
             return Ok(());
         }
 
@@ -1160,11 +1100,11 @@ impl WordlistIntelCommand {
         Output::info("Learned words are captured during scans with --learn-words flag");
 
         if is_json {
-            println!("{{");
-            println!("  \"learned_words\": [],");
-            println!("  \"total\": 0,");
-            println!("  \"note\": \"No learned words available. Run a scan with --learn-words to collect vocabulary.\"");
-            println!("}}");
+            Output::json_value(&json!({
+                "learned_words": [],
+                "total": 0,
+                "note": "No learned words available. Run a scan with --learn-words to collect vocabulary."
+            }));
         } else {
             Output::header("Learned Words");
             println!("\n  No learned words found in storage.");
@@ -1205,10 +1145,10 @@ impl WordlistIntelCommand {
 
         if result.is_empty() {
             if is_json {
-                println!("{{");
-                println!("  \"words\": [],");
-                println!("  \"total\": 0");
-                println!("}}");
+                Output::json_value(&json!({
+                    "words": [],
+                    "total": 0
+                }));
             } else {
                 Output::warning("No words extracted from content");
             }
@@ -1221,21 +1161,20 @@ impl WordlistIntelCommand {
         let scores = engine.top_words(top_n);
 
         if is_json {
-            println!("{{");
-            println!("  \"source\": \"{}\",", path_str.replace('"', "\\\""));
-            println!("  \"total_extracted\": {},", result.all_words.len());
-            println!("  \"words\": [");
-            for (i, word) in scores.iter().enumerate() {
-                let comma = if i < scores.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"word\": \"{}\", \"score\": {:.4}}}{}",
-                    word.word.replace('"', "\\\""),
-                    word.tfidf,
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let words_json: Vec<crate::serde_json::Value> = scores
+                .iter()
+                .map(|word| {
+                    json!({
+                        "word": word.word.clone(),
+                        "score": word.tfidf
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "source": path_str.clone(),
+                "total_extracted": result.all_words.len(),
+                "words": words_json
+            }));
             return Ok(());
         }
 
@@ -1270,23 +1209,13 @@ impl WordlistIntelCommand {
         let checkpoints = manager.list_checkpoints();
 
         if is_json {
-            println!("{{");
-            println!("  \"checkpoints\": [");
-            for (i, cp) in checkpoints.iter().enumerate() {
-                let comma = if i < checkpoints.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"scan_id\": \"{}\",", cp.scan_id);
-                println!(
-                    "      \"target\": \"{}\",",
-                    cp.target_url.replace('"', "\\\"")
-                );
-                println!("      \"progress\": {:.1},", cp.progress_percent);
-                println!("      \"requests\": {},", cp.requests_made);
-                println!("      \"elapsed\": \"{}\"", cp.elapsed_string());
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let checkpoints_json: Vec<crate::serde_json::Value> = checkpoints
+                .iter()
+                .map(|cp| checkpoint_info_to_json(cp))
+                .collect();
+            Output::json_value(&json!({
+                "checkpoints": checkpoints_json
+            }));
             return Ok(());
         }
 
@@ -1328,4 +1257,49 @@ impl WordlistIntelCommand {
 
         Ok(())
     }
+}
+
+fn wordlist_category_name(category: WordlistCategory) -> &'static str {
+    match category {
+        WordlistCategory::Passwords => "passwords",
+        WordlistCategory::Subdomains => "subdomains",
+        WordlistCategory::Directories => "directories",
+        WordlistCategory::Usernames => "usernames",
+        WordlistCategory::Vhosts => "vhosts",
+        WordlistCategory::Mixed => "mixed",
+    }
+}
+
+fn wordlist_info_to_json(
+    info: &crate::wordlists::manager::WordlistInfo,
+) -> crate::serde_json::Value {
+    json!({
+        "name": info.name.clone(),
+        "source": info.source.clone(),
+        "line_count": info.line_count,
+        "size_kb": info.size_kb
+    })
+}
+
+fn wordlist_source_to_json(
+    source: &crate::wordlists::downloader::WordlistSource,
+) -> crate::serde_json::Value {
+    json!({
+        "name": source.name,
+        "category": wordlist_category_name(source.category),
+        "size_hint": source.size_hint,
+        "description": source.description
+    })
+}
+
+fn checkpoint_info_to_json(
+    checkpoint: &crate::modules::web::fuzzer::resume::CheckpointInfo,
+) -> crate::serde_json::Value {
+    json!({
+        "scan_id": checkpoint.scan_id.to_string(),
+        "target": checkpoint.target_url.clone(),
+        "progress": checkpoint.progress_percent,
+        "requests": checkpoint.requests_made,
+        "elapsed": checkpoint.elapsed_string()
+    })
 }

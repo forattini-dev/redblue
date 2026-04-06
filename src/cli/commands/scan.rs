@@ -10,6 +10,7 @@ use crate::config;
 use crate::intelligence::{
     banner_analysis, os_probes, os_signatures, service_detection, timing_analysis,
 };
+use crate::json;
 use crate::modules::network::highspeed::{
     DeduplicationCache, RandomScanIterator, ScanRange, SynCookie, TokenBucket,
 };
@@ -377,32 +378,16 @@ impl ScanCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target);
-            println!("  \"preset\": \"{}\",", preset);
-            println!("  \"open_count\": {},", open_ports.len());
-            println!("  \"ports\": [");
-            for (i, result) in open_ports.iter().enumerate() {
-                let comma = if i < open_ports.len() - 1 { "," } else { "" };
-                println!("    {{");
-                println!("      \"port\": {},", result.port);
-                println!(
-                    "      \"service\": \"{}\",",
-                    result.service.as_deref().unwrap_or("unknown")
-                );
-                if let Some(banner) = &result.banner {
-                    let banner_escaped = banner
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\n', "\\n");
-                    println!("      \"banner\": \"{}\"", banner_escaped);
-                } else {
-                    println!("      \"banner\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let ports_json: Vec<_> = open_ports
+                .iter()
+                .map(|result| port_result_to_json(result))
+                .collect();
+            Output::json_value(&json!({
+                "target": target.to_string(),
+                "preset": preset,
+                "open_count": open_ports.len(),
+                "ports": ports_json
+            }));
             return Ok(());
         }
 
@@ -692,34 +677,20 @@ impl ScanCommand {
 
         // JSON output
         if format == OutputFormat::Json {
-            println!("{{");
-            println!(
-                "  \"target\": \"{}\",",
-                target.to_string().replace('"', "\\\"")
-            );
-            println!("  \"range_start\": {},", start);
-            println!("  \"range_end\": {},", end);
-            println!("  \"threads\": {},", threads);
-            println!("  \"timeout_ms\": {},", timeout);
-            println!("  \"total_scanned\": {},", end - start + 1);
-            println!("  \"open_count\": {},", open_ports.len());
-            println!("  \"ports\": [");
-            for (i, result) in open_ports.iter().enumerate() {
-                let comma = if i < open_ports.len() - 1 { "," } else { "" };
-                let service = result.service.as_deref().unwrap_or("unknown");
-                let banner = result.banner.as_deref().unwrap_or("");
-                println!("    {{");
-                println!("      \"port\": {},", result.port);
-                println!("      \"state\": \"open\",");
-                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
-                println!(
-                    "      \"banner\": \"{}\"",
-                    banner.replace('"', "\\\"").replace('\n', " ")
-                );
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let ports_json: Vec<_> = open_ports
+                .iter()
+                .map(|result| range_result_to_json(result))
+                .collect();
+            Output::json_value(&json!({
+                "target": target.to_string(),
+                "range_start": start,
+                "range_end": end,
+                "threads": threads,
+                "timeout_ms": timeout,
+                "total_scanned": end - start + 1,
+                "open_count": open_ports.len(),
+                "ports": ports_json
+            }));
             return Ok(());
         }
 
@@ -1139,40 +1110,20 @@ impl ScanCommand {
                 ScanType::Udp => "udp",
                 _ => "advanced",
             };
-            println!("{{");
-            println!("  \"scan_type\": \"{}\",", scan_type_str);
-            println!(
-                "  \"target\": \"{}\",",
-                target.to_string().replace('"', "\\\"")
-            );
-            println!("  \"preset\": \"{}\",", preset);
-            println!("  \"threads\": {},", threads);
-            println!("  \"timeout_ms\": {},", timeout);
-            println!("  \"total_scanned\": {},", ports.len());
-            println!("  \"interesting_count\": {},", interesting.len());
-            println!("  \"ports\": [");
-            for (i, result) in interesting.iter().enumerate() {
-                let comma = if i < interesting.len() - 1 { "," } else { "" };
-                let service = result.service.as_deref().unwrap_or("");
-                let state_str = format!("{}", result.state);
-                println!("    {{");
-                println!("      \"port\": {},", result.port);
-                println!("      \"state\": \"{}\",", state_str);
-                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
-                if let Some(rtt) = result.rtt_ms {
-                    println!("      \"rtt_ms\": {:.2},", rtt);
-                } else {
-                    println!("      \"rtt_ms\": null,");
-                }
-                if let Some(ttl) = result.ttl {
-                    println!("      \"ttl\": {}", ttl);
-                } else {
-                    println!("      \"ttl\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let ports_json: Vec<_> = interesting
+                .iter()
+                .map(|result| advanced_result_to_json(result))
+                .collect();
+            Output::json_value(&json!({
+                "scan_type": scan_type_str,
+                "target": target.to_string(),
+                "preset": preset,
+                "threads": threads,
+                "timeout_ms": timeout,
+                "total_scanned": ports.len(),
+                "interesting_count": interesting.len(),
+                "ports": ports_json
+            }));
             return Ok(());
         }
 
@@ -1380,40 +1331,21 @@ impl ScanCommand {
                 ScanType::Xmas => "xmas",
                 _ => "stealth",
             };
-            println!("{{");
-            println!("  \"scan_type\": \"{}\",", scan_type_str);
-            println!(
-                "  \"target\": \"{}\",",
-                target.to_string().replace('"', "\\\"")
-            );
-            println!("  \"preset\": \"{}\",", preset);
-            println!("  \"threads\": {},", threads);
-            println!("  \"timeout_ms\": {},", timeout);
-            println!("  \"total_scanned\": {},", ports.len());
-            println!("  \"open_filtered_count\": {},", open_filtered.len());
-            println!("  \"closed_count\": {},", closed.len());
-            println!("  \"open_filtered_ports\": [");
-            for (i, result) in open_filtered.iter().enumerate() {
-                let comma = if i < open_filtered.len() - 1 { "," } else { "" };
-                let service = result.service.as_deref().unwrap_or("");
-                println!("    {{");
-                println!("      \"port\": {},", result.port);
-                println!("      \"state\": \"open|filtered\",");
-                println!("      \"service\": \"{}\",", service.replace('"', "\\\""));
-                if let Some(rtt) = result.rtt_ms {
-                    println!("      \"rtt_ms\": {:.2},", rtt);
-                } else {
-                    println!("      \"rtt_ms\": null,");
-                }
-                if let Some(ttl) = result.ttl {
-                    println!("      \"ttl\": {}", ttl);
-                } else {
-                    println!("      \"ttl\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let open_filtered_json: Vec<_> = open_filtered
+                .iter()
+                .map(|result| advanced_result_to_json(result))
+                .collect();
+            Output::json_value(&json!({
+                "scan_type": scan_type_str,
+                "target": target.to_string(),
+                "preset": preset,
+                "threads": threads,
+                "timeout_ms": timeout,
+                "total_scanned": ports.len(),
+                "open_filtered_count": open_filtered.len(),
+                "closed_count": closed.len(),
+                "open_filtered_ports": open_filtered_json
+            }));
             return Ok(());
         }
 
@@ -1632,6 +1564,39 @@ impl ScanCommand {
 
         Ok(())
     }
+}
+
+fn port_result_to_json(
+    result: &crate::modules::network::scanner::PortScanResult,
+) -> crate::serde_json::Value {
+    json!({
+        "port": result.port,
+        "service": result.service.clone().unwrap_or_else(|| "unknown".to_string()),
+        "banner": result.banner.clone()
+    })
+}
+
+fn range_result_to_json(
+    result: &crate::modules::network::scanner::PortScanResult,
+) -> crate::serde_json::Value {
+    json!({
+        "port": result.port,
+        "state": "open",
+        "service": result.service.clone().unwrap_or_else(|| "unknown".to_string()),
+        "banner": result.banner.clone().unwrap_or_default().replace('\n', " ")
+    })
+}
+
+fn advanced_result_to_json(
+    result: &crate::modules::network::scanner::AdvancedScanResult,
+) -> crate::serde_json::Value {
+    json!({
+        "port": result.port,
+        "state": format!("{}", result.state),
+        "service": result.service.clone().unwrap_or_default(),
+        "rtt_ms": result.rtt_ms,
+        "ttl": result.ttl
+    })
 }
 
 /// Parse port specification like "1-1000,8080,8443"

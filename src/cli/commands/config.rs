@@ -7,6 +7,7 @@ use super::{Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::terminal::{confirm, read_password_with_confirm};
 use crate::cli::CliContext;
+use crate::json;
 use crate::storage::keyring::{clear_keyring, has_keyring_password, save_to_keyring};
 
 pub struct ConfigDatabaseCommand;
@@ -187,15 +188,15 @@ impl ConfigDatabaseCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"auto_persist\": {},", config.database.auto_persist);
-            println!("  \"auto_name\": {},", config.database.auto_name);
-            println!("  \"db_dir\": \"{}\",", db_dir.replace('"', "\\\""));
-            println!("  \"password_status\": {{");
-            println!("    \"keyring\": {},", has_keyring);
-            println!("    \"environment\": {}", has_env);
-            println!("  }}");
-            println!("}}");
+            Output::json_value(&json!({
+                "auto_persist": config.database.auto_persist,
+                "auto_name": config.database.auto_name,
+                "db_dir": db_dir,
+                "password_status": json!({
+                    "keyring": has_keyring,
+                    "environment": has_env
+                })
+            }));
             return Ok(());
         }
 

@@ -1,6 +1,7 @@
 /// Network/trace command - Traceroute and MTR functionality
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::json;
 use crate::modules::network::traceroute::{Mtr, Traceroute};
 
 pub struct TraceCommand;
@@ -141,40 +142,27 @@ impl TraceCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"config\": {{");
-            println!("    \"max_hops\": {},", max_hops);
-            println!("    \"timeout_ms\": {},", timeout_ms);
-            println!("    \"dns_resolve\": {}", dns_resolve);
-            println!("  }},");
-            println!("  \"total_hops\": {},", hops.len());
-            println!("  \"hops\": [");
-
-            for (i, hop) in hops.iter().enumerate() {
-                let comma = if i < hops.len() - 1 { "," } else { "" };
-                let hostname = hop
-                    .hostname
-                    .as_ref()
-                    .map(|h| format!("\"{}\"", h.replace('"', "\\\"")))
-                    .unwrap_or_else(|| "null".to_string());
-                let ip = hop
-                    .ip
-                    .map(|addr| format!("\"{}\"", addr))
-                    .unwrap_or_else(|| "null".to_string());
-                let latency = hop
-                    .latency_ms
-                    .map(|ms| format!("{:.3}", ms))
-                    .unwrap_or_else(|| "null".to_string());
-
-                println!(
-                    "    {{\"ttl\": {}, \"hostname\": {}, \"ip\": {}, \"latency_ms\": {}}}{}",
-                    hop.ttl, hostname, ip, latency, comma
-                );
-            }
-
-            println!("  ]");
-            println!("}}");
+            let hops_json: Vec<_> = hops
+                .iter()
+                .map(|hop| {
+                    json!({
+                        "ttl": hop.ttl,
+                        "hostname": hop.hostname.clone(),
+                        "ip": hop.ip.map(|addr| addr.to_string()),
+                        "latency_ms": hop.latency_ms,
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "target": target,
+                "config": json!({
+                    "max_hops": max_hops,
+                    "timeout_ms": timeout_ms,
+                    "dns_resolve": dns_resolve,
+                }),
+                "total_hops": hops.len(),
+                "hops": hops_json,
+            }));
             return Ok(());
         }
 
@@ -275,44 +263,33 @@ impl TraceCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"target\": \"{}\",", target.replace('"', "\\\""));
-            println!("  \"config\": {{");
-            println!("    \"max_hops\": {},", max_hops);
-            println!("    \"timeout_ms\": {},", timeout_ms);
-            println!("    \"iterations\": {},", iterations);
-            println!("    \"dns_resolve\": {}", dns_resolve);
-            println!("  }},");
-            println!("  \"total_hops\": {},", stats.len());
-            println!("  \"hops\": [");
-
-            for (i, hop_stat) in stats.iter().enumerate() {
-                let comma = if i < stats.len() - 1 { "," } else { "" };
-                let hostname = hop_stat
-                    .hostname
-                    .as_ref()
-                    .map(|h| format!("\"{}\"", h.replace('"', "\\\"")))
-                    .unwrap_or_else(|| "null".to_string());
-                let ip = hop_stat
-                    .ip
-                    .map(|addr| format!("\"{}\"", addr))
-                    .unwrap_or_else(|| "null".to_string());
-
-                println!("    {{");
-                println!("      \"ttl\": {},", hop_stat.ttl);
-                println!("      \"hostname\": {},", hostname);
-                println!("      \"ip\": {},", ip);
-                println!("      \"sent\": {},", hop_stat.sent);
-                println!("      \"received\": {},", hop_stat.received);
-                println!("      \"loss_percent\": {:.2},", hop_stat.loss_percent());
-                println!("      \"min_latency_ms\": {:.3},", hop_stat.min_latency());
-                println!("      \"avg_latency_ms\": {:.3},", hop_stat.avg_latency());
-                println!("      \"max_latency_ms\": {:.3}", hop_stat.max_latency());
-                println!("    }}{}", comma);
-            }
-
-            println!("  ]");
-            println!("}}");
+            let hops_json: Vec<_> = stats
+                .iter()
+                .map(|hop_stat| {
+                    json!({
+                        "ttl": hop_stat.ttl,
+                        "hostname": hop_stat.hostname.clone(),
+                        "ip": hop_stat.ip.map(|addr| addr.to_string()),
+                        "sent": hop_stat.sent,
+                        "received": hop_stat.received,
+                        "loss_percent": hop_stat.loss_percent(),
+                        "min_latency_ms": hop_stat.min_latency(),
+                        "avg_latency_ms": hop_stat.avg_latency(),
+                        "max_latency_ms": hop_stat.max_latency(),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "target": target,
+                "config": json!({
+                    "max_hops": max_hops,
+                    "timeout_ms": timeout_ms,
+                    "iterations": iterations,
+                    "dns_resolve": dns_resolve,
+                }),
+                "total_hops": stats.len(),
+                "hops": hops_json,
+            }));
             return Ok(());
         }
 

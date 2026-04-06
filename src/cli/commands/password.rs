@@ -5,6 +5,7 @@
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::password::{
     detect_format, format_hash, parse_hash, verify_hash, AttackMode, Cracker, HashFormat,
     MaskGenerator, RuleEngine,
@@ -176,35 +177,41 @@ impl PasswordCommand {
             .as_ref()
             .ok_or("Missing hash. Usage: rb password hash identify <hash>")?;
 
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let detected = detect_format(hash);
         let parsed = parse_hash(hash);
 
         if is_json {
-            println!("{{");
-            println!("  \"hash\": \"{}\",", hash.replace('"', "\\\""));
-            if let Some(fmt) = &detected {
-                println!("  \"format\": \"{}\",", fmt.name());
-                println!("  \"hashcat_mode\": {},", fmt.hashcat_mode());
-                println!("  \"salted\": {},", fmt.is_salted());
-                println!("  \"slow\": {},", fmt.is_slow());
-                if let Some(len) = fmt.hash_length() {
-                    println!("  \"expected_length\": {},", len);
-                }
+            let detected_json = if let Some(fmt) = detected {
+                json!({
+                    "name": fmt.name(),
+                    "hashcat_mode": fmt.hashcat_mode(),
+                    "salted": fmt.is_salted(),
+                    "slow": fmt.is_slow(),
+                    "expected_length": fmt.hash_length()
+                })
             } else {
-                println!("  \"format\": null,");
-            }
-            if let Some(info) = &parsed {
-                if let Some(salt) = &info.salt {
-                    println!("  \"salt\": \"{}\",", salt.replace('"', "\\\""));
-                }
-                if let Some(rounds) = info.rounds {
-                    println!("  \"rounds\": {},", rounds);
-                }
-            }
-            println!("}}");
+                json!(null)
+            };
+
+            let parsed_json = if let Some(info) = &parsed {
+                json!({
+                    "format": info.format.name(),
+                    "hash": info.hash.clone(),
+                    "salt": info.salt.clone(),
+                    "rounds": info.rounds,
+                    "username": info.username.clone()
+                })
+            } else {
+                json!(null)
+            };
+
+            Output::json_value(&json!({
+                "hash": hash.clone(),
+                "detected": detected_json,
+                "parsed": parsed_json
+            }));
             return Ok(());
         }
 
@@ -249,6 +256,7 @@ impl PasswordCommand {
             .target
             .as_ref()
             .ok_or("Missing hash or hash file. Usage: rb password hash crack <target>")?;
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         // Check if target is a file or a hash
         let hashes: Vec<String> = if Path::new(target).exists() {
@@ -292,41 +300,43 @@ impl PasswordCommand {
             }
             (None, None, None) => {
                 // Try quick crack with common passwords
-                return self.quick_crack(&hashes, ctx);
+                return self.quick_crack(target, &hashes, ctx);
             }
             _ => {
                 return Err("Invalid combination of arguments".to_string());
             }
         };
 
-        Output::header("Password Hash Cracker");
-        Output::item("Target", target);
-        Output::item("Hashes", &hashes.len().to_string());
-        Output::item("Mode", mode.name());
+        if !is_json {
+            Output::header("Password Hash Cracker");
+            Output::item("Target", target);
+            Output::item("Hashes", &hashes.len().to_string());
+            Output::item("Mode", mode.name());
 
-        if let Some(wl) = &wordlist {
-            Output::item("Wordlist", wl);
+            if let Some(wl) = &wordlist {
+                Output::item("Wordlist", wl);
+            }
+            if let Some(m) = &mask {
+                Output::item("Mask", m);
+                let gen = MaskGenerator::from_pattern(m);
+                Output::item("Keyspace", &format!("{}", gen.keyspace()));
+            }
+            if let Some(wl2) = &second_wordlist {
+                Output::item("Second wordlist", wl2);
+            }
+            println!();
         }
-        if let Some(m) = &mask {
-            Output::item("Mask", m);
-            let gen = MaskGenerator::from_pattern(m);
-            Output::item("Keyspace", &format!("{}", gen.keyspace()));
-        }
-        if let Some(wl2) = &second_wordlist {
-            Output::item("Second wordlist", wl2);
-        }
-        println!();
 
         // Build cracker
         let mut cracker = Cracker::new().mode(mode);
 
-        if let Some(wl) = wordlist {
+        if let Some(wl) = wordlist.as_ref() {
             cracker = cracker.wordlist(&wl);
         }
-        if let Some(wl2) = second_wordlist {
+        if let Some(wl2) = second_wordlist.as_ref() {
             cracker = cracker.second_wordlist(&wl2);
         }
-        if let Some(m) = mask {
+        if let Some(m) = mask.as_ref() {
             cracker = cracker.mask(&m);
         }
 
@@ -370,14 +380,60 @@ impl PasswordCommand {
             cracker.add_hash(hash);
         }
 
-        Output::spinner_start("Cracking hashes");
+        if !is_json {
+            Output::spinner_start("Cracking hashes");
+        }
         let start = Instant::now();
 
         // Run attack
         let (results, stats) = cracker.run();
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
         let elapsed = start.elapsed();
+
+        if is_json {
+            let mask_analysis = mask.as_ref().map(|pattern| {
+                json!({
+                    "pattern": pattern.clone(),
+                    "keyspace": MaskGenerator::from_pattern(pattern).keyspace(),
+                    "length": pattern.matches('?').count()
+                })
+            });
+            let results_json: Vec<_> = results.iter().map(crack_result_to_json).collect();
+            let rules_value = if let Some(rules) = ctx.get_flag("rules") {
+                json!(rules
+                    .split(',')
+                    .map(|rule| rule.trim().to_string())
+                    .collect::<Vec<_>>())
+            } else {
+                json!(null)
+            };
+
+            Output::json_value(&json!({
+                "target": target.clone(),
+                "mode": json!({
+                    "name": mode.name(),
+                    "hashcat_mode": mode.hashcat_mode()
+                }),
+                "hashes": hashes.clone(),
+                "wordlist": wordlist.clone(),
+                "wordlist2": second_wordlist.clone(),
+                "mask": mask_analysis,
+                "rules": rules_value,
+                "results": results_json,
+                "stats": json!({
+                    "total_hashes": stats.total_hashes,
+                    "cracked": stats.cracked,
+                    "crack_rate_percent": stats.crack_rate(),
+                    "candidates_tested": stats.candidates_tested,
+                    "duration_seconds": elapsed.as_secs_f64(),
+                    "speed_hps": stats.speed()
+                })
+            }));
+            return Ok(());
+        }
 
         println!();
         Output::subheader("Results");
@@ -402,22 +458,63 @@ impl PasswordCommand {
         Ok(())
     }
 
-    fn quick_crack(&self, hashes: &[String], ctx: &CliContext) -> Result<(), String> {
-        Output::header("Quick Crack (Common Passwords)");
-        Output::item("Hashes", &hashes.len().to_string());
-        println!();
+    fn quick_crack(&self, target: &str, hashes: &[String], ctx: &CliContext) -> Result<(), String> {
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
+
+        if !is_json {
+            Output::header("Quick Crack (Common Passwords)");
+            Output::item("Hashes", &hashes.len().to_string());
+            println!();
+        }
 
         let start = Instant::now();
         let mut cracked = 0;
+        let mut results = Vec::new();
 
         for hash in hashes {
             if let Some(password) = Cracker::quick_crack(hash) {
-                Output::success(&format!("{} : {}", hash, password));
+                if !is_json {
+                    Output::success(&format!("{} : {}", hash, password));
+                }
                 cracked += 1;
+                results.push(json!({
+                    "hash": hash.clone(),
+                    "password": password,
+                    "format": detect_format(hash).map(|fmt| fmt.name().to_string())
+                }));
             }
         }
 
         let elapsed = start.elapsed();
+
+        if is_json {
+            Output::json_value(&json!({
+                "target": target.to_string(),
+                "mode": json!({
+                    "name": "Quick",
+                    "hashcat_mode": crate::serde_json::Value::Null
+                }),
+                "hashes": hashes.to_vec(),
+                "results": results,
+                "stats": json!({
+                    "total_hashes": hashes.len(),
+                    "cracked": cracked,
+                    "crack_rate_percent": if hashes.is_empty() {
+                        0.0
+                    } else {
+                        (cracked as f64 / hashes.len() as f64) * 100.0
+                    },
+                    "duration_seconds": elapsed.as_secs_f64()
+                }),
+                "suggested_command": if cracked == 0 {
+                    Some("rb password hash crack <hash> -w wordlist.txt".to_string())
+                } else {
+                    None::<String>
+                }
+            }));
+            return Ok(());
+        }
+
         println!();
 
         if cracked == 0 {
@@ -443,19 +540,18 @@ impl PasswordCommand {
             .get(0)
             .ok_or("Missing password. Usage: rb password hash verify <hash> <password>")?;
 
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let info = parse_hash(hash).ok_or("Could not parse hash")?;
         let matches = verify_hash(password, &info);
 
         if is_json {
-            println!("{{");
-            println!("  \"hash\": \"{}\",", hash.replace('"', "\\\""));
-            println!("  \"password\": \"{}\",", password.replace('"', "\\\""));
-            println!("  \"format\": \"{}\",", info.format.name());
-            println!("  \"matches\": {}", matches);
-            println!("}}");
+            Output::json_value(&json!({
+                "hash": hash.clone(),
+                "password": password.clone(),
+                "format": info.format.name(),
+                "matches": matches
+            }));
             return Ok(());
         }
 
@@ -485,17 +581,16 @@ impl PasswordCommand {
         let format = parse_hash_type(&hash_type)
             .ok_or_else(|| format!("Unknown hash type: {}", hash_type))?;
 
-        let output_format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = output_format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let hash = format_hash(password, format, None);
 
         if is_json {
-            println!("{{");
-            println!("  \"password\": \"{}\",", password.replace('"', "\\\""));
-            println!("  \"format\": \"{}\",", format.name());
-            println!("  \"hash\": \"{}\"", hash);
-            println!("}}");
+            Output::json_value(&json!({
+                "password": password.clone(),
+                "format": format.name(),
+                "hash": hash
+            }));
             return Ok(());
         }
 
@@ -510,13 +605,16 @@ impl PasswordCommand {
 
     fn benchmark(&self, ctx: &CliContext) -> Result<(), String> {
         let hash_type = ctx.get_flag("type").unwrap_or_else(|| "md5".to_string());
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let format = parse_hash_type(&hash_type)
             .ok_or_else(|| format!("Unknown hash type: {}", hash_type))?;
 
-        Output::header("Hash Benchmark");
-        Output::item("Format", format.name());
-        println!();
+        if !is_json {
+            Output::header("Hash Benchmark");
+            Output::item("Format", format.name());
+            println!();
+        }
 
         // Generate test hash
         let test_password = "benchmark_test_password";
@@ -525,7 +623,9 @@ impl PasswordCommand {
 
         // Benchmark
         let iterations = 100_000u64;
-        Output::spinner_start(&format!("Testing {} iterations", iterations));
+        if !is_json {
+            Output::spinner_start(&format!("Testing {} iterations", iterations));
+        }
 
         let start = Instant::now();
         for i in 0..iterations {
@@ -534,7 +634,9 @@ impl PasswordCommand {
         }
         let elapsed = start.elapsed();
 
-        Output::spinner_done();
+        if !is_json {
+            Output::spinner_done();
+        }
 
         let speed = iterations as f64 / elapsed.as_secs_f64();
 
@@ -561,6 +663,30 @@ impl PasswordCommand {
             ("10 all chars", 95u64.pow(10)),
         ];
 
+        if is_json {
+            let estimates: Vec<_> = keyspaces
+                .iter()
+                .map(|(name, keyspace)| {
+                    json!({
+                        "name": name.to_string(),
+                        "keyspace": *keyspace,
+                        "estimated_seconds": *keyspace as f64 / speed,
+                        "estimated_duration": format_duration(*keyspace as f64 / speed)
+                    })
+                })
+                .collect();
+
+            Output::json_value(&json!({
+                "format": format.name(),
+                "iterations": iterations,
+                "duration_seconds": elapsed.as_secs_f64(),
+                "speed_hps": speed,
+                "time_per_hash_us": elapsed.as_micros() as f64 / iterations as f64,
+                "keyspace_estimates": estimates
+            }));
+            return Ok(());
+        }
+
         for (name, keyspace) in keyspaces {
             let seconds = keyspace as f64 / speed;
             let time_str = format_duration(seconds);
@@ -576,18 +702,19 @@ impl PasswordCommand {
             .as_ref()
             .ok_or("Missing mask pattern. Usage: rb password hash mask '?l?l?l?d?d'")?;
 
-        let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-        let is_json = format == "json";
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
         let generator = MaskGenerator::from_pattern(pattern);
         let keyspace = generator.keyspace();
 
         if is_json {
-            println!("{{");
-            println!("  \"pattern\": \"{}\",", pattern.replace('"', "\\\""));
-            println!("  \"keyspace\": {},", keyspace);
-            println!("  \"length\": {}", pattern.matches('?').count());
-            println!("}}");
+            let sample_candidates: Vec<_> = MaskGenerator::from_pattern(pattern).take(5).collect();
+            Output::json_value(&json!({
+                "pattern": pattern.clone(),
+                "keyspace": keyspace,
+                "length": pattern.matches('?').count(),
+                "sample_candidates": sample_candidates
+            }));
             return Ok(());
         }
 
@@ -621,6 +748,70 @@ impl PasswordCommand {
 
     fn show_rules(&self, ctx: &CliContext) -> Result<(), String> {
         let preset = ctx.get_flag("preset");
+        let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
+
+        if is_json {
+            if let Some(preset_name) = preset.clone() {
+                let mut engine = RuleEngine::new();
+                engine.add_preset(&preset_name);
+                let sample_mutations: Vec<_> =
+                    engine.generate("password").into_iter().take(10).collect();
+                Output::json_value(&json!({
+                    "preset": preset_name,
+                    "rules_count": engine.len(),
+                    "sample_input": "password",
+                    "sample_mutations": sample_mutations
+                }));
+                return Ok(());
+            }
+
+            let categories = vec![
+                json!({
+                    "name": "case",
+                    "rules": vec!["l", "u", "c", "C", "t", "TN"]
+                }),
+                json!({
+                    "name": "append_prepend",
+                    "rules": vec!["$X", "^X"]
+                }),
+                json!({
+                    "name": "delete",
+                    "rules": vec!["[", "]", "DN"]
+                }),
+                json!({
+                    "name": "duplicate",
+                    "rules": vec!["d", "pN", "zN", "ZN", "q", "f"]
+                }),
+                json!({
+                    "name": "transform",
+                    "rules": vec!["r", "{", "}", "sXY", "@X"]
+                }),
+                json!({
+                    "name": "insert_swap",
+                    "rules": vec!["iNX", "oNX", "k", "K", "*NM"]
+                }),
+                json!({
+                    "name": "extract_truncate",
+                    "rules": vec!["xNM", "ONM", "'N"]
+                }),
+                json!({
+                    "name": "rejection_filters",
+                    "rules": vec!["<N", ">N", "!X", "/X"]
+                }),
+            ];
+            let presets = vec![
+                json!({"name": "best64", "description": "Common password mutations"}),
+                json!({"name": "toggles", "description": "Toggle case at each position"}),
+                json!({"name": "append_numbers", "description": "Append digits and years"}),
+                json!({"name": "append_symbols", "description": "Append special characters"}),
+            ];
+
+            Output::json_value(&json!({
+                "categories": categories,
+                "presets": presets
+            }));
+            return Ok(());
+        }
 
         Output::header("Password Mutation Rules");
 
@@ -749,4 +940,16 @@ fn format_duration(seconds: f64) -> String {
     } else {
         "centuries".to_string()
     }
+}
+
+fn crack_result_to_json(
+    result: &crate::modules::password::CrackResult,
+) -> crate::serde_json::Value {
+    json!({
+        "hash": result.hash.clone(),
+        "password": result.password.clone(),
+        "format": result.format.name(),
+        "duration_seconds": result.duration.as_secs_f64(),
+        "attempts": result.attempts
+    })
 }

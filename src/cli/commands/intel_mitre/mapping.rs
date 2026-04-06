@@ -4,8 +4,10 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::intel::{Confidence, Findings, TechniqueMapper};
 use crate::modules::recon::mitre::{CorrelationEngine, MitreClient};
+use crate::serde_json::Value;
 
 /// Map findings to MITRE ATT&CK techniques
 pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
@@ -67,7 +69,10 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
         && findings.banners.is_empty()
     {
         if is_json {
-            println!("{{\"error\": \"No findings provided\", \"techniques\": []}}");
+            Output::json_value(&json!({
+                "error": "No findings provided",
+                "techniques": [],
+            }));
             return Ok(());
         }
         Output::warning("No findings provided. Use flags to specify what to map:");
@@ -123,76 +128,35 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"input\": {{");
-        println!(
-            "    \"ports\": [{}],",
-            findings
-                .ports
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!(
-            "    \"cves\": [{}],",
-            findings
+        let techniques_json: Vec<_> = result
+            .techniques
+            .iter()
+            .map(|tech| {
+                json!({
+                    "technique_id": tech.technique_id.clone(),
+                    "name": tech.name.clone(),
+                    "tactic": tech.tactic.clone(),
+                    "confidence": confidence_label(tech.confidence),
+                    "reason": tech.reason.clone(),
+                    "source": tech.original_value.clone(),
+                })
+            })
+            .collect();
+        let input_json = json!({
+            "ports": findings.ports.clone(),
+            "cves": findings
                 .cves
                 .iter()
-                .map(|(id, _)| format!("\"{}\"", id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!(
-            "    \"technologies\": [{}],",
-            findings
-                .fingerprints
-                .iter()
-                .map(|s| format!("\"{}\"", s))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!(
-            "    \"banners\": [{}]",
-            findings
-                .banners
-                .iter()
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!("  }},");
-        println!(
-            "  \"unique_technique_ids\": [{}],",
-            result
-                .unique_technique_ids()
-                .iter()
-                .map(|s| format!("\"{}\"", s))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!("  \"techniques\": [");
-        let all_techs: Vec<_> = result.techniques.iter().collect();
-        for (i, tech) in all_techs.iter().enumerate() {
-            let conf_str = match tech.confidence {
-                Confidence::High => "high",
-                Confidence::Medium => "medium",
-                Confidence::Low => "low",
-            };
-            let comma = if i < all_techs.len() - 1 { "," } else { "" };
-            println!(
-                "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactic\": \"{}\", \"confidence\": \"{}\", \"reason\": \"{}\", \"source\": \"{}\"}}{}",
-                tech.technique_id,
-                tech.name.replace('"', "\\\""),
-                tech.tactic,
-                conf_str,
-                tech.reason.replace('"', "\\\""),
-                tech.original_value.replace('"', "\\\""),
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+                .map(|(id, _)| id.clone())
+                .collect::<Vec<_>>(),
+            "technologies": findings.fingerprints.clone(),
+            "banners": findings.banners.clone(),
+        });
+        Output::json_value(&json!({
+            "input": input_json,
+            "unique_technique_ids": result.unique_technique_ids(),
+            "techniques": techniques_json,
+        }));
         return Ok(());
     }
 
@@ -256,28 +220,22 @@ pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
         let techniques = mapper.map_port(port);
 
         if is_json {
-            println!("{{");
-            println!("  \"port\": {},", port);
-            println!("  \"techniques\": [");
-            for (i, tech) in techniques.iter().enumerate() {
-                let conf_str = match tech.confidence {
-                    Confidence::High => "high",
-                    Confidence::Medium => "medium",
-                    Confidence::Low => "low",
-                };
-                let comma = if i < techniques.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{\"technique_id\": \"{}\", \"name\": \"{}\", \"tactic\": \"{}\", \"confidence\": \"{}\", \"reason\": \"{}\"}}{}",
-                    tech.technique_id,
-                    tech.name.replace('"', "\\\""),
-                    tech.tactic,
-                    conf_str,
-                    tech.reason.replace('"', "\\\""),
-                    comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let techniques_json: Vec<_> = techniques
+                .iter()
+                .map(|tech| {
+                    json!({
+                        "technique_id": tech.technique_id.clone(),
+                        "name": tech.name.clone(),
+                        "tactic": tech.tactic.clone(),
+                        "confidence": confidence_label(tech.confidence),
+                        "reason": tech.reason.clone(),
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "port": port,
+                "techniques": techniques_json,
+            }));
             return Ok(());
         }
 
@@ -329,25 +287,6 @@ pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
     let techs = mapper.mapped_technologies();
 
     if is_json {
-        println!("{{");
-        println!("  \"total_ports\": {},", ports.len());
-        println!(
-            "  \"ports\": [{}],",
-            ports
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!(
-            "  \"technologies\": [{}],",
-            techs
-                .iter()
-                .map(|s| format!("\"{}\"", s))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!("  \"by_tactic\": {{");
         let tactics_order = [
             "Initial Access",
             "Execution",
@@ -362,30 +301,29 @@ pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
             "Exfiltration",
             "Impact",
         ];
-        let mut first_tactic = true;
+        let mut by_tactic_fields = Vec::new();
         for tactic in tactics_order {
             if let Some(entries) = by_tactic.get(tactic) {
-                if !first_tactic {
-                    println!(",");
-                }
-                first_tactic = false;
-                print!("    \"{}\": [", tactic);
-                for (i, (port, tech_id, name)) in entries.iter().enumerate() {
-                    let comma = if i < entries.len() - 1 { ", " } else { "" };
-                    print!(
-                        "{{\"port\": {}, \"technique_id\": \"{}\", \"name\": \"{}\"}}{}",
-                        port,
-                        tech_id,
-                        name.replace('"', "\\\""),
-                        comma
-                    );
-                }
-                print!("]");
+                let entries_json: Vec<_> = entries
+                    .iter()
+                    .map(|(port, tech_id, name)| {
+                        json!({
+                            "port": *port,
+                            "technique_id": tech_id.clone(),
+                            "name": name.clone(),
+                        })
+                    })
+                    .collect();
+                by_tactic_fields.push((tactic.to_string(), json!(entries_json)));
             }
         }
-        println!();
-        println!("  }}");
-        println!("}}");
+        let by_tactic_json = Value::Object(by_tactic_fields.into_iter().collect());
+        Output::json_value(&json!({
+            "total_ports": ports.len(),
+            "ports": ports.clone(),
+            "technologies": techs.clone(),
+            "by_tactic": by_tactic_json,
+        }));
         return Ok(());
     }
 
@@ -480,29 +418,25 @@ pub fn correlate_finding(ctx: &CliContext) -> Result<(), String> {
     }
 
     if is_json {
-        println!("{{");
-        println!("  \"finding\": \"{}\",", finding.replace('"', "\\\""));
-        println!("  \"match_count\": {},", result.matches.len());
-        println!("  \"matches\": [");
-        for (i, m) in result.matches.iter().enumerate() {
-            let comma = if i < result.matches.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    {{\"technique_id\": \"{}\", \"technique_name\": \"{}\", \"confidence\": {}, \"match_type\": \"{}\", \"reason\": \"{}\", \"tactics\": [{}]}}{}",
-                m.technique_id,
-                m.technique_name.replace('"', "\\\""),
-                m.confidence,
-                m.match_type.as_str(),
-                m.reason.replace('"', "\\\""),
-                m.tactics.iter().map(|t| format!("\"{}\"", t)).collect::<Vec<_>>().join(", "),
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let matches_json: Vec<_> = result
+            .matches
+            .iter()
+            .map(|m| {
+                json!({
+                    "technique_id": m.technique_id.clone(),
+                    "technique_name": m.technique_name.clone(),
+                    "confidence": m.confidence,
+                    "match_type": m.match_type.as_str(),
+                    "reason": m.reason.clone(),
+                    "tactics": m.tactics.clone(),
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "finding": finding,
+            "match_count": result.matches.len(),
+            "matches": matches_json,
+        }));
         return Ok(());
     }
 
@@ -560,4 +494,12 @@ pub fn correlate_finding(ctx: &CliContext) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn confidence_label(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::High => "high",
+        Confidence::Medium => "medium",
+        Confidence::Low => "low",
+    }
 }

@@ -1,5 +1,6 @@
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::modules::collection::browser_creds::BrowserCollector;
 
 pub struct CollectCommand;
@@ -65,28 +66,22 @@ impl Command for CollectCommand {
         };
 
         if is_json {
-            println!("{{");
-            println!("  \"browser\": \"{}\",", verb);
-            println!("  \"total\": {},", creds.len());
-            println!("  \"credentials\": [");
-            for (i, cred) in creds.iter().enumerate() {
-                let comma = if i < creds.len() - 1 { "," } else { "" };
-                let pwd = cred.password.as_deref().unwrap_or("");
-                println!("    {{");
-                println!(
-                    "      \"browser\": \"{}\",",
-                    cred.browser.replace('"', "\\\"")
-                );
-                println!("      \"url\": \"{}\",", cred.url.replace('"', "\\\""));
-                println!(
-                    "      \"username\": \"{}\",",
-                    cred.username.replace('"', "\\\"")
-                );
-                println!("      \"password\": \"{}\"", pwd.replace('"', "\\\""));
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let credentials: Vec<_> = creds
+                .iter()
+                .map(|cred| {
+                    json!({
+                        "browser": cred.browser,
+                        "url": cred.url,
+                        "username": cred.username,
+                        "password": cred.password.as_deref().unwrap_or("")
+                    })
+                })
+                .collect();
+            Output::json_value(&json!({
+                "browser": verb,
+                "total": creds.len(),
+                "credentials": credentials
+            }));
             return Ok(());
         }
 

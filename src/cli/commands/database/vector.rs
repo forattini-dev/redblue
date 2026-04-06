@@ -7,6 +7,7 @@
 
 use crate::cli::commands::print_help;
 use crate::cli::{output::Output, CliContext};
+use crate::json;
 use crate::storage::engine::distance::DistanceMetric;
 use crate::storage::{EntityData, RedDB};
 use std::collections::HashSet;
@@ -149,24 +150,23 @@ fn vector_search(ctx: &CliContext) -> Result<(), String> {
     let results = db.similar(&collection, &query_vec, k);
 
     if is_json {
-        println!("{{");
-        println!("  \"query_dimension\": {},", dimension);
-        println!("  \"k\": {},", k);
-        println!("  \"distance_metric\": \"{}\",", distance_str);
-        println!("  \"collection\": \"{}\",", collection);
-        println!("  \"results\": [");
-        for (i, result) in results.iter().enumerate() {
-            let comma = if i < results.len() - 1 { "," } else { "" };
-            println!(
-                "    {{ \"id\": {}, \"score\": {:.6}, \"distance\": {:.6} }}{}",
-                result.entity_id.raw(),
-                result.score,
-                1.0 - result.score,
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let results_json: Vec<_> = results
+            .iter()
+            .map(|result| {
+                json!({
+                    "id": result.entity_id.raw(),
+                    "score": result.score,
+                    "distance": 1.0 - result.score,
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "query_dimension": dimension,
+            "k": k,
+            "distance_metric": distance_str,
+            "collection": collection,
+            "results": results_json,
+        }));
     } else {
         Output::header("Vector Similarity Search");
         Output::summary_line(&[
@@ -214,14 +214,14 @@ fn vector_index(ctx: &CliContext) -> Result<(), String> {
     let is_json = format == "json";
 
     if is_json {
-        println!("{{");
-        println!("  \"status\": \"ready\",");
-        println!("  \"type\": \"{}\",", index_type);
-        println!("  \"collection\": \"{}\",", collection);
-        println!("  \"vector_entities\": {},", stats.vector_entities);
-        println!("  \"embedding_entries\": {},", stats.embedding_entries);
-        println!("  \"dimensions\": {:?},", stats.dimensions);
-        println!("}}");
+        Output::json_value(&json!({
+            "status": "ready",
+            "type": index_type,
+            "collection": collection,
+            "vector_entities": stats.vector_entities,
+            "embedding_entries": stats.embedding_entries,
+            "dimensions": stats.dimensions,
+        }));
     } else {
         Output::success(&format!("Vector index ready (type: {})", index_type));
         Output::item("Collection", &collection);
@@ -249,14 +249,14 @@ fn vector_info(ctx: &CliContext) -> Result<(), String> {
     let is_json = format == "json";
 
     if is_json {
-        println!("{{");
-        println!("  \"collection\": \"{}\",", collection);
-        println!("  \"total_entities\": {},", stats.total_entities);
-        println!("  \"vector_entities\": {},", stats.vector_entities);
-        println!("  \"embedding_entries\": {},", stats.embedding_entries);
-        println!("  \"dimensions\": {:?},", stats.dimensions);
-        println!("  \"distance_metric\": \"cosine\"");
-        println!("}}");
+        Output::json_value(&json!({
+            "collection": collection,
+            "total_entities": stats.total_entities,
+            "vector_entities": stats.vector_entities,
+            "embedding_entries": stats.embedding_entries,
+            "dimensions": stats.dimensions,
+            "distance_metric": "cosine",
+        }));
     } else {
         Output::header("Vector Index Info");
         println!();

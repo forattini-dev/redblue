@@ -2,6 +2,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::recon::asn::AsnClient;
 use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
 
@@ -50,37 +51,23 @@ pub fn email(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == crate::cli::format::OutputFormat::Json {
-        println!("{{");
-        println!("  \"email\": \"{}\",", result.email);
-        println!("  \"valid\": {},", result.valid);
-        if let Some(ref provider) = result.provider {
-            println!("  \"provider\": \"{}\",", provider);
-        }
-        println!("  \"services\": [");
-        for (i, service) in result.services.iter().enumerate() {
-            let comma = if i < result.services.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    \"{}\"{}", service, comma);
-        }
-        println!("  ],");
-        println!("  \"social_profiles\": [");
-        for (i, profile) in result.social_profiles.iter().enumerate() {
-            let url = profile.url.as_deref().unwrap_or("");
-            let comma = if i < result.social_profiles.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    {{ \"platform\": \"{}\", \"url\": \"{}\" }}{}",
-                profile.platform, url, comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let social_profiles: Vec<_> = result
+            .social_profiles
+            .iter()
+            .map(|profile| {
+                json!({
+                    "platform": profile.platform.clone(),
+                    "url": profile.url.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "email": result.email,
+            "valid": result.valid,
+            "provider": result.provider,
+            "services": result.services,
+            "social_profiles": social_profiles
+        }));
         return Ok(());
     }
 
@@ -176,30 +163,23 @@ pub fn asn(ctx: &CliContext) -> Result<(), String> {
 
     // JSON output
     if format == crate::cli::format::OutputFormat::Json {
-        println!("{{");
-        println!("  \"query\": \"{}\",", target);
-        println!("  \"results\": [");
-        for (i, info) in results.iter().enumerate() {
-            let comma = if i < results.len() - 1 { "," } else { "" };
-            println!("    {{");
-            println!("      \"ip\": \"{}\",", info.ip);
-            println!("      \"announced\": {},", info.announced);
-            if let Some(asn) = info.asn {
-                println!("      \"asn\": {},", asn);
-            }
-            if let Some(ref org) = info.organization {
-                println!("      \"organization\": \"{}\",", org);
-            }
-            if let Some(ref country) = info.country {
-                println!("      \"country\": \"{}\",", country);
-            }
-            if let Some(ref cidr) = info.cidr {
-                println!("      \"cidr\": \"{}\"", cidr);
-            }
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+        let payload: Vec<_> = results
+            .iter()
+            .map(|info| {
+                json!({
+                    "ip": info.ip.to_string(),
+                    "announced": info.announced,
+                    "asn": info.asn,
+                    "organization": info.organization.clone(),
+                    "country": info.country.clone(),
+                    "cidr": info.cidr.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "query": target,
+            "results": payload
+        }));
         return Ok(());
     }
 

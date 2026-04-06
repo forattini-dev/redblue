@@ -4,6 +4,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::recon::mitre::{CoverageAnalyzer, GapPriority, MitreClient};
 
 /// Show coverage gaps based on data sources
@@ -78,39 +79,38 @@ pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
     };
 
     if is_json {
-        println!("{{");
-        println!("  \"overall_coverage\": {:.1},", report.overall_coverage);
-        println!("  \"total_techniques\": {},", report.total_techniques);
-        println!("  \"covered_count\": {},", report.covered_count);
-        println!("  \"gap_count\": {},", gaps.len());
-        println!("  \"tactic_coverage\": [");
-        for (i, tc) in report.tactic_coverage.iter().enumerate() {
-            let comma = if i < report.tactic_coverage.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!(
-                "    {{\"tactic\": \"{}\", \"total\": {}, \"covered\": {}, \"percentage\": {:.1}}}{}",
-                tc.tactic_name, tc.total, tc.covered, tc.percentage, comma
-            );
-        }
-        println!("  ],");
-        println!("  \"gaps\": [");
-        for (i, gap) in gaps.iter().enumerate() {
-            let comma = if i < gaps.len() - 1 { "," } else { "" };
-            println!(
-                "    {{\"technique_id\": \"{}\", \"technique_name\": \"{}\", \"priority\": \"{}\", \"tactics\": [{}], \"platforms\": [{}]}}{}",
-                gap.technique_id,
-                gap.technique_name.replace('"', "\\\""),
-                gap.priority.as_str(),
-                gap.tactics.iter().map(|t| format!("\"{}\"", t)).collect::<Vec<_>>().join(", "),
-                gap.platforms.iter().map(|p| format!("\"{}\"", p)).collect::<Vec<_>>().join(", "),
-                comma
-            );
-        }
-        println!("  ]");
-        println!("}}");
+        let tactic_coverage: Vec<_> = report
+            .tactic_coverage
+            .iter()
+            .map(|coverage| {
+                json!({
+                    "tactic": coverage.tactic_name.clone(),
+                    "total": coverage.total,
+                    "covered": coverage.covered,
+                    "percentage": coverage.percentage
+                })
+            })
+            .collect();
+        let gaps_json: Vec<_> = gaps
+            .iter()
+            .map(|gap| {
+                json!({
+                    "technique_id": gap.technique_id.clone(),
+                    "technique_name": gap.technique_name.clone(),
+                    "priority": gap.priority.as_str(),
+                    "tactics": gap.tactics.clone(),
+                    "platforms": gap.platforms.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "overall_coverage": report.overall_coverage,
+            "total_techniques": report.total_techniques,
+            "covered_count": report.covered_count,
+            "gap_count": gaps.len(),
+            "tactic_coverage": tactic_coverage,
+            "gaps": gaps_json
+        }));
         return Ok(());
     }
 

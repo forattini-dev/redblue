@@ -3,6 +3,7 @@ use crate::agent::server::{AgentServer, AgentServerConfig};
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -89,13 +90,13 @@ impl AgentCommand {
             .map_err(|e| format!("Invalid address {}: {}", addr_str, e))?;
 
         if is_json {
-            println!("{{");
-            println!("  \"action\": \"start_server\",");
-            println!("  \"status\": \"starting\",");
-            println!("  \"address\": \"{}\",", addr_str);
-            println!("  \"use_tls\": false,");
-            println!("  \"db_path\": \"redblue.rdb\"");
-            println!("}}");
+            Output::json_value(&json!({
+                "action": "start_server",
+                "status": "starting",
+                "address": addr_str,
+                "use_tls": false,
+                "db_path": "redblue.rdb"
+            }));
         } else {
             Output::header("Starting C2 Server");
             Output::item("Address", &addr_str);

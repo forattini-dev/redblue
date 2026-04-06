@@ -2,6 +2,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::api_hash;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -96,18 +97,18 @@ fn execute_apihash_hash(ctx: &CliContext) -> Result<(), String> {
     };
 
     if is_json {
-        println!("{{");
-        println!("  \"function\": \"{}\",", name.replace('"', "\\\""));
-        println!("  \"algorithm\": \"{}\",", algo);
-        println!("  \"hash\": {},", hash);
-        println!("  \"hash_hex\": \"0x{:08X}\",", hash);
-        println!("  \"all_algorithms\": {{");
-        println!("    \"ror13\": \"0x{:08X}\",", api_hash::ror13_hash(name));
-        println!("    \"djb2\": \"0x{:08X}\",", api_hash::djb2_hash(name));
-        println!("    \"fnv1a\": \"0x{:08X}\",", api_hash::fnv1a_hash(name));
-        println!("    \"crc32\": \"0x{:08X}\"", api_hash::crc32_hash(name));
-        println!("  }}");
-        println!("}}");
+        Output::json_value(&json!({
+            "function": name,
+            "algorithm": algo,
+            "hash": hash,
+            "hash_hex": format!("0x{:08X}", hash),
+            "all_algorithms": json!({
+                "ror13": format!("0x{:08X}", api_hash::ror13_hash(name)),
+                "djb2": format!("0x{:08X}", api_hash::djb2_hash(name)),
+                "fnv1a": format!("0x{:08X}", api_hash::fnv1a_hash(name)),
+                "crc32": format!("0x{:08X}", api_hash::crc32_hash(name))
+            })
+        }));
         return Ok(());
     }
 

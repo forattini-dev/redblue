@@ -9,6 +9,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::graph::ShadowGraph;
 use crate::modules::report::pentest::PentestReport;
 use crate::storage::segments::loot::LootSegment;
@@ -374,26 +375,25 @@ fn execute_stats(ctx: &CliContext) -> Result<(), String> {
 
     match format {
         "json" => {
-            println!("{{");
-            println!("  \"loot\": {{");
-            println!("    \"total\": {},", total_entries);
-            println!("    \"vulnerabilities\": {},", vulns);
-            println!("    \"credentials\": {},", creds);
-            println!("    \"services\": {},", services);
-            println!("    \"confirmed\": {},", confirmed);
-            println!("    \"potential\": {}", potential);
-            println!("  }},");
-            if let Some(ref stats) = graph_stats {
-                println!("  \"graph\": {{");
-                println!("    \"nodes\": {},", stats.total_nodes);
-                println!("    \"edges\": {},", stats.total_edges);
-                println!("    \"components\": {},", stats.connected_components);
-                println!("    \"max_depth\": {}", stats.max_depth);
-                println!("  }}");
-            } else {
-                println!("  \"graph\": null");
-            }
-            println!("}}");
+            let graph = graph_stats.map(|stats| {
+                json!({
+                    "nodes": stats.total_nodes,
+                    "edges": stats.total_edges,
+                    "components": stats.connected_components,
+                    "max_depth": stats.max_depth
+                })
+            });
+            Output::json_value(&json!({
+                "loot": json!({
+                    "total": total_entries,
+                    "vulnerabilities": vulns,
+                    "credentials": creds,
+                    "services": services,
+                    "confirmed": confirmed,
+                    "potential": potential
+                }),
+                "graph": graph
+            }));
         }
         _ => {
             Output::header("Report Statistics");

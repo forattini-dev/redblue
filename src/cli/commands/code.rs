@@ -2,6 +2,7 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::crypto::uuid::Uuid;
+use crate::json;
 use crate::modules::code::secrets::{SecretValidator, ValidationStatus};
 use crate::modules::collection::secrets::git_scanner::GitScanner;
 use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
@@ -276,51 +277,25 @@ impl CodeCommand {
     }
 
     fn display_json(&self, findings: &[SecretFinding]) -> Result<(), String> {
-        println!("{{");
-        println!("  \"findings\": [");
-
-        for (i, finding) in findings.iter().enumerate() {
-            let comma = if i < findings.len() - 1 { "," } else { "" };
-
-            println!("    {{");
-            println!("      \"file\": \"{}\",", Self::escape_json(&finding.file));
-            println!(
-                "      \"line\": {},",
-                finding
-                    .line
-                    .map(|l| l.to_string())
-                    .unwrap_or_else(|| "null".to_string())
-            );
-            println!("      \"column\": {},", finding.column);
-            println!(
-                "      \"rule_id\": \"{}\",",
-                Self::escape_json(&finding.rule_id)
-            );
-            println!(
-                "      \"description\": \"{}\",",
-                Self::escape_json(&finding.description)
-            );
-            println!(
-                "      \"secret\": \"{}\",",
-                Self::escape_json(&self.mask_secret(&finding.secret))
-            );
-
-            if let Some(entropy) = finding.entropy {
-                println!("      \"entropy\": {:.2},", entropy);
-            } else {
-                println!("      \"entropy\": null,");
-            }
-
-            println!(
-                "      \"line_content\": \"{}\"",
-                Self::escape_json(&finding.line_content)
-            );
-            println!("    }}{}", comma);
-        }
-
-        println!("  ],");
-        println!("  \"total\": {}", findings.len());
-        println!("}}");
+        let findings_json: Vec<_> = findings
+            .iter()
+            .map(|finding| {
+                json!({
+                    "file": finding.file.clone(),
+                    "line": finding.line,
+                    "column": finding.column,
+                    "rule_id": finding.rule_id.clone(),
+                    "description": finding.description.clone(),
+                    "secret": self.mask_secret(&finding.secret),
+                    "entropy": finding.entropy,
+                    "line_content": finding.line_content.clone()
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "findings": findings_json,
+            "total": findings.len()
+        }));
 
         Ok(())
     }

@@ -3,6 +3,7 @@ use crate::cli::commands::{
     annotate_query_partition, build_partition_attributes, print_help, Command, Flag, Route,
 };
 use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::json;
 use crate::modules::network::fingerprint::HostFingerprint;
 use crate::modules::network::ping::{ping_system, PingConfig, PingSystemResult};
 use crate::modules::recon::ip_intel::{IpClassification, IpIntel};
@@ -195,19 +196,16 @@ impl NetworkCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"host\": \"{}\",", result.host.replace('"', "\\\""));
-            println!("  \"packets_sent\": {},", result.packets_sent);
-            println!("  \"packets_received\": {},", result.packets_received);
-            println!(
-                "  \"packet_loss_percent\": {:.2},",
-                result.packet_loss_percent
-            );
-            println!("  \"min_rtt_ms\": {:.3},", result.min_rtt_ms);
-            println!("  \"avg_rtt_ms\": {:.3},", result.avg_rtt_ms);
-            println!("  \"max_rtt_ms\": {:.3},", result.max_rtt_ms);
-            println!("  \"reachable\": {}", result.packets_received > 0);
-            println!("}}");
+            Output::json_value(&json!({
+                "host": result.host,
+                "packets_sent": result.packets_sent,
+                "packets_received": result.packets_received,
+                "packet_loss_percent": result.packet_loss_percent,
+                "min_rtt_ms": result.min_rtt_ms,
+                "avg_rtt_ms": result.avg_rtt_ms,
+                "max_rtt_ms": result.max_rtt_ms,
+                "reachable": result.packets_received > 0
+            }));
             return Ok(());
         }
 
@@ -333,15 +331,15 @@ impl NetworkCommand {
 
         // JSON output - not fully implemented yet
         if is_json {
-            println!("{{");
-            println!("  \"cidr\": \"{}\",", cidr.replace('"', "\\\""));
-            println!("  \"network\": \"{}\",", network.replace('"', "\\\""));
-            println!("  \"mask_bits\": {},", mask_bits);
-            println!("  \"possible_hosts\": {},", num_hosts);
-            println!("  \"timeout_secs\": {},", timeout_secs);
-            println!("  \"status\": \"not_implemented\",");
-            println!("  \"message\": \"Network discovery sweep not yet fully implemented. Use rb network ports scan with CIDR notation.\"");
-            println!("}}");
+            Output::json_value(&json!({
+                "cidr": cidr,
+                "network": network,
+                "mask_bits": mask_bits,
+                "possible_hosts": num_hosts,
+                "timeout_secs": timeout_secs,
+                "status": "not_implemented",
+                "message": "Network discovery sweep not yet fully implemented. Use rb network ports scan with CIDR notation."
+            }));
             return Ok(());
         }
 
@@ -399,57 +397,37 @@ impl NetworkCommand {
 
         // JSON output
         if is_json {
-            println!("{{");
-            println!("  \"host\": \"{}\",", fingerprint.host.replace('"', "\\\""));
-            println!("  \"ip\": \"{}\",", fingerprint.ip);
-            if let Some(ref guess) = fingerprint.os_guess {
-                println!("  \"os_guess\": {{");
-                println!("    \"os_family\": \"{}\",", guess.os_family.name());
-                println!("    \"confidence\": {:.2}", guess.confidence);
-                println!("  }},");
-            } else {
-                println!("  \"os_guess\": null,");
-            }
-            println!("  \"open_ports\": [");
-            for (i, port) in fingerprint.open_ports.iter().enumerate() {
-                let comma = if i < fingerprint.open_ports.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {}{}", port, comma);
-            }
-            println!("  ],");
-            println!("  \"services\": [");
-            for (i, svc) in fingerprint.services.iter().enumerate() {
-                let comma = if i < fingerprint.services.len() - 1 {
-                    ","
-                } else {
-                    ""
-                };
-                println!("    {{");
-                println!("      \"port\": {},", svc.port);
-                if let Some(ref label) = svc.service_label {
-                    println!("      \"service\": \"{}\",", label.replace('"', "\\\""));
-                } else {
-                    println!("      \"service\": null,");
-                }
-                if let Some(ref banner) = svc.banner {
-                    println!(
-                        "      \"banner\": \"{}\"",
-                        banner
-                            .banner
-                            .replace('"', "\\\"")
-                            .replace('\n', " ")
-                            .replace('\r', "")
-                    );
-                } else {
-                    println!("      \"banner\": null");
-                }
-                println!("    }}{}", comma);
-            }
-            println!("  ]");
-            println!("}}");
+            let os_guess = fingerprint.os_guess.as_ref().map(|guess| {
+                json!({
+                    "os_family": guess.os_family.name(),
+                    "confidence": guess.confidence
+                })
+            });
+            let services: Vec<_> = fingerprint
+                .services
+                .iter()
+                .map(|svc| {
+                    json!({
+                        "port": svc.port,
+                        "service": svc.service_label.clone(),
+                        "banner": svc.banner.as_ref().map(|banner| {
+                            banner
+                                .banner
+                                .replace('"', "\\\"")
+                                .replace('\n', " ")
+                                .replace('\r', "")
+                        })
+                    })
+                })
+                .collect();
+
+            Output::json_value(&json!({
+                "host": fingerprint.host,
+                "ip": fingerprint.ip.to_string(),
+                "os_guess": os_guess,
+                "open_ports": fingerprint.open_ports,
+                "services": services
+            }));
             return Ok(());
         }
 
@@ -552,7 +530,7 @@ impl NetworkCommand {
             {
                 Some(record) => {
                     if is_json {
-                        self.print_host_record_json(&record);
+                        Output::json_value(&self.host_record_json(&record));
                     } else {
                         let formatted = query_format::format_host(&record);
                         println!("{}", formatted);
@@ -560,11 +538,11 @@ impl NetworkCommand {
                 }
                 None => {
                     if is_json {
-                        println!("{{");
-                        println!("  \"ip\": \"{}\",", ip);
-                        println!("  \"found\": false,");
-                        println!("  \"message\": \"No fingerprint stored for target\"");
-                        println!("}}");
+                        Output::json_value(&json!({
+                            "ip": ip.to_string(),
+                            "found": false,
+                            "message": "No fingerprint stored for target"
+                        }));
                     } else {
                         Output::warning("No fingerprint stored for target");
                     }
@@ -576,33 +554,23 @@ impl NetworkCommand {
                 .map_err(|e| format!("Query failed: {}", e))?;
 
             if is_json {
-                println!("{{");
-                println!(
-                    "  \"database\": \"{}\",",
-                    db_path
-                        .display()
-                        .to_string()
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                );
-                println!("  \"count\": {},", records.len());
-                println!("  \"hosts\": [");
-                for (i, record) in records.iter().enumerate() {
-                    let comma = if i < records.len() - 1 { "," } else { "" };
-                    println!("    {{");
-                    println!("      \"ip\": \"{}\",", record.ip);
-                    if let Some(ref os) = record.os_family {
-                        println!("      \"os_family\": \"{}\",", os.replace('"', "\\\""));
-                    } else {
-                        println!("      \"os_family\": null,");
-                    }
-                    println!("      \"confidence\": {:.2},", record.confidence);
-                    println!("      \"last_seen\": {},", record.last_seen);
-                    println!("      \"services_count\": {}", record.services.len());
-                    println!("    }}{}", comma);
-                }
-                println!("  ]");
-                println!("}}");
+                let hosts: Vec<_> = records
+                    .iter()
+                    .map(|record| {
+                        json!({
+                            "ip": record.ip.to_string(),
+                            "os_family": record.os_family.clone(),
+                            "confidence": record.confidence,
+                            "last_seen": record.last_seen,
+                            "services_count": record.services.len()
+                        })
+                    })
+                    .collect();
+                Output::json_value(&json!({
+                    "database": db_path.display().to_string(),
+                    "count": records.len(),
+                    "hosts": hosts
+                }));
             } else if records.is_empty() {
                 Output::warning("No host fingerprints stored in this database");
             } else {
@@ -620,51 +588,32 @@ impl NetworkCommand {
         Ok(())
     }
 
-    fn print_host_record_json(&self, record: &HostIntelRecord) {
-        println!("{{");
-        println!("  \"ip\": \"{}\",", record.ip);
-        if let Some(ref os) = record.os_family {
-            println!("  \"os_family\": \"{}\",", os.replace('"', "\\\""));
-        } else {
-            println!("  \"os_family\": null,");
-        }
-        println!("  \"confidence\": {:.2},", record.confidence);
-        println!("  \"last_seen\": {},", record.last_seen);
-        println!("  \"services\": [");
-        for (i, svc) in record.services.iter().enumerate() {
-            let comma = if i < record.services.len() - 1 {
-                ","
-            } else {
-                ""
-            };
-            println!("    {{");
-            println!("      \"port\": {},", svc.port);
-            if let Some(ref name) = svc.service_name {
-                println!("      \"service_name\": \"{}\",", name.replace('"', "\\\""));
-            } else {
-                println!("      \"service_name\": null,");
-            }
-            if let Some(ref banner) = svc.banner {
-                println!(
-                    "      \"banner\": \"{}\",",
-                    banner
-                        .replace('"', "\\\"")
-                        .replace('\n', " ")
-                        .replace('\r', "")
-                );
-            } else {
-                println!("      \"banner\": null,");
-            }
-            println!("      \"os_hints\": [");
-            for (j, hint) in svc.os_hints.iter().enumerate() {
-                let hcomma = if j < svc.os_hints.len() - 1 { "," } else { "" };
-                println!("        \"{}\"{}", hint.replace('"', "\\\""), hcomma);
-            }
-            println!("      ]");
-            println!("    }}{}", comma);
-        }
-        println!("  ]");
-        println!("}}");
+    fn host_record_json(&self, record: &HostIntelRecord) -> crate::serde_json::Value {
+        let services: Vec<_> = record
+            .services
+            .iter()
+            .map(|svc| {
+                json!({
+                    "port": svc.port,
+                    "service_name": svc.service_name.clone(),
+                    "banner": svc.banner.as_ref().map(|banner| {
+                        banner
+                            .replace('"', "\\\"")
+                            .replace('\n', " ")
+                            .replace('\r', "")
+                    }),
+                    "os_hints": svc.os_hints.clone()
+                })
+            })
+            .collect();
+
+        json!({
+            "ip": record.ip.to_string(),
+            "os_family": record.os_family.clone(),
+            "confidence": record.confidence,
+            "last_seen": record.last_seen,
+            "services": services
+        })
     }
 
     fn fingerprint_to_record(&self, fingerprint: &HostFingerprint) -> HostIntelRecord {
@@ -791,15 +740,13 @@ impl NetworkCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"ip\": \"{}\",", result.ip);
-            println!("  \"version\": \"{}\",", result.version);
-            println!("  \"is_bogon\": {},", result.is_bogon);
-            if let Some(ref reason) = result.bogon_reason {
-                println!("  \"bogon_reason\": \"{}\",", reason);
-            }
-            println!("  \"classification\": \"{}\"", result.classification);
-            println!("}}");
+            Output::json_value(&json!({
+                "ip": result.ip.to_string(),
+                "version": result.version.to_string(),
+                "is_bogon": result.is_bogon,
+                "bogon_reason": result.bogon_reason,
+                "classification": result.classification.to_string()
+            }));
             return Ok(());
         }
 
@@ -917,26 +864,18 @@ impl NetworkCommand {
 
         // JSON output
         if format == crate::cli::format::OutputFormat::Json {
-            println!("{{");
-            println!("  \"ipv4_bogons\": [");
-            for (i, (cidr, desc)) in ipv4_bogons.iter().enumerate() {
-                let comma = if i < ipv4_bogons.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}",
-                    cidr, desc, comma
-                );
-            }
-            println!("  ],");
-            println!("  \"ipv6_bogons\": [");
-            for (i, (cidr, desc)) in ipv6_bogons.iter().enumerate() {
-                let comma = if i < ipv6_bogons.len() - 1 { "," } else { "" };
-                println!(
-                    "    {{ \"cidr\": \"{}\", \"description\": \"{}\" }}{}",
-                    cidr, desc, comma
-                );
-            }
-            println!("  ]");
-            println!("}}");
+            let ipv4_ranges: Vec<_> = ipv4_bogons
+                .iter()
+                .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
+                .collect();
+            let ipv6_ranges: Vec<_> = ipv6_bogons
+                .iter()
+                .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
+                .collect();
+            Output::json_value(&json!({
+                "ipv4_bogons": ipv4_ranges,
+                "ipv6_bogons": ipv6_ranges
+            }));
             return Ok(());
         }
 

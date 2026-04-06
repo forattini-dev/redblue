@@ -2,6 +2,7 @@
 
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::inject;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -146,14 +147,14 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
     let null_free = !shellcode.bytes().contains(&0);
 
     if is_json {
-        println!("{{");
-        println!("  \"type\": \"{}\",", shellcode_type);
-        println!("  \"description\": \"{}\",", description);
-        println!("  \"size\": {},", shellcode.len());
-        println!("  \"null_free\": {},", null_free);
-        println!("  \"hex\": \"{}\",", hex);
-        println!("  \"bytes\": {:?}", shellcode.bytes());
-        println!("}}");
+        Output::json_value(&json!({
+            "type": shellcode_type,
+            "description": description,
+            "size": shellcode.len(),
+            "null_free": null_free,
+            "hex": hex,
+            "bytes": shellcode.bytes().to_vec()
+        }));
         return Ok(());
     }
 

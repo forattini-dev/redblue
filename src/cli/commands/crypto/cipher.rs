@@ -3,6 +3,7 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::cipher::{CipherKey, CipherRegistry};
+use crate::json;
 use std::fs;
 
 use super::helpers::hex_encode;
@@ -220,15 +221,20 @@ impl CryptoCipherCommand {
         let encrypted = cipher.encrypt(&input, &key).map_err(|e| e.to_string())?;
 
         if format == "json" {
-            println!("{{");
-            println!("  \"cipher\": \"{}\",", cipher_name);
-            println!("  \"operation\": \"encrypt\",");
-            if let Ok(s) = String::from_utf8(encrypted.clone()) {
-                println!("  \"output\": \"{}\"", s.replace('"', "\\\""));
+            let value = if let Ok(s) = String::from_utf8(encrypted.clone()) {
+                json!({
+                    "cipher": cipher_name,
+                    "operation": "encrypt",
+                    "output": s,
+                })
             } else {
-                println!("  \"output_hex\": \"{}\"", hex_encode(&encrypted));
-            }
-            println!("}}");
+                json!({
+                    "cipher": cipher_name,
+                    "operation": "encrypt",
+                    "output_hex": hex_encode(&encrypted),
+                })
+            };
+            Output::json_value(&value);
         } else if let Ok(s) = String::from_utf8(encrypted.clone()) {
             println!("{}", s);
         } else {
@@ -259,15 +265,20 @@ impl CryptoCipherCommand {
         let decrypted = cipher.decrypt(&input, &key).map_err(|e| e.to_string())?;
 
         if format == "json" {
-            println!("{{");
-            println!("  \"cipher\": \"{}\",", cipher_name);
-            println!("  \"operation\": \"decrypt\",");
-            if let Ok(s) = String::from_utf8(decrypted.clone()) {
-                println!("  \"output\": \"{}\"", s.replace('"', "\\\""));
+            let value = if let Ok(s) = String::from_utf8(decrypted.clone()) {
+                json!({
+                    "cipher": cipher_name,
+                    "operation": "decrypt",
+                    "output": s,
+                })
             } else {
-                println!("  \"output_hex\": \"{}\"", hex_encode(&decrypted));
-            }
-            println!("}}");
+                json!({
+                    "cipher": cipher_name,
+                    "operation": "decrypt",
+                    "output_hex": hex_encode(&decrypted),
+                })
+            };
+            Output::json_value(&value);
         } else if let Ok(s) = String::from_utf8(decrypted.clone()) {
             println!("{}", s);
         } else {
@@ -297,21 +308,17 @@ impl CryptoCipherCommand {
         let results = cipher.crack(&input);
 
         if format == "json" {
-            println!("[");
-            for (i, result) in results.iter().enumerate() {
-                print!(
-                    "  {{\"plaintext\": \"{}\", \"key\": \"{:?}\", \"confidence\": {:.2}}}",
-                    result.plaintext.replace('"', "\\\"").replace('\n', "\\n"),
-                    result.key,
-                    result.confidence
-                );
-                if i < results.len() - 1 {
-                    println!(",");
-                } else {
-                    println!();
-                }
-            }
-            println!("]");
+            let results_json: Vec<_> = results
+                .iter()
+                .map(|result| {
+                    json!({
+                        "plaintext": result.plaintext.clone(),
+                        "key": format!("{:?}", result.key),
+                        "confidence": result.confidence,
+                    })
+                })
+                .collect();
+            Output::json_value(&json!(results_json));
         } else {
             Output::header(&format!("Cracking {} cipher", cipher_name));
             println!();
@@ -340,22 +347,18 @@ impl CryptoCipherCommand {
         let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
         if format == "json" {
-            println!("[");
-            for (i, name) in ciphers.iter().enumerate() {
-                if let Some(cipher) = registry.get(name) {
-                    print!(
-                        "  {{\"name\": \"{}\", \"description\": \"{}\"}}",
-                        name,
-                        cipher.description()
-                    );
-                    if i < ciphers.len() - 1 {
-                        println!(",");
-                    } else {
-                        println!();
-                    }
-                }
-            }
-            println!("]");
+            let ciphers_json: Vec<_> = ciphers
+                .iter()
+                .filter_map(|name| {
+                    registry.get(name).map(|cipher| {
+                        json!({
+                            "name": name,
+                            "description": cipher.description(),
+                        })
+                    })
+                })
+                .collect();
+            Output::json_value(&json!(ciphers_json));
         } else {
             Output::header("Available Ciphers");
             println!();

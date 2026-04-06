@@ -1,4 +1,4 @@
-.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install sdk-build sdk-test sdk-coverage sdk-publish sdk-publish-dry-run sdk-publish-next sdk-publish-next-dry-run sdk-version
+.PHONY: build release test clean run help install patch minor major link unlink dev which embeddings docs deps deps-install sdk-build sdk-test sdk-coverage sdk-publish sdk-publish-dry-run sdk-publish-next sdk-publish-next-dry-run sdk-version machine-output-audit machine-output-strict
 
 # Paths
 LOCAL_BIN := $(HOME)/.local/bin
@@ -34,6 +34,8 @@ help:
 	@echo "  make sdk-publish VERSION=0.1.1 - Publish the root npm package to npm"
 	@echo "  make sdk-publish-next-dry-run VERSION=0.1.1-next.123 - Dry-run the SDK npm @next publish"
 	@echo "  make sdk-publish-next VERSION=0.1.1-next.123 - Publish the SDK package to npm with the next dist-tag"
+	@echo "  make machine-output-audit - Check CLI machine-output regressions against baseline"
+	@echo "  make machine-output-strict - Fail unless all direct JSON print offenders are gone"
 	@echo "  make embeddings - Build documentation embeddings for MCP search"
 	@echo "  make docs       - Serve documentation locally at http://localhost:3000"
 	@echo ""
@@ -244,3 +246,9 @@ sdk-publish-next-dry-run:
 sdk-publish-next:
 	@test -n "$(VERSION)" || (echo "Usage: make sdk-publish-next VERSION=0.1.1-next.123" && exit 1)
 	npm version $(VERSION) --no-git-tag-version && npm publish --tag next
+
+machine-output-audit:
+	python3 scripts/check-machine-output.py
+
+machine-output-strict:
+	python3 scripts/check-machine-output.py --strict

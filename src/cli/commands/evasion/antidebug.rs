@@ -3,6 +3,7 @@
 use super::{colored, GREEN, RED};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::json;
 use crate::modules::evasion::antidebug;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -97,21 +98,25 @@ fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
     let result = ad.check_all();
 
     if is_json {
-        println!("{{");
-        println!("  \"debugger_detected\": {},", result.debugger_detected);
-        println!("  \"score\": {},", result.score);
-        println!("  \"sensitivity\": {},", sensitivity);
-        println!("  \"aggressive\": {},", aggressive);
-        println!("  \"action\": \"{:?}\",", result.action);
-        println!("  \"checks\": {{");
-        let checks_vec: Vec<_> = result.checks.iter().collect();
-        for (i, (name, detected)) in checks_vec.iter().enumerate() {
-            let comma = if i < checks_vec.len() - 1 { "," } else { "" };
-            let key = name.to_lowercase().replace(' ', "_");
-            println!("    \"{}\": {}{}", key, detected, comma);
-        }
-        println!("  }}");
-        println!("}}");
+        let checks: Vec<_> = result
+            .checks
+            .iter()
+            .map(|(name, detected)| {
+                json!({
+                    "name": name.clone(),
+                    "key": name.to_lowercase().replace(' ', "_"),
+                    "detected": *detected
+                })
+            })
+            .collect();
+        Output::json_value(&json!({
+            "debugger_detected": result.debugger_detected,
+            "score": result.score,
+            "sensitivity": sensitivity,
+            "aggressive": aggressive,
+            "action": format!("{:?}", result.action),
+            "checks": checks
+        }));
         return Ok(());
     }
 

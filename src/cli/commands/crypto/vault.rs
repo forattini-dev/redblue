@@ -4,6 +4,7 @@ use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, CliContext};
 use crate::crypto::sha256::Sha256;
 use crate::crypto::{aes256_gcm_decrypt, aes256_gcm_encrypt};
+use crate::json;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -326,23 +327,28 @@ impl CryptoCommand {
         let is_valid = vault_data.len() >= min_size && &vault_data[0..4] == VAULT_MAGIC;
 
         if is_json {
-            println!("{{");
-            println!("  \"file\": \"{}\",", input_path.replace('"', "\\\""));
-            println!("  \"total_size\": {},", vault_data.len());
-            println!("  \"valid\": {},", is_valid);
+            let mut payload = json!({
+                "file": input_path,
+                "total_size": vault_data.len(),
+                "valid": is_valid
+            });
             if is_valid {
                 let version = vault_data[4];
                 let ciphertext_size = vault_data.len() - min_size;
-                println!("  \"version\": {},", version);
-                println!("  \"salt_size\": {},", SALT_SIZE);
-                println!("  \"nonce_size\": {},", NONCE_SIZE);
-                println!("  \"ciphertext_size\": {},", ciphertext_size);
-                println!("  \"tag_size\": {},", TAG_SIZE);
-                println!("  \"encryption\": \"AES-256-GCM\",");
-                println!("  \"key_derivation\": \"PBKDF2-HMAC-SHA256\",");
-                println!("  \"iterations\": {}", PBKDF2_ITERATIONS);
+                if let Some(map) = payload.as_object().cloned() {
+                    let mut map = map;
+                    map.insert("version".to_string(), json!(version));
+                    map.insert("salt_size".to_string(), json!(SALT_SIZE));
+                    map.insert("nonce_size".to_string(), json!(NONCE_SIZE));
+                    map.insert("ciphertext_size".to_string(), json!(ciphertext_size));
+                    map.insert("tag_size".to_string(), json!(TAG_SIZE));
+                    map.insert("encryption".to_string(), json!("AES-256-GCM"));
+                    map.insert("key_derivation".to_string(), json!("PBKDF2-HMAC-SHA256"));
+                    map.insert("iterations".to_string(), json!(PBKDF2_ITERATIONS));
+                    payload = crate::serde_json::Value::Object(map);
+                }
             }
-            println!("}}");
+            Output::json_value(&payload);
             return Ok(());
         }
 
