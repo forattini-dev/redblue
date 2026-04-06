@@ -2,20 +2,145 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag (e.g., v0.1.0)'
+      channel:
+        description: Release channel
         required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - next
+      version:
+        description: "Optional version (e.g. 0.1.2, next: 0.1.2-next.10+abc1234)"
+        required: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    name: Plan release
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.plan.outputs.should_skip }}
+      release_channel: ${{ steps.plan.outputs.release_channel }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      package_version: ${{ steps.plan.outputs.package_version }}
+      npm_tag: ${{ steps.plan.outputs.npm_tag }}
+      github_prerelease: ${{ steps.plan.outputs.github_prerelease }}
+      skip_reason: ${{ steps.plan.outputs.skip_reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide release target
+        id: plan
+        run: |
+          set -euo pipefail
+
+          EVENT_NAME="${{ github.event_name }}"
+          REF="${GITHUB_REF}"
+          INPUT_CHANNEL="${{ github.event.inputs.channel || 'stable' }}"
+          INPUT_VERSION="${{ github.event.inputs.version || '' }}"
+
+          SHOULD_SKIP=false
+          RELEASE_CHANNEL=""
+          RELEASE_TAG=""
+          PACKAGE_VERSION=""
+          NPM_TAG=""
+          IS_PRERELEASE=false
+          SKIP_REASON=""
+
+          normalize_version() {
+            local value="$1"
+            echo "${value#v}"
+          }
+
+          next_version() {
+            local base_version="$1"
+            local run_number="${{ github.run_number }}"
+            local sha_short="${GITHUB_SHA::7}"
+            echo "${base_version}-next.${run_number}+${sha_short}"
+          }
+
+          if [[ "$EVENT_NAME" == "push" && "$REF" == refs/tags/v* ]]; then
+            RELEASE_CHANNEL="stable"
+            RELEASE_TAG="${REF#refs/tags/}"
+            PACKAGE_VERSION="$(normalize_version "$RELEASE_TAG")"
+            NPM_TAG="latest"
+            IS_PRERELEASE=false
+          elif [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            if [[ "$COMMIT_MSG" =~ ^chore:\ release ]] || [[ "$COMMIT_MSG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              SHOULD_SKIP=true
+              SKIP_REASON="Version bump/release commit; skipping next."
+            else
+              BASE_VERSION=$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)
+              PACKAGE_VERSION="$(next_version "$BASE_VERSION")"
+              RELEASE_CHANNEL="next"
+              RELEASE_TAG="v${PACKAGE_VERSION}"
+              NPM_TAG="next"
+              IS_PRERELEASE=true
+              SKIP_REASON="Main branch auto next release"
+            fi
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$INPUT_CHANNEL" == "stable" ]]; then
+              if [[ -z "$INPUT_VERSION" ]]; then
+                echo "Stable channel requires version input on workflow_dispatch."
+                exit 1
+              fi
+              RELEASE_CHANNEL="stable"
+              PACKAGE_VERSION="$(normalize_version "$INPUT_VERSION")"
+              RELEASE_TAG="v${PACKAGE_VERSION}"
+              NPM_TAG="latest"
+              IS_PRERELEASE=false
+            elif [[ "$INPUT_CHANNEL" == "next" ]]; then
+              BASE_VERSION=$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)
+              if [[ -n "$INPUT_VERSION" ]]; then
+                PACKAGE_VERSION="$(normalize_version "$INPUT_VERSION")"
+              else
+                PACKAGE_VERSION="$(next_version "$BASE_VERSION")"
+              fi
+              RELEASE_CHANNEL="next"
+              RELEASE_TAG="v${PACKAGE_VERSION}"
+              NPM_TAG="next"
+              IS_PRERELEASE=true
+            else
+              echo "Unsupported channel: $INPUT_CHANNEL"
+              exit 1
+            fi
+          else
+            SHOULD_SKIP=true
+            SKIP_REASON="Unhandled event/ref for release workflow."
+          fi
+
+          echo "should_skip=${SHOULD_SKIP}" >> "${GITHUB_OUTPUT}"
+          echo "release_channel=${RELEASE_CHANNEL}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "package_version=${PACKAGE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "npm_tag=${NPM_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "github_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "skip_reason=${SKIP_REASON}" >> "${GITHUB_OUTPUT}"
+
   build-embeddings:
     name: Build Embeddings
+    needs: [plan]
+    if: needs.plan.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -46,32 +171,27 @@ jobs:
 
   build:
     name: Build ${{ matrix.target }}
+    needs: [plan]
+    if: needs.plan.outputs.should_skip != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: redblue
             asset_name: rb-linux-x86_64
-
-          # Linux ARM64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             binary_name: redblue
             asset_name: rb-linux-aarch64
             cross: true
-
-          # Linux ARMv7 (Raspberry Pi 3 32-bit / RPi 2)
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             binary_name: redblue
             asset_name: rb-linux-armv7
             cross: true
-
-          # Linux ARM64 Musl (Android / Static Universal)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             binary_name: redblue
@@ -150,24 +270,17 @@ jobs:
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} ${{ matrix.asset_name }}
           shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256 || certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
 
-
-      - name: Verify Self (Smoke Test)
+      - name: Verify self
         if: "!matrix.cross"
         shell: bash
         run: |
-          # Extract hash from the generated .sha256 file (first field)
           HASH=$(cat ${{ matrix.asset_name }}.sha256 | awk '{print $1}')
-          echo "Verifying ${{ matrix.asset_name }} with hash $HASH..."
-          
-          # Run the binary to verify itself
           ./${{ matrix.asset_name }} crypto hash verify ${{ matrix.asset_name }} $HASH
 
-      - name: Evasion Build Info
+      - name: Evasion build info
         if: "!matrix.cross"
         shell: bash
-        run: |
-          echo "### Build Mutation Info"
-          ./${{ matrix.asset_name }} evasion build info
+        run: ./${{ matrix.asset_name }} evasion build info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -177,122 +290,234 @@ jobs:
             ${{ matrix.asset_name }}
             ${{ matrix.asset_name }}.sha256
 
-  release:
-    name: Create Release
-    needs: [build, build-embeddings]
+  prepare-release:
+    name: Prepare release artifacts
+    needs: [plan, build, build-embeddings]
+    if: needs.plan.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Get version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=${GITHUB_REF#refs/tags/}
-          fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version_number }}"
-
-          # Try to extract from CHANGELOG.md
-          if [ -f CHANGELOG.md ]; then
-            CHANGES=$(awk '/^## \['"${VERSION}"'\]/,/^## \[/{if(/^## \['"${VERSION}"'\]/){next}if(/^## \[/){exit}print}' CHANGELOG.md)
-          fi
-
-          # Fallback to git log
-          if [ -z "$CHANGES" ]; then
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-            if [ -n "$PREV_TAG" ]; then
-              CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
-            else
-              CHANGES=$(git log --pretty=format:"- %s" --no-merges -10)
-            fi
-          fi
-
-          echo "changes<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Download all artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Prepare release assets
+      - name: Collect payload
         run: |
           mkdir -p release
           find artifacts -type f \( -name "rb-*" -o -name "*.sha256" \) -exec cp {} release/ \;
           cp sdk/redblue-sdk.js release/redblue-sdk.js
           shasum -a 256 release/redblue-sdk.js > release/redblue-sdk.js.sha256
-          
-          # Aggregate checksums
+
           cd release
           echo "### SHA256 Checksums" > CHECKSUMS.txt
           for f in *.sha256; do
             cat "$f" >> CHECKSUMS.txt
           done
           cd ..
-          
-          # Include embeddings
+
           if [ -f artifacts/embeddings/embeddings.json ]; then
             cp artifacts/embeddings/embeddings.json release/
-            echo "Embeddings included in release"
           fi
+
           ls -la release/
 
-      - name: Create GitHub Release
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: release/
+          if-no-files-found: error
+
+  publish-github:
+    name: Publish GitHub release
+    needs: [plan, prepare-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    if: needs.plan.outputs.should_skip != 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release payload
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release
+          merge-multiple: true
+
+      - name: Render release body
+        id: changelog
+        run: |
+          VERSION_NUMBER="${{ needs.plan.outputs.package_version }}"
+          CHANNEL="${{ needs.plan.outputs.release_channel }}"
+
+          if [[ "$CHANNEL" == "next" ]]; then
+            echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+            echo "# redblue Next Release" >> "$GITHUB_OUTPUT"
+            echo "" >> "$GITHUB_OUTPUT"
+            echo "**Version**: \`${{ needs.plan.outputs.release_tag }}\`" >> "$GITHUB_OUTPUT"
+            echo "**Channel**: \`next\`" >> "$GITHUB_OUTPUT"
+            echo "" >> "$GITHUB_OUTPUT"
+            echo "Generated from commit: \`${GITHUB_SHA}\`" >> "$GITHUB_OUTPUT"
+            echo "Build: \`#${{ github.run_number }}\`" >> "$GITHUB_OUTPUT"
+            echo "" >> "$GITHUB_OUTPUT"
+            echo "## Warning" >> "$GITHUB_OUTPUT"
+            echo "This is an automated pre-release and may contain unstable changes." >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGELOG_CHUNK=""
+          if [ -f CHANGELOG.md ]; then
+            CHANGELOG_CHUNK=$(awk '/^## \['"${VERSION_NUMBER}"'\]/,/^## \[/{if(/^## \['"${VERSION_NUMBER}"'\]/){next}if(/^## \[/){exit}print}' CHANGELOG.md)
+          fi
+
+          if [ -z "$CHANGELOG_CHUNK" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              CHANGELOG_CHUNK=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+            else
+              CHANGELOG_CHUNK=$(git log --pretty=format:"- %s" --no-merges -10)
+            fi
+          fi
+
+          if [ -z "$CHANGELOG_CHUNK" ]; then
+            CHANGELOG_CHUNK="No changes detected."
+          fi
+
+          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "## Changes" >> "$GITHUB_OUTPUT"
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_CHUNK" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Delete old next releases
+        if: needs.plan.outputs.release_channel == 'next'
+        uses: dev-drprasad/delete-older-releases@v0.3.4
+        with:
+          keep_latest: 5
+          delete_tag_pattern: ".*-next.*"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: redblue ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.plan.outputs.release_tag }}
+          name: redblue ${{ needs.plan.outputs.release_tag }}
           body: |
-            # redblue ${{ steps.version.outputs.version }}
+            # redblue ${{ needs.plan.outputs.release_tag }}
 
-            ## Changes
             ${{ steps.changelog.outputs.changes }}
 
             ## Installation
-
             Download the binary for your platform and make it executable:
 
             ```bash
             # Linux x86_64
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-linux-x86_64 -o rb
-            chmod +x rb
-            sudo mv rb /usr/local/bin/
-
-            # Linux ARM64
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/rb-linux-aarch64 -o rb
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ needs.plan.outputs.release_tag }}/rb-linux-x86_64 -o rb
             chmod +x rb
             sudo mv rb /usr/local/bin/
             ```
 
-            ## Verify Installation
+            ## Verify installation
 
             ```bash
             rb --version
             rb help
             ```
-
-            ## Checksums
-
-            SHA256 checksums are provided for each binary (`.sha256` files).
-
-            ## MCP Embeddings
-
-            The `embeddings.json` file contains pre-computed vectors for semantic documentation search.
-            It will be automatically downloaded when you run `rb mcp` for the first time.
-          draft: false
-          prerelease: false
+          prerelease: ${{ needs.plan.outputs.github_prerelease }}
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Job summary
+        run: |
+          echo "## Release published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Channel** | \`${{ needs.plan.outputs.release_channel }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Tag** | \`${{ needs.plan.outputs.release_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **NPM Tag** | \`${{ needs.plan.outputs.npm_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-npm:
+    name: Publish npm package
+    needs: [plan, prepare-release, publish-github]
+    runs-on: ubuntu-latest
+    if: needs.plan.outputs.should_skip != 'true'
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Set package version
+        run: |
+          VERSION="${{ needs.plan.outputs.package_version }}"
+          VERSION="$VERSION" node - <<'EOF'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = process.env.VERSION;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          EOF
+
+      - name: Validate package
+        run: |
+          npm install --no-package-lock
+          npm run build
+          npm run coverage
+          npm run pack-check
+
+      - name: Publish package
+        run: npm publish --tag "${{ needs.plan.outputs.npm_tag }}" --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published package
+        env:
+          EXPECTED_VERSION: ${{ needs.plan.outputs.package_version }}
+          NPM_TAG: ${{ needs.plan.outputs.npm_tag }}
+        run: |
+          echo "Waiting for npm registry to update..."
+          PUBLISHED_VERSION=""
+          for attempt in 1 2 3 4 5 6; do
+            PUBLISHED_VERSION=$(npm view redblue-cli@${NPM_TAG} version 2>/dev/null || true)
+            if [ "$PUBLISHED_VERSION" = "$EXPECTED_VERSION" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+          if [ "$PUBLISHED_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::warning::Expected npm ${NPM_TAG} tag to be $EXPECTED_VERSION but found '$PUBLISHED_VERSION'"
+          else
+            echo "Verified npm ${NPM_TAG} tag: $PUBLISHED_VERSION"
+          fi
+
+          npx -y redblue-cli@${NPM_TAG} --sdk-help >/tmp/redblue-sdk-help.txt
+          grep -q "redblue-cli wrapper" /tmp/redblue-sdk-help.txt
+
+      - name: Job summary
+        run: |
+          echo "## NPM published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Package** | \`redblue-cli\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Version** | \`${{ needs.plan.outputs.package_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Tag** | \`${{ needs.plan.outputs.npm_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
