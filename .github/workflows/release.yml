@@ -17,7 +17,7 @@ on:
           - stable
           - next
       version:
-        description: "Optional version (e.g. 0.1.2, next: 0.1.2-next.10+abc1234)"
+        description: "Optional version (e.g. 0.1.2, next: 0.1.2-next.10)"
         required: false
 
 permissions:
@@ -74,8 +74,7 @@ jobs:
           next_version() {
             local base_version="$1"
             local run_number="${{ github.run_number }}"
-            local sha_short="${GITHUB_SHA::7}"
-            echo "${base_version}-next.${run_number}+${sha_short}"
+            echo "${base_version}-next.${run_number}"
           }
 
           if [[ "$EVENT_NAME" == "push" && "$REF" == refs/tags/v* ]]; then
@@ -515,18 +514,20 @@ jobs:
           EXPECTED_VERSION: ${{ needs.plan.outputs.package_version }}
           NPM_TAG: ${{ needs.plan.outputs.npm_tag }}
         run: |
+          EXPECTED_VERSION_CANONICAL="${EXPECTED_VERSION%%+*}"
+
           echo "Waiting for npm registry to update..."
           PUBLISHED_VERSION=""
           for attempt in 1 2 3 4 5 6; do
             PUBLISHED_VERSION=$(npm view redblue-cli@${NPM_TAG} version 2>/dev/null || true)
-            if [ "$PUBLISHED_VERSION" = "$EXPECTED_VERSION" ]; then
+            if [ "$PUBLISHED_VERSION" = "$EXPECTED_VERSION_CANONICAL" ]; then
               break
             fi
             sleep 10
           done
 
-          if [ "$PUBLISHED_VERSION" != "$EXPECTED_VERSION" ]; then
-            echo "::warning::Expected npm ${NPM_TAG} tag to be $EXPECTED_VERSION but found '$PUBLISHED_VERSION'"
+          if [ "$PUBLISHED_VERSION" != "$EXPECTED_VERSION_CANONICAL" ]; then
+            echo "::warning::Expected npm ${NPM_TAG} tag to be $EXPECTED_VERSION_CANONICAL but found '$PUBLISHED_VERSION'"
           else
             echo "Verified npm ${NPM_TAG} tag: $PUBLISHED_VERSION"
           fi
