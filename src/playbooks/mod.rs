@@ -112,6 +112,6 @@ pub use executor::PlaybookExecutor;
 pub use recommender::{
   findings_from_planner_input, recommend_from_attack_plan, recommend_playbooks, DetectedOS,
   PlaybookRecommendation, PlaybookRecommender, RecommendationResult, RecommendationSummary,
-  ReconFindings,
+  ReconFindings, ScoreBreakdown, ScoreComponent,
 };
 pub use types::*;
