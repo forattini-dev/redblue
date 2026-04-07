@@ -124,6 +124,33 @@ pub struct RatchetState {
 }
 
 impl RatchetState {
+  /// Register all sensitive key material with a SleepEncryptor.
+  /// Called before beacon sleep so keys are ciphertext during idle.
+  ///
+  /// # Safety
+  /// The RatchetState must not be moved or dropped while the encryptor holds pointers.
+  pub unsafe fn register_for_sleep(
+    &mut self,
+    encryptor: &mut crate::modules::evasion::sleep_encrypt::SleepEncryptor,
+  ) {
+    encryptor.register(&mut self.dh_keypair.private_key);
+    encryptor.register(&mut self.dh_keypair.public_key);
+    encryptor.register(&mut self.root_key);
+    if let Some(ref mut dh) = self.dh_remote {
+      encryptor.register(dh);
+    }
+    if let Some(ref mut key) = self.send_chain_key {
+      encryptor.register(key);
+    }
+    if let Some(ref mut key) = self.recv_chain_key {
+      encryptor.register(key);
+    }
+    // Skipped message keys contain decryption material too
+    for key in self.skipped_keys.values_mut() {
+      encryptor.register(key);
+    }
+  }
+
   /// Initialize ratchet for the initiator (client)
   ///
   /// The initiator sends the first message after X3DH key agreement.
