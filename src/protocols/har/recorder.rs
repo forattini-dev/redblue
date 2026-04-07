@@ -131,7 +131,7 @@ impl HarRecorder {
           version: "1.2".to_string(),
           creator: HarCreator {
             name: "redblue".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: crate::version::current_version().to_string(),
             comment: None,
           },
           browser: None,
