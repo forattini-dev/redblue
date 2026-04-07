@@ -80,22 +80,23 @@ impl WebScanner {
       url.to_string()
     };
 
-    // Run all 5 passive checks in parallel (max 3 concurrent)
-    type CheckFn<'a> = Box<dyn Fn() -> Vec<Finding> + Send + Sync + 'a>;
-    let checks: Vec<CheckFn> = vec![
-      Box::new(|| self.check_sensitive_files(&base_url)),
-      Box::new(|| self.check_security_headers(&base_url)),
-      Box::new(|| self.check_directory_listings(&base_url)),
-      Box::new(|| self.check_admin_panels(&base_url)),
-      Box::new(|| self.check_info_disclosure(&base_url)),
-    ];
-
+    // Run all 5 passive checks in parallel via thread::scope.
+    // Each check is an independent set of HTTP probes to the same target.
+    // Max 3 concurrent to avoid triggering WAF rate-limits.
     let mut findings: Vec<Finding> = {
-      use crate::modules::common::parallel;
-      parallel::map(3, &checks, |check| check())
-        .into_iter()
-        .flatten()
-        .collect()
+      use std::sync::Mutex;
+      let collected: Mutex<Vec<Vec<Finding>>> = Mutex::new(Vec::new());
+      let url = &base_url;
+
+      std::thread::scope(|s| {
+        s.spawn(|| collected.lock().unwrap().push(self.check_sensitive_files(url)));
+        s.spawn(|| collected.lock().unwrap().push(self.check_security_headers(url)));
+        s.spawn(|| collected.lock().unwrap().push(self.check_directory_listings(url)));
+        s.spawn(|| collected.lock().unwrap().push(self.check_admin_panels(url)));
+        s.spawn(|| collected.lock().unwrap().push(self.check_info_disclosure(url)));
+      });
+
+      collected.into_inner().unwrap().into_iter().flatten().collect()
     };
 
     findings.sort_by(|a, b| {

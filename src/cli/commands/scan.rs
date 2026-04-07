@@ -15,7 +15,9 @@ use crate::json;
 use crate::modules::network::highspeed::{
   DeduplicationCache, RandomScanIterator, ScanRange, SynCookie, TokenBucket,
 };
-use crate::modules::network::scanner::{AdvancedScanner, PortScanner, ScanType, TimingTemplate};
+use crate::modules::network::scanner::{
+  AdvancedScanner, PortScanResult, PortScanner, ScanType, TimingTemplate,
+};
 use crate::serde_json::Value;
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
@@ -867,7 +869,8 @@ impl ScanCommand {
       Mutex::new(Vec::new());
 
     parallel::run_with_jitter(4, 2000, &alive_hosts, |host_ip| {
-      let scanner = PortScanner::new(IpAddr::V4(**host_ip))
+      let ip = *host_ip;
+      let scanner = PortScanner::new(IpAddr::V4(ip))
         .with_threads(threads)
         .with_timeout(timeout);
 
@@ -878,8 +881,8 @@ impl ScanCommand {
         _ => return,
       };
 
-      let idx = alive_hosts.iter().position(|h| h == *host_ip).unwrap_or(0);
-      host_results.lock().unwrap().push((idx, **host_ip, results));
+      let idx = alive_hosts.iter().position(|h| *h == ip).unwrap_or(0);
+      host_results.lock().unwrap().push((idx, ip, results));
     });
 
     let mut all_host_results = host_results.into_inner().unwrap();

@@ -217,19 +217,9 @@ impl WebCrawler {
     }
   }
 
-  /// Crawl a website starting from the given URL.
-  ///
-  /// Uses multi-threaded BFS: a shared queue and visited set are accessed by
-  /// multiple worker threads.  Each worker pops a URL, fetches it, extracts
-  /// links, and pushes new URLs back.  This is ~5x faster than single-threaded
-  /// crawling for sites with many pages.
-  ///
-  /// Concurrency capped at 4 workers to avoid hammering a single host.
-  /// Random jitter (100-300ms) between requests per thread to mimic human
-  /// browsing patterns.
+  /// Crawl a website starting from the given URL
   pub fn crawl(&mut self, start_url: &str) -> Result<CrawlResult, String> {
-    use std::sync::{Arc, Mutex, RwLock};
-
+    // Normalize start URL
     let base_url = self.normalize_url(start_url);
     let base_domain = self.extract_domain(&base_url)?;
 
@@ -239,102 +229,75 @@ impl WebCrawler {
       r.start_page(&format!("Crawl: {}", start_url));
     }
 
-    // Shared state for concurrent BFS
-    let visited: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
-    let queue: Arc<Mutex<VecDeque<(String, usize)>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let pages: Arc<Mutex<Vec<CrawledPage>>> = Arc::new(Mutex::new(Vec::new()));
+    // Initialize
+    self.visited.clear();
+    self.queue.clear();
+    self.queue.push_back((base_url.clone(), 0));
 
-    // Seed the queue
-    queue.lock().unwrap().push_back((base_url.clone(), 0));
-    visited.write().unwrap().insert(base_url.clone());
+    let mut pages = Vec::new();
+    let mut total_links = 0;
+    let mut max_depth_reached = 0;
 
-    let max_pages = self.config.max_pages;
-    let max_depth = self.config.max_depth;
-    let same_origin = self.config.same_origin_only;
-    let worker_count = 4usize.min(max_pages);
+    // BFS traversal
+    while let Some((url, depth)) = self.queue.pop_front() {
+      // Check limits
+      if pages.len() >= self.config.max_pages {
+        break;
+      }
 
-    std::thread::scope(|s| {
-      for _ in 0..worker_count {
-        let visited = Arc::clone(&visited);
-        let queue = Arc::clone(&queue);
-        let pages = Arc::clone(&pages);
-        let base_url = &base_url;
-        let base_domain = &base_domain;
+      if depth > self.config.max_depth {
+        continue;
+      }
 
-        s.spawn(move || {
-          let mut idle_rounds = 0u8;
+      // Skip if already visited
+      if self.visited.contains(&url) {
+        continue;
+      }
 
-          loop {
-            // Check if we've hit the page limit
-            if pages.lock().unwrap().len() >= max_pages {
-              break;
-            }
+      // Mark as visited
+      self.visited.insert(url.clone());
 
-            // Pop next URL from shared queue
-            let item = queue.lock().unwrap().pop_front();
-            let Some((url, depth)) = item else {
-              // Queue empty — wait briefly for other workers to add URLs
-              idle_rounds += 1;
-              if idle_rounds > 10 {
-                break; // No more work
-              }
-              std::thread::sleep(std::time::Duration::from_millis(50));
-              continue;
-            };
-            idle_rounds = 0;
+      // Fetch page
+      match self.fetch_page(&url, &base_url) {
+        Ok(mut page) => {
+          page.depth = depth;
+          total_links += page.links.len();
+          max_depth_reached = max_depth_reached.max(depth);
 
-            if depth > max_depth {
-              continue;
-            }
+          // Call page callback if set
+          if let Some(ref callback) = self.callback {
+            callback(&page);
+          }
 
-            // OPSEC: small jitter between fetches to avoid robotic timing
-            crate::modules::common::parallel::jitter_sleep(100, 300);
+          // Queue child links
+          for link in &page.links {
+            let normalized = self.normalize_url(link);
 
-            // Fetch page
-            let page_result = self.fetch_page(&url, base_url);
-            let Ok(mut page) = page_result else {
-              continue;
-            };
-
-            page.depth = depth;
-
-            // Enqueue child links
-            for link in &page.links {
-              let normalized = self.normalize_url(link);
-
-              if same_origin {
-                if let Ok(link_domain) = self.extract_domain(&normalized) {
-                  if link_domain != *base_domain {
-                    continue;
-                  }
+            // Check same-origin policy
+            if self.config.same_origin_only {
+              if let Ok(link_domain) = self.extract_domain(&normalized) {
+                if link_domain != base_domain {
+                  continue; // Skip external links
                 }
               }
-
-              // Only enqueue if not already visited
-              let mut v = visited.write().unwrap();
-              if v.insert(normalized.clone()) {
-                queue.lock().unwrap().push_back((normalized, depth + 1));
-              }
             }
 
-            // Call page callback if set
-            if let Some(ref callback) = self.callback {
-              callback(&page);
+            // Add to queue if not visited
+            if !self.visited.contains(&normalized) {
+              self.queue.push_back((normalized, depth + 1));
             }
-
-            pages.lock().unwrap().push(page);
           }
-        });
+
+          pages.push(page);
+        }
+        Err(_) => {
+          // Skip failed pages, continue crawling
+          continue;
+        }
       }
-    });
+    }
 
-    let pages = Arc::try_unwrap(pages).unwrap().into_inner().unwrap();
-    let total_links: usize = pages.iter().map(|p| p.links.len()).sum();
-    let max_depth_reached = pages.iter().map(|p| p.depth).max().unwrap_or(0);
-
-    // Update self state for compatibility
-    self.visited = Arc::try_unwrap(visited).unwrap().into_inner().unwrap();
-
+    // Emit synergy events for crawl results
     emit_crawl_events(&base_url, &pages);
 
     Ok(CrawlResult {
