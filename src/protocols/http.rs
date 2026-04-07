@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::str;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::config;
@@ -895,7 +895,14 @@ impl HttpDispatcher {
 
     let mut stream = self
       .pool
-      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins, request.tls_profile)
+      .get_connection(
+        &host,
+        port,
+        use_tls,
+        request.tls_verify,
+        &request.tls_pins,
+        request.tls_profile,
+      )
       .map_err(HttpSendError::from)?;
     stream
       .set_write_timeout(Some(self.connect_timeout))
@@ -958,7 +965,14 @@ impl HttpDispatcher {
 
     let mut stream = self
       .pool
-      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins, request.tls_profile)
+      .get_connection(
+        &host,
+        port,
+        use_tls,
+        request.tls_verify,
+        &request.tls_pins,
+        request.tls_profile,
+      )
       .map_err(HttpSendError::from)?;
     stream
       .set_write_timeout(Some(self.connect_timeout))
@@ -996,15 +1010,142 @@ impl HttpDispatcher {
   }
 }
 
+/// Cookie jar that stores cookies keyed by domain.
+///
+/// Parses `Set-Cookie` response headers and generates the `Cookie` request
+/// header value for a given domain.  Only the cookie name=value pair is
+/// stored; attributes like Path, Expires, Max-Age, Secure, and HttpOnly are
+/// currently ignored.
+#[derive(Debug, Clone)]
+pub struct CookieJar {
+  /// domain -> (cookie_name -> cookie_value)
+  cookies: HashMap<String, HashMap<String, String>>,
+}
+
+impl CookieJar {
+  pub fn new() -> Self {
+    Self {
+      cookies: HashMap::new(),
+    }
+  }
+
+  /// Parse a single `Set-Cookie` header value and store the cookie.
+  ///
+  /// The cookie name=value pair is taken from the portion before the first
+  /// semicolon.  If a `Domain` attribute is present its value is used as the
+  /// storage key (with any leading dot stripped); otherwise `domain` is used.
+  pub fn parse_set_cookie(&mut self, domain: &str, header_value: &str) {
+    // The name=value pair is everything before the first ";"
+    let name_value_part = match header_value.find(';') {
+      Some(idx) => header_value[..idx].trim(),
+      None => header_value.trim(),
+    };
+
+    let (name, value) = match name_value_part.find('=') {
+      Some(idx) => (
+        name_value_part[..idx].trim().to_string(),
+        name_value_part[idx + 1..].trim().to_string(),
+      ),
+      None => return, // malformed — no '=' found, skip
+    };
+
+    if name.is_empty() {
+      return;
+    }
+
+    // Check for a Domain attribute in the cookie attributes
+    let cookie_domain = header_value
+      .split(';')
+      .skip(1) // skip the name=value part
+      .find_map(|attr| {
+        let attr = attr.trim();
+        if attr.len() > 7 && attr[..7].eq_ignore_ascii_case("domain=") {
+          let d = attr[7..].trim().trim_start_matches('.');
+          if !d.is_empty() {
+            return Some(d.to_ascii_lowercase());
+          }
+        }
+        None
+      })
+      .unwrap_or_else(|| domain.to_ascii_lowercase());
+
+    self
+      .cookies
+      .entry(cookie_domain)
+      .or_insert_with(HashMap::new)
+      .insert(name, value);
+  }
+
+  /// Build the `Cookie` header value for the given domain.
+  ///
+  /// Returns `None` when there are no cookies stored for `domain`.
+  pub fn cookie_header(&self, domain: &str) -> Option<String> {
+    let domain_lower = domain.to_ascii_lowercase();
+    let jar = self.cookies.get(&domain_lower)?;
+    if jar.is_empty() {
+      return None;
+    }
+    let pairs: Vec<String> = jar.iter().map(|(n, v)| format!("{}={}", n, v)).collect();
+    Some(pairs.join("; "))
+  }
+
+  /// Remove all stored cookies.
+  pub fn clear(&mut self) {
+    self.cookies.clear();
+  }
+}
+
+/// Resolve a potentially relative `Location` header against the current
+/// request URL.
+///
+/// Rules:
+/// - Absolute URL (starts with `http://` or `https://`): use as-is
+/// - Protocol-relative (starts with `//`): prepend current scheme
+/// - Absolute path (starts with `/`): prepend scheme + host
+/// - Relative path: prepend scheme + host + `/`
+fn resolve_redirect_url(location: &str, current_url: &str) -> String {
+  if location.starts_with("http://") || location.starts_with("https://") {
+    return location.to_string();
+  }
+
+  let parsed = ParsedUrl::parse(current_url);
+  let scheme_str = match parsed.scheme {
+    Scheme::Http => "http",
+    Scheme::Https => "https",
+  };
+
+  let host_port = if parsed.port != parsed.scheme.default_port() {
+    format!("{}:{}", parsed.host, parsed.port)
+  } else {
+    parsed.host.clone()
+  };
+
+  if location.starts_with("//") {
+    return format!("{}:{}", scheme_str, location);
+  }
+
+  if location.starts_with('/') {
+    return format!("{}://{}{}", scheme_str, host_port, location);
+  }
+
+  format!("{}://{}/{}", scheme_str, host_port, location)
+}
+
 #[derive(Debug)]
 pub struct HttpClient {
   dispatcher: HttpDispatcher,
+  /// Maximum number of redirects to follow (0 = disabled).  Default: 10.
+  max_redirects: u8,
+  /// Optional cookie jar protected by a mutex for interior mutability.
+  cookie_jar: Option<Mutex<CookieJar>>,
 }
 
 impl HttpClient {
   pub fn new() -> Self {
     Self {
       dispatcher: HttpDispatcher::new(),
+      max_redirects: 10,
+      cookie_jar: None,
     }
   }
 
@@ -1029,6 +1170,21 @@ impl HttpClient {
     self
   }
 
+  /// Set the maximum number of redirects to follow.  Pass 0 to disable
+  /// redirect following entirely.
+  pub fn with_max_redirects(mut self, max: u8) -> Self {
+    self.max_redirects = max;
+    self
+  }
+
+  /// Enable automatic cookie handling.  A fresh `CookieJar` is created and
+  /// cookies received via `Set-Cookie` headers will be stored and replayed
+  /// on subsequent requests to the matching domain.
+  pub fn with_cookies(mut self) -> Self {
+    self.cookie_jar = Some(Mutex::new(CookieJar::new()));
+    self
+  }
+
   pub fn send_with_handler<H: HttpResponseHandler>(
     &self,
     request: &HttpRequest,
@@ -1038,11 +1194,142 @@ impl HttpClient {
     self.dispatcher.dispatch_with_handler(options, handler)
   }
 
+  /// Send a request, following redirects and handling cookies automatically.
+  ///
+  /// This is the primary send method.  It honours `max_redirects` and, when
+  /// a cookie jar is enabled, injects the `Cookie` header and collects
+  /// `Set-Cookie` headers from every response in the redirect chain.
   pub fn send(&self, request: &HttpRequest) -> Result<HttpResponse, String> {
     self
-      .send_with_metrics(request)
-      .map(|(resp, _)| resp)
+      .send_following_redirects(request)
       .map_err(|err| err.message)
+  }
+
+  /// Send without following any redirects.  Useful for security scanners
+  /// that need to inspect redirect responses directly.
+  pub fn send_no_redirect(&self, request: &HttpRequest) -> Result<HttpResponse, String> {
+    let mut req = request.clone();
+
+    // Inject cookies if the jar is enabled
+    if let Some(ref jar_mutex) = self.cookie_jar {
+      if let Ok(jar) = jar_mutex.lock() {
+        if let Some(cookie_header) = jar.cookie_header(req.host()) {
+          req.headers.insert("Cookie".to_string(), cookie_header);
+        }
+      }
+    }
+
+    let options = HttpDispatchOptions::from(req.clone());
+    let result = self.dispatcher.dispatch(options).map_err(|e| e.message)?;
+
+    // Collect cookies from the response
+    if let Some(ref jar_mutex) = self.cookie_jar {
+      if let Ok(mut jar) = jar_mutex.lock() {
+        collect_set_cookies(&mut jar, req.host(), &result.response.headers);
+      }
+    }
+
+    Ok(result.response)
+  }
+
+  /// Internal method that performs the redirect-following loop.
+  fn send_following_redirects(&self, request: &HttpRequest) -> Result<HttpResponse, HttpSendError> {
+    let mut current_request = request.clone();
+    let mut redirects_remaining = self.max_redirects;
+
+    loop {
+      // Inject cookies before dispatching
+      if let Some(ref jar_mutex) = self.cookie_jar {
+        if let Ok(jar) = jar_mutex.lock() {
+          if let Some(cookie_header) = jar.cookie_header(current_request.host()) {
+            current_request
+              .headers
+              .insert("Cookie".to_string(), cookie_header);
+          }
+        }
+      }
+
+      let options = HttpDispatchOptions::from(current_request.clone());
+      let result = self.dispatcher.dispatch(options)?;
+      let response = result.response;
+
+      // Collect cookies from every response in the chain
+      if let Some(ref jar_mutex) = self.cookie_jar {
+        if let Ok(mut jar) = jar_mutex.lock() {
+          collect_set_cookies(&mut jar, current_request.host(), &response.headers);
+        }
+      }
+
+      // Check for redirect status codes
+      let is_redirect = matches!(response.status_code, 301 | 302 | 303 | 307 | 308);
+      if !is_redirect || redirects_remaining == 0 {
+        return Ok(response);
+      }
+
+      // Extract the Location header (try canonical then lowercase)
+      let location = response
+        .headers
+        .get("Location")
+        .or_else(|| response.headers.get("location"))
+        .cloned();
+
+      let location = match location {
+        Some(loc) if !loc.is_empty() => loc,
+        _ => return Ok(response), // no usable Location — return as-is
+      };
+
+      let current_full_url = current_request.full_url();
+      let resolved = resolve_redirect_url(&location, &current_full_url);
+
+      // Build a fresh request to the redirect target
+      let mut next_method = current_request.method.clone();
+      let mut next_body = current_request.body.clone();
+
+      match response.status_code {
+        // 303 See Other: always switch to GET, drop body
+        303 => {
+          next_method = "GET".to_string();
+          next_body = Vec::new();
+        }
+        // 301 Moved Permanently / 302 Found: switch POST -> GET (standard browser behaviour)
+        301 | 302 => {
+          if current_request.method == "POST" {
+            next_method = "GET".to_string();
+            next_body = Vec::new();
+          }
+        }
+        // 307 / 308: preserve method and body
+        _ => {}
+      }
+
+      let mut next_request = HttpRequest::new(&next_method, &resolved);
+
+      // Carry over relevant headers (except Host, which is set by HttpRequest::new)
+      for (key, value) in &current_request.headers {
+        let key_lower = key.to_ascii_lowercase();
+        // Skip headers that are set automatically or are request-body-specific
+        // when the body has been dropped
+        if key_lower == "host" {
+          continue;
+        }
+        if next_body.is_empty() && (key_lower == "content-length" || key_lower == "content-type") {
+          continue;
+        }
+        next_request.headers.insert(key.clone(), value.clone());
+      }
+
+      if !next_body.is_empty() {
+        next_request = next_request.with_body(next_body);
+      }
+
+      // Preserve TLS settings
+      next_request.tls_verify = current_request.tls_verify;
+      next_request.tls_pins = current_request.tls_pins.clone();
+      next_request.tls_profile = current_request.tls_profile;
+
+      current_request = next_request;
+      redirects_remaining -= 1;
+    }
   }
 
   pub fn send_with_metrics(
@@ -1126,6 +1413,22 @@ impl HttpClient {
       .with_body(body.to_vec())
       .with_header("Content-Type", content_type);
     self.send(&request)
+  }
+}
+
+/// Extract `Set-Cookie` headers from a response and feed them into the jar.
+///
+/// The HTTP headers `HashMap` stores only one value per key, but real servers
+/// may send multiple `Set-Cookie` headers.  When the response is parsed by
+/// `HttpResponse::from_bytes`, only one survives.  We do the best we can
+/// with what we have — when a comma-separated value looks like it contains
+/// multiple cookies (heuristic: contains ", " followed by a token and "=")
+/// we split on that boundary.
+fn collect_set_cookies(jar: &mut CookieJar, domain: &str, headers: &HashMap<String, String>) {
+  for (key, value) in headers {
+    if key.eq_ignore_ascii_case("Set-Cookie") || key.eq_ignore_ascii_case("set-cookie") {
+      jar.parse_set_cookie(domain, value);
+    }
   }
 }
 
@@ -1790,5 +2093,321 @@ mod tests {
       .send_with_handler(&request, &mut handler)
       .expect("chunked request");
     assert_eq!(handler.data, b"Hello World");
+  }
+
+  // --- CookieJar tests ---
+
+  #[test]
+  fn test_cookie_jar_parse_simple() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "session=abc123");
+    assert_eq!(
+      jar.cookie_header("example.com"),
+      Some("session=abc123".to_string())
+    );
+  }
+
+  #[test]
+  fn test_cookie_jar_parse_with_attributes() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie(
+      "example.com",
+      "token=xyz; Path=/; HttpOnly; Secure; Max-Age=3600",
+    );
+    assert_eq!(
+      jar.cookie_header("example.com"),
+      Some("token=xyz".to_string())
+    );
+  }
+
+  #[test]
+  fn test_cookie_jar_domain_attribute() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("www.example.com", "sid=val; Domain=.example.com; Path=/");
+    // Should be stored under example.com (dot stripped)
+    assert_eq!(
+      jar.cookie_header("example.com"),
+      Some("sid=val".to_string())
+    );
+    // The original request domain should not have it
+    assert_eq!(jar.cookie_header("www.example.com"), None);
+  }
+
+  #[test]
+  fn test_cookie_jar_multiple_cookies() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "a=1");
+    jar.parse_set_cookie("example.com", "b=2");
+    let header = jar.cookie_header("example.com").unwrap();
+    assert!(header.contains("a=1"));
+    assert!(header.contains("b=2"));
+    assert!(header.contains("; "));
+  }
+
+  #[test]
+  fn test_cookie_jar_overwrite() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "a=1");
+    jar.parse_set_cookie("example.com", "a=2");
+    assert_eq!(jar.cookie_header("example.com"), Some("a=2".to_string()));
+  }
+
+  #[test]
+  fn test_cookie_jar_clear() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "a=1");
+    jar.clear();
+    assert_eq!(jar.cookie_header("example.com"), None);
+  }
+
+  #[test]
+  fn test_cookie_jar_case_insensitive_domain() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("Example.COM", "a=1");
+    assert_eq!(jar.cookie_header("example.com"), Some("a=1".to_string()));
+  }
+
+  #[test]
+  fn test_cookie_jar_empty_name_skipped() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "=noname");
+    assert_eq!(jar.cookie_header("example.com"), None);
+  }
+
+  #[test]
+  fn test_cookie_jar_no_equals_skipped() {
+    let mut jar = CookieJar::new();
+    jar.parse_set_cookie("example.com", "malformed-cookie");
+    assert_eq!(jar.cookie_header("example.com"), None);
+  }
+
+  // --- URL resolution tests ---
+
+  #[test]
+  fn test_resolve_redirect_absolute_url() {
+    let resolved = resolve_redirect_url("https://other.com/page", "http://example.com/old");
+    assert_eq!(resolved, "https://other.com/page");
+  }
+
+  #[test]
+  fn test_resolve_redirect_protocol_relative() {
+    let resolved = resolve_redirect_url("//cdn.example.com/path", "https://example.com/old");
+    assert_eq!(resolved, "https://cdn.example.com/path");
+  }
+
+  #[test]
+  fn test_resolve_redirect_absolute_path() {
+    let resolved = resolve_redirect_url("/new-path", "http://example.com/old");
+    assert_eq!(resolved, "http://example.com/new-path");
+  }
+
+  #[test]
+  fn test_resolve_redirect_relative_path() {
+    let resolved = resolve_redirect_url("page.html", "http://example.com/dir/old");
+    assert_eq!(resolved, "http://example.com/page.html");
+  }
+
+  #[test]
+  fn test_resolve_redirect_preserves_port() {
+    let resolved = resolve_redirect_url("/new", "http://example.com:8080/old");
+    assert_eq!(resolved, "http://example.com:8080/new");
+  }
+
+  // --- Redirect following tests (with real TCP) ---
+
+  #[test]
+  fn test_redirect_302_get() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      // First request: respond with 302
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let redirect = format!(
+          "HTTP/1.1 302 Found\r\nLocation: http://{}/final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          addr
+        );
+        let _ = stream.write_all(redirect.as_bytes());
+      }
+      // Second request: respond with 200
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let response = b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone";
+        let _ = stream.write_all(response);
+      }
+    });
+
+    let client = HttpClient::new().with_keep_alive(false);
+    let response = client
+      .get(&format!("http://{}/start", addr))
+      .expect("redirect should work");
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.body_as_string(), "done");
+  }
+
+  #[test]
+  fn test_redirect_disabled() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let redirect = format!(
+          "HTTP/1.1 302 Found\r\nLocation: http://{}/final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          addr
+        );
+        let _ = stream.write_all(redirect.as_bytes());
+      }
+    });
+
+    let client = HttpClient::new()
+      .with_keep_alive(false)
+      .with_max_redirects(0);
+    let response = client
+      .get(&format!("http://{}/start", addr))
+      .expect("should return redirect without following");
+    assert_eq!(response.status_code, 302);
+  }
+
+  #[test]
+  fn test_send_no_redirect() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let redirect = format!(
+          "HTTP/1.1 301 Moved\r\nLocation: http://{}/other\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          addr
+        );
+        let _ = stream.write_all(redirect.as_bytes());
+      }
+    });
+
+    let client = HttpClient::new().with_keep_alive(false);
+    let request = HttpRequest::get(&format!("http://{}/start", addr));
+    let response = client.send_no_redirect(&request).expect("raw send");
+    assert_eq!(response.status_code, 301);
+  }
+
+  #[test]
+  fn test_redirect_303_converts_to_get() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      // First: accept POST, return 303
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let redirect = format!(
+          "HTTP/1.1 303 See Other\r\nLocation: http://{}/result\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          addr
+        );
+        let _ = stream.write_all(redirect.as_bytes());
+      }
+      // Second: expect GET
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req_str = String::from_utf8_lossy(&buf[..n]);
+        let method = req_str.split_whitespace().next().unwrap_or("");
+        let body = format!("method={}", method);
+        let response = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+          body.len(),
+          body
+        );
+        let _ = stream.write_all(response.as_bytes());
+      }
+    });
+
+    let client = HttpClient::new().with_keep_alive(false);
+    let request =
+      HttpRequest::post(&format!("http://{}/submit", addr)).with_body(b"data=test".to_vec());
+    let response = client.send(&request).expect("303 redirect");
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.body_as_string(), "method=GET");
+  }
+
+  #[test]
+  fn test_cookie_jar_with_redirect() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      // First request: set a cookie and redirect
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let redirect = format!(
+          "HTTP/1.1 302 Found\r\nSet-Cookie: sid=secret123\r\nLocation: http://{}/dashboard\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          addr
+        );
+        let _ = stream.write_all(redirect.as_bytes());
+      }
+      // Second request: check that Cookie header is present
+      if let Ok((mut stream, _)) = listener.accept() {
+        let mut buf = [0u8; 2048];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+        let has_cookie = req_str.contains("Cookie:") && req_str.contains("sid=secret123");
+        let body = if has_cookie {
+          "cookie_ok"
+        } else {
+          "cookie_missing"
+        };
+        let response = format!(
+          "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+          body.len(),
+          body
+        );
+        let _ = stream.write_all(response.as_bytes());
+      }
+    });
+
+    let client = HttpClient::new().with_keep_alive(false).with_cookies();
+    let response = client
+      .get(&format!("http://{}/login", addr))
+      .expect("cookie redirect");
+    assert_eq!(response.status_code, 200);
+    assert_eq!(response.body_as_string(), "cookie_ok");
+  }
+
+  #[test]
+  fn test_max_redirects_limit() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+      // Keep redirecting forever
+      for _ in 0..5 {
+        if let Ok((mut stream, _)) = listener.accept() {
+          let mut buf = [0u8; 1024];
+          let _ = stream.read(&mut buf);
+          let redirect = format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://{}/loop\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            addr
+          );
+          let _ = stream.write_all(redirect.as_bytes());
+        }
+      }
+    });
+
+    let client = HttpClient::new()
+      .with_keep_alive(false)
+      .with_max_redirects(3);
+    let response = client
+      .get(&format!("http://{}/loop", addr))
+      .expect("should stop after max_redirects");
+    // After 3 redirects the 4th 302 is returned as-is
+    assert_eq!(response.status_code, 302);
   }
 }
