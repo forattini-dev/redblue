@@ -134,4 +134,5 @@ pub mod storage;
 pub mod synergy; // Cross-module correlation engine (events, rules, timeline)
 pub mod ui; // Terminal graphics library (Braille canvas, charts, colors)
 pub mod utils;
+pub mod version;
 pub mod wordlists; // Wordlist management for bruteforce operations
