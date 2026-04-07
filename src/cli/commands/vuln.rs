@@ -7,8 +7,9 @@
 //! - Exploit-DB
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use crate::modules::recon::fingerprint::FingerprintEngine;
 use crate::modules::recon::vuln::{
     correlator::{CorrelatorConfig, CorrelationReport, VulnCorrelator},
@@ -34,6 +35,31 @@ impl Command for VulnCommand {
 
     fn description(&self) -> &str {
         "Vulnerability intelligence - search CVEs, check exploits, assess risk"
+    }
+
+    fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+        crate::cli::schema::CommandMetadata::new().with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+                .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+                .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+                .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+        )
+    }
+
+    fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+        let json_support = match verb {
+            "search" | "cve" | "kev" | "exploit" | "cpe" | "correlate" | "scan" | "report" => {
+                crate::cli::schema::JsonSupport::Guaranteed
+            }
+            _ => crate::cli::schema::JsonSupport::BestEffort,
+        };
+
+        crate::cli::schema::RouteMetadata::new().with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+                .with_json_support(json_support)
+                .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+                .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+        )
     }
 
     fn routes(&self) -> Vec<Route> {
@@ -279,14 +305,9 @@ impl VulnCommand {
 
         // Display results
         if vulns.is_empty() {
-            if is_json {
-                Output::json_value(&json!({
-                    "technology": tech.clone(),
-                    "version": version.clone(),
-                    "source": source.clone(),
-                    "total": 0,
-                    "vulnerabilities": []
-                }));
+            let payload = vuln_search_payload(tech, version.as_ref(), &source, &vulns, limit);
+            if render::render_machine_output(ctx, "rb vuln intel search", &payload)? {
+                return Ok(());
             } else {
                 println!();
                 Output::info("No vulnerabilities found.");
@@ -295,19 +316,8 @@ impl VulnCommand {
         }
 
         if is_json {
-            let vulnerabilities_json: Vec<crate::serde_json::Value> = vulns
-                .iter()
-                .take(limit)
-                .map(vuln_summary_to_json)
-                .collect();
-            Output::json_value(&json!({
-                "technology": tech.clone(),
-                "version": version.clone(),
-                "source": source.clone(),
-                "total": vulns.len(),
-                "showing": limit.min(vulns.len()),
-                "vulnerabilities": vulnerabilities_json
-            }));
+            let payload = vuln_search_payload(tech, version.as_ref(), &source, &vulns, limit);
+            render::render_machine_output(ctx, "rb vuln intel search", &payload)?;
             return Ok(());
         }
 
@@ -348,14 +358,13 @@ impl VulnCommand {
         let vuln = match nvd.query_by_cve(cve_id)? {
             Some(v) => v,
             None => {
+                let payload = cve_not_found_payload(cve_id);
+                if render::render_machine_output(ctx, "rb vuln intel cve", &payload)? {
+                    return Ok(());
+                }
                 if !is_json {
                     Output::spinner_done();
                     Output::warning(&format!("CVE {} not found in NVD", cve_id));
-                } else {
-                    Output::json_value(&json!({
-                        "error": "CVE not found",
-                        "cve_id": cve_id.clone()
-                    }));
                 }
                 return Ok(());
             }
@@ -384,7 +393,8 @@ impl VulnCommand {
 
         // Output
         if is_json {
-            Output::json_value(&vuln_detail_to_json(&vuln));
+            let payload = vuln_detail_payload(&vuln);
+            render::render_machine_output(ctx, "rb vuln intel cve", &payload)?;
             return Ok(());
         }
 
@@ -425,21 +435,8 @@ impl VulnCommand {
             let stats = kev.stats()?;
 
             if is_json {
-                let top_vendors_json: Vec<crate::serde_json::Value> = stats
-                    .top_vendors
-                    .iter()
-                    .take(10)
-                    .map(|(vendor, count)| json!({
-                        "vendor": vendor.clone(),
-                        "count": *count
-                    }))
-                    .collect();
-                Output::json_value(&json!({
-                    "type": "kev_stats",
-                    "total": stats.total,
-                    "ransomware_count": stats.ransomware_count,
-                    "top_vendors": top_vendors_json
-                }));
+                let payload = kev_stats_payload(&stats);
+                render::render_machine_output(ctx, "rb vuln intel kev", &payload)?;
                 return Ok(());
             }
 
@@ -465,23 +462,8 @@ impl VulnCommand {
         };
 
         if is_json {
-            let entries_json: Vec<crate::serde_json::Value> = entries
-                .iter()
-                .take(limit)
-                .map(kev_entry_to_json)
-                .collect();
-            let mut payload = crate::serde_json::Map::new();
-            payload.insert("type".to_string(), json!("kev_entries"));
-            if let Some(ref v) = vendor {
-                payload.insert("filter_vendor".to_string(), json!(v.clone()));
-            }
-            if let Some(ref p) = product {
-                payload.insert("filter_product".to_string(), json!(p.clone()));
-            }
-            payload.insert("total".to_string(), json!(entries.len()));
-            payload.insert("showing".to_string(), json!(limit.min(entries.len())));
-            payload.insert("entries".to_string(), json!(entries_json));
-            Output::json_value(&crate::serde_json::Value::Object(payload));
+            let payload = kev_entries_payload(vendor.as_ref(), product.as_ref(), &entries, limit);
+            render::render_machine_output(ctx, "rb vuln intel kev", &payload)?;
             return Ok(());
         }
 
@@ -529,11 +511,8 @@ impl VulnCommand {
 
         if results.is_empty() {
             if is_json {
-                Output::json_value(&json!({
-                    "query": query.clone(),
-                    "total": 0,
-                    "exploits": []
-                }));
+                let payload = exploit_search_payload(query, &results, limit);
+                render::render_machine_output(ctx, "rb vuln intel exploit", &payload)?;
                 return Ok(());
             }
             Output::info("No exploits found.");
@@ -541,17 +520,8 @@ impl VulnCommand {
         }
 
         if is_json {
-            let exploits_json: Vec<crate::serde_json::Value> = results
-                .iter()
-                .take(limit)
-                .map(exploit_entry_to_json)
-                .collect();
-            Output::json_value(&json!({
-                "query": query.clone(),
-                "total": results.len(),
-                "showing": limit.min(results.len()),
-                "exploits": exploits_json
-            }));
+            let payload = exploit_search_payload(query, &results, limit);
+            render::render_machine_output(ctx, "rb vuln intel exploit", &payload)?;
             return Ok(());
         }
 
@@ -634,35 +604,8 @@ impl VulnCommand {
             .collect();
 
         if is_json {
-            // Group by category for JSON output
-            let mut by_category: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
-            for cpe in &filtered {
-                let cat_name = format!("{:?}", cpe.category);
-                by_category.entry(cat_name).or_default().push(*cpe);
-            }
-            let mut categories_json = crate::serde_json::Map::new();
-            let mut category_names: Vec<_> = by_category.keys().cloned().collect();
-            category_names.sort();
-            for cat in category_names {
-                let cpes = by_category.get(&cat).unwrap();
-                let cpes_json: Vec<crate::serde_json::Value> =
-                    cpes.iter().map(cpe_mapping_to_json).collect();
-                categories_json.insert(cat, json!(cpes_json));
-            }
-
-            let mut payload = crate::serde_json::Map::new();
-            if let Some(ref cat) = category {
-                payload.insert("filter_category".to_string(), json!(cat.clone()));
-            }
-            if let Some(ref s) = search {
-                payload.insert("filter_search".to_string(), json!(s.clone()));
-            }
-            payload.insert("total".to_string(), json!(filtered.len()));
-            payload.insert(
-                "categories".to_string(),
-                crate::serde_json::Value::Object(categories_json),
-            );
-            Output::json_value(&crate::serde_json::Value::Object(payload));
+            let payload = cpe_mappings_payload(category.as_ref(), search.as_ref(), &filtered);
+            render::render_machine_output(ctx, "rb vuln intel cpe", &payload)?;
             return Ok(());
         }
 
@@ -787,42 +730,71 @@ impl VulnCommand {
     fn correlate_techs(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or("Missing URL")?;
 
-        Output::header(&format!("Vulnerability Correlation: {}", url));
-        println!();
+        if !ctx.wants_machine_output() {
+            Output::header(&format!("Vulnerability Correlation: {}", url));
+            println!();
+        }
 
         // Parse URL to get host
         let _host = extract_host(url)?;
 
         // Step 1: Fingerprint the target
-        Output::spinner_start("Fingerprinting target...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Fingerprinting target...");
+        }
         let techs = self.fingerprint_target(url)?;
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
 
         if techs.is_empty() {
+            let report = CorrelationReport {
+                tech_correlations: Vec::new(),
+                all_vulnerabilities: VulnCollection::new(),
+                source_stats: Vec::new(),
+                total_time_ms: 0,
+                clean_techs: Vec::new(),
+                summary: Default::default(),
+            };
+            let payload = vuln_correlation_payload(url, &techs, &report);
+            if render::render_machine_output(ctx, "rb vuln intel correlate", &payload)? {
+                return Ok(());
+            }
             Output::warning("No technologies detected. Try using --deep for more thorough scanning.");
             return Ok(());
         }
 
-        Output::success(&format!("Detected {} technologies", techs.len()));
-        println!();
+        if !ctx.wants_machine_output() {
+            Output::success(&format!("Detected {} technologies", techs.len()));
+            println!();
 
-        // Display detected technologies
-        Output::section("Detected Technologies");
-        for tech in &techs {
-            let version_str = tech.version.as_deref().unwrap_or("unknown");
-            let conf_str = format!("{:.0}%", tech.confidence * 100.0);
-            Output::item(&tech.name, &format!("{} (confidence: {})", version_str, conf_str));
+            // Display detected technologies
+            Output::section("Detected Technologies");
+            for tech in &techs {
+                let version_str = tech.version.as_deref().unwrap_or("unknown");
+                let conf_str = format!("{:.0}%", tech.confidence * 100.0);
+                Output::item(&tech.name, &format!("{} (confidence: {})", version_str, conf_str));
+            }
+            println!();
         }
-        println!();
 
         // Step 2: Correlate with vulnerability sources
         let sources = ctx.get_flag_or("sources", "all");
         let config = self.build_correlator_config(&sources);
 
-        Output::spinner_start("Correlating with vulnerability databases...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Correlating with vulnerability databases...");
+        }
         let mut correlator = VulnCorrelator::with_config(config);
         let report = correlator.correlate(&techs);
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
+
+        let payload = vuln_correlation_payload(url, &techs, &report);
+        if render::render_machine_output(ctx, "rb vuln intel correlate", &payload)? {
+            return Ok(());
+        }
 
         // Display results
         self.display_correlation_report(&report);
@@ -834,56 +806,81 @@ impl VulnCommand {
     fn vuln_scan(&self, ctx: &CliContext) -> Result<(), String> {
         let url = ctx.target.as_ref().ok_or("Missing URL")?;
         let deep = ctx.has_flag("deep");
-        let json_output = ctx.has_flag("json");
 
-        Output::header(&format!("Vulnerability Scan: {}", url));
-        if deep {
-            Output::info("Deep scan mode enabled");
+        if !ctx.wants_machine_output() {
+            Output::header(&format!("Vulnerability Scan: {}", url));
+            if deep {
+                Output::info("Deep scan mode enabled");
+            }
+            println!();
         }
-        println!();
 
         // Step 1: Fingerprint
-        Output::spinner_start("Phase 1: Fingerprinting target...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Phase 1: Fingerprinting target...");
+        }
         let techs = self.fingerprint_target(url)?;
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
 
         if techs.is_empty() {
+            let report = CorrelationReport {
+                tech_correlations: Vec::new(),
+                all_vulnerabilities: VulnCollection::new(),
+                source_stats: Vec::new(),
+                total_time_ms: 0,
+                clean_techs: Vec::new(),
+                summary: Default::default(),
+            };
+            let payload = vuln_scan_payload(url, deep, &techs, &report);
+            if render::render_machine_output(ctx, "rb vuln intel scan", &payload)? {
+                return Ok(());
+            }
             Output::warning("No technologies detected.");
             return Ok(());
         }
 
-        Output::success(&format!("Phase 1 complete: {} technologies detected", techs.len()));
+        if !ctx.wants_machine_output() {
+            Output::success(&format!("Phase 1 complete: {} technologies detected", techs.len()));
+        }
 
         // Step 2: Correlate
         let sources = if deep { "all" } else { "nvd,kev" };
         let config = self.build_correlator_config(sources);
 
-        Output::spinner_start("Phase 2: Querying vulnerability databases...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Phase 2: Querying vulnerability databases...");
+        }
         let mut correlator = VulnCorrelator::with_config(config);
         let report = correlator.correlate(&techs);
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
 
-        Output::success(&format!(
-            "Phase 2 complete: {} vulnerabilities found across {} technologies",
-            report.summary.total_vulns,
-            report.tech_correlations.len()
-        ));
-        println!();
+        if !ctx.wants_machine_output() {
+            Output::success(&format!(
+                "Phase 2 complete: {} vulnerabilities found across {} technologies",
+                report.summary.total_vulns,
+                report.tech_correlations.len()
+            ));
+            println!();
+        }
 
-        if json_output {
-            // Output JSON format
-            self.output_report_json(&report);
-        } else {
-            // Display summary
-            self.display_scan_summary(&report);
+        let payload = vuln_scan_payload(url, deep, &techs, &report);
+        if render::render_machine_output(ctx, "rb vuln intel scan", &payload)? {
+            return Ok(());
+        }
 
-            // Show top risks
-            let top_risks = report.top_risks(10);
-            if !top_risks.is_empty() {
-                Output::section(&format!("Top {} Risks", top_risks.len()));
-                for vuln in top_risks {
-                    self.display_vuln_summary(vuln);
-                }
+        // Display summary
+        self.display_scan_summary(&report);
+
+        // Show top risks
+        let top_risks = report.top_risks(10);
+        if !top_risks.is_empty() {
+            Output::section(&format!("Top {} Risks", top_risks.len()));
+            for vuln in top_risks {
+                self.display_vuln_summary(vuln);
             }
         }
 
@@ -895,28 +892,54 @@ impl VulnCommand {
         let url = ctx.target.as_ref().ok_or("Missing URL")?;
         let format = ctx.get_flag_or("format", "text");
 
-        Output::header(&format!("Vulnerability Report: {}", url));
-        println!();
+        if !ctx.wants_machine_output() {
+            Output::header(&format!("Vulnerability Report: {}", url));
+            println!();
+        }
 
         // Step 1: Fingerprint
-        Output::spinner_start("Fingerprinting target...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Fingerprinting target...");
+        }
         let techs = self.fingerprint_target(url)?;
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
 
         if techs.is_empty() {
+            let report = CorrelationReport {
+                tech_correlations: Vec::new(),
+                all_vulnerabilities: VulnCollection::new(),
+                source_stats: Vec::new(),
+                total_time_ms: 0,
+                clean_techs: Vec::new(),
+                summary: Default::default(),
+            };
+            let payload = vuln_report_payload(url, &techs, &report);
+            if render::render_machine_output(ctx, "rb vuln intel report", &payload)? {
+                return Ok(());
+            }
             Output::warning("No technologies detected.");
             return Ok(());
         }
 
         // Step 2: Full correlation
-        Output::spinner_start("Correlating vulnerabilities (all sources)...");
+        if !ctx.wants_machine_output() {
+            Output::spinner_start("Correlating vulnerabilities (all sources)...");
+        }
         let config = self.build_correlator_config("all");
         let mut correlator = VulnCorrelator::with_config(config);
         let report = correlator.correlate(&techs);
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+            Output::spinner_done();
+        }
+
+        let payload = vuln_report_payload(url, &techs, &report);
+        if render::render_machine_output(ctx, "rb vuln intel report", &payload)? {
+            return Ok(());
+        }
 
         match format.as_str() {
-            "json" => self.output_report_json(&report),
             "markdown" | "md" => self.output_report_markdown(url, &techs, &report),
             _ => self.output_report_text(url, &techs, &report),
         }
@@ -1030,28 +1053,6 @@ impl VulnCommand {
         }
 
         println!();
-    }
-
-    /// Output report as JSON
-    fn output_report_json(&self, report: &CorrelationReport) {
-        let summary = &report.summary;
-        let top_risks_json: Vec<crate::serde_json::Value> = report
-            .top_risks(10)
-            .iter()
-            .map(top_risk_to_json)
-            .collect();
-        Output::json_value(&json!({
-            "total_technologies": summary.techs_scanned,
-            "technologies_with_vulns": summary.techs_vulnerable,
-            "total_vulnerabilities": summary.total_vulns,
-            "critical": summary.critical_count,
-            "high": summary.high_count,
-            "medium": summary.medium_count,
-            "low": summary.low_count,
-            "kev_count": summary.kev_count,
-            "exploit_count": summary.exploitable_count,
-            "top_risks": top_risks_json
-        }));
     }
 
     /// Output report as Markdown
@@ -1369,4 +1370,298 @@ fn top_risk_to_json(vuln: &&Vulnerability) -> crate::serde_json::Value {
         "kev": vuln.cisa_kev,
         "title": vuln.title.clone()
     })
+}
+
+fn vuln_search_payload(
+    tech: &str,
+    version: Option<&String>,
+    source: &str,
+    vulns: &[Vulnerability],
+    limit: usize,
+) -> Value {
+    let vulnerabilities: Vec<Value> = vulns.iter().take(limit).map(vuln_summary_to_json).collect();
+    json!({
+        "technology": tech,
+        "version": version.cloned(),
+        "source": source,
+        "total": vulns.len(),
+        "showing": limit.min(vulns.len()),
+        "vulnerabilities": vulnerabilities
+    })
+}
+
+fn cve_not_found_payload(cve_id: &str) -> Value {
+    json!({
+        "status": "not_found",
+        "error": "CVE not found",
+        "cve_id": cve_id
+    })
+}
+
+fn vuln_detail_payload(vuln: &Vulnerability) -> Value {
+    vuln_detail_to_json(vuln)
+}
+
+fn kev_stats_payload(stats: &crate::modules::recon::vuln::kev::KevStats) -> Value {
+    let top_vendors: Vec<Value> = stats
+        .top_vendors
+        .iter()
+        .take(10)
+        .map(|(vendor, count)| json!({"vendor": vendor, "count": count}))
+        .collect();
+    json!({
+        "type": "kev_stats",
+        "total": stats.total,
+        "ransomware_count": stats.ransomware_count,
+        "top_vendors": top_vendors
+    })
+}
+
+fn kev_entries_payload(
+    vendor: Option<&String>,
+    product: Option<&String>,
+    entries: &[crate::modules::recon::vuln::kev::KevEntry],
+    limit: usize,
+) -> Value {
+    let listed: Vec<Value> = entries.iter().take(limit).map(kev_entry_to_json).collect();
+    let mut payload = crate::serde_json::Map::new();
+    payload.insert("type".to_string(), json!("kev_entries"));
+    if let Some(vendor) = vendor {
+        payload.insert("filter_vendor".to_string(), json!(vendor));
+    }
+    if let Some(product) = product {
+        payload.insert("filter_product".to_string(), json!(product));
+    }
+    payload.insert("total".to_string(), json!(entries.len()));
+    payload.insert("showing".to_string(), json!(limit.min(entries.len())));
+    payload.insert("entries".to_string(), json!(listed));
+    Value::Object(payload)
+}
+
+fn exploit_search_payload(
+    query: &str,
+    results: &[crate::modules::recon::vuln::exploitdb::ExploitDbEntry],
+    limit: usize,
+) -> Value {
+    let exploits: Vec<Value> = results.iter().take(limit).map(exploit_entry_to_json).collect();
+    json!({
+        "query": query,
+        "total": results.len(),
+        "showing": limit.min(results.len()),
+        "exploits": exploits
+    })
+}
+
+fn cpe_mappings_payload(
+    category: Option<&String>,
+    search: Option<&String>,
+    filtered: &[&crate::modules::recon::vuln::cpe::CpeMapping],
+) -> Value {
+    let mut by_category: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+    for cpe in filtered {
+        let cat_name = format!("{:?}", cpe.category);
+        by_category.entry(cat_name).or_default().push(*cpe);
+    }
+    let mut categories_json = crate::serde_json::Map::new();
+    let mut category_names: Vec<_> = by_category.keys().cloned().collect();
+    category_names.sort();
+    for cat in category_names {
+        let cpes = by_category.get(&cat).unwrap();
+        let cpes_json: Vec<Value> = cpes.iter().map(cpe_mapping_to_json).collect();
+        categories_json.insert(cat, json!(cpes_json));
+    }
+
+    let mut payload = crate::serde_json::Map::new();
+    if let Some(category) = category {
+        payload.insert("filter_category".to_string(), json!(category));
+    }
+    if let Some(search) = search {
+        payload.insert("filter_search".to_string(), json!(search));
+    }
+    payload.insert("total".to_string(), json!(filtered.len()));
+    payload.insert("categories".to_string(), Value::Object(categories_json));
+    Value::Object(payload)
+}
+
+fn detected_tech_to_json(tech: &DetectedTech) -> Value {
+    json!({
+        "name": tech.name,
+        "category": format!("{:?}", tech.category),
+        "version": tech.version,
+        "confidence": tech.confidence,
+        "source": tech.source
+    })
+}
+
+fn source_stat_to_json(stat: &crate::modules::recon::vuln::correlator::SourceStats) -> Value {
+    json!({
+        "source": stat.source,
+        "found": stat.found,
+        "duration_ms": stat.duration_ms,
+        "error": stat.error
+    })
+}
+
+fn tech_correlation_to_json(
+    corr: &crate::modules::recon::vuln::correlator::TechCorrelation,
+) -> Value {
+    let vulnerabilities: Vec<Value> = corr.vulnerabilities.iter().map(vuln_summary_to_json).collect();
+    json!({
+        "technology": detected_tech_to_json(&corr.tech),
+        "cpe": corr.cpe,
+        "cve_count": corr.cve_count,
+        "critical_count": corr.critical_count,
+        "high_count": corr.high_count,
+        "exploitable_count": corr.exploitable_count,
+        "kev_count": corr.kev_count,
+        "query_time_ms": corr.query_time_ms,
+        "max_risk_score": corr.max_risk_score(),
+        "max_severity": format!("{:?}", corr.max_severity()),
+        "vulnerabilities": vulnerabilities
+    })
+}
+
+fn correlation_report_payload(report: &CorrelationReport) -> Value {
+    let summary = &report.summary;
+    let tech_correlations: Vec<Value> = report
+        .tech_correlations
+        .iter()
+        .map(tech_correlation_to_json)
+        .collect();
+    let source_stats: Vec<Value> = report.source_stats.iter().map(source_stat_to_json).collect();
+    let top_risks: Vec<Value> = report.top_risks(10).iter().map(top_risk_to_json).collect();
+
+    json!({
+        "summary": {
+            "techs_scanned": summary.techs_scanned,
+            "techs_vulnerable": summary.techs_vulnerable,
+            "total_vulns": summary.total_vulns,
+            "critical_count": summary.critical_count,
+            "high_count": summary.high_count,
+            "medium_count": summary.medium_count,
+            "low_count": summary.low_count,
+            "exploitable_count": summary.exploitable_count,
+            "kev_count": summary.kev_count,
+            "avg_risk_score": summary.avg_risk_score,
+            "max_risk_score": summary.max_risk_score
+        },
+        "total_time_ms": report.total_time_ms,
+        "clean_techs": report.clean_techs,
+        "source_stats": source_stats,
+        "tech_correlations": tech_correlations,
+        "top_risks": top_risks
+    })
+}
+
+fn vuln_correlation_payload(url: &str, techs: &[DetectedTech], report: &CorrelationReport) -> Value {
+    let detected_techs: Vec<Value> = techs.iter().map(detected_tech_to_json).collect();
+    json!({
+        "target": url,
+        "detected_technologies": detected_techs,
+        "correlation": correlation_report_payload(report)
+    })
+}
+
+fn vuln_scan_payload(
+    url: &str,
+    deep: bool,
+    techs: &[DetectedTech],
+    report: &CorrelationReport,
+) -> Value {
+    json!({
+        "target": url,
+        "deep": deep,
+        "detected_technologies": techs.iter().map(detected_tech_to_json).collect::<Vec<_>>(),
+        "report": correlation_report_payload(report)
+    })
+}
+
+fn vuln_report_payload(url: &str, techs: &[DetectedTech], report: &CorrelationReport) -> Value {
+    json!({
+        "target": url,
+        "generated_at": chrono_now(),
+        "detected_technologies": techs.iter().map(detected_tech_to_json).collect::<Vec<_>>(),
+        "report": correlation_report_payload(report)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::common::Severity;
+    use crate::modules::recon::fingerprint::FingerprintSource;
+    use crate::modules::recon::vuln::correlator::{CorrelationSummary, SourceStats, TechCorrelation};
+
+    fn sample_vuln(id: &str) -> Vulnerability {
+        let mut vuln = Vulnerability::new(id, "Sample vuln", "demo");
+        vuln.severity = Severity::High;
+        vuln.risk_score = Some(72);
+        vuln
+    }
+
+    fn sample_tech() -> DetectedTech {
+        DetectedTech {
+            name: "nginx".to_string(),
+            version: Some("1.24.0".to_string()),
+            category: TechCategory::WebServer,
+            confidence: 0.95,
+            source: FingerprintSource::HttpHeader,
+        }
+    }
+
+    #[test]
+    fn vuln_search_payload_includes_showing_count() {
+        let vulns = vec![sample_vuln("CVE-2024-0001"), sample_vuln("CVE-2024-0002")];
+        let payload = vuln_search_payload("nginx", None, "nvd", &vulns, 1);
+        assert_eq!(payload["total"], json!(2));
+        assert_eq!(payload["showing"], json!(1));
+    }
+
+    #[test]
+    fn cve_not_found_payload_marks_status() {
+        let payload = cve_not_found_payload("CVE-2024-9999");
+        assert_eq!(payload["status"], json!("not_found"));
+        assert_eq!(payload["cve_id"], json!("CVE-2024-9999"));
+    }
+
+    #[test]
+    fn correlation_report_payload_contains_summary_and_top_risks() {
+        let mut corr = TechCorrelation::new(sample_tech());
+        corr.vulnerabilities.push(sample_vuln("CVE-2024-0001"));
+        corr.calculate_stats();
+
+        let mut collection = VulnCollection::new();
+        collection.add(sample_vuln("CVE-2024-0001"));
+
+        let report = CorrelationReport {
+            tech_correlations: vec![corr],
+            all_vulnerabilities: collection,
+            source_stats: vec![SourceStats {
+                source: "nvd".to_string(),
+                found: 1,
+                duration_ms: 42,
+                error: None,
+            }],
+            total_time_ms: 99,
+            clean_techs: vec!["redis".to_string()],
+            summary: CorrelationSummary {
+                techs_scanned: 2,
+                techs_vulnerable: 1,
+                total_vulns: 1,
+                critical_count: 0,
+                high_count: 1,
+                medium_count: 0,
+                low_count: 0,
+                exploitable_count: 0,
+                kev_count: 0,
+                avg_risk_score: 72.0,
+                max_risk_score: 72,
+            },
+        };
+
+        let payload = correlation_report_payload(&report);
+        assert_eq!(payload["summary"]["techs_scanned"], json!(2));
+        assert_eq!(payload["source_stats"][0]["source"], json!("nvd"));
+        assert_eq!(payload["top_risks"][0]["id"], json!("CVE-2024-0001"));
+    }
 }
