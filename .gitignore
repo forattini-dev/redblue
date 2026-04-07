@@ -30,6 +30,7 @@ test_results/
 scan_results/
 *.json
 !package.json
+!sdk/generated-routes.json
 *.csv
 *.xml
 
