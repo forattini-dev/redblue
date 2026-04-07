@@ -361,7 +361,7 @@ impl VulnCorrelator {
     report
   }
 
-  /// Correlate a single technology
+  /// Correlate a single technology against all enabled vuln sources.
   fn correlate_single(
     &mut self,
     tech: &DetectedTech,
