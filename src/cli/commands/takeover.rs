@@ -1,8 +1,8 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::cloud::takeover::{Confidence, TakeoverChecker, TakeoverResult};
+use crate::serde_json::Value;
 
 pub struct TakeoverCommand;
 
@@ -17,6 +17,26 @@ impl Command for TakeoverCommand {
 
   fn description(&self) -> &str {
     "Subdomain takeover detection (CNAME hijacking)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -88,15 +108,13 @@ impl Command for TakeoverCommand {
 impl TakeoverCommand {
   /// Check a single domain for takeover vulnerability
   fn check_single(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let domain = ctx.target.as_ref().ok_or(
             "Missing domain. Usage: rb cloud asset takeover <domain> Example: rb cloud asset takeover subdomain.example.com"
         )?;
 
     let checker = TakeoverChecker::new();
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("Subdomain Takeover Checker");
       Output::item("Domain", domain);
       println!();
@@ -105,12 +123,12 @@ impl TakeoverCommand {
 
     let result = checker.check(domain)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    if is_json {
-      self.print_result_json(&result);
+    let payload = Self::result_payload(&result);
+    if render::render_machine_output(ctx, "rb cloud asset takeover", &payload)? {
       return Ok(());
     }
 
@@ -120,21 +138,8 @@ impl TakeoverCommand {
   }
 
   /// Print single result as JSON
-  fn print_result_json(&self, result: &TakeoverResult) {
-    Output::json_value(&json!({
-        "domain": result.domain.clone(),
-        "vulnerable": result.vulnerable,
-        "confidence": confidence_label(&result.confidence),
-        "cname": result.cname.clone(),
-        "service": result.service.clone(),
-        "message": result.message.clone(),
-    }));
-  }
-
   /// Scan multiple domains from a wordlist
   fn scan_bulk(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let wordlist_path = ctx
       .get_flag("wordlist")
       .ok_or("Missing wordlist. Usage: rb cloud asset takeover-scan --wordlist subs.txt")?;
@@ -152,7 +157,7 @@ impl TakeoverCommand {
 
     let checker = TakeoverChecker::new();
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("Bulk Subdomain Takeover Scan");
       Output::item("Wordlist", &wordlist_path);
       Output::item("Total domains", &domains.len().to_string());
@@ -162,12 +167,12 @@ impl TakeoverCommand {
 
     let results = checker.check_bulk(&domains);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    if is_json {
-      self.print_bulk_results_json(&results, ctx);
+    let payload = self.bulk_results_payload(&results, ctx);
+    if render::render_machine_output(ctx, "rb cloud asset takeover-scan", &payload)? {
       return Ok(());
     }
 
@@ -177,7 +182,7 @@ impl TakeoverCommand {
   }
 
   /// Print bulk results as JSON
-  fn print_bulk_results_json(&self, results: &[TakeoverResult], ctx: &CliContext) {
+  fn bulk_results_payload(&self, results: &[TakeoverResult], ctx: &CliContext) -> Value {
     let stats = TakeoverChecker::get_stats(results);
 
     // Filter by confidence level if specified
@@ -197,41 +202,30 @@ impl TakeoverCommand {
 
     let results_json: Vec<_> = filtered
       .iter()
-      .map(|result| {
-        json!({
-            "domain": result.domain.clone(),
-            "vulnerable": result.vulnerable,
-            "confidence": confidence_label(&result.confidence),
-            "cname": result.cname.clone(),
-            "service": result.service.clone(),
-            "message": result.message.clone(),
-        })
-      })
+      .map(|result| Self::result_payload(result))
       .collect();
-    Output::json_value(&json!({
-        "total": *stats.get("total").unwrap_or(&0),
-        "vulnerable": *stats.get("vulnerable").unwrap_or(&0),
-        "high_confidence": *stats.get("high_confidence").unwrap_or(&0),
-        "medium_confidence": *stats.get("medium_confidence").unwrap_or(&0),
-        "low_confidence": *stats.get("low_confidence").unwrap_or(&0),
-        "min_confidence_filter": min_confidence,
-        "results": results_json,
-    }));
+
+    json!({
+      "total": *stats.get("total").unwrap_or(&0),
+      "vulnerable": *stats.get("vulnerable").unwrap_or(&0),
+      "high_confidence": *stats.get("high_confidence").unwrap_or(&0),
+      "medium_confidence": *stats.get("medium_confidence").unwrap_or(&0),
+      "low_confidence": *stats.get("low_confidence").unwrap_or(&0),
+      "min_confidence_filter": min_confidence,
+      "results": results_json,
+    })
   }
 
   /// List all supported vulnerable services
   fn list_services(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let checker = TakeoverChecker::new();
     let services = checker.list_services();
 
-    if is_json {
-      Output::json_value(&json!({
-          "total": services.len(),
-          "services": services,
-      }));
+    let payload = json!({
+      "total": services.len(),
+      "services": services,
+    });
+    if render::render_machine_output(ctx, "rb cloud asset services", &payload)? {
       return Ok(());
     }
 
@@ -374,6 +368,17 @@ impl TakeoverCommand {
       Output::success("✓ No vulnerabilities found at specified confidence level");
     }
   }
+
+  fn result_payload(result: &TakeoverResult) -> Value {
+    json!({
+      "domain": result.domain.clone(),
+      "vulnerable": result.vulnerable,
+      "confidence": confidence_label(&result.confidence),
+      "cname": result.cname.clone(),
+      "service": result.service.clone(),
+      "message": result.message.clone(),
+    })
+  }
 }
 
 fn confidence_label(confidence: &Confidence) -> &'static str {
@@ -382,5 +387,61 @@ fn confidence_label(confidence: &Confidence) -> &'static str {
     Confidence::Medium => "medium",
     Confidence::Low => "low",
     Confidence::None => "none",
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn result_payload_includes_takeover_fields() {
+    let payload = TakeoverCommand::result_payload(&TakeoverResult {
+      domain: "sub.example.com".to_string(),
+      vulnerable: true,
+      confidence: Confidence::High,
+      cname: Some("orphaned.github.io".to_string()),
+      service: Some("github pages".to_string()),
+      message: "Dangling CNAME".to_string(),
+    });
+
+    assert_eq!(payload["domain"], "sub.example.com");
+    assert_eq!(payload["vulnerable"], true);
+    assert_eq!(payload["confidence"], "high");
+    assert_eq!(payload["service"], "github pages");
+  }
+
+  #[test]
+  fn bulk_results_payload_respects_confidence_filter() {
+    let mut ctx = CliContext::new();
+    ctx
+      .flags
+      .insert("confidence".to_string(), "high".to_string());
+    let command = TakeoverCommand;
+    let payload = command.bulk_results_payload(
+      &[
+        TakeoverResult {
+          domain: "high.example.com".to_string(),
+          vulnerable: true,
+          confidence: Confidence::High,
+          cname: None,
+          service: Some("github".to_string()),
+          message: "high".to_string(),
+        },
+        TakeoverResult {
+          domain: "medium.example.com".to_string(),
+          vulnerable: true,
+          confidence: Confidence::Medium,
+          cname: None,
+          service: Some("azure".to_string()),
+          message: "medium".to_string(),
+        },
+      ],
+      &ctx,
+    );
+
+    assert_eq!(payload["min_confidence_filter"], "high");
+    assert_eq!(payload["results"].as_array().unwrap().len(), 1);
+    assert_eq!(payload["results"][0]["domain"], "high.example.com");
   }
 }

@@ -1,7 +1,6 @@
 //! Breach checking and secrets scanning commands
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::recon::breach::BreachClient;
 use crate::modules::recon::secrets::SecretsScanner;
@@ -15,7 +14,6 @@ pub fn breach(ctx: &CliContext) -> Result<(), String> {
   let check_type = ctx
     .get_flag("type")
     .unwrap_or_else(|| "password".to_string());
-  let format = ctx.get_output_format();
 
   let mut client = BreachClient::new();
 
@@ -26,23 +24,18 @@ pub fn breach(ctx: &CliContext) -> Result<(), String> {
 
   match check_type.as_str() {
     "password" => {
-      if format == crate::cli::format::OutputFormat::Human {
+      if !ctx.wants_machine_output() {
         Output::spinner_start("Checking password against HIBP breach database");
       }
 
       let result = client.check_password(target)?;
 
-      if format == crate::cli::format::OutputFormat::Human {
+      if !ctx.wants_machine_output() {
         Output::spinner_done();
       }
 
-      // JSON output
-      if format == crate::cli::format::OutputFormat::Json {
-        Output::json_value(&json!({
-            "type": "password",
-            "pwned": result.pwned,
-            "count": result.count,
-        }));
+      let payload = password_breach_payload(&result);
+      if render::render_machine_output(ctx, "rb recon domain breach", &payload)? {
         return Ok(());
       }
 
@@ -76,37 +69,18 @@ Usage: rb recon domain breach user@example.com --type email --hibp-key YOUR_KEY"
         return Err(format!("Invalid email address: {}", target));
       }
 
-      if format == crate::cli::format::OutputFormat::Human {
+      if !ctx.wants_machine_output() {
         Output::spinner_start(&format!("Checking email {} against HIBP", target));
       }
 
       let result = client.check_email(target)?;
 
-      if format == crate::cli::format::OutputFormat::Human {
+      if !ctx.wants_machine_output() {
         Output::spinner_done();
       }
 
-      // JSON output
-      if format == crate::cli::format::OutputFormat::Json {
-        let breaches_json: Vec<_> = result
-          .breaches
-          .iter()
-          .map(|breach| {
-            json!({
-                "name": breach.name,
-                "domain": breach.domain,
-                "breach_date": breach.breach_date,
-                "pwn_count": breach.pwn_count,
-            })
-          })
-          .collect();
-        Output::json_value(&json!({
-            "type": "email",
-            "email": result.email,
-            "pwned": result.pwned,
-            "breach_count": result.breach_count,
-            "breaches": breaches_json,
-        }));
+      let payload = email_breach_payload(&result);
+      if render::render_machine_output(ctx, "rb recon domain breach", &payload)? {
         return Ok(());
       }
 
@@ -162,10 +136,7 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
     return Err("Invalid URL. Must start with http:// or https://".to_string());
   }
 
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("Secrets Scanner");
     Output::item("Target URL", url);
     println!();
@@ -173,21 +144,17 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
 
   let scanner = SecretsScanner::new();
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_start(&format!("Scanning {} for exposed secrets", url));
   }
   let results = scanner.scan_url(url)?;
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
   if results.is_empty() {
-    if is_json {
-      Output::json_value(&json!({
-          "url": url,
-          "total": 0,
-          "secrets": [],
-      }));
+    let payload = secrets_payload(url, &results);
+    if render::render_machine_output(ctx, "rb recon domain secrets", &payload)? {
       return Ok(());
     }
     Output::info("No secrets found.");
@@ -198,24 +165,8 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
   let mut sorted_results = results;
   sorted_results.sort_by(|a, b| b.severity.cmp(&a.severity));
 
-  // JSON output
-  if is_json {
-    let secrets_json: Vec<_> = sorted_results
-      .iter()
-      .map(|result| {
-        json!({
-            "matched": result.matched.replace('\n', " "),
-            "secret_type": result.secret_type,
-            "severity": result.severity.as_str(),
-            "line": result.line,
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "url": url,
-        "total": sorted_results.len(),
-        "secrets": secrets_json,
-    }));
+  let payload = secrets_payload(url, &sorted_results);
+  if render::render_machine_output(ctx, "rb recon domain secrets", &payload)? {
     return Ok(());
   }
 
@@ -241,4 +192,119 @@ pub fn secrets(ctx: &CliContext) -> Result<(), String> {
   Output::success(&format!("Found {} potential secrets", sorted_results.len()));
 
   Ok(())
+}
+
+fn password_breach_payload(
+  result: &crate::modules::recon::breach::PasswordCheckResult,
+) -> crate::serde_json::Value {
+  json!({
+    "type": "password",
+    "pwned": result.pwned,
+    "count": result.count,
+  })
+}
+
+fn email_breach_payload(
+  result: &crate::modules::recon::breach::EmailCheckResult,
+) -> crate::serde_json::Value {
+  let breaches: Vec<_> = result
+    .breaches
+    .iter()
+    .map(|breach| {
+      json!({
+        "name": breach.name,
+        "domain": breach.domain,
+        "breach_date": breach.breach_date,
+        "pwn_count": breach.pwn_count,
+      })
+    })
+    .collect();
+
+  json!({
+    "type": "email",
+    "email": result.email,
+    "pwned": result.pwned,
+    "breach_count": result.breach_count,
+    "breaches": breaches,
+  })
+}
+
+fn secrets_payload(
+  url: &str,
+  results: &[crate::modules::recon::secrets::WebSecretFinding],
+) -> crate::serde_json::Value {
+  let secrets: Vec<_> = results
+    .iter()
+    .map(|result| {
+      json!({
+        "matched": result.matched.replace('\n', " "),
+        "secret_type": result.secret_type,
+        "severity": result.severity.as_str(),
+        "line": result.line,
+      })
+    })
+    .collect();
+
+  json!({
+    "url": url,
+    "total": results.len(),
+    "secrets": secrets,
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::common::Severity;
+  use crate::modules::recon::breach::{EmailCheckResult, PasswordCheckResult};
+  use crate::modules::recon::secrets::WebSecretFinding;
+
+  #[test]
+  fn password_breach_payload_includes_count() {
+    let payload = password_breach_payload(&PasswordCheckResult {
+      pwned: true,
+      count: 99,
+    });
+
+    assert_eq!(payload["type"].as_str(), Some("password"));
+    assert_eq!(payload["count"].as_u64(), Some(99));
+  }
+
+  #[test]
+  fn email_breach_payload_includes_breaches() {
+    let payload = email_breach_payload(&EmailCheckResult {
+      email: "user@example.com".to_string(),
+      pwned: true,
+      breach_count: 1,
+      breaches: vec![crate::modules::recon::breach::BreachInfo {
+        name: "Example".to_string(),
+        domain: "example.com".to_string(),
+        breach_date: "2024-01-01".to_string(),
+        pwn_count: 100,
+        data_classes: vec!["Emails".to_string()],
+      }],
+    });
+
+    assert_eq!(payload["email"].as_str(), Some("user@example.com"));
+    assert_eq!(payload["breaches"][0]["name"].as_str(), Some("Example"));
+  }
+
+  #[test]
+  fn secrets_payload_tracks_total_and_severity() {
+    let payload = secrets_payload(
+      "https://example.com/config.js",
+      &[WebSecretFinding {
+        matched: "API_KEY=abc123".to_string(),
+        secret_type: "api-key".to_string(),
+        severity: Severity::High,
+        location: "https://example.com/config.js".to_string(),
+        line: Some(12),
+        context: None,
+        pattern_name: "generic-api-key".to_string(),
+      }],
+    );
+
+    assert_eq!(payload["total"].as_u64(), Some(1));
+    assert_eq!(payload["secrets"][0]["severity"].as_str(), Some("high"));
+  }
 }

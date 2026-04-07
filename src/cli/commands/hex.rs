@@ -8,13 +8,14 @@
 //! - Data interpretation at cursor position
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::hex::OffsetFormat;
 use crate::modules::hex::{
   parse_hex, replace, replace_all, search_text, to_hex, BoyerMooreSearcher, DataInterpreter,
   Endian, FileSource, HexView, PagedBuffer, UndoStack, ViewSettings,
 };
+use crate::serde_json::Value;
 use std::path::Path;
 
 pub struct HexCommand;
@@ -30,6 +31,26 @@ impl Command for HexCommand {
 
   fn description(&self) -> &str {
     "Hex editor for viewing and editing binary files"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -189,8 +210,6 @@ impl HexCommand {
   }
 
   fn cmd_view(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let offset = Self::parse_offset(ctx.get_flag("offset").as_deref().unwrap_or("0"))?;
     let lines: usize = ctx
@@ -215,26 +234,14 @@ impl HexCommand {
     }
 
     let view = HexView::with_settings(settings);
+    let bytes_per_line = view.settings().bytes_per_line;
+    let total_bytes = lines * bytes_per_line;
+    let data = buffer
+      .read(offset, total_bytes)
+      .map_err(|e| format!("Read error: {}", e))?;
+    let payload = hex_view_payload(file_path, offset, buffer.size(), bytes_per_line, &data);
 
-    if is_json {
-      let bytes_per_line = view.settings().bytes_per_line;
-      let total_bytes = lines * bytes_per_line;
-      let data = buffer
-        .read(offset, total_bytes)
-        .map_err(|e| format!("Read error: {}", e))?;
-      let lines_json: Vec<_> = data
-        .chunks(bytes_per_line)
-        .enumerate()
-        .map(|(i, chunk)| hex_line_to_json(offset + (i * bytes_per_line) as u64, chunk))
-        .collect();
-
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "offset": format!("0x{:x}", offset),
-          "size": buffer.size(),
-          "bytes_read": data.len(),
-          "lines": lines_json
-      }));
+    if render::render_machine_output(ctx, "rb hex file view", &payload)? {
       return Ok(());
     }
 
@@ -253,8 +260,6 @@ impl HexCommand {
   }
 
   fn cmd_read(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
     let offset = Self::parse_offset(offset_str)?;
@@ -271,16 +276,9 @@ impl HexCommand {
     let data = buffer
       .read(offset, size)
       .map_err(|e| format!("Read error: {}", e))?;
+    let payload = hex_read_payload(file_path, offset, &data);
 
-    if is_json {
-      let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "offset": format!("0x{:x}", offset),
-          "size": data.len(),
-          "hex": hex_str,
-          "ascii": ascii_preview(&data)
-      }));
+    if render::render_machine_output(ctx, "rb hex file read", &payload)? {
       return Ok(());
     }
 
@@ -297,8 +295,6 @@ impl HexCommand {
   }
 
   fn cmd_write(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
     let offset = Self::parse_offset(offset_str)?;
@@ -328,16 +324,9 @@ impl HexCommand {
 
     // Flush to disk
     buffer.flush().map_err(|e| format!("Flush error: {}", e))?;
+    let payload = hex_write_payload(file_path, offset, &old_bytes, &bytes);
 
-    if is_json {
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "offset": format!("0x{:x}", offset),
-          "size": bytes.len(),
-          "before": to_hex(&old_bytes, true).replace(' ', ""),
-          "after": to_hex(&bytes, true).replace(' ', ""),
-          "success": true
-      }));
+    if render::render_machine_output(ctx, "rb hex file write", &payload)? {
       return Ok(());
     }
 
@@ -353,8 +342,6 @@ impl HexCommand {
   }
 
   fn cmd_search(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let pattern_str = ctx.args.get(0).ok_or("Missing pattern argument")?;
     let is_text = ctx.flags.contains_key("text");
@@ -376,7 +363,7 @@ impl HexCommand {
       parse_hex(pattern_str)?
     };
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       if is_text {
         Output::header(&format!("Searching for text: \"{}\"", pattern_str));
       } else {
@@ -416,19 +403,17 @@ impl HexCommand {
       }
     }
 
-    if is_json {
-      let matches_json: Vec<_> = results
-        .iter()
-        .map(|offset| json!({ "offset": format!("0x{:x}", offset) }))
-        .collect();
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "pattern": pattern_str.clone(),
-          "is_text": is_text,
-          "case_insensitive": case_insensitive,
-          "total_matches": results.len(),
-          "matches": matches_json
-      }));
+    let payload = hex_search_payload(
+      file_path,
+      pattern_str,
+      is_text,
+      case_insensitive,
+      find_all,
+      max_results,
+      &results,
+    );
+
+    if render::render_machine_output(ctx, "rb hex file search", &payload)? {
       return Ok(());
     }
 
@@ -460,8 +445,6 @@ impl HexCommand {
   }
 
   fn cmd_replace(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let find_hex = ctx.args.get(0).ok_or("Missing find pattern")?;
     let replace_hex = ctx.args.get(1).ok_or("Missing replace pattern")?;
@@ -480,7 +463,7 @@ impl HexCommand {
     );
     let mut buffer = PagedBuffer::new(source);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!(
         "Replacing {} with {}",
         to_hex(&find_bytes, true),
@@ -501,16 +484,15 @@ impl HexCommand {
     };
 
     buffer.flush().map_err(|e| format!("Flush error: {}", e))?;
+    let payload = hex_replace_payload(
+      file_path,
+      &find_bytes,
+      &replace_bytes,
+      replace_all_flag,
+      count,
+    );
 
-    if is_json {
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "find": to_hex(&find_bytes, true).replace(' ', ""),
-          "replace": to_hex(&replace_bytes, true).replace(' ', ""),
-          "replace_all": replace_all_flag,
-          "replacements": count,
-          "success": true
-      }));
+    if render::render_machine_output(ctx, "rb hex file replace", &payload)? {
       return Ok(());
     }
 
@@ -524,8 +506,6 @@ impl HexCommand {
   }
 
   fn cmd_inspect(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
     let offset_str = ctx.args.get(0).ok_or("Missing offset argument")?;
     let offset = Self::parse_offset(offset_str)?;
@@ -547,19 +527,9 @@ impl HexCommand {
 
     let interp = DataInterpreter::with_endian(endian);
     let values = interp.interpret_all(&data);
+    let payload = hex_inspect_payload(file_path, offset, endian, &data, &values);
 
-    if is_json {
-      let interpretations = values
-        .iter()
-        .map(|(name, value)| (name.to_string(), json!(format!("{}", value))))
-        .collect::<crate::serde_json::Map<_, _>>();
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "offset": format!("0x{:x}", offset),
-          "endian": if endian == Endian::Little { "little" } else { "big" },
-          "raw_bytes": to_hex(&data[..8.min(data.len())], true).replace(' ', ""),
-          "interpretations": crate::serde_json::Value::Object(interpretations)
-      }));
+    if render::render_machine_output(ctx, "rb hex file inspect", &payload)? {
       return Ok(());
     }
 
@@ -590,8 +560,6 @@ impl HexCommand {
   }
 
   fn cmd_info(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file_path = Self::get_file_path(ctx)?;
 
     let source = Box::new(
@@ -608,17 +576,9 @@ impl HexCommand {
     // Calculate simple entropy estimate
     let sample = buffer.read(0, 1024.min(size as usize)).unwrap_or_default();
     let entropy = Self::calculate_entropy(&sample);
+    let payload = hex_info_payload(file_path, size, &first_bytes, file_type, entropy);
 
-    if is_json {
-      Output::json_value(&json!({
-          "file": file_path.to_string(),
-          "size_bytes": size,
-          "size_kb": size as f64 / 1024.0,
-          "size_mb": size as f64 / 1024.0 / 1024.0,
-          "magic_bytes": to_hex(&first_bytes[..4.min(first_bytes.len())], true).replace(' ', ""),
-          "detected_type": file_type,
-          "entropy": entropy
-      }));
+    if render::render_machine_output(ctx, "rb hex file info", &payload)? {
       return Ok(());
     }
 
@@ -645,8 +605,6 @@ impl HexCommand {
   }
 
   fn cmd_compare(&self, ctx: &CliContext) -> Result<(), String> {
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let file1_path = Self::get_file_path(ctx)?;
     let file2_path = ctx.args.get(0).ok_or("Missing second file path")?;
     let max_diffs: usize = ctx
@@ -670,7 +628,7 @@ impl HexCommand {
     let size2 = buffer2.size();
     let compare_size = size1.min(size2);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("File Comparison");
       Output::info(&format!("File 1: {} ({} bytes)", file1_path, size1));
       Output::info(&format!("File 2: {} ({} bytes)", file2_path, size2));
@@ -699,29 +657,17 @@ impl HexCommand {
       offset += len as u64;
     }
 
-    if is_json {
-      let differences_json: Vec<_> = differences
-        .iter()
-        .map(|(off, b1, b2)| {
-          json!({
-              "offset": format!("0x{:x}", off),
-              "file1": format!("0x{:02X}", b1),
-              "file2": format!("0x{:02X}", b2)
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "file1": file1_path.to_string(),
-          "file1_size": size1,
-          "file2": file2_path.clone(),
-          "file2_size": size2,
-          "size_difference": (size1 as i64 - size2 as i64).abs(),
-          "bytes_compared": compare_size,
-          "differences_found": differences.len(),
-          "max_shown": max_diffs,
-          "differences": differences_json,
-          "identical": differences.is_empty() && size1 == size2
-      }));
+    let payload = hex_compare_payload(
+      file1_path,
+      size1,
+      file2_path,
+      size2,
+      compare_size,
+      max_diffs,
+      &differences,
+    );
+
+    if render::render_machine_output(ctx, "rb hex file compare", &payload)? {
       return Ok(());
     }
 
@@ -873,4 +819,194 @@ fn hex_line_to_json(offset: u64, data: &[u8]) -> crate::serde_json::Value {
       "hex": hex,
       "ascii": ascii_preview(data)
   })
+}
+
+fn hex_view_payload(
+  file_path: &str,
+  offset: u64,
+  file_size: u64,
+  bytes_per_line: usize,
+  data: &[u8],
+) -> Value {
+  let lines_json: Vec<_> = data
+    .chunks(bytes_per_line)
+    .enumerate()
+    .map(|(i, chunk)| hex_line_to_json(offset + (i * bytes_per_line) as u64, chunk))
+    .collect();
+
+  json!({
+    "file": file_path.to_string(),
+    "offset": format!("0x{:x}", offset),
+    "size": file_size,
+    "bytes_read": data.len(),
+    "bytes_per_line": bytes_per_line,
+    "lines": lines_json
+  })
+}
+
+fn hex_read_payload(file_path: &str, offset: u64, data: &[u8]) -> Value {
+  let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
+  json!({
+    "file": file_path.to_string(),
+    "offset": format!("0x{:x}", offset),
+    "size": data.len(),
+    "hex": hex_str,
+    "ascii": ascii_preview(data)
+  })
+}
+
+fn hex_write_payload(file_path: &str, offset: u64, old_bytes: &[u8], new_bytes: &[u8]) -> Value {
+  json!({
+    "file": file_path.to_string(),
+    "offset": format!("0x{:x}", offset),
+    "size": new_bytes.len(),
+    "before": to_hex(old_bytes, true).replace(' ', ""),
+    "after": to_hex(new_bytes, true).replace(' ', ""),
+    "success": true
+  })
+}
+
+fn hex_search_payload(
+  file_path: &str,
+  pattern: &str,
+  is_text: bool,
+  case_insensitive: bool,
+  find_all: bool,
+  max_results: usize,
+  results: &[u64],
+) -> Value {
+  let matches_json: Vec<_> = results
+    .iter()
+    .map(|offset| json!({ "offset": format!("0x{:x}", offset) }))
+    .collect();
+
+  json!({
+    "file": file_path.to_string(),
+    "pattern": pattern,
+    "is_text": is_text,
+    "case_insensitive": case_insensitive,
+    "find_all": find_all,
+    "max_results": max_results,
+    "total_matches": results.len(),
+    "matches": matches_json
+  })
+}
+
+fn hex_replace_payload(
+  file_path: &str,
+  find_bytes: &[u8],
+  replace_bytes: &[u8],
+  replace_all: bool,
+  replacements: usize,
+) -> Value {
+  json!({
+    "file": file_path.to_string(),
+    "find": to_hex(find_bytes, true).replace(' ', ""),
+    "replace": to_hex(replace_bytes, true).replace(' ', ""),
+    "replace_all": replace_all,
+    "replacements": replacements,
+    "success": true
+  })
+}
+
+fn hex_inspect_payload(
+  file_path: &str,
+  offset: u64,
+  endian: Endian,
+  data: &[u8],
+  values: &[(&str, impl std::fmt::Display)],
+) -> Value {
+  let interpretations = values
+    .iter()
+    .map(|(name, value)| (name.to_string(), json!(format!("{}", value))))
+    .collect::<crate::serde_json::Map<_, _>>();
+
+  json!({
+    "file": file_path.to_string(),
+    "offset": format!("0x{:x}", offset),
+    "endian": if endian == Endian::Little { "little" } else { "big" },
+    "raw_bytes": to_hex(&data[..8.min(data.len())], true).replace(' ', ""),
+    "interpretations": Value::Object(interpretations)
+  })
+}
+
+fn hex_info_payload(
+  file_path: &str,
+  size: u64,
+  first_bytes: &[u8],
+  file_type: &str,
+  entropy: f64,
+) -> Value {
+  json!({
+    "file": file_path.to_string(),
+    "size_bytes": size,
+    "size_kb": size as f64 / 1024.0,
+    "size_mb": size as f64 / 1024.0 / 1024.0,
+    "magic_bytes": to_hex(&first_bytes[..4.min(first_bytes.len())], true).replace(' ', ""),
+    "detected_type": file_type,
+    "entropy": entropy
+  })
+}
+
+fn hex_compare_payload(
+  file1_path: &str,
+  size1: u64,
+  file2_path: &str,
+  size2: u64,
+  compare_size: u64,
+  max_diffs: usize,
+  differences: &[(u64, u8, u8)],
+) -> Value {
+  let differences_json: Vec<_> = differences
+    .iter()
+    .map(|(off, b1, b2)| {
+      json!({
+        "offset": format!("0x{:x}", off),
+        "file1": format!("0x{:02X}", b1),
+        "file2": format!("0x{:02X}", b2)
+      })
+    })
+    .collect();
+
+  json!({
+    "file1": file1_path.to_string(),
+    "file1_size": size1,
+    "file2": file2_path.to_string(),
+    "file2_size": size2,
+    "size_difference": (size1 as i64 - size2 as i64).abs(),
+    "bytes_compared": compare_size,
+    "differences_found": differences.len(),
+    "max_shown": max_diffs,
+    "differences": differences_json,
+    "identical": differences.is_empty() && size1 == size2
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn hex_view_payload_reports_layout_and_lines() {
+    let payload = hex_view_payload("sample.bin", 0x20, 512, 4, &[0x41, 0x42, 0x43, 0x44, 0, 1]);
+    assert_eq!(payload["file"], "sample.bin");
+    assert_eq!(payload["offset"], "0x20");
+    assert_eq!(payload["bytes_per_line"], 4);
+    assert_eq!(payload["lines"].as_array().unwrap().len(), 2);
+  }
+
+  #[test]
+  fn hex_search_payload_includes_search_flags() {
+    let payload = hex_search_payload("blob.bin", "4D 5A", false, false, true, 50, &[0x10, 0x20]);
+    assert_eq!(payload["find_all"], true);
+    assert_eq!(payload["max_results"], 50);
+    assert_eq!(payload["total_matches"], 2);
+  }
+
+  #[test]
+  fn hex_compare_payload_marks_identical_when_sizes_and_diffs_match() {
+    let payload = hex_compare_payload("a.bin", 10, "b.bin", 10, 10, 100, &[]);
+    assert_eq!(payload["identical"], true);
+    assert_eq!(payload["differences_found"], 0);
+  }
 }

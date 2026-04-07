@@ -7,8 +7,9 @@ use std::time::UNIX_EPOCH;
 
 use crate::cli::commands::annotate_query_partition;
 use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use crate::storage::client::query::format as query_format;
 use crate::storage::service::StorageService;
 
@@ -64,9 +65,6 @@ impl DatabaseCommand {
   }
 
   fn query_partitions(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let service = StorageService::global();
 
     let mut partitions = service.partitions();
@@ -89,42 +87,9 @@ impl DatabaseCommand {
 
     partitions.sort_by(|a, b| a.label.cmp(&b.label));
 
-    if is_json {
-      let partitions_json: Vec<crate::serde_json::Value> = partitions
-        .iter()
-        .map(|meta| {
-          let segments: Vec<String> = meta
-            .segments
-            .iter()
-            .map(|k| segment_label(*k).to_string())
-            .collect();
-          let last_refreshed = meta.last_refreshed.map(|ts| {
-            ts.duration_since(UNIX_EPOCH)
-              .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-              .as_secs()
-          });
-          let mut attributes = crate::serde_json::Map::new();
-          let mut attr_items: Vec<_> = meta.attributes.iter().collect();
-          attr_items.sort_by(|a, b| a.0.cmp(b.0));
-          for (key, value) in attr_items {
-            attributes.insert(key.clone(), json!(value.clone()));
-          }
-          json!({
-              "label": meta.label.clone(),
-              "key": describe_partition_key(&meta.key),
-              "path": meta.storage_path.display().to_string(),
-              "segments": segments,
-              "last_refreshed": last_refreshed,
-              "attributes": crate::serde_json::Value::Object(attributes)
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "count": partitions.len(),
-          "segment_filter": ctx.get_flag("segment"),
-          "attr_filter": ctx.get_flag("attr"),
-          "partitions": partitions_json
-      }));
+    let payload =
+      query_partitions_payload(&partitions, ctx.get_flag("segment"), ctx.get_flag("attr"));
+    if render::render_machine_output(ctx, "rb database query partitions", &payload)? {
       return Ok(());
     }
 
@@ -185,9 +150,6 @@ impl DatabaseCommand {
   }
 
   fn query_summary(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let service = StorageService::global();
     let label = format!("custom:{}", db_path.display());
     let _ = service.refresh_partition(StorageService::key_for_path(db_path), label, db_path);
@@ -201,14 +163,14 @@ impl DatabaseCommand {
         ("query_mode", self.mode_label()),
       ],
     );
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_start("Reading database");
     }
     let mut db = open_db(db_path)?;
     let port_scans = read_port_scans(&mut db)?;
     let dns_records = read_dns_records(&mut db)?;
     let subdomains = read_subdomains(&mut db)?;
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
@@ -216,14 +178,14 @@ impl DatabaseCommand {
       fs::metadata(db_path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
     let file_size_kb = metadata.len() / 1024;
 
-    if is_json {
-      Output::json_value(&json!({
-          "file": db_path.display().to_string(),
-          "size_kb": file_size_kb,
-          "ports": port_scans.len(),
-          "dns": dns_records.len(),
-          "subdomains": subdomains.len()
-      }));
+    let payload = query_summary_payload(
+      db_path,
+      file_size_kb,
+      port_scans.len(),
+      dns_records.len(),
+      subdomains.len(),
+    );
+    if render::render_machine_output(ctx, "rb database query summary", &payload)? {
       return Ok(());
     }
 
@@ -240,9 +202,6 @@ impl DatabaseCommand {
   }
 
   fn query_ports(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let range = ctx
       .get_flag_with_config("ip-range")
       .map(|value| parse_ip_range(&value))
@@ -284,22 +243,8 @@ impl DatabaseCommand {
       all_records
     };
 
-    if is_json {
-      let ports_json: Vec<crate::serde_json::Value> = records
-        .iter()
-        .map(|record| {
-          json!({
-              "ip": record.ip.to_string(),
-              "port": record.port,
-              "status": port_status_label(record.status),
-              "timestamp": record.timestamp
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "count": records.len(),
-          "ports": ports_json
-      }));
+    let payload = query_ports_payload(&records);
+    if render::render_machine_output(ctx, "rb database query ports", &payload)? {
       return Ok(());
     }
 
@@ -320,9 +265,6 @@ impl DatabaseCommand {
   }
 
   fn query_dns(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let prefix = ctx.get_flag_with_config("dns-prefix");
 
     annotate_query_partition(
@@ -350,23 +292,8 @@ impl DatabaseCommand {
       all_records
     };
 
-    if is_json {
-      let records_json: Vec<crate::serde_json::Value> = records
-        .iter()
-        .map(|record| {
-          json!({
-              "domain": record.domain.clone(),
-              "type": dns_type_label(record.record_type),
-              "value": record.value.clone(),
-              "ttl": record.ttl,
-              "timestamp": record.timestamp
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "count": records.len(),
-          "records": records_json
-      }));
+    let payload = query_dns_payload(&records);
+    if render::render_machine_output(ctx, "rb database query dns", &payload)? {
       return Ok(());
     }
 
@@ -392,9 +319,6 @@ impl DatabaseCommand {
   }
 
   fn query_subdomains(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let prefix = ctx.get_flag_with_config("subdomain-prefix");
 
     annotate_query_partition(
@@ -422,15 +346,8 @@ impl DatabaseCommand {
       all_records
     };
 
-    if is_json {
-      let subdomains_json: Vec<String> = records
-        .iter()
-        .map(|record| record.subdomain.clone())
-        .collect();
-      Output::json_value(&json!({
-          "count": records.len(),
-          "subdomains": subdomains_json
-      }));
+    let payload = query_subdomains_payload(&records);
+    if render::render_machine_output(ctx, "rb database query subdomains", &payload)? {
       return Ok(());
     }
 
@@ -450,9 +367,6 @@ impl DatabaseCommand {
   }
 
   fn query_http(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let host_filter = ctx.get_flag_with_config("host");
     let mut manager = StorageService::global()
       .open_query_manager(db_path)
@@ -476,25 +390,8 @@ impl DatabaseCommand {
       .list_http_records(&host)
       .map_err(|e| format!("HTTP query failed: {}", e))?;
 
-    if is_json {
-      let records_json: Vec<crate::serde_json::Value> = records
-        .iter()
-        .map(|record| {
-          json!({
-              "method": record.method.clone(),
-              "url": record.url.clone(),
-              "http_version": record.http_version.clone(),
-              "status_code": record.status_code,
-              "status_text": record.status_text.clone(),
-              "server": record.server.clone()
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "host": host.clone(),
-          "count": records.len(),
-          "records": records_json
-      }));
+    let payload = query_http_payload(&host, &records);
+    if render::render_machine_output(ctx, "rb database query http", &payload)? {
       return Ok(());
     }
 
@@ -520,9 +417,6 @@ impl DatabaseCommand {
   }
 
   fn query_tls(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let host = ctx
       .get_flag_with_config("host")
       .or_else(|| ctx.target.clone())
@@ -547,35 +441,16 @@ impl DatabaseCommand {
       .map_err(|e| format!("TLS query failed: {}", e))?;
 
     if scans.is_empty() {
-      if is_json {
-        Output::json_value(&json!({
-            "host": host.clone(),
-            "count": 0,
-            "scans": []
-        }));
+      let payload = query_tls_payload(&host, &scans);
+      if render::render_machine_output(ctx, "rb database query tls", &payload)? {
         return Ok(());
       }
       Output::warning("No TLS scans stored for this host");
       return Ok(());
     }
 
-    if is_json {
-      let scans_json: Vec<crate::serde_json::Value> = scans
-        .iter()
-        .map(|scan| {
-          json!({
-              "port": scan.port,
-              "protocol": scan.negotiated_version.clone().unwrap_or_default(),
-              "cipher": scan.negotiated_cipher.clone().unwrap_or_default(),
-              "certificate_valid": scan.certificate_valid
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "host": host.clone(),
-          "count": scans.len(),
-          "scans": scans_json
-      }));
+    let payload = query_tls_payload(&host, &scans);
+    if render::render_machine_output(ctx, "rb database query tls", &payload)? {
       return Ok(());
     }
 
@@ -601,9 +476,6 @@ impl DatabaseCommand {
   }
 
   fn query_whois(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let domain = ctx
       .get_flag_with_config("domain")
       .or_else(|| ctx.target.clone())
@@ -628,14 +500,8 @@ impl DatabaseCommand {
       .map_err(|e| format!("WHOIS query failed: {}", e))?
     {
       Some(record) => {
-        if is_json {
-          Output::json_value(&json!({
-              "domain": domain.clone(),
-              "registrar": record.registrar.clone(),
-              "created_date": record.created_date,
-              "expires_date": record.expires_date,
-              "nameservers": record.nameservers.clone()
-          }));
+        let payload = query_whois_found_payload(&domain, &record);
+        if render::render_machine_output(ctx, "rb database query whois", &payload)? {
           return Ok(());
         }
 
@@ -649,11 +515,8 @@ impl DatabaseCommand {
         }
       }
       None => {
-        if is_json {
-          Output::json_value(&json!({
-              "domain": domain.clone(),
-              "found": false
-          }));
+        let payload = query_whois_missing_payload(&domain);
+        if render::render_machine_output(ctx, "rb database query whois", &payload)? {
           return Ok(());
         }
         Output::warning("No WHOIS record stored for this domain");
@@ -663,9 +526,6 @@ impl DatabaseCommand {
   }
 
   fn query_hosts(&self, ctx: &CliContext, db_path: &Path) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let ip_filter = ctx
       .get_flag_with_config("ip")
       .or_else(|| ctx.target.clone());
@@ -693,19 +553,16 @@ impl DatabaseCommand {
         .map_err(|e| format!("Host query failed: {}", e))?
       {
         Some(record) => {
-          if is_json {
-            Output::json_value(&host_record_to_json(&record));
+          let payload = host_record_to_json(&record);
+          if render::render_machine_output(ctx, "rb database query hosts", &payload)? {
             return Ok(());
           }
           let formatted = query_format::format_host(&record);
           println!("{}", formatted);
         }
         None => {
-          if is_json {
-            Output::json_value(&json!({
-                "ip": ip.clone(),
-                "found": false
-            }));
+          let payload = query_host_missing_payload(&ip);
+          if render::render_machine_output(ctx, "rb database query hosts", &payload)? {
             return Ok(());
           }
           Output::warning("No fingerprint stored for target");
@@ -716,22 +573,14 @@ impl DatabaseCommand {
         .list_hosts()
         .map_err(|e| format!("Host query failed: {}", e))?;
       if records.is_empty() {
-        if is_json {
-          Output::json_value(&json!({
-              "count": 0,
-              "hosts": []
-          }));
+        let payload = query_hosts_payload(&records);
+        if render::render_machine_output(ctx, "rb database query hosts", &payload)? {
           return Ok(());
         }
         Output::warning("No host fingerprints stored in this database");
       } else {
-        if is_json {
-          let hosts_json: Vec<crate::serde_json::Value> =
-            records.iter().map(host_record_to_json).collect();
-          Output::json_value(&json!({
-              "count": records.len(),
-              "hosts": hosts_json
-          }));
+        let payload = query_hosts_payload(&records);
+        if render::render_machine_output(ctx, "rb database query hosts", &payload)? {
           return Ok(());
         }
         Output::header(&format!(
@@ -770,4 +619,208 @@ fn host_record_to_json(
       "last_seen": record.last_seen,
       "services": services_json
   })
+}
+
+fn query_partitions_payload(
+  partitions: &[crate::storage::PartitionMetadata],
+  segment_filter: Option<String>,
+  attr_filter: Option<String>,
+) -> Value {
+  let partitions_json: Vec<Value> = partitions
+    .iter()
+    .map(|meta| {
+      let segments: Vec<String> = meta
+        .segments
+        .iter()
+        .map(|k| segment_label(*k).to_string())
+        .collect();
+      let last_refreshed = meta.last_refreshed.map(|ts| {
+        ts.duration_since(UNIX_EPOCH)
+          .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+          .as_secs()
+      });
+      let mut attributes = crate::serde_json::Map::new();
+      let mut attr_items: Vec<_> = meta.attributes.iter().collect();
+      attr_items.sort_by(|a, b| a.0.cmp(b.0));
+      for (key, value) in attr_items {
+        attributes.insert(key.clone(), json!(value.clone()));
+      }
+      json!({
+        "label": meta.label.clone(),
+        "key": describe_partition_key(&meta.key),
+        "path": meta.storage_path.display().to_string(),
+        "segments": segments,
+        "last_refreshed": last_refreshed,
+        "attributes": Value::Object(attributes)
+      })
+    })
+    .collect();
+
+  json!({
+    "count": partitions.len(),
+    "segment_filter": segment_filter,
+    "attr_filter": attr_filter,
+    "partitions": partitions_json
+  })
+}
+
+fn query_summary_payload(
+  db_path: &Path,
+  file_size_kb: u64,
+  port_count: usize,
+  dns_count: usize,
+  subdomain_count: usize,
+) -> Value {
+  json!({
+    "file": db_path.display().to_string(),
+    "size_kb": file_size_kb,
+    "ports": port_count,
+    "dns": dns_count,
+    "subdomains": subdomain_count
+  })
+}
+
+fn query_ports_payload(records: &[crate::storage::PortScanRecord]) -> Value {
+  let ports_json: Vec<Value> = records
+    .iter()
+    .map(|record| {
+      json!({
+        "ip": record.ip.to_string(),
+        "port": record.port,
+        "status": port_status_label(record.status),
+        "timestamp": record.timestamp
+      })
+    })
+    .collect();
+
+  json!({
+    "count": records.len(),
+    "ports": ports_json
+  })
+}
+
+fn query_dns_payload(records: &[crate::storage::records::DnsRecordData]) -> Value {
+  let records_json: Vec<Value> = records
+    .iter()
+    .map(|record| {
+      json!({
+        "domain": record.domain.clone(),
+        "type": dns_type_label(record.record_type),
+        "value": record.value.clone(),
+        "ttl": record.ttl,
+        "timestamp": record.timestamp
+      })
+    })
+    .collect();
+
+  json!({
+    "count": records.len(),
+    "records": records_json
+  })
+}
+
+fn query_subdomains_payload(records: &[crate::storage::SubdomainRecord]) -> Value {
+  let subdomains_json: Vec<String> = records
+    .iter()
+    .map(|record| record.subdomain.clone())
+    .collect();
+  json!({
+    "count": records.len(),
+    "subdomains": subdomains_json
+  })
+}
+
+fn query_http_payload(host: &str, records: &[crate::storage::records::HttpHeadersRecord]) -> Value {
+  let records_json: Vec<Value> = records
+    .iter()
+    .map(|record| {
+      json!({
+        "method": record.method.clone(),
+        "url": record.url.clone(),
+        "http_version": record.http_version.clone(),
+        "status_code": record.status_code,
+        "status_text": record.status_text.clone(),
+        "server": record.server.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "host": host,
+    "count": records.len(),
+    "records": records_json
+  })
+}
+
+fn query_tls_payload(host: &str, scans: &[crate::storage::records::TlsScanRecord]) -> Value {
+  let scans_json: Vec<Value> = scans
+    .iter()
+    .map(|scan| {
+      json!({
+        "port": scan.port,
+        "protocol": scan.negotiated_version.clone().unwrap_or_default(),
+        "cipher": scan.negotiated_cipher.clone().unwrap_or_default(),
+        "certificate_valid": scan.certificate_valid
+      })
+    })
+    .collect();
+
+  json!({
+    "host": host,
+    "count": scans.len(),
+    "scans": scans_json
+  })
+}
+
+fn query_whois_found_payload(domain: &str, record: &crate::storage::WhoisRecord) -> Value {
+  json!({
+    "domain": domain,
+    "found": true,
+    "registrar": record.registrar.clone(),
+    "created_date": record.created_date,
+    "expires_date": record.expires_date,
+    "nameservers": record.nameservers.clone()
+  })
+}
+
+fn query_whois_missing_payload(domain: &str) -> Value {
+  json!({
+    "domain": domain,
+    "found": false
+  })
+}
+
+fn query_host_missing_payload(ip: &str) -> Value {
+  json!({
+    "ip": ip,
+    "found": false
+  })
+}
+
+fn query_hosts_payload(records: &[crate::storage::records::HostIntelRecord]) -> Value {
+  let hosts_json: Vec<Value> = records.iter().map(host_record_to_json).collect();
+  json!({
+    "count": records.len(),
+    "hosts": hosts_json
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn query_summary_payload_reports_counts() {
+    let payload = query_summary_payload(Path::new("/tmp/sample.rdb"), 128, 10, 20, 30);
+    assert_eq!(payload["size_kb"], 128);
+    assert_eq!(payload["ports"], 10);
+    assert_eq!(payload["subdomains"], 30);
+  }
+
+  #[test]
+  fn query_host_missing_payload_marks_not_found() {
+    let payload = query_host_missing_payload("192.0.2.10");
+    assert_eq!(payload["ip"], "192.0.2.10");
+    assert_eq!(payload["found"], false);
+  }
 }

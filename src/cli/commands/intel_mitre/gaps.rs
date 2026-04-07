@@ -2,17 +2,14 @@
 //!
 //! Analyze detection coverage gaps based on data sources.
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::modules::recon::mitre::coverage::CoverageGap;
 use crate::modules::recon::mitre::{CoverageAnalyzer, GapPriority, MitreClient};
 
 /// Show coverage gaps based on data sources
 pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("MITRE ATT&CK Coverage Gap Analysis");
     println!();
     Output::spinner_start("Fetching ATT&CK data from STIX...");
@@ -27,7 +24,7 @@ pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
   }
   .map_err(|e| format!("Failed to fetch ATT&CK data: {}", e))?;
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
@@ -46,13 +43,13 @@ pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
     }
   }
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_start("Analyzing coverage...");
   }
 
   let report = analyzer.analyze();
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
@@ -79,39 +76,8 @@ pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
     report.gaps.iter().collect()
   };
 
-  if is_json {
-    let tactic_coverage: Vec<_> = report
-      .tactic_coverage
-      .iter()
-      .map(|coverage| {
-        json!({
-            "tactic": coverage.tactic_name.clone(),
-            "total": coverage.total,
-            "covered": coverage.covered,
-            "percentage": coverage.percentage
-        })
-      })
-      .collect();
-    let gaps_json: Vec<_> = gaps
-      .iter()
-      .map(|gap| {
-        json!({
-            "technique_id": gap.technique_id.clone(),
-            "technique_name": gap.technique_name.clone(),
-            "priority": gap.priority.as_str(),
-            "tactics": gap.tactics.clone(),
-            "platforms": gap.platforms.clone()
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "overall_coverage": report.overall_coverage,
-        "total_techniques": report.total_techniques,
-        "covered_count": report.covered_count,
-        "gap_count": gaps.len(),
-        "tactic_coverage": tactic_coverage,
-        "gaps": gaps_json
-    }));
+  let payload = gaps_payload(&report, &gaps);
+  if render::render_machine_output(ctx, "rb intel mitre gaps", &payload)? {
     return Ok(());
   }
 
@@ -222,4 +188,90 @@ pub fn show_gaps(ctx: &CliContext) -> Result<(), String> {
   }
 
   Ok(())
+}
+
+fn gaps_payload(
+  report: &crate::modules::recon::mitre::CoverageReport,
+  gaps: &[&CoverageGap],
+) -> crate::serde_json::Value {
+  let tactic_coverage: Vec<_> = report
+    .tactic_coverage
+    .iter()
+    .map(|coverage| {
+      json!({
+        "tactic": coverage.tactic_name.clone(),
+        "total": coverage.total,
+        "covered": coverage.covered,
+        "percentage": coverage.percentage
+      })
+    })
+    .collect();
+  let gaps_json: Vec<_> = gaps
+    .iter()
+    .map(|gap| {
+      json!({
+        "technique_id": gap.technique_id.clone(),
+        "technique_name": gap.technique_name.clone(),
+        "priority": gap.priority.as_str(),
+        "tactics": gap.tactics.clone(),
+        "platforms": gap.platforms.clone()
+      })
+    })
+    .collect();
+  json!({
+    "overall_coverage": report.overall_coverage,
+    "total_techniques": report.total_techniques,
+    "covered_count": report.covered_count,
+    "gap_count": gaps.len(),
+    "tactic_coverage": tactic_coverage,
+    "gaps": gaps_json
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::recon::mitre::{CoverageGap, CoverageReport, Recommendation, TacticCoverage};
+
+  #[test]
+  fn gaps_payload_serializes_summary_and_entries() {
+    let report = CoverageReport {
+      overall_coverage: 42.5,
+      total_techniques: 100,
+      covered_count: 42,
+      tactic_coverage: vec![TacticCoverage {
+        tactic_name: "Execution".to_string(),
+        total: 10,
+        covered: 4,
+        percentage: 40.0,
+      }],
+      gaps: vec![CoverageGap {
+        technique_id: "T1059".to_string(),
+        technique_name: "Command and Scripting Interpreter".to_string(),
+        tactics: vec!["Execution".to_string()],
+        platforms: vec!["Linux".to_string()],
+        priority: GapPriority::High,
+        required_data_sources: vec![],
+        current_data_sources: vec![],
+      }],
+      recommendations: vec![Recommendation {
+        title: "Add process creation telemetry".to_string(),
+        description: "Improve visibility.".to_string(),
+        impact: 10.0,
+        data_sources: vec![],
+      }],
+    };
+    let gaps: Vec<_> = report.gaps.iter().collect();
+
+    let payload = gaps_payload(&report, &gaps);
+
+    assert_eq!(payload["overall_coverage"].as_f64(), Some(42.5));
+    assert_eq!(payload["gap_count"].as_u64(), Some(1));
+    assert_eq!(
+      payload["tactic_coverage"][0]["tactic"].as_str(),
+      Some("Execution")
+    );
+    assert_eq!(payload["gaps"][0]["technique_id"].as_str(), Some("T1059"));
+    assert_eq!(payload["gaps"][0]["priority"].as_str(), Some("high"));
+  }
 }

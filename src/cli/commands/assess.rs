@@ -19,11 +19,11 @@
 
 use crate::assess::{AssessOptions, AssessmentEngine, AssessmentOutput};
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::playbooks::types::RiskLevel;
 use crate::playbooks::{PlaybookContext, PlaybookExecutor};
+use crate::serde_json::Value;
 use crate::storage::service::StorageService;
 
 pub struct AssessCommand;
@@ -39,6 +39,26 @@ impl Command for AssessCommand {
 
   fn description(&self) -> &str {
     "Continuous assessment workflow: fingerprint → vulns → playbooks → execute"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -125,9 +145,6 @@ impl Command for AssessCommand {
 impl AssessCommand {
   /// Run the full assessment workflow
   fn run_assessment(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let target = ctx.target.as_ref().ok_or(
             "Missing target.\nUsage: rb assess target run <target>\nExample: rb assess target run example.com"
         )?;
@@ -143,8 +160,8 @@ impl AssessCommand {
     let engine = AssessmentEngine::new(target, &db_path_str);
     let result = engine.run(opts.clone())?;
 
-    if is_json {
-      self.print_json(&result, target);
+    let payload = Self::assessment_payload(&result, target);
+    if render::render_machine_output(ctx, "rb assess target run", &payload)? {
       return Ok(());
     }
 
@@ -161,9 +178,6 @@ impl AssessCommand {
 
   /// Show cached assessment results
   fn show_cached(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let target = ctx.target.as_ref().ok_or(
             "Missing target.\nUsage: rb assess target show <target>\nExample: rb assess target show example.com"
         )?;
@@ -183,8 +197,8 @@ impl AssessCommand {
     let engine = AssessmentEngine::new(target, &db_path_str);
     let result = engine.run(opts)?;
 
-    if is_json {
-      self.print_json(&result, target);
+    let payload = Self::assessment_payload(&result, target);
+    if render::render_machine_output(ctx, "rb assess target show", &payload)? {
       return Ok(());
     }
 
@@ -194,7 +208,7 @@ impl AssessCommand {
   }
 
   /// Print assessment result as JSON
-  fn print_json(&self, result: &crate::assess::AssessmentResult, target: &str) {
+  fn assessment_payload(result: &crate::assess::AssessmentResult, target: &str) -> Value {
     let technologies: Vec<_> = result
       .technologies
       .iter()
@@ -237,13 +251,14 @@ impl AssessCommand {
         })
       })
       .collect();
-    Output::json_value(&json!({
-        "target": target,
-        "risk_score": result.risk_score,
-        "technologies": technologies,
-        "vulnerabilities": vulnerabilities,
-        "recommendations": recommendations
-    }));
+
+    json!({
+      "target": target,
+      "risk_score": result.risk_score,
+      "technologies": technologies,
+      "vulnerabilities": vulnerabilities,
+      "recommendations": recommendations
+    })
   }
 
   /// Parse command options from context
@@ -358,5 +373,40 @@ impl AssessCommand {
     ));
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::assess::cache::CacheStatus;
+  use crate::assess::AssessmentResult;
+  use crate::playbooks::recommender::{RecommendationResult, RecommendationSummary};
+
+  #[test]
+  fn assessment_payload_includes_target_and_risk_score() {
+    let payload = AssessCommand::assessment_payload(
+      &AssessmentResult {
+        target: "example.com".to_string(),
+        technologies: Vec::new(),
+        vulnerabilities: None,
+        vuln_records: Vec::new(),
+        recommendations: RecommendationResult {
+          target: "example.com".to_string(),
+          recommendations: Vec::new(),
+          summary: RecommendationSummary::default(),
+        },
+        risk_score: 42,
+        fingerprint_cache_status: CacheStatus::Miss,
+        vuln_cache_status: CacheStatus::Miss,
+        elapsed: std::time::Duration::from_secs(1),
+      },
+      "example.com",
+    );
+
+    assert_eq!(payload["target"], "example.com");
+    assert_eq!(payload["risk_score"], 42);
+    assert!(payload["technologies"].as_array().unwrap().is_empty());
+    assert!(payload["recommendations"].as_array().unwrap().is_empty());
   }
 }

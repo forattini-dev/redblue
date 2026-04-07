@@ -10,7 +10,10 @@
 use crate::cli::commands::{Command, Flag, Route};
 use crate::cli::format::OutputFormat;
 use crate::cli::output::Output;
+use crate::cli::render;
 use crate::cli::CliContext;
+use crate::json;
+use crate::serde_json::Value;
 use crate::storage::QueryManager;
 use std::env;
 use std::fs;
@@ -29,6 +32,26 @@ impl Command for SearchCommand {
 
   fn description(&self) -> &str {
     "Search across all stored reconnaissance data"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -117,7 +140,6 @@ impl SearchCommand {
       "Missing search pattern.\n\nUsage: rb search data query <pattern> [--type TYPE] [--db FILE]",
     )?;
 
-    let output_format = ctx.get_output_format();
     let data_type = ctx.get_flag("type");
     let search_all = ctx.has_flag("all");
 
@@ -164,25 +186,22 @@ impl SearchCommand {
           )?;
         }
         Err(e) => {
-          if output_format == OutputFormat::Human {
+          if !ctx.wants_machine_output() {
             Output::warning(&format!("Skipping {}: {}", db_name, e));
           }
         }
       }
     }
 
-    // Output results
-    match output_format {
-      OutputFormat::Json => {
-        println!("{}", all_results.to_json());
-      }
-      OutputFormat::Yaml => {
-        println!("{}", all_results.to_yaml());
-      }
-      OutputFormat::Human => {
-        all_results.print_human();
-      }
+    let payload = all_results.to_value();
+    if render::render_machine_output_with_yaml(ctx, "rb search data query", &payload, || {
+      println!("{}", all_results.to_yaml());
+      Ok(())
+    })? {
+      return Ok(());
     }
+
+    all_results.print_human();
 
     Ok(())
   }
@@ -307,10 +326,9 @@ impl SearchCommand {
   /// List all database files in current directory
   fn list_databases(&self, ctx: &CliContext) -> Result<(), String> {
     let databases = self.find_all_databases()?;
-    let output_format = ctx.get_output_format();
 
     if databases.is_empty() {
-      if output_format == OutputFormat::Human {
+      if !ctx.wants_machine_output() {
         Output::info("No database files found in current directory.");
         println!("\nRun a scan with --persist to create one:");
         println!("  rb recon domain subdomains example.com --persist");
@@ -318,45 +336,34 @@ impl SearchCommand {
       return Ok(());
     }
 
-    match output_format {
-      OutputFormat::Json => {
-        let items: Vec<_> = databases
-          .iter()
-          .filter_map(|p| {
-            p.file_name().and_then(|n| n.to_str()).map(|name| {
-              let size = fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-              format!(r#"{{"name":"{}","size":{}}}"#, name, size)
-            })
-          })
-          .collect();
-        println!("[{}]", items.join(","));
-      }
-      OutputFormat::Yaml => {
-        println!("databases:");
-        for path in &databases {
-          if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            println!("  - name: {}", name);
-            println!("    size: {}", size);
-          }
+    let payload = Self::databases_payload(&databases);
+    if render::render_machine_output_with_yaml(ctx, "rb search data list", &payload, || {
+      println!("databases:");
+      for path in &databases {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+          let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+          println!("  - name: {}", name);
+          println!("    size: {}", size);
         }
       }
-      OutputFormat::Human => {
-        Output::header("Available Databases");
-        println!();
-        println!("{:<40} {:>10}", "DATABASE", "SIZE");
-        println!("{}", "─".repeat(52));
-        for path in &databases {
-          if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-            let size_str = format_size(size);
-            println!("{:<40} {:>10}", name, size_str);
-          }
-        }
-        println!();
-        Output::info(&format!("Found {} database(s)", databases.len()));
+      Ok(())
+    })? {
+      return Ok(());
+    }
+
+    Output::header("Available Databases");
+    println!();
+    println!("{:<40} {:>10}", "DATABASE", "SIZE");
+    println!("{}", "─".repeat(52));
+    for path in &databases {
+      if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let size_str = format_size(size);
+        println!("{:<40} {:>10}", name, size_str);
       }
     }
+    println!();
+    Output::info(&format!("Found {} database(s)", databases.len()));
 
     Ok(())
   }
@@ -388,7 +395,6 @@ impl SearchCommand {
   }
 
   fn show_stats_for_path(&self, path: &PathBuf, ctx: &CliContext) -> Result<(), String> {
-    let output_format = ctx.get_output_format();
     let db_name = path
       .file_name()
       .and_then(|n| n.to_str())
@@ -432,13 +438,35 @@ impl SearchCommand {
     // File size
     stats.file_size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
-    match output_format {
-      OutputFormat::Json => println!("{}", stats.to_json()),
-      OutputFormat::Yaml => println!("{}", stats.to_yaml()),
-      OutputFormat::Human => stats.print_human(),
+    let payload = stats.to_value();
+    if render::render_machine_output_with_yaml(ctx, "rb search data stats", &payload, || {
+      println!("{}", stats.to_yaml());
+      Ok(())
+    })? {
+      return Ok(());
     }
 
+    stats.print_human();
+
     Ok(())
+  }
+
+  fn databases_payload(databases: &[PathBuf]) -> Value {
+    let items = databases
+      .iter()
+      .filter_map(|path| {
+        path.file_name().and_then(|name| name.to_str()).map(|name| {
+          json!({
+            "name": name,
+            "size": fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+          })
+        })
+      })
+      .collect::<Vec<_>>();
+    json!({
+      "count": items.len(),
+      "databases": items
+    })
   }
 
   /// Find all .rdb files in current directory
@@ -552,91 +580,52 @@ impl SearchResults {
       + self.http.len()
   }
 
-  fn to_json(&self) -> String {
-    let mut parts = Vec::new();
-    parts.push(format!(r#""pattern":"{}""#, self.pattern));
-    parts.push(format!(r#""total_matches":{}"#, self.total_count()));
-
-    if !self.subdomains.is_empty() {
-      let items: Vec<String> = self
-        .subdomains
-        .iter()
-        .map(|m| format!(r#"{{"db":"{}","subdomain":"{}"}}"#, m.database, m.value))
-        .collect();
-      parts.push(format!(r#""subdomains":[{}]"#, items.join(",")));
-    }
-
-    if !self.dns.is_empty() {
-      let items: Vec<String> = self
-        .dns
-        .iter()
-        .map(|m| {
-          format!(
-            r#"{{"db":"{}","domain":"{}","type":"{}"}}"#,
-            m.database, m.value, m.extra
-          )
+  fn to_value(&self) -> Value {
+    json!({
+      "pattern": self.pattern,
+      "total_matches": self.total_count(),
+      "subdomains": self.subdomains.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "subdomain": m.value
         })
-        .collect();
-      parts.push(format!(r#""dns":[{}]"#, items.join(",")));
-    }
-
-    if !self.whois.is_empty() {
-      let items: Vec<String> = self
-        .whois
-        .iter()
-        .map(|m| {
-          format!(
-            r#"{{"db":"{}","domain":"{}","registrar":"{}"}}"#,
-            m.database, m.value, m.extra
-          )
+      }).collect::<Vec<_>>(),
+      "dns": self.dns.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "domain": m.value,
+          "type": m.extra
         })
-        .collect();
-      parts.push(format!(r#""whois":[{}]"#, items.join(",")));
-    }
-
-    if !self.hosts.is_empty() {
-      let items: Vec<String> = self
-        .hosts
-        .iter()
-        .map(|m| {
-          format!(
-            r#"{{"db":"{}","ip":"{}","os":"{}"}}"#,
-            m.database, m.value, m.extra
-          )
+      }).collect::<Vec<_>>(),
+      "whois": self.whois.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "domain": m.value,
+          "registrar": m.extra
         })
-        .collect();
-      parts.push(format!(r#""hosts":[{}]"#, items.join(",")));
-    }
-
-    if !self.tls.is_empty() {
-      let items: Vec<String> = self
-        .tls
-        .iter()
-        .map(|m| {
-          format!(
-            r#"{{"db":"{}","host":"{}","subject":"{}"}}"#,
-            m.database, m.value, m.extra
-          )
+      }).collect::<Vec<_>>(),
+      "hosts": self.hosts.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "ip": m.value,
+          "os": m.extra
         })
-        .collect();
-      parts.push(format!(r#""tls":[{}]"#, items.join(",")));
-    }
-
-    if !self.http.is_empty() {
-      let items: Vec<String> = self
-        .http
-        .iter()
-        .map(|m| {
-          format!(
-            r#"{{"db":"{}","url":"{}","status":{}}}"#,
-            m.database, m.value, m.extra
-          )
+      }).collect::<Vec<_>>(),
+      "tls": self.tls.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "host": m.value,
+          "subject": m.extra
         })
-        .collect();
-      parts.push(format!(r#""http":[{}]"#, items.join(",")));
-    }
-
-    format!("{{{}}}", parts.join(","))
+      }).collect::<Vec<_>>(),
+      "http": self.http.iter().map(|m| {
+        json!({
+          "db": m.database,
+          "url": m.value,
+          "status": m.extra
+        })
+      }).collect::<Vec<_>>()
+    })
   }
 
   fn to_yaml(&self) -> String {
@@ -851,18 +840,17 @@ impl DbStats {
     }
   }
 
-  fn to_json(&self) -> String {
-    format!(
-      r#"{{"name":"{}","file_size":{},"subdomains":{},"dns_records":{},"whois":{},"hosts":{},"tls_scans":{},"http_records":{}}}"#,
-      self.name,
-      self.file_size,
-      self.subdomain_count,
-      self.dns_count,
-      self.has_whois,
-      self.host_count,
-      self.tls_count,
-      self.http_count
-    )
+  fn to_value(&self) -> Value {
+    json!({
+      "name": self.name,
+      "file_size": self.file_size,
+      "subdomains": self.subdomain_count,
+      "dns_records": self.dns_count,
+      "whois": self.has_whois,
+      "hosts": self.host_count,
+      "tls_scans": self.tls_count,
+      "http_records": self.http_count
+    })
   }
 
   fn to_yaml(&self) -> String {
@@ -938,5 +926,43 @@ mod tests {
 
     results.add_dns("test.rdb", "example.com", "A");
     assert_eq!(results.total_count(), 2);
+  }
+
+  #[test]
+  fn test_search_results_to_value_includes_pattern() {
+    let mut results = SearchResults::new("needle".to_string());
+    results.add_subdomain("test.rdb", "api.example.com");
+
+    let value = results.to_value();
+    let object = value
+      .as_object()
+      .expect("search payload should be an object");
+    assert_eq!(
+      object.get("pattern").and_then(Value::as_str),
+      Some("needle")
+    );
+    assert_eq!(object.get("total_matches").and_then(Value::as_i64), Some(1));
+  }
+
+  #[test]
+  fn test_db_stats_to_value_includes_counts() {
+    let mut stats = DbStats::new("sample.rdb".to_string());
+    stats.file_size = 1024;
+    stats.subdomain_count = 3;
+    stats.dns_count = 2;
+    stats.has_whois = true;
+
+    let value = stats.to_value();
+    let object = value
+      .as_object()
+      .expect("stats payload should be an object");
+    assert_eq!(
+      object.get("name").and_then(Value::as_str),
+      Some("sample.rdb")
+    );
+    assert_eq!(object.get("file_size").and_then(Value::as_i64), Some(1024));
+    assert_eq!(object.get("subdomains").and_then(Value::as_i64), Some(3));
+    assert_eq!(object.get("dns_records").and_then(Value::as_i64), Some(2));
+    assert_eq!(object.get("whois").and_then(Value::as_bool), Some(true));
   }
 }

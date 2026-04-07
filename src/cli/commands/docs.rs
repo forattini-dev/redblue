@@ -1,5 +1,5 @@
 use crate::cli::commands::{Command, Flag, Route};
-use crate::cli::{format::OutputFormat, output::Output, render, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::serde_json::Value;
 use std::fs;
@@ -85,18 +85,17 @@ impl Command for DocsCommand {
 
 impl DocsCommand {
   fn search(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-
     let query = ctx.target.as_ref().ok_or("Missing search query")?;
 
     // Simple grep-based search in docs/ directory
     let docs_dir = Path::new("docs");
     if !docs_dir.exists() {
-      if format == OutputFormat::Json {
-        Output::json_value(&json!({
+      if ctx.wants_machine_output() {
+        let payload = json!({
           "success": false,
           "error": "Docs directory not found"
-        }));
+        });
+        let _ = render::render_machine_output(ctx, "rb docs kb search", &payload)?;
       }
       return Err("Docs directory not found. Are you in the project root?".to_string());
     }

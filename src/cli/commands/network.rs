@@ -45,14 +45,16 @@ impl Command for NetworkCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "ping" | "discover" => crate::cli::schema::RouteMetadata::new()
-        .with_aliases(aliases)
-        .with_machine_output(
-          crate::cli::schema::MachineOutputMetadata::new()
-            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
-            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
-            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
-        ),
+      "ping" | "discover" | "fingerprint" | "list" | "intel" => {
+        crate::cli::schema::RouteMetadata::new()
+          .with_aliases(aliases)
+          .with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+              .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+              .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+              .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+          )
+      }
       _ => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(self.metadata().machine_output),
@@ -405,53 +407,19 @@ impl NetworkCommand {
 
     Validator::validate_host(host)?;
 
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Host Fingerprint: {}", host));
       Output::spinner_start("Collecting intelligence");
     }
 
     let fingerprint = HostFingerprint::run(host, &[])?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    // JSON output
-    if is_json {
-      let os_guess = fingerprint.os_guess.as_ref().map(|guess| {
-        json!({
-            "os_family": guess.os_family.name(),
-            "confidence": guess.confidence
-        })
-      });
-      let services: Vec<_> = fingerprint
-        .services
-        .iter()
-        .map(|svc| {
-          json!({
-              "port": svc.port,
-              "service": svc.service_label.clone(),
-              "banner": svc.banner.as_ref().map(|banner| {
-                  banner
-                      .banner
-                      .replace('"', "\\\"")
-                      .replace('\n', " ")
-                      .replace('\r', "")
-              })
-          })
-        })
-        .collect();
-
-      Output::json_value(&json!({
-          "host": fingerprint.host,
-          "ip": fingerprint.ip.to_string(),
-          "os_guess": os_guess,
-          "open_ports": fingerprint.open_ports,
-          "services": services
-      }));
+    let payload = self.fingerprint_payload(&fingerprint);
+    if render::render_machine_output(ctx, "rb network host fingerprint", &payload)? {
       return Ok(());
     }
 
@@ -503,7 +471,7 @@ impl NetworkCommand {
       }
 
       let count = recorder.commit()?;
-      if count > 0 && !is_json {
+      if count > 0 && !ctx.wants_machine_output() {
         Output::info(&format!("Actions recorded ({} services)", count));
       }
     }
@@ -512,9 +480,6 @@ impl NetworkCommand {
   }
 
   fn list(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let target_ip = if let Some(target) = ctx.target.as_ref() {
       Some(IpAddr::from_str(target).map_err(|_| {
         "Invalid IP address. Usage: rb network host list <IP> [--db file]".to_string()
@@ -547,20 +512,20 @@ impl NetworkCommand {
         .map_err(|e| format!("Query failed: {}", e))?
       {
         Some(record) => {
-          if is_json {
-            Output::json_value(&self.host_record_json(&record));
+          let payload = self.host_record_json(&record);
+          if render::render_machine_output(ctx, "rb network host list", &payload)? {
           } else {
             let formatted = query_format::format_host(&record);
             println!("{}", formatted);
           }
         }
         None => {
-          if is_json {
-            Output::json_value(&json!({
-                "ip": ip.to_string(),
-                "found": false,
-                "message": "No fingerprint stored for target"
-            }));
+          let payload = json!({
+            "ip": ip.to_string(),
+            "found": false,
+            "message": "No fingerprint stored for target"
+          });
+          if render::render_machine_output(ctx, "rb network host list", &payload)? {
           } else {
             Output::warning("No fingerprint stored for target");
           }
@@ -571,24 +536,25 @@ impl NetworkCommand {
         .list_hosts()
         .map_err(|e| format!("Query failed: {}", e))?;
 
-      if is_json {
-        let hosts: Vec<_> = records
-          .iter()
-          .map(|record| {
-            json!({
-                "ip": record.ip.to_string(),
-                "os_family": record.os_family.clone(),
-                "confidence": record.confidence,
-                "last_seen": record.last_seen,
-                "services_count": record.services.len()
-            })
+      let hosts: Vec<_> = records
+        .iter()
+        .map(|record| {
+          json!({
+            "ip": record.ip.to_string(),
+            "os_family": record.os_family.clone(),
+            "confidence": record.confidence,
+            "last_seen": record.last_seen,
+            "services_count": record.services.len()
           })
-          .collect();
-        Output::json_value(&json!({
-            "database": db_path.display().to_string(),
-            "count": records.len(),
-            "hosts": hosts
-        }));
+        })
+        .collect();
+      let payload = json!({
+        "database": db_path.display().to_string(),
+        "count": records.len(),
+        "hosts": hosts
+      });
+
+      if render::render_machine_output(ctx, "rb network host list", &payload)? {
       } else if records.is_empty() {
         Output::warning("No host fingerprints stored in this database");
       } else {
@@ -631,6 +597,40 @@ impl NetworkCommand {
         "confidence": record.confidence,
         "last_seen": record.last_seen,
         "services": services
+    })
+  }
+
+  fn fingerprint_payload(&self, fingerprint: &HostFingerprint) -> crate::serde_json::Value {
+    let os_guess = fingerprint.os_guess.as_ref().map(|guess| {
+      json!({
+        "os_family": guess.os_family.name(),
+        "confidence": guess.confidence
+      })
+    });
+    let services: Vec<_> = fingerprint
+      .services
+      .iter()
+      .map(|svc| {
+        json!({
+          "port": svc.port,
+          "service": svc.service_label.clone(),
+          "banner": svc.banner.as_ref().map(|banner| {
+            banner
+              .banner
+              .replace('"', "\\\"")
+              .replace('\n', " ")
+              .replace('\r', "")
+          })
+        })
+      })
+      .collect();
+
+    json!({
+      "host": fingerprint.host,
+      "ip": fingerprint.ip.to_string(),
+      "os_guess": os_guess,
+      "open_ports": fingerprint.open_ports,
+      "services": services
     })
   }
 
@@ -742,11 +742,9 @@ impl NetworkCommand {
 
   /// IP Intelligence - bogon detection and IP classification
   fn intel(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-
     // If --bogons flag is set, show all bogon ranges
     if ctx.has_flag("bogons") {
-      return self.show_bogon_ranges(format);
+      return self.show_bogon_ranges(ctx);
     }
 
     let ip = ctx.target.as_ref().ok_or(
@@ -756,20 +754,8 @@ impl NetworkCommand {
     let intel = IpIntel::new();
     let result = intel.analyze(ip)?;
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      Output::json_value(&json!({
-          "ip": result.ip.to_string(),
-          "version": result.version.to_string(),
-          "is_bogon": result.is_bogon,
-          "bogon_reason": result.bogon_reason,
-          "classification": result.classification.to_string()
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+    let payload = self.intel_payload(&result);
+    if render::render_machine_output_with_yaml(ctx, "rb network host intel", &payload, || {
       println!("ip: {}", result.ip);
       println!("version: {}", result.version);
       println!("is_bogon: {}", result.is_bogon);
@@ -777,6 +763,8 @@ impl NetworkCommand {
         println!("bogon_reason: {}", reason);
       }
       println!("classification: {}", result.classification);
+      Ok(())
+    })? {
       return Ok(());
     }
 
@@ -876,39 +864,29 @@ impl NetworkCommand {
   }
 
   /// Show all bogon ranges
-  fn show_bogon_ranges(&self, format: crate::cli::format::OutputFormat) -> Result<(), String> {
+  fn show_bogon_ranges(&self, ctx: &CliContext) -> Result<(), String> {
     let ipv4_bogons = IpIntel::get_ipv4_bogon_ranges();
     let ipv6_bogons = IpIntel::get_ipv6_bogon_ranges();
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let ipv4_ranges: Vec<_> = ipv4_bogons
-        .iter()
-        .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
-        .collect();
-      let ipv6_ranges: Vec<_> = ipv6_bogons
-        .iter()
-        .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
-        .collect();
-      Output::json_value(&json!({
-          "ipv4_bogons": ipv4_ranges,
-          "ipv6_bogons": ipv6_ranges
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
-      println!("ipv4_bogons:");
-      for (cidr, desc) in &ipv4_bogons {
-        println!("  - cidr: {}", cidr);
-        println!("    description: {}", desc);
-      }
-      println!("ipv6_bogons:");
-      for (cidr, desc) in &ipv6_bogons {
-        println!("  - cidr: {}", cidr);
-        println!("    description: {}", desc);
-      }
+    let payload = self.bogon_ranges_payload(&ipv4_bogons, &ipv6_bogons);
+    if render::render_machine_output_with_yaml(
+      ctx,
+      "rb network host intel --bogons",
+      &payload,
+      || {
+        println!("ipv4_bogons:");
+        for (cidr, desc) in &ipv4_bogons {
+          println!("  - cidr: {}", cidr);
+          println!("    description: {}", desc);
+        }
+        println!("ipv6_bogons:");
+        for (cidr, desc) in &ipv6_bogons {
+          println!("  - cidr: {}", cidr);
+          println!("    description: {}", desc);
+        }
+        Ok(())
+      },
+    )? {
       return Ok(());
     }
 
@@ -944,5 +922,129 @@ impl NetworkCommand {
       ipv4_bogons.len() + ipv6_bogons.len()
     ));
     Ok(())
+  }
+
+  fn intel_payload(
+    &self,
+    result: &crate::modules::recon::ip_intel::IpIntelResult,
+  ) -> crate::serde_json::Value {
+    json!({
+      "ip": result.ip.to_string(),
+      "version": result.version.to_string(),
+      "is_bogon": result.is_bogon,
+      "bogon_reason": result.bogon_reason,
+      "classification": result.classification.to_string()
+    })
+  }
+
+  fn bogon_ranges_payload(
+    &self,
+    ipv4_bogons: &[(&'static str, &'static str)],
+    ipv6_bogons: &[(&'static str, &'static str)],
+  ) -> crate::serde_json::Value {
+    let ipv4_ranges: Vec<_> = ipv4_bogons
+      .iter()
+      .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
+      .collect();
+    let ipv6_ranges: Vec<_> = ipv6_bogons
+      .iter()
+      .map(|(cidr, desc)| json!({ "cidr": cidr, "description": desc }))
+      .collect();
+    json!({
+      "ipv4_bogons": ipv4_ranges,
+      "ipv6_bogons": ipv6_ranges
+    })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::network::banner::{ServiceBanner, ServiceType};
+  use crate::modules::network::fingerprint::ServiceFingerprint;
+  use crate::modules::recon::ip_intel::{IpClassification, IpIntelResult, IpVersion};
+
+  #[test]
+  fn fingerprint_payload_serializes_services_and_os_guess() {
+    let command = NetworkCommand;
+    let fingerprint = HostFingerprint {
+      host: "example.com".to_string(),
+      ip: IpAddr::from_str("192.0.2.10").unwrap(),
+      open_ports: vec![22],
+      services: vec![ServiceFingerprint {
+        port: 22,
+        service_label: Some("ssh".to_string()),
+        banner: Some(ServiceBanner {
+          host: "example.com".to_string(),
+          port: 22,
+          service: ServiceType::SSH,
+          banner: "SSH-2.0-OpenSSH_9.0\r\n".to_string(),
+          version: Some("9.0".to_string()),
+          os_hints: vec!["Ubuntu".to_string()],
+          security_notes: Vec::new(),
+        }),
+        timing: None,
+      }],
+      os_guess: None,
+    };
+
+    let payload = command.fingerprint_payload(&fingerprint);
+
+    assert_eq!(payload["host"].as_str(), Some("example.com"));
+    assert_eq!(payload["ip"].as_str(), Some("192.0.2.10"));
+    assert_eq!(payload["open_ports"][0].as_u64(), Some(22));
+    assert_eq!(payload["services"][0]["service"].as_str(), Some("ssh"));
+    assert_eq!(
+      payload["services"][0]["banner"].as_str(),
+      Some("SSH-2.0-OpenSSH_9.0 ")
+    );
+  }
+
+  #[test]
+  fn intel_payload_serializes_bogon_and_classification() {
+    let command = NetworkCommand;
+    let result = IpIntelResult {
+      ip: "10.0.0.1".to_string(),
+      version: IpVersion::V4,
+      is_bogon: true,
+      bogon_reason: Some("Private-Use (RFC 1918)".to_string()),
+      classification: IpClassification::Private,
+      reverse_dns: None,
+      asn: None,
+      geolocation: None,
+    };
+
+    let payload = command.intel_payload(&result);
+
+    assert_eq!(payload["ip"].as_str(), Some("10.0.0.1"));
+    assert_eq!(payload["version"].as_str(), Some("IPv4"));
+    assert_eq!(payload["is_bogon"].as_bool(), Some(true));
+    assert_eq!(
+      payload["classification"].as_str(),
+      Some("Private (RFC 1918)")
+    );
+  }
+
+  #[test]
+  fn bogon_ranges_payload_serializes_ipv4_and_ipv6_ranges() {
+    let command = NetworkCommand;
+    let payload = command.bogon_ranges_payload(
+      &[("10.0.0.0/8", "Private-Use (RFC 1918)")],
+      &[("fc00::/7", "Unique-Local (RFC 4193)")],
+    );
+
+    assert_eq!(
+      payload["ipv4_bogons"][0]["cidr"].as_str(),
+      Some("10.0.0.0/8")
+    );
+    assert_eq!(
+      payload["ipv4_bogons"][0]["description"].as_str(),
+      Some("Private-Use (RFC 1918)")
+    );
+    assert_eq!(payload["ipv6_bogons"][0]["cidr"].as_str(), Some("fc00::/7"));
+    assert_eq!(
+      payload["ipv6_bogons"][0]["description"].as_str(),
+      Some("Unique-Local (RFC 4193)")
+    );
   }
 }

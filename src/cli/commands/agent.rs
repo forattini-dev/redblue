@@ -1,8 +1,7 @@
 use crate::agent::client::{AgentClient, AgentConfig};
 use crate::agent::server::{AgentServer, AgentServerConfig};
 use crate::cli::commands::{Command, Flag, Route};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -20,6 +19,26 @@ impl Command for AgentCommand {
 
   fn description(&self) -> &str {
     "Agent C2 operations (server and client)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -82,22 +101,18 @@ impl AgentCommand {
     let port = ctx.get_flag_or("port", "4444");
     let addr_str = format!("{}:{}", host, port);
 
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let addr: SocketAddr = addr_str
       .parse()
       .map_err(|e| format!("Invalid address {}: {}", addr_str, e))?;
 
-    if is_json {
-      Output::json_value(&json!({
-          "action": "start_server",
-          "status": "starting",
-          "address": addr_str,
-          "use_tls": false,
-          "db_path": "redblue.rdb"
-      }));
-    } else {
+    let payload = json!({
+      "action": "start_server",
+      "status": "starting",
+      "address": addr_str,
+      "use_tls": false,
+      "db_path": "redblue.rdb"
+    });
+    if !render::render_machine_output(ctx, "rb agent c2 server", &payload)? {
       Output::header("Starting C2 Server");
       Output::item("Address", &addr_str);
     }
@@ -119,9 +134,9 @@ impl AgentCommand {
 
   fn start_agent(&self, ctx: &CliContext) -> Result<(), String> {
     let server_url = ctx
-      .flags
-      .get("server")
-      .map(|s| s.as_str())
+      .target
+      .as_deref()
+      .or_else(|| ctx.flags.get("server").map(|s| s.as_str()))
       .unwrap_or("http://127.0.0.1:4444");
 
     let interval: u64 = ctx
@@ -142,6 +157,20 @@ impl AgentCommand {
       interval: Duration::from_secs(interval),
       jitter: jitter / 100.0,
     };
+
+    let payload = json!({
+      "action": "connect",
+      "status": "starting",
+      "server_url": server_url,
+      "interval_secs": interval,
+      "jitter_percent": jitter
+    });
+    if !render::render_machine_output(ctx, "rb agent c2 connect", &payload)? {
+      Output::header("Starting Agent");
+      Output::item("Server", server_url);
+      Output::item("Interval", &format!("{}s", interval));
+      Output::item("Jitter", &format!("{}%", jitter));
+    }
 
     let mut agent = AgentClient::new(config);
     agent.start()
@@ -166,5 +195,26 @@ mod tests {
     let routes = cmd.routes();
     assert!(routes.iter().any(|r| r.verb == "server"));
     assert!(routes.iter().any(|r| r.verb == "connect"));
+  }
+
+  #[test]
+  fn start_agent_prefers_target_for_server_url() {
+    let ctx = CliContext {
+      target: Some("http://10.0.0.1:4444".to_string()),
+      flags: std::collections::HashMap::from([
+        ("server".to_string(), "http://127.0.0.1:4444".to_string()),
+        ("interval".to_string(), "30".to_string()),
+        ("jitter".to_string(), "5".to_string()),
+      ]),
+      ..CliContext::default()
+    };
+
+    let server_url = ctx
+      .target
+      .as_deref()
+      .or_else(|| ctx.flags.get("server").map(|s| s.as_str()))
+      .unwrap_or("http://127.0.0.1:4444");
+
+    assert_eq!(server_url, "http://10.0.0.1:4444");
   }
 }

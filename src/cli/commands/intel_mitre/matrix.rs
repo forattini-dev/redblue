@@ -2,20 +2,16 @@
 //!
 //! Display matrix overview, tactic coverage, statistics, and detection info.
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::intel::attack_database::{self, AttackTechnique};
-use crate::modules::intel::{Confidence, Findings, TechniqueMapper};
+use crate::modules::intel::{Confidence, Findings, MappingResult, TechniqueMapper};
 
 use super::helpers::wrap_text;
 
 /// Show ATT&CK matrix overview (ASCII representation)
 pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("MITRE ATT&CK Enterprise Matrix");
     println!();
     Output::spinner_start("Loading ATT&CK data...");
@@ -23,7 +19,7 @@ pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
 
   let db = attack_database::db();
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
@@ -77,34 +73,15 @@ pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
     .count();
   let subtechniques = total_techniques - parent_techniques;
 
-  if is_json {
-    let tactics_json: Vec<_> = tactics_order
-      .iter()
-      .map(|(tactic_key, tactic_id, display_name)| {
-        let techs = tactic_counts
-          .get(*tactic_key)
-          .map(|v| v.as_slice())
-          .unwrap_or(&[]);
-        let count = techs.len();
-        let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
-        json!({
-            "id": tactic_id,
-            "name": display_name,
-            "technique_count": count,
-            "parent_count": parent_count,
-        })
-      })
-      .collect();
-    let summary_json = json!({
-        "total_techniques": total_techniques,
-        "parent_techniques": parent_techniques,
-        "subtechniques": subtechniques,
-        "threat_groups": db.groups.len(),
-    });
-    Output::json_value(&json!({
-        "summary": summary_json,
-        "tactics": tactics_json,
-    }));
+  let payload = matrix_payload(
+    &tactics_order,
+    &tactic_counts,
+    total_techniques,
+    parent_techniques,
+    subtechniques,
+    db.groups.len(),
+  );
+  if render::render_machine_output(ctx, "rb intel mitre matrix", &payload)? {
     return Ok(());
   }
 
@@ -207,8 +184,10 @@ pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
 
 /// Show tactic coverage based on mapped findings
 pub fn show_coverage(ctx: &CliContext) -> Result<(), String> {
-  Output::header("MITRE ATT&CK Tactic Coverage Report");
-  println!();
+  if !ctx.wants_machine_output() {
+    Output::header("MITRE ATT&CK Tactic Coverage Report");
+    println!();
+  }
 
   let mapper = TechniqueMapper::new();
   let mut findings = Findings::default();
@@ -259,6 +238,9 @@ pub fn show_coverage(ctx: &CliContext) -> Result<(), String> {
     && findings.fingerprints.is_empty()
     && findings.banners.is_empty()
   {
+    if render::render_machine_output(ctx, "rb intel mitre coverage", &coverage_missing_payload())? {
+      return Ok(());
+    }
     Output::warning("No findings provided. Use flags to specify what to analyze:");
     println!();
     Output::info("  ports=22,80,443        Map open ports");
@@ -271,42 +253,55 @@ pub fn show_coverage(ctx: &CliContext) -> Result<(), String> {
   }
 
   // Show what we're analyzing
-  Output::section("Input Findings");
-  if !findings.ports.is_empty() {
-    Output::item(
-      "Ports",
-      &findings
-        .ports
-        .iter()
-        .map(|p| p.to_string())
-        .collect::<Vec<_>>()
-        .join(", "),
-    );
+  if !ctx.wants_machine_output() {
+    Output::section("Input Findings");
+    if !findings.ports.is_empty() {
+      Output::item(
+        "Ports",
+        &findings
+          .ports
+          .iter()
+          .map(|p| p.to_string())
+          .collect::<Vec<_>>()
+          .join(", "),
+      );
+    }
+    if !findings.cves.is_empty() {
+      Output::item(
+        "CVEs",
+        &findings
+          .cves
+          .iter()
+          .map(|(id, _)| id.as_str())
+          .collect::<Vec<_>>()
+          .join(", "),
+      );
+    }
+    if !findings.fingerprints.is_empty() {
+      Output::item("Technologies", &findings.fingerprints.join(", "));
+    }
+    if !findings.banners.is_empty() {
+      Output::item("Banners", &findings.banners.join(", "));
+    }
+    println!();
   }
-  if !findings.cves.is_empty() {
-    Output::item(
-      "CVEs",
-      &findings
-        .cves
-        .iter()
-        .map(|(id, _)| id.as_str())
-        .collect::<Vec<_>>()
-        .join(", "),
-    );
-  }
-  if !findings.fingerprints.is_empty() {
-    Output::item("Technologies", &findings.fingerprints.join(", "));
-  }
-  if !findings.banners.is_empty() {
-    Output::item("Banners", &findings.banners.join(", "));
-  }
-  println!();
 
-  Output::spinner_start("Mapping to ATT&CK techniques...");
+  if !ctx.wants_machine_output() {
+    Output::spinner_start("Mapping to ATT&CK techniques...");
+  }
   let result = mapper.map_findings(&findings);
-  Output::spinner_done();
+  if !ctx.wants_machine_output() {
+    Output::spinner_done();
+  }
 
   if result.techniques.is_empty() {
+    if render::render_machine_output(
+      ctx,
+      "rb intel mitre coverage",
+      &coverage_empty_payload(&findings),
+    )? {
+      return Ok(());
+    }
     Output::info("No techniques mapped for these findings.");
     return Ok(());
   }
@@ -332,6 +327,17 @@ pub fn show_coverage(ctx: &CliContext) -> Result<(), String> {
   let total_tactics = tactics_order.len();
   let covered_tactics = result.by_tactic.len();
   let coverage_pct = (covered_tactics as f64 / total_tactics as f64) * 100.0;
+
+  let payload = coverage_payload(
+    &findings,
+    &result,
+    total_tactics,
+    covered_tactics,
+    coverage_pct,
+  );
+  if render::render_machine_output(ctx, "rb intel mitre coverage", &payload)? {
+    return Ok(());
+  }
 
   Output::section("Coverage Summary");
   Output::item(
@@ -437,7 +443,14 @@ pub fn show_coverage(ctx: &CliContext) -> Result<(), String> {
 }
 
 /// Get mitigations for a technique
-pub fn get_mitigations(_ctx: &CliContext) -> Result<(), String> {
+pub fn get_mitigations(ctx: &CliContext) -> Result<(), String> {
+  if render::render_machine_output(
+    ctx,
+    "rb intel mitre mitigations",
+    &matrix_not_implemented_payload(ctx.target.as_deref(), "mitigations"),
+  )? {
+    return Ok(());
+  }
   Output::info("Mitigations lookup is not yet implemented with the embedded database.");
   Ok(())
 }
@@ -446,15 +459,26 @@ pub fn get_mitigations(_ctx: &CliContext) -> Result<(), String> {
 pub fn get_detection(ctx: &CliContext) -> Result<(), String> {
   let tech_id = ctx.target.as_ref().ok_or("Missing technique ID")?;
 
-  Output::header(&format!("Detection Strategies for {}", tech_id));
-  println!();
+  if !ctx.wants_machine_output() {
+    Output::header(&format!("Detection Strategies for {}", tech_id));
+    println!();
+  }
 
-  Output::spinner_start("Fetching technique data...");
+  if !ctx.wants_machine_output() {
+    Output::spinner_start("Fetching technique data...");
+  }
   let db = attack_database::db();
   let tech = db
     .get_technique(tech_id)
     .or_else(|| db.get_technique_by_name(tech_id));
-  Output::spinner_done();
+  if !ctx.wants_machine_output() {
+    Output::spinner_done();
+  }
+
+  let payload = detection_payload(tech_id, tech);
+  if render::render_machine_output(ctx, "rb intel mitre detection", &payload)? {
+    return Ok(());
+  }
 
   match tech {
     Some(t) => {
@@ -489,10 +513,7 @@ pub fn get_detection(ctx: &CliContext) -> Result<(), String> {
 
 /// Show ATT&CK statistics
 pub fn show_stats(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("MITRE ATT&CK Statistics");
     println!();
     Output::spinner_start("Loading ATT&CK data...");
@@ -500,16 +521,12 @@ pub fn show_stats(ctx: &CliContext) -> Result<(), String> {
 
   let db = attack_database::db();
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
-  if is_json {
-    Output::json_value(&json!({
-        "techniques": db.techniques.len(),
-        "groups": db.groups.len(),
-        "data_source": "Embedded Enterprise ATT&CK Data",
-    }));
+  let payload = stats_payload(db.techniques.len(), db.groups.len());
+  if render::render_machine_output(ctx, "rb intel mitre stats", &payload)? {
     return Ok(());
   }
 
@@ -521,4 +538,256 @@ pub fn show_stats(ctx: &CliContext) -> Result<(), String> {
   Output::item("Data Source", "Embedded Enterprise ATT&CK Data");
 
   Ok(())
+}
+
+fn matrix_payload(
+  tactics_order: &[(&str, &str, &str)],
+  tactic_counts: &std::collections::HashMap<&str, Vec<&AttackTechnique>>,
+  total_techniques: usize,
+  parent_techniques: usize,
+  subtechniques: usize,
+  threat_groups: usize,
+) -> crate::serde_json::Value {
+  let tactics_json: Vec<_> = tactics_order
+    .iter()
+    .map(|(tactic_key, tactic_id, display_name)| {
+      let techs = tactic_counts
+        .get(*tactic_key)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+      let count = techs.len();
+      let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
+      json!({
+        "id": tactic_id,
+        "name": display_name,
+        "technique_count": count,
+        "parent_count": parent_count,
+      })
+    })
+    .collect();
+  let summary_json = json!({
+    "total_techniques": total_techniques,
+    "parent_techniques": parent_techniques,
+    "subtechniques": subtechniques,
+    "threat_groups": threat_groups,
+  });
+  json!({
+    "summary": summary_json,
+    "tactics": tactics_json,
+  })
+}
+
+fn stats_payload(techniques: usize, groups: usize) -> crate::serde_json::Value {
+  json!({
+    "techniques": techniques,
+    "groups": groups,
+    "data_source": "Embedded Enterprise ATT&CK Data",
+  })
+}
+
+fn coverage_input_payload(findings: &Findings) -> crate::serde_json::Value {
+  json!({
+    "ports": findings.ports.clone(),
+    "cves": findings
+      .cves
+      .iter()
+      .map(|(id, _)| id.clone())
+      .collect::<Vec<_>>(),
+    "technologies": findings.fingerprints.clone(),
+    "banners": findings.banners.clone(),
+  })
+}
+
+fn coverage_missing_payload() -> crate::serde_json::Value {
+  json!({
+    "error": "No findings provided",
+    "coverage": crate::serde_json::Value::Null,
+  })
+}
+
+fn coverage_empty_payload(findings: &Findings) -> crate::serde_json::Value {
+  json!({
+    "input": coverage_input_payload(findings),
+    "techniques_mapped": 0,
+    "tactics_covered": 0,
+    "coverage_pct": 0.0,
+    "techniques": [],
+    "tactics": [],
+  })
+}
+
+fn coverage_payload(
+  findings: &Findings,
+  result: &MappingResult,
+  total_tactics: usize,
+  covered_tactics: usize,
+  coverage_pct: f64,
+) -> crate::serde_json::Value {
+  let tactics: Vec<_> = result
+    .coverage
+    .iter()
+    .filter(|(_, count, _)| *count > 0)
+    .map(|(tactic, count, percentage)| {
+      json!({
+        "tactic": tactic,
+        "technique_count": count,
+        "percentage": percentage,
+      })
+    })
+    .collect();
+  let techniques: Vec<_> = result
+    .techniques
+    .iter()
+    .map(|tech| {
+      json!({
+        "technique_id": tech.technique_id.clone(),
+        "name": tech.name.clone(),
+        "tactic": tech.tactic.clone(),
+        "confidence": tech.confidence.as_str(),
+        "reason": tech.reason.clone(),
+        "source": tech.original_value.clone(),
+      })
+    })
+    .collect();
+  json!({
+    "input": coverage_input_payload(findings),
+    "techniques_mapped": result.unique_technique_ids().len(),
+    "tactics_covered": covered_tactics,
+    "total_tactics": total_tactics,
+    "coverage_pct": coverage_pct,
+    "tactics": tactics,
+    "techniques": techniques,
+  })
+}
+
+fn matrix_not_implemented_payload(target: Option<&str>, route: &str) -> crate::serde_json::Value {
+  json!({
+    "target": target,
+    "route": route,
+    "status": "not_implemented",
+    "message": format!(
+      "{} lookup is not yet implemented with the embedded database.",
+      route
+    ),
+  })
+}
+
+fn detection_payload(query: &str, technique: Option<&AttackTechnique>) -> crate::serde_json::Value {
+  match technique {
+    Some(t) => json!({
+      "found": true,
+      "technique_id": t.technique_id.clone(),
+      "name": t.name.clone(),
+      "data_sources": t.data_sources.clone(),
+      "detection": t.detection.clone(),
+    }),
+    None => json!({
+      "found": false,
+      "query": query,
+    }),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn stats_payload_serializes_counts() {
+    let payload = stats_payload(123, 9);
+    assert_eq!(payload["techniques"].as_u64(), Some(123));
+    assert_eq!(payload["groups"].as_u64(), Some(9));
+    assert_eq!(
+      payload["data_source"].as_str(),
+      Some("Embedded Enterprise ATT&CK Data")
+    );
+  }
+
+  #[test]
+  fn matrix_payload_serializes_summary_and_tactics() {
+    let technique = AttackTechnique {
+      id: "attack-pattern--1".to_string(),
+      technique_id: "T1059".to_string(),
+      name: "Command and Scripting Interpreter".to_string(),
+      description: String::new(),
+      tactics: vec!["execution".to_string()],
+      platforms: vec![],
+      is_subtechnique: false,
+      parent_technique: None,
+      url: None,
+      deprecated: false,
+      revoked: false,
+      data_sources: vec![],
+      detection: None,
+    };
+    let mut tactic_counts: std::collections::HashMap<&str, Vec<&AttackTechnique>> =
+      std::collections::HashMap::new();
+    tactic_counts.insert("execution", vec![&technique]);
+
+    let payload = matrix_payload(
+      &[("execution", "TA0002", "Execution")],
+      &tactic_counts,
+      10,
+      7,
+      3,
+      2,
+    );
+
+    assert_eq!(payload["summary"]["total_techniques"].as_u64(), Some(10));
+    assert_eq!(payload["summary"]["threat_groups"].as_u64(), Some(2));
+    assert_eq!(payload["tactics"][0]["id"].as_str(), Some("TA0002"));
+    assert_eq!(payload["tactics"][0]["technique_count"].as_u64(), Some(1));
+    assert_eq!(payload["tactics"][0]["parent_count"].as_u64(), Some(1));
+  }
+
+  #[test]
+  fn coverage_payload_serializes_inputs_and_summary() {
+    let findings = Findings {
+      ports: vec![22],
+      cves: vec![("CVE-2021-44228".to_string(), "desc".to_string())],
+      fingerprints: vec!["wordpress".to_string()],
+      banners: vec!["Apache/2".to_string()],
+    };
+    let technique = crate::modules::intel::MappedTechnique {
+      technique_id: "T1021.004".to_string(),
+      name: "Remote Services: SSH".to_string(),
+      reason: "SSH enables remote command execution".to_string(),
+      tactic: "Lateral Movement".to_string(),
+      confidence: Confidence::High,
+      source: crate::modules::intel::MappingSource::Port,
+      original_value: "22".to_string(),
+    };
+    let mut by_tactic = std::collections::HashMap::new();
+    by_tactic.insert("Lateral Movement".to_string(), vec![technique.clone()]);
+    let result = MappingResult {
+      techniques: vec![technique],
+      by_tactic,
+      coverage: vec![("Lateral Movement".to_string(), 1, 100.0)],
+    };
+
+    let payload = coverage_payload(&findings, &result, 14, 1, 7.14);
+
+    assert_eq!(payload["input"]["ports"][0].as_u64(), Some(22));
+    assert_eq!(payload["techniques_mapped"].as_u64(), Some(1));
+    assert_eq!(payload["tactics_covered"].as_u64(), Some(1));
+    assert_eq!(
+      payload["techniques"][0]["technique_id"].as_str(),
+      Some("T1021.004")
+    );
+  }
+
+  #[test]
+  fn detection_payload_handles_lookup_miss() {
+    let payload = detection_payload("T9999", None);
+    assert_eq!(payload["found"].as_bool(), Some(false));
+    assert_eq!(payload["query"].as_str(), Some("T9999"));
+  }
+
+  #[test]
+  fn matrix_not_implemented_payload_is_structured() {
+    let payload = matrix_not_implemented_payload(Some("T1059"), "mitigations");
+    assert_eq!(payload["status"].as_str(), Some("not_implemented"));
+    assert_eq!(payload["route"].as_str(), Some("mitigations"));
+    assert_eq!(payload["target"].as_str(), Some("T1059"));
+  }
 }

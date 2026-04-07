@@ -901,6 +901,79 @@ function formatManifestHelpSummary(manifest = {}) {
   return lines.join('\n');
 }
 
+function formatRouteHelpSummary(manifest = {}, selector) {
+  const descriptor = describeManifestRoute(manifest, selector);
+  if (!descriptor) {
+    return '';
+  }
+
+  const lines = [];
+  lines.push(descriptor.command);
+
+  if (typeof descriptor.summary === 'string' && descriptor.summary.length > 0) {
+    lines.push(`  ${descriptor.summary}`);
+  }
+
+  if (typeof descriptor.usage === 'string' && descriptor.usage.length > 0) {
+    lines.push('');
+    lines.push('Usage:');
+    lines.push(`  ${descriptor.usage}`);
+  }
+
+  if (Array.isArray(descriptor.route_aliases) && descriptor.route_aliases.length > 0) {
+    lines.push('');
+    lines.push(`Aliases: ${descriptor.route_aliases.join(', ')}`);
+  }
+
+  if (Array.isArray(descriptor.flags) && descriptor.flags.length > 0) {
+    lines.push('');
+    lines.push('Flags:');
+    for (const flag of descriptor.flags) {
+      const label = formatManifestOptionFlag(flag);
+      if (!label) {
+        continue;
+      }
+      const choices =
+        Array.isArray(flag.values) && flag.values.length > 0 ? ` [${flag.values.join('|')}]` : '';
+      lines.push(`  ${label.padEnd(18)} ${(flag.description || '') + choices}`.trimEnd());
+    }
+  }
+
+  if (Array.isArray(descriptor.examples) && descriptor.examples.length > 0) {
+    lines.push('');
+    lines.push('Examples:');
+    for (const example of descriptor.examples.slice(0, 4)) {
+      if (!example || typeof example.command !== 'string') {
+        continue;
+      }
+      const prefix =
+        typeof example.summary === 'string' && example.summary.length > 0
+          ? `${example.summary}: `
+          : '';
+      lines.push(`  ${prefix}${example.command}`);
+    }
+  }
+
+  const machineOutput = descriptor.machine_output || {};
+  if (machineOutput && typeof machineOutput === 'object') {
+    const jsonSupport = machineOutput.json_support;
+    const preferredFlag = machineOutput.preferred_flag;
+    const preferredValue = machineOutput.preferred_value;
+    if (jsonSupport || preferredFlag) {
+      lines.push('');
+      lines.push('Machine output:');
+      if (jsonSupport) {
+        lines.push(`  json_support: ${jsonSupport}`);
+      }
+      if (preferredFlag) {
+        lines.push(`  preferred_flag: --${preferredFlag}${preferredValue ? `=${preferredValue}` : ''}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function formatWrapperHelp(manifest = null) {
   const lines = [
     'redblue-cli wrapper',
@@ -1538,6 +1611,110 @@ function findRouteInvocation(routeIndex, manifest, selector) {
   );
 }
 
+function resolveManifestRouteDescriptor(manifest = {}, selector) {
+  const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
+  const canonicalDomain = (manifest.domains || []).find((domain) => {
+    return domain.name === domainToken || (domain.aliases || []).includes(domainToken);
+  });
+  const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
+  const canonicalResource = canonicalDomain
+    ? (canonicalDomain.resources || []).find((resource) => {
+        return resource.name === resourceToken || (resource.aliases || []).includes(resourceToken);
+      })
+    : null;
+  const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
+  const canonicalVerb = canonicalResource
+    ? (canonicalResource.verbs || []).find((verb) => {
+        return verb.name === verbToken || (verb.aliases || []).includes(verbToken);
+      })
+    : null;
+  const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
+
+  for (const command of manifest.commands || []) {
+    if (command.domain !== domainName || command.resource !== resourceName) {
+      continue;
+    }
+
+    for (const route of command.routes || []) {
+      if (route.verb === verbName || (route.aliases || []).includes(verbToken)) {
+        return {
+          command,
+          route,
+          domain: canonicalDomain || null,
+          resource: canonicalResource || null,
+          verb: canonicalVerb || null
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function commandCatalogEntry(manifest, command, route) {
+  return {
+    domain: command.domain,
+    domain_aliases: Array.isArray(command.domain_aliases) ? command.domain_aliases.slice() : [],
+    resource: command.resource,
+    resource_aliases: Array.isArray(command.resource_aliases)
+      ? command.resource_aliases.slice()
+      : [],
+    verb: route.verb,
+    route_aliases: Array.isArray(route.aliases) ? route.aliases.slice() : [],
+    canonical_path: routeIdentifier(command, route),
+    command: route.command || `rb ${command.domain} ${command.resource} ${route.verb}`,
+    summary: route.summary || '',
+    usage: route.usage || '',
+    flags: Array.isArray(command.flags)
+      ? command.flags.map((flag) => normalizeCatalogFlag(manifest, flag, command, route))
+      : [],
+    positionals: Array.isArray(route.positionals)
+      ? route.positionals.map((positional) => ({ ...positional }))
+      : [],
+    examples: Array.isArray(route.examples)
+      ? route.examples.slice()
+      : Array.isArray(command.examples)
+        ? command.examples.slice()
+        : [],
+    machine_output: resolveMachineOutput(command, route)
+  };
+}
+
+function normalizeCatalogFlag(manifest, flag, command, route) {
+  const machineOutput = resolveMachineOutput(command, route);
+  const values = resolveFlagValueCandidates(manifest, command, route, flag);
+
+  return {
+    ...flag,
+    values: values.length > 0 ? values : undefined,
+    machine_output_role:
+      typeof machineOutput.preferred_flag === 'string' && machineOutput.preferred_flag === flag.long
+        ? flag.machine_output_role || 'preferred'
+        : flag.machine_output_role
+  };
+}
+
+function buildCommandCatalog(manifest = {}) {
+  const catalog = [];
+
+  for (const command of manifest.commands || []) {
+    for (const route of command.routes || []) {
+      catalog.push(commandCatalogEntry(manifest, command, route));
+    }
+  }
+
+  return catalog;
+}
+
+function describeManifestRoute(manifest = {}, selector) {
+  const descriptor = resolveManifestRouteDescriptor(manifest, selector);
+  if (!descriptor) {
+    return null;
+  }
+
+  return commandCatalogEntry(manifest, descriptor.command, descriptor.route);
+}
+
 function suggestCommandTokens(manifest = {}, selector) {
   const tokens = normalizeTokenSelector(selector);
   const domains = buildDomainCatalog(manifest);
@@ -1608,6 +1785,348 @@ function suggestCommandTokens(manifest = {}, selector) {
     stage: 'command',
     suggestions: [`rb ${domain.name} ${resource.name} ${tokens[2]}`]
   };
+}
+
+function completeManifestTokens(manifest = {}, selector) {
+  const tokens = normalizeTokenSelector(selector);
+  const domains = buildDomainCatalog(manifest);
+
+  if (tokens.length === 0) {
+    return {
+      stage: 'domain',
+      completions: domains.map((domain) => ({
+        value: domain.name,
+        kind: 'domain',
+        summary: typeof domain.description === 'string' ? domain.description : '',
+        aliases: Array.isArray(domain.aliases) ? domain.aliases.slice() : []
+      }))
+    };
+  }
+
+  if (tokens.length === 1) {
+    return {
+      stage: 'domain',
+      completions: domains
+        .filter((domain) => matchesNodeToken(domain, tokens[0]))
+        .map((domain) => ({
+          value: domain.name,
+          kind: 'domain',
+          summary: typeof domain.description === 'string' ? domain.description : '',
+          aliases: Array.isArray(domain.aliases) ? domain.aliases.slice() : []
+        }))
+    };
+  }
+
+  const domain = domains.find((item) => {
+    return item.name === tokens[0] || (item.aliases || []).includes(tokens[0]);
+  });
+
+  if (!domain) {
+    return {
+      stage: 'domain',
+      completions: []
+    };
+  }
+
+  if (tokens.length === 2) {
+    return {
+      stage: 'resource',
+      completions: (domain.resources || [])
+        .filter((resource) => matchesNodeToken(resource, tokens[1]))
+        .map((resource) => ({
+          value: resource.name,
+          kind: 'resource',
+          summary: resource.description || '',
+          aliases: Array.isArray(resource.aliases) ? resource.aliases.slice() : [],
+          command: `rb ${domain.name} ${resource.name}`
+        }))
+    };
+  }
+
+  const resource = (domain.resources || []).find((item) => {
+    return item.name === tokens[1] || (item.aliases || []).includes(tokens[1]);
+  });
+
+  if (!resource) {
+    return {
+      stage: 'resource',
+      completions: []
+    };
+  }
+
+  const descriptorForExactRoute =
+    tokens.length >= 3 ? resolveManifestRouteDescriptor(manifest, [tokens[0], tokens[1], tokens[2]]) : null;
+
+  if (
+    tokens.length === 3 &&
+    (!descriptorForExactRoute ||
+      !(
+        descriptorForExactRoute.route.verb === tokens[2] ||
+        (descriptorForExactRoute.route.aliases || []).includes(tokens[2])
+      ))
+  ) {
+    return {
+      stage: 'verb',
+      completions: (resource.verbs || [])
+        .filter((verb) => matchesNodeToken(verb, tokens[2]))
+        .map((verb) => ({
+          value: verb.name,
+          kind: 'verb',
+          summary: verb.summary || '',
+          aliases: Array.isArray(verb.aliases) ? verb.aliases.slice() : [],
+          command: `rb ${domain.name} ${resource.name} ${verb.name}`
+        }))
+    };
+  }
+
+  const descriptor = resolveManifestRouteDescriptor(manifest, [tokens[0], tokens[1], tokens[2]]);
+  if (!descriptor) {
+    return {
+      stage: 'command',
+      completions: [
+        {
+          value: `rb ${domain.name} ${resource.name} ${tokens[2]}`,
+          kind: 'command',
+          summary: 'Canonical command path'
+        }
+      ]
+    };
+  }
+
+  const tail = tokens.slice(3);
+  const route = descriptor.route || {};
+  const command = descriptor.command || {};
+  const flags = Array.isArray(command.flags) ? command.flags : [];
+  const positionals = Array.isArray(route.positionals) ? route.positionals : [];
+  const requiredPositionals = positionals.filter((positional) => positional.required === true);
+  const usedFlags = new Set();
+  let positionalValueCount = 0;
+
+  for (let index = 0; index < tail.length; index += 1) {
+    const token = tail[index];
+    if (typeof token !== 'string' || !token.startsWith('-')) {
+      positionalValueCount += 1;
+      continue;
+    }
+
+    if (token.startsWith('--')) {
+      const longName = token.slice(2).split('=')[0];
+      usedFlags.add(longName);
+      const flag = flags.find((candidate) => candidate.long === longName);
+      if (flag && flag.expects_value && !token.includes('=') && index + 1 < tail.length) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (token.length === 2) {
+      const shortName = token.slice(1);
+      usedFlags.add(shortName);
+      const flag = flags.find((candidate) => candidate.short === shortName);
+      if (flag && flag.expects_value && index + 1 < tail.length) {
+        index += 1;
+      }
+    }
+  }
+
+  const pendingFlagValue = resolvePendingFlagValue(flags, tail);
+  if (pendingFlagValue) {
+    return {
+      stage: 'flag-value',
+      completions: buildFlagValueCompletions(
+        manifest,
+        command,
+        route,
+        pendingFlagValue.flag,
+        pendingFlagValue.prefix
+      )
+    };
+  }
+
+  const flagCompletions = flags
+    .filter((flag) => {
+      const longFlag = `--${flag.long}`;
+      const shortFlag = flag.short ? `-${flag.short}` : null;
+      const lastToken = tail[tail.length - 1] || '';
+      const isFlagPrefix = typeof lastToken === 'string' && lastToken.startsWith('-');
+      if (usedFlags.has(flag.long) || (flag.short && usedFlags.has(flag.short))) {
+        return false;
+      }
+      if (!isFlagPrefix) {
+        return true;
+      }
+      return (
+        longFlag.startsWith(lastToken) ||
+        (shortFlag && shortFlag.startsWith(lastToken))
+      );
+    })
+    .map((flag) => ({
+      value: `--${flag.long}`,
+      kind: 'flag',
+      summary: flag.description || '',
+      aliases: flag.short ? [`-${flag.short}`] : [],
+      command: route.command || `rb ${command.domain} ${command.resource} ${route.verb}`
+    }));
+
+  if (positionalValueCount < requiredPositionals.length) {
+    const positional = requiredPositionals[positionalValueCount];
+    return {
+      stage: positional.slot === 'target' ? 'target' : 'positional',
+      completions: [
+        {
+          value: `<${positional.name}>`,
+          kind: positional.slot === 'target' ? 'target' : 'positional',
+          summary:
+            positional.slot === 'target'
+              ? 'Required target input'
+              : 'Required positional argument',
+          command: route.command || `rb ${command.domain} ${command.resource} ${route.verb}`
+        }
+      ]
+    };
+  }
+
+  if (tail.length >= requiredPositionals.length || (tail[tail.length - 1] || '').startsWith('-')) {
+    return {
+      stage: 'flag',
+      completions: flagCompletions
+    };
+  }
+
+  return {
+    stage: 'command',
+    completions: [
+      {
+        value: `rb ${domain.name} ${resource.name} ${tokens[2]}`,
+        kind: 'command',
+        summary: 'Canonical command path'
+      }
+    ]
+  };
+}
+
+function resolvePendingFlagValue(flags, tail) {
+  if (!Array.isArray(flags) || flags.length === 0 || !Array.isArray(tail) || tail.length === 0) {
+    return null;
+  }
+
+  const lastToken = tail[tail.length - 1];
+  const previousToken = tail.length > 1 ? tail[tail.length - 2] : '';
+
+  if (typeof lastToken === 'string' && lastToken.startsWith('--')) {
+    const [longName, inlineValue = ''] = lastToken.slice(2).split('=');
+    const flag = flags.find((candidate) => candidate.long === longName);
+    if (flag && flag.expects_value) {
+      if (lastToken.includes('=')) {
+        return {
+          flag,
+          prefix: inlineValue
+        };
+      }
+
+      return {
+        flag,
+        prefix: ''
+      };
+    }
+  }
+
+  if (typeof lastToken === 'string' && lastToken.length === 2 && lastToken.startsWith('-')) {
+    const shortName = lastToken.slice(1);
+    const flag = flags.find((candidate) => candidate.short === shortName);
+    if (flag && flag.expects_value) {
+      return {
+        flag,
+        prefix: ''
+      };
+    }
+  }
+
+  if (typeof lastToken === 'string' && !lastToken.startsWith('-') && typeof previousToken === 'string') {
+    let flag = null;
+
+    if (previousToken.startsWith('--') && !previousToken.includes('=')) {
+      const longName = previousToken.slice(2);
+      flag = flags.find((candidate) => candidate.long === longName);
+    } else if (previousToken.length === 2 && previousToken.startsWith('-')) {
+      const shortName = previousToken.slice(1);
+      flag = flags.find((candidate) => candidate.short === shortName);
+    }
+
+    if (flag && flag.expects_value) {
+      return {
+        flag,
+        prefix: lastToken
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildFlagValueCompletions(manifest, command, route, flag, prefix = '') {
+  const values = resolveFlagValueCandidates(manifest, command, route, flag);
+  const commandText = route.command || `rb ${command.domain} ${command.resource} ${route.verb}`;
+  const filteredValues = values.filter((value) => {
+    return typeof value === 'string' && (prefix.length === 0 || value.startsWith(prefix));
+  });
+
+  if (filteredValues.length > 0) {
+    return filteredValues.map((value) => ({
+      value,
+      kind: 'flag-value',
+      summary: `Value for --${flag.long}`,
+      aliases: [],
+      command: commandText
+    }));
+  }
+
+  const placeholder = typeof flag.arg === 'string' && flag.arg.length > 0 ? flag.arg : flag.long.toUpperCase();
+  return [
+    {
+      value: `<${placeholder}>`,
+      kind: 'flag-value',
+      summary: `Value for --${flag.long}`,
+      aliases: [],
+      command: commandText
+    }
+  ];
+}
+
+function resolveFlagValueCandidates(manifest, command, route, flag) {
+  const candidates = [];
+  const machineOutput = resolveMachineOutput(command, route);
+
+  if (Array.isArray(flag.values)) {
+    candidates.push(...flag.values);
+  }
+
+  const globalOption = (manifest.global_options || []).find((option) => {
+    if (!option || typeof option.long !== 'string') {
+      return false;
+    }
+    return option.long === flag.long || (flag.short && option.short === flag.short);
+  });
+
+  if (globalOption) {
+    if (Array.isArray(globalOption.values)) {
+      candidates.push(...globalOption.values);
+    }
+    if (typeof globalOption.value === 'string' && globalOption.value.length > 0) {
+      candidates.push(globalOption.value);
+    }
+  }
+
+  if (
+    typeof machineOutput.preferred_flag === 'string' &&
+    machineOutput.preferred_flag === flag.long &&
+    typeof machineOutput.preferred_value === 'string' &&
+    machineOutput.preferred_value.length > 0
+  ) {
+    candidates.push(machineOutput.preferred_value);
+  }
+
+  return Array.from(new Set(candidates.filter((value) => typeof value === 'string' && value.length > 0)));
 }
 
 function suggestRouteCommands(manifest = {}, selector, limit = 3) {
@@ -1684,9 +2203,11 @@ function buildDomainCatalog(manifest = {}) {
   return Array.from(domains.values());
 }
 
-function manifestFlagToOption(flag) {
+function manifestFlagToOption(flag, manifest = {}) {
+  const values = resolveManifestOptionValues(manifest, flag);
   return {
     type: flag.expects_value ? 'string' : 'boolean',
+    choices: values,
     short: flag.short || undefined,
     description: flag.description
   };
@@ -1698,9 +2219,29 @@ function manifestGlobalOptionToOption(option) {
 
   return {
     type: kind === 'output-format' || values ? 'string' : 'boolean',
+    choices: values,
     short: option.short || undefined,
     description: option.description || ''
   };
+}
+
+function resolveManifestOptionValues(manifest = {}, flag = {}) {
+  if (Array.isArray(flag.values) && flag.values.length > 0) {
+    return flag.values.slice();
+  }
+
+  const globalOption = (manifest.global_options || []).find((option) => {
+    if (!option || typeof option.long !== 'string') {
+      return false;
+    }
+    return option.long === flag.long || (flag.short && option.short === flag.short);
+  });
+
+  if (globalOption && Array.isArray(globalOption.values) && globalOption.values.length > 0) {
+    return globalOption.values.slice();
+  }
+
+  return undefined;
 }
 
 function buildGlobalOptions(manifest = {}) {
@@ -1751,7 +2292,7 @@ function buildManifestCliSchema(manifest = {}) {
             aliases: Array.isArray(route.aliases) ? route.aliases.slice() : [],
             positional: (route.positionals || []).map(manifestPositionalToCliPositional),
             options: Object.fromEntries(
-              (command.flags || []).map((flag) => [flag.long, manifestFlagToOption(flag)])
+              (command.flags || []).map((flag) => [flag.long, manifestFlagToOption(flag, manifest)])
             )
           };
         }
@@ -1839,6 +2380,7 @@ async function createClient(options = {}) {
   const api = createDomainProxy(binaryPath, manifest, defaults);
   const routeIndex = createRouteIndex(api);
   const domainCatalog = buildDomainCatalog(manifest);
+  const commandCatalog = buildCommandCatalog(manifest);
   const cliSchema = buildManifestCliSchema(manifest);
 
   Object.defineProperties(api, {
@@ -1856,6 +2398,10 @@ async function createClient(options = {}) {
     },
     $domains: {
       value: domainCatalog,
+      enumerable: false
+    },
+    $commands: {
+      value: commandCatalog,
       enumerable: false
     },
     $cliSchema: {
@@ -1877,6 +2423,24 @@ async function createClient(options = {}) {
     $suggest: {
       value(selector) {
         return suggestCommandTokens(manifest, selector);
+      },
+      enumerable: false
+    },
+    $complete: {
+      value(selector) {
+        return completeManifestTokens(manifest, selector);
+      },
+      enumerable: false
+    },
+    $describe: {
+      value(selector) {
+        return describeManifestRoute(manifest, selector);
+      },
+      enumerable: false
+    },
+    $help: {
+      value(selector) {
+        return formatRouteHelpSummary(manifest, selector);
       },
       enumerable: false
     },
@@ -1930,6 +2494,7 @@ module.exports = {
 module.exports._internal = {
   attachRoute,
   buildDomainCatalog,
+  buildCommandCatalog,
   buildManifestCliSchema,
   buildInvocation,
   checkForUpdates,
@@ -1943,6 +2508,7 @@ module.exports._internal = {
   execFilePromise,
   exists,
   formatManifestHelpSummary,
+  formatRouteHelpSummary,
   formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
@@ -1969,6 +2535,8 @@ module.exports._internal = {
   requestJson,
   requestText,
   findRouteInvocation,
+  describeManifestRoute,
+  completeManifestTokens,
   looksLikeCanonicalCommandArgs,
   routeInvocationMeta,
   resolveMachineOutput,

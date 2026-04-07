@@ -1,8 +1,8 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::cloud::s3_scanner::S3Scanner;
+use crate::serde_json::Value;
 
 pub struct CloudCommand;
 
@@ -17,6 +17,26 @@ impl Command for CloudCommand {
 
   fn description(&self) -> &str {
     "Cloud storage security testing (S3, Azure Blob, GCS)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -81,9 +101,6 @@ impl Command for CloudCommand {
 impl CloudCommand {
   /// Scan a single bucket or list of buckets
   fn scan(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let target = ctx
       .target
       .as_ref()
@@ -95,7 +112,7 @@ impl CloudCommand {
     if ctx.has_flag("generate") {
       let bucket_names = scanner.generate_bucket_names(target);
 
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::header("S3 Bucket Scanner");
         Output::item("Target", target);
         Output::info(&format!(
@@ -109,11 +126,11 @@ impl CloudCommand {
 
       let result = scanner.scan_buckets(&bucket_names);
 
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::spinner_done();
       }
 
-      self.display_scan_results(ctx, &result);
+      self.display_scan_results(ctx, &result)?;
     } else if let Some(wordlist_path) = ctx.get_flag("wordlist") {
       // Read wordlist from file
       use std::fs;
@@ -126,7 +143,7 @@ impl CloudCommand {
         .map(|line| line.trim().to_string())
         .collect();
 
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::header("S3 Bucket Scanner");
         Output::item("Target", target);
         Output::item("Wordlist", &wordlist_path);
@@ -137,14 +154,14 @@ impl CloudCommand {
 
       let result = scanner.scan_buckets(&bucket_names);
 
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::spinner_done();
       }
 
-      self.display_scan_results(ctx, &result);
+      self.display_scan_results(ctx, &result)?;
     } else {
       // Single bucket check
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::header("S3 Bucket Scanner");
         Output::item("Target", target);
         Output::spinner_start(&format!("Checking bucket: {}", target));
@@ -152,20 +169,12 @@ impl CloudCommand {
 
       let bucket = scanner.check_bucket(target)?;
 
-      if !is_json {
+      if !ctx.wants_machine_output() {
         Output::spinner_done();
       }
 
-      if is_json {
-        Output::json_value(&json!({
-            "bucket": bucket.name.clone(),
-            "exists": bucket.exists,
-            "accessible": bucket.accessible,
-            "public_list": bucket.public_list,
-            "public_read": bucket.public_read,
-            "region": bucket.region.clone(),
-            "message": bucket.message.clone(),
-        }));
+      let payload = Self::single_bucket_payload(&bucket);
+      if render::render_machine_output(ctx, "rb cloud storage scan", &payload)? {
         return Ok(());
       }
 
@@ -190,30 +199,32 @@ impl CloudCommand {
       .as_ref()
       .ok_or("Missing base name.\nUsage: rb cloud storage enumerate <base-name>")?;
 
-    Output::header("S3 Bucket Enumeration");
-    Output::item("Base name", base_name);
-
     let scanner = S3Scanner::new();
     let bucket_names = scanner.generate_bucket_names(base_name);
 
-    Output::item("Generated variations", &bucket_names.len().to_string());
-    println!();
+    if !ctx.wants_machine_output() {
+      Output::header("S3 Bucket Enumeration");
+      Output::item("Base name", base_name);
+      Output::item("Generated variations", &bucket_names.len().to_string());
+      println!();
 
-    // Show first 10 variations as preview
-    Output::subheader("Sample variations:");
-    for (i, name) in bucket_names.iter().take(10).enumerate() {
-      println!("  {}. {}", i + 1, name);
-    }
-    if bucket_names.len() > 10 {
-      println!("  ... and {} more", bucket_names.len() - 10);
-    }
-    println!();
+      Output::subheader("Sample variations:");
+      for (i, name) in bucket_names.iter().take(10).enumerate() {
+        println!("  {}. {}", i + 1, name);
+      }
+      if bucket_names.len() > 10 {
+        println!("  ... and {} more", bucket_names.len() - 10);
+      }
+      println!();
 
-    Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
+      Output::spinner_start(&format!("Scanning {} buckets", bucket_names.len()));
+    }
     let result = scanner.scan_buckets(&bucket_names);
-    Output::spinner_done();
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
+    }
 
-    self.display_scan_results(ctx, &result);
+    self.display_scan_results(ctx, &result)?;
 
     Ok(())
   }
@@ -253,33 +264,10 @@ impl CloudCommand {
     &self,
     ctx: &CliContext,
     result: &crate::modules::cloud::s3_scanner::S3ScanResult,
-  ) {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
-    if is_json {
-      let existing: Vec<_> = result.buckets.iter().filter(|b| b.exists).collect();
-      let buckets_json: Vec<_> = existing
-        .iter()
-        .map(|bucket| {
-          json!({
-              "name": bucket.name.clone(),
-              "exists": bucket.exists,
-              "accessible": bucket.accessible,
-              "public_list": bucket.public_list,
-              "public_read": bucket.public_read,
-              "region": bucket.region.clone(),
-              "message": bucket.message.clone(),
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "total_scanned": result.total_scanned,
-          "total_exists": result.total_exists,
-          "total_public": result.total_public,
-          "buckets": buckets_json,
-      }));
-      return;
+  ) -> Result<(), String> {
+    let payload = Self::scan_results_payload(result);
+    if render::render_machine_output(ctx, "rb cloud storage enumerate", &payload)? {
+      return Ok(());
     }
 
     println!();
@@ -349,5 +337,120 @@ impl CloudCommand {
 
     println!();
     Output::success("Scan complete!");
+    Ok(())
+  }
+
+  fn bucket_payload(bucket: &crate::modules::cloud::s3_scanner::S3Bucket) -> Value {
+    json!({
+      "name": bucket.name.clone(),
+      "exists": bucket.exists,
+      "accessible": bucket.accessible,
+      "public_list": bucket.public_list,
+      "public_read": bucket.public_read,
+      "region": bucket.region.clone(),
+      "message": bucket.message.clone(),
+    })
+  }
+
+  fn single_bucket_payload(bucket: &crate::modules::cloud::s3_scanner::S3Bucket) -> Value {
+    json!({
+      "bucket": bucket.name.clone(),
+      "exists": bucket.exists,
+      "accessible": bucket.accessible,
+      "public_list": bucket.public_list,
+      "public_read": bucket.public_read,
+      "region": bucket.region.clone(),
+      "message": bucket.message.clone(),
+    })
+  }
+
+  fn scan_results_payload(result: &crate::modules::cloud::s3_scanner::S3ScanResult) -> Value {
+    let existing: Vec<_> = result
+      .buckets
+      .iter()
+      .filter(|bucket| bucket.exists)
+      .collect();
+    let public: Vec<_> = result
+      .buckets
+      .iter()
+      .filter(|bucket| bucket.public_list || bucket.public_read)
+      .map(Self::bucket_payload)
+      .collect();
+
+    json!({
+      "total_scanned": result.total_scanned,
+      "total_exists": result.total_exists,
+      "total_public": result.total_public,
+      "buckets": existing.iter().map(|bucket| Self::bucket_payload(bucket)).collect::<Vec<_>>(),
+      "public_buckets": public,
+    })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::cloud::s3_scanner::{S3Bucket, S3ScanResult};
+
+  #[test]
+  fn single_bucket_payload_includes_bucket_status() {
+    let payload = CloudCommand::single_bucket_payload(&S3Bucket {
+      name: "acme-assets".to_string(),
+      exists: true,
+      region: Some("us-east-1".to_string()),
+      public_list: true,
+      public_read: false,
+      accessible: true,
+      message: "Bucket is publicly accessible (LIST)".to_string(),
+    });
+
+    assert_eq!(payload["bucket"], "acme-assets");
+    assert_eq!(payload["exists"], true);
+    assert_eq!(payload["public_list"], true);
+    assert_eq!(payload["region"], "us-east-1");
+  }
+
+  #[test]
+  fn scan_results_payload_tracks_existing_and_public_buckets() {
+    let payload = CloudCommand::scan_results_payload(&S3ScanResult {
+      buckets: vec![
+        S3Bucket {
+          name: "public-bucket".to_string(),
+          exists: true,
+          region: Some("us-east-1".to_string()),
+          public_list: true,
+          public_read: true,
+          accessible: true,
+          message: "public".to_string(),
+        },
+        S3Bucket {
+          name: "private-bucket".to_string(),
+          exists: true,
+          region: Some("us-west-2".to_string()),
+          public_list: false,
+          public_read: false,
+          accessible: false,
+          message: "private".to_string(),
+        },
+        S3Bucket {
+          name: "missing-bucket".to_string(),
+          exists: false,
+          region: None,
+          public_list: false,
+          public_read: false,
+          accessible: false,
+          message: "missing".to_string(),
+        },
+      ],
+      total_scanned: 3,
+      total_exists: 2,
+      total_public: 1,
+    });
+
+    assert_eq!(payload["total_scanned"], 3);
+    assert_eq!(payload["total_exists"], 2);
+    assert_eq!(payload["total_public"], 1);
+    assert_eq!(payload["buckets"].as_array().unwrap().len(), 2);
+    assert_eq!(payload["public_buckets"].as_array().unwrap().len(), 1);
   }
 }

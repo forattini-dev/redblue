@@ -1,7 +1,8 @@
 /// Wordlist management command
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use crate::wordlists::{get_wordlist_sources, Downloader, WordlistCategory, WordlistManager};
 
 pub struct WordlistCommand;
@@ -17,6 +18,31 @@ impl Command for WordlistCommand {
 
   fn description(&self) -> &str {
     "Manage wordlist collections for fuzzing and enumeration"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let machine_output = match verb {
+      "list" | "sources" | "search" | "info" | "status" => {
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly)
+      }
+      _ => self.metadata().machine_output,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(machine_output)
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -145,9 +171,6 @@ impl Command for WordlistCommand {
 
 impl WordlistCommand {
   fn list(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let manager = WordlistManager::new()?;
     let wordlists = manager.list();
 
@@ -170,13 +193,8 @@ impl WordlistCommand {
       })
       .collect();
 
-    if is_json {
-      let wordlists_json: Vec<crate::serde_json::Value> =
-        filtered.iter().map(|w| wordlist_info_to_json(w)).collect();
-      Output::json_value(&json!({
-          "total": filtered.len(),
-          "wordlists": wordlists_json
-      }));
+    let payload = wordlist_list_payload(&filtered);
+    if render::render_machine_output(ctx, "rb wordlist collection list", &payload)? {
       return Ok(());
     }
 
@@ -265,9 +283,6 @@ impl WordlistCommand {
   }
 
   fn info(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let name = ctx.target.as_ref().ok_or(
             "Missing wordlist name.\nUsage: rb wordlist collection info <name>\nExample: rb wordlist collection info subdomains-top100",
         )?;
@@ -285,16 +300,15 @@ impl WordlistCommand {
           "cached"
         };
 
-        if is_json {
-          let preview: Vec<String> = wordlist.iter().take(10).cloned().collect();
-          Output::json_value(&json!({
-              "name": name.clone(),
-              "lines": wordlist.len(),
-              "size_bytes": size_bytes,
-              "size_kb": size_kb,
-              "source": source,
-              "preview": preview
-          }));
+        let payload = wordlist_collection_info_payload(
+          name,
+          wordlist.len(),
+          size_bytes,
+          size_kb,
+          source,
+          &wordlist,
+        );
+        if render::render_machine_output(ctx, "rb wordlist collection info", &payload)? {
           return Ok(());
         }
 
@@ -324,12 +338,9 @@ impl WordlistCommand {
         Ok(())
       }
       Err(e) => {
-        if is_json {
-          Output::json_value(&json!({
-              "success": false,
-              "error": e.clone(),
-              "name": name.clone()
-          }));
+        let payload = wordlist_collection_error_payload(name, &e);
+        if render::render_machine_output(ctx, "rb wordlist collection info", &payload)? {
+          return Err(e);
         } else {
           Output::error(&format!("Failed to load wordlist: {}", e));
         }
@@ -339,9 +350,6 @@ impl WordlistCommand {
   }
 
   fn status(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let manager = WordlistManager::new()?;
     let cache_dir = manager.cache_dir();
     let dir_exists = cache_dir.exists();
@@ -357,19 +365,15 @@ impl WordlistCommand {
     let embedded_count = wordlists.iter().filter(|w| w.source == "embedded").count();
     let cached_count = wordlists.iter().filter(|w| w.source == "cached").count();
 
-    if is_json {
-      let counts_json = json!({
-          "embedded": embedded_count,
-          "cached": cached_count,
-          "total": embedded_count + cached_count
-      });
-      Output::json_value(&json!({
-          "cache_directory": cache_dir.display().to_string(),
-          "directory_exists": dir_exists,
-          "cache_size_bytes": cache_size,
-          "cache_size_mb": size_mb,
-          "counts": counts_json
-      }));
+    let payload = wordlist_status_payload(
+      &cache_dir.display().to_string(),
+      dir_exists,
+      cache_size,
+      size_mb,
+      embedded_count,
+      cached_count,
+    );
+    if render::render_machine_output(ctx, "rb wordlist collection status", &payload)? {
       return Ok(());
     }
 
@@ -436,9 +440,6 @@ impl WordlistCommand {
   }
 
   fn sources(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let sources = get_wordlist_sources();
 
     // Check for category filter
@@ -457,12 +458,8 @@ impl WordlistCommand {
       if let Some(c) = cat_enum {
         sources.into_iter().filter(|s| s.category == c).collect()
       } else {
-        if is_json {
-          Output::json_value(&json!({
-              "success": false,
-              "error": "unknown_category",
-              "category": cat.clone()
-          }));
+        let payload = wordlist_category_error_payload(&cat);
+        if render::render_machine_output(ctx, "rb wordlist collection sources", &payload)? {
         } else {
           Output::warning(&format!("Unknown category: {}", cat));
           println!("Available: passwords, subdomains, dirs, usernames, vhosts");
@@ -473,15 +470,8 @@ impl WordlistCommand {
       sources
     };
 
-    if is_json {
-      let sources_json: Vec<crate::serde_json::Value> = filtered
-        .iter()
-        .map(|s| wordlist_source_to_json(s))
-        .collect();
-      Output::json_value(&json!({
-          "total": filtered.len(),
-          "sources": sources_json
-      }));
+    let payload = wordlist_sources_payload(&filtered);
+    if render::render_machine_output(ctx, "rb wordlist collection sources", &payload)? {
       return Ok(());
     }
 
@@ -539,9 +529,6 @@ impl WordlistCommand {
   }
 
   fn search(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let query = ctx.target.as_ref().ok_or(
             "Missing search query.\nUsage: rb wordlist collection search <query>\nExample: rb wordlist collection search rock",
         )?;
@@ -550,14 +537,8 @@ impl WordlistCommand {
     let downloader = Downloader::new(manager.cache_dir().to_path_buf());
     let results = downloader.search_sources(query);
 
-    if is_json {
-      let results_json: Vec<crate::serde_json::Value> =
-        results.iter().map(|s| wordlist_source_to_json(s)).collect();
-      Output::json_value(&json!({
-          "query": query.clone(),
-          "total": results.len(),
-          "results": results_json
-      }));
+    let payload = wordlist_search_payload(query, &results);
+    if render::render_machine_output(ctx, "rb wordlist collection search", &payload)? {
       return Ok(());
     }
 
@@ -690,6 +671,29 @@ impl Command for WordlistFileCommand {
     "Operations on local wordlist files"
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let machine_output = match verb {
+      "info" => crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      _ => self.metadata().machine_output,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(machine_output)
+  }
+
   fn routes(&self) -> Vec<Route> {
     vec![
       Route {
@@ -753,9 +757,6 @@ impl Command for WordlistFileCommand {
 
 impl WordlistFileCommand {
   fn info(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let path_str = ctx
       .target
       .as_ref()
@@ -763,13 +764,8 @@ impl WordlistFileCommand {
     let path = std::path::Path::new(path_str);
 
     if !path.exists() {
-      if is_json {
-        Output::json_value(&json!({
-            "success": false,
-            "error": "File not found",
-            "path": path_str.clone()
-        }));
-      }
+      let payload = wordlist_file_error_payload(path_str, "File not found");
+      render::render_machine_output(ctx, "rb wordlist file info", &payload)?;
       return Err(format!("File not found: {}", path_str));
     }
 
@@ -785,18 +781,8 @@ impl WordlistFileCommand {
 
     let stats = Analyzer::analyze(&lines);
 
-    if is_json {
-      let preview: Vec<String> = lines.iter().take(10).cloned().collect();
-      Output::json_value(&json!({
-          "path": path_str.clone(),
-          "line_count": stats.line_count,
-          "unique_count": stats.unique_count,
-          "avg_length": stats.avg_length,
-          "min_length": stats.min_length,
-          "max_length": stats.max_length,
-          "charset": stats.charset.clone(),
-          "preview": preview
-      }));
+    let payload = wordlist_file_info_payload(path_str, &stats, &lines);
+    if render::render_machine_output(ctx, "rb wordlist file info", &payload)? {
       return Ok(());
     }
 
@@ -870,6 +856,31 @@ impl Command for WordlistIntelCommand {
 
   fn description(&self) -> &str {
     "Intelligent wordlist operations: context-aware resolution, mutation, and TF-IDF learning"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let machine_output = match verb {
+      "resolve" | "learn" | "extract" | "checkpoints" => {
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly)
+      }
+      _ => self.metadata().machine_output,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(machine_output)
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -967,9 +978,6 @@ impl Command for WordlistIntelCommand {
 
 impl WordlistIntelCommand {
   fn resolve(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let context_str = ctx.target.as_ref().ok_or(
             "Missing context.\nUsage: rb wordlist intel resolve <context>\n\nContexts: directories, files, subdomains, parameters, passwords, usernames",
         )?;
@@ -999,16 +1007,8 @@ impl WordlistIntelCommand {
 
     let recommendations = ContextResolver::recommended_wordlists(&context);
 
-    if is_json {
-      let wordlists: Vec<String> = recommendations
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect();
-      Output::json_value(&json!({
-          "context": format!("{:?}", context),
-          "size": format!("{:?}", size),
-          "wordlists": wordlists
-      }));
+    let payload = wordlist_resolve_payload(&context, &size, &recommendations);
+    if render::render_machine_output(ctx, "rb wordlist intel resolve", &payload)? {
       return Ok(());
     }
 
@@ -1087,9 +1087,6 @@ impl WordlistIntelCommand {
   }
 
   fn learn(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let top_n: usize = ctx
       .get_flag("top")
       .and_then(|s| s.parse().ok())
@@ -1099,12 +1096,8 @@ impl WordlistIntelCommand {
     Output::warning("TF-IDF learning integration requires active scan data");
     Output::info("Learned words are captured during scans with --learn-words flag");
 
-    if is_json {
-      Output::json_value(&json!({
-          "learned_words": [],
-          "total": 0,
-          "note": "No learned words available. Run a scan with --learn-words to collect vocabulary."
-      }));
+    let payload = wordlist_learn_payload(top_n);
+    if render::render_machine_output(ctx, "rb wordlist intel learn", &payload)? {
     } else {
       Output::header("Learned Words");
       println!("\n  No learned words found in storage.");
@@ -1121,9 +1114,6 @@ impl WordlistIntelCommand {
   }
 
   fn extract(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let path_str = ctx.target.as_ref().ok_or(
             "Missing file path.\nUsage: rb wordlist intel extract <file>\nExample: rb wordlist intel extract response.html",
         )?;
@@ -1144,11 +1134,8 @@ impl WordlistIntelCommand {
     let result = extractor.extract(&content);
 
     if result.is_empty() {
-      if is_json {
-        Output::json_value(&json!({
-            "words": [],
-            "total": 0
-        }));
+      let payload = wordlist_extract_empty_payload();
+      if render::render_machine_output(ctx, "rb wordlist intel extract", &payload)? {
       } else {
         Output::warning("No words extracted from content");
       }
@@ -1160,21 +1147,8 @@ impl WordlistIntelCommand {
     engine.add_document(Document::new(path_str, result.all_words.clone()));
     let scores = engine.top_words(top_n);
 
-    if is_json {
-      let words_json: Vec<crate::serde_json::Value> = scores
-        .iter()
-        .map(|word| {
-          json!({
-              "word": word.word.clone(),
-              "score": word.tfidf
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "source": path_str.clone(),
-          "total_extracted": result.all_words.len(),
-          "words": words_json
-      }));
+    let payload = wordlist_extract_payload(path_str, result.all_words.len(), &scores);
+    if render::render_machine_output(ctx, "rb wordlist intel extract", &payload)? {
       return Ok(());
     }
 
@@ -1200,22 +1174,13 @@ impl WordlistIntelCommand {
   }
 
   fn checkpoints(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     use crate::modules::web::fuzzer::ResumeManager;
 
     let manager = ResumeManager::with_defaults();
     let checkpoints = manager.list_checkpoints();
 
-    if is_json {
-      let checkpoints_json: Vec<crate::serde_json::Value> = checkpoints
-        .iter()
-        .map(|cp| checkpoint_info_to_json(cp))
-        .collect();
-      Output::json_value(&json!({
-          "checkpoints": checkpoints_json
-      }));
+    let payload = wordlist_checkpoints_payload(&checkpoints);
+    if render::render_machine_output(ctx, "rb wordlist intel checkpoints", &payload)? {
       return Ok(());
     }
 
@@ -1281,6 +1246,90 @@ fn wordlist_info_to_json(
   })
 }
 
+fn wordlist_list_payload(filtered: &[&crate::wordlists::manager::WordlistInfo]) -> Value {
+  let wordlists_json: Vec<Value> = filtered.iter().map(|w| wordlist_info_to_json(w)).collect();
+  json!({
+    "total": filtered.len(),
+    "wordlists": wordlists_json
+  })
+}
+
+fn wordlist_collection_info_payload(
+  name: &str,
+  lines: usize,
+  size_bytes: usize,
+  size_kb: usize,
+  source: &str,
+  wordlist: &[String],
+) -> Value {
+  let preview: Vec<String> = wordlist.iter().take(10).cloned().collect();
+  json!({
+    "name": name,
+    "lines": lines,
+    "size_bytes": size_bytes,
+    "size_kb": size_kb,
+    "source": source,
+    "preview": preview
+  })
+}
+
+fn wordlist_collection_error_payload(name: &str, error: &str) -> Value {
+  json!({
+    "success": false,
+    "error": error,
+    "name": name
+  })
+}
+
+fn wordlist_status_payload(
+  cache_directory: &str,
+  directory_exists: bool,
+  cache_size_bytes: u64,
+  cache_size_mb: u64,
+  embedded: usize,
+  cached: usize,
+) -> Value {
+  json!({
+    "cache_directory": cache_directory,
+    "directory_exists": directory_exists,
+    "cache_size_bytes": cache_size_bytes,
+    "cache_size_mb": cache_size_mb,
+    "counts": json!({
+      "embedded": embedded,
+      "cached": cached,
+      "total": embedded + cached
+    })
+  })
+}
+
+fn wordlist_category_error_payload(category: &str) -> Value {
+  json!({
+    "success": false,
+    "error": "unknown_category",
+    "category": category
+  })
+}
+
+fn wordlist_sources_payload(filtered: &[crate::wordlists::downloader::WordlistSource]) -> Value {
+  let sources_json: Vec<Value> = filtered.iter().map(wordlist_source_to_json).collect();
+  json!({
+    "total": filtered.len(),
+    "sources": sources_json
+  })
+}
+
+fn wordlist_search_payload(
+  query: &str,
+  results: &[crate::wordlists::downloader::WordlistSource],
+) -> Value {
+  let results_json: Vec<Value> = results.iter().map(wordlist_source_to_json).collect();
+  json!({
+    "query": query,
+    "total": results.len(),
+    "results": results_json
+  })
+}
+
 fn wordlist_source_to_json(
   source: &crate::wordlists::downloader::WordlistSource,
 ) -> crate::serde_json::Value {
@@ -1301,5 +1350,93 @@ fn checkpoint_info_to_json(
       "progress": checkpoint.progress_percent,
       "requests": checkpoint.requests_made,
       "elapsed": checkpoint.elapsed_string()
+  })
+}
+
+fn wordlist_file_error_payload(path: &str, error: &str) -> Value {
+  json!({
+    "success": false,
+    "error": error,
+    "path": path
+  })
+}
+
+fn wordlist_file_info_payload(
+  path: &str,
+  stats: &crate::modules::wordlist::analysis::WordlistStats,
+  lines: &[String],
+) -> Value {
+  let preview: Vec<String> = lines.iter().take(10).cloned().collect();
+  json!({
+    "path": path,
+    "line_count": stats.line_count,
+    "unique_count": stats.unique_count,
+    "avg_length": stats.avg_length,
+    "min_length": stats.min_length,
+    "max_length": stats.max_length,
+    "charset": stats.charset.clone(),
+    "preview": preview
+  })
+}
+
+fn wordlist_resolve_payload(
+  context: &crate::modules::wordlist::WordlistContext,
+  size: &crate::modules::wordlist::WordlistSize,
+  recommendations: &[&str],
+) -> Value {
+  let wordlists: Vec<String> = recommendations
+    .iter()
+    .map(|name| (*name).to_string())
+    .collect();
+  json!({
+    "context": format!("{:?}", context),
+    "size": format!("{:?}", size),
+    "wordlists": wordlists
+  })
+}
+
+fn wordlist_learn_payload(top_n: usize) -> Value {
+  json!({
+    "learned_words": [],
+    "total": 0,
+    "top": top_n,
+    "note": "No learned words available. Run a scan with --learn-words to collect vocabulary."
+  })
+}
+
+fn wordlist_extract_empty_payload() -> Value {
+  json!({
+    "words": [],
+    "total": 0
+  })
+}
+
+fn wordlist_extract_payload(
+  source: &str,
+  total_extracted: usize,
+  scores: &[crate::modules::wordlist::tfidf::ScoredWord],
+) -> Value {
+  let words_json: Vec<Value> = scores
+    .iter()
+    .map(|word| {
+      json!({
+        "word": word.word.clone(),
+        "score": word.tfidf
+      })
+    })
+    .collect();
+  json!({
+    "source": source,
+    "total_extracted": total_extracted,
+    "words": words_json
+  })
+}
+
+fn wordlist_checkpoints_payload(
+  checkpoints: &[crate::modules::web::fuzzer::resume::CheckpointInfo],
+) -> Value {
+  let checkpoints_json: Vec<Value> = checkpoints.iter().map(checkpoint_info_to_json).collect();
+  json!({
+    "checkpoints": checkpoints_json
   })
 }

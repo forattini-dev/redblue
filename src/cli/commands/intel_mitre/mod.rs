@@ -34,6 +34,34 @@ impl Command for IntelMitreCommand {
     "MITRE ATT&CK threat intelligence - techniques, tactics, groups, software"
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let aliases = crate::cli::aliases::verb_aliases_for(verb);
+    match verb {
+      "cache" | "technique" | "tactic" | "group" | "software" | "search" | "matrix" | "stats"
+      | "gaps" | "map" | "ports" | "correlate" | "coverage" | "mitigations" | "detection"
+      | "export" => crate::cli::schema::RouteMetadata::new()
+        .with_aliases(aliases)
+        .with_machine_output(
+          crate::cli::schema::MachineOutputMetadata::new()
+            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+        ),
+      _ => crate::cli::schema::RouteMetadata::new()
+        .with_aliases(aliases)
+        .with_machine_output(self.metadata().machine_output),
+    }
+  }
+
   fn routes(&self) -> Vec<Route> {
     vec![
       Route {

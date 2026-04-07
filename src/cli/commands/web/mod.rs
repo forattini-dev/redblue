@@ -47,14 +47,16 @@ impl Command for WebCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "get" | "headers" | "security" | "grade" => crate::cli::schema::RouteMetadata::new()
-        .with_aliases(aliases)
-        .with_machine_output(
-          crate::cli::schema::MachineOutputMetadata::new()
-            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
-            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
-            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
-        ),
+      "get" | "http2" | "headers" | "security" | "grade" => {
+        crate::cli::schema::RouteMetadata::new()
+          .with_aliases(aliases)
+          .with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+              .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+              .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+              .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+          )
+      }
       _ => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(self.metadata().machine_output),

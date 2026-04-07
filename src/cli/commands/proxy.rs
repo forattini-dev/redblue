@@ -3,7 +3,7 @@
 //! High-performance proxy servers for tunneling and traffic routing.
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::cli::{output::Output, render, validator::Validator, CliContext};
 use crate::json;
 use crate::modules::proxy::http::{HttpProxy, HttpProxyConfig};
 use crate::modules::proxy::socks5::{Socks5Config, Socks5Server};
@@ -12,6 +12,7 @@ use crate::modules::proxy::transparent::{generate_iptables_rules, generate_nftab
 #[cfg(not(target_os = "windows"))]
 use crate::modules::proxy::transparent::{TransparentConfig, TransparentMode, TransparentProxy};
 use crate::modules::proxy::ProxyContext;
+use crate::serde_json::Value;
 use crate::storage::QueryManager;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -502,6 +503,26 @@ impl Command for ProxyDataCommand {
     "Query stored proxy connection history and traffic data"
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
+
   fn routes(&self) -> Vec<Route> {
     vec![
       Route {
@@ -614,8 +635,6 @@ impl ProxyDataCommand {
   }
 
   fn list_connections(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let db_path = self.resolve_db_path(ctx)?;
     let limit: usize = ctx
       .get_flag_or("limit", "50")
@@ -628,18 +647,8 @@ impl ProxyDataCommand {
       .list_proxy_connections()
       .map_err(|e| format!("Failed to list connections: {}", e))?;
 
-    if is_json {
-      let connections_json: Vec<_> = connections
-        .iter()
-        .take(limit)
-        .map(proxy_connection_to_json)
-        .collect();
-      Output::json_value(&json!({
-          "database": db_path.clone(),
-          "total": connections.len(),
-          "limit": limit,
-          "connections": connections_json
-      }));
+    let payload = proxy_connections_payload(&db_path, limit, &connections);
+    if render::render_machine_output(ctx, "rb proxy data list", &payload)? {
       return Ok(());
     }
 
@@ -695,8 +704,6 @@ impl ProxyDataCommand {
   }
 
   fn list_requests(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let db_path = self.resolve_db_path(ctx)?;
     let limit: usize = ctx
       .get_flag_or("limit", "50")
@@ -720,19 +727,8 @@ impl ProxyDataCommand {
       requests
     };
 
-    if is_json {
-      let requests_json: Vec<_> = filtered
-        .iter()
-        .take(limit)
-        .map(proxy_request_to_json)
-        .collect();
-      Output::json_value(&json!({
-          "database": db_path.clone(),
-          "host_filter": host_filter.clone(),
-          "total": filtered.len(),
-          "limit": limit,
-          "requests": requests_json
-      }));
+    let payload = proxy_requests_payload(&db_path, host_filter.clone(), limit, &filtered);
+    if render::render_machine_output(ctx, "rb proxy data requests", &payload)? {
       return Ok(());
     }
 
@@ -779,8 +775,6 @@ impl ProxyDataCommand {
   }
 
   fn list_responses(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let db_path = self.resolve_db_path(ctx)?;
     let limit: usize = ctx
       .get_flag_or("limit", "50")
@@ -804,19 +798,8 @@ impl ProxyDataCommand {
       responses
     };
 
-    if is_json {
-      let responses_json: Vec<_> = filtered
-        .iter()
-        .take(limit)
-        .map(proxy_response_to_json)
-        .collect();
-      Output::json_value(&json!({
-          "database": db_path.clone(),
-          "status_filter": status_filter,
-          "total": filtered.len(),
-          "limit": limit,
-          "responses": responses_json
-      }));
+    let payload = proxy_responses_payload(&db_path, status_filter, limit, &filtered);
+    if render::render_machine_output(ctx, "rb proxy data responses", &payload)? {
       return Ok(());
     }
 
@@ -883,8 +866,6 @@ impl ProxyDataCommand {
   }
 
   fn show_connection(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let db_path = self.resolve_db_path(ctx)?;
     let conn_id: u64 = ctx
       .target
@@ -917,27 +898,8 @@ impl ProxyDataCommand {
       .filter(|r| r.connection_id == conn_id)
       .collect();
 
-    if is_json {
-      let requests_json: Vec<_> = conn_requests
-        .iter()
-        .map(|req| proxy_request_to_json(req))
-        .collect();
-      let responses_json: Vec<_> = conn_responses
-        .iter()
-        .map(|resp| proxy_response_to_json(resp))
-        .collect();
-      let mut conn_json = proxy_connection_to_json(&conn);
-      if let Some(obj) = conn_json.as_object().cloned() {
-        let mut map = obj;
-        map.insert(
-          "duration_seconds".to_string(),
-          json!(conn.ended_at.saturating_sub(conn.started_at)),
-        );
-        map.insert("requests".to_string(), json!(requests_json));
-        map.insert("responses".to_string(), json!(responses_json));
-        conn_json = crate::serde_json::Value::Object(map);
-      }
-      Output::json_value(&conn_json);
+    let payload = proxy_show_payload(&conn, &conn_requests, &conn_responses);
+    if render::render_machine_output(ctx, "rb proxy data show", &payload)? {
       return Ok(());
     }
 
@@ -999,8 +961,6 @@ impl ProxyDataCommand {
   }
 
   fn show_stats(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
     let db_path = self.resolve_db_path(ctx)?;
 
     let qm = QueryManager::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -1036,27 +996,18 @@ impl ProxyDataCommand {
     let mut sorted_status: Vec<_> = status_counts.into_iter().collect();
     sorted_status.sort_by_key(|(code, _)| *code);
 
-    if is_json {
-      let top_hosts: Vec<_> = sorted_hosts
-        .iter()
-        .take(10)
-        .map(|(host, count)| json!({ "host": host.to_string(), "count": *count }))
-        .collect();
-      let status_distribution: Vec<_> = sorted_status
-        .iter()
-        .map(|(code, count)| json!({ "status_code": *code, "count": *count }))
-        .collect();
-      Output::json_value(&json!({
-          "database": db_path.clone(),
-          "connections": connections.len(),
-          "tls_intercepted": tls_count,
-          "http_requests": requests.len(),
-          "http_responses": responses.len(),
-          "total_bytes_sent": total_bytes_sent,
-          "total_bytes_received": total_bytes_recv,
-          "top_hosts": top_hosts,
-          "status_distribution": status_distribution
-      }));
+    let payload = proxy_stats_payload(
+      &db_path,
+      tls_count,
+      requests.len(),
+      responses.len(),
+      total_bytes_sent,
+      total_bytes_recv,
+      &sorted_hosts,
+      &sorted_status,
+      connections.len(),
+    );
+    if render::render_machine_output(ctx, "rb proxy data stats", &payload)? {
       return Ok(());
     }
 
@@ -1113,6 +1064,124 @@ impl ProxyDataCommand {
 
     Ok(())
   }
+}
+
+fn proxy_connections_payload(
+  database: &str,
+  limit: usize,
+  connections: &[crate::storage::ProxyConnectionRecord],
+) -> Value {
+  let connections_json: Vec<Value> = connections
+    .iter()
+    .take(limit)
+    .map(proxy_connection_to_json)
+    .collect();
+  json!({
+    "database": database,
+    "total": connections.len(),
+    "limit": limit,
+    "connections": connections_json
+  })
+}
+
+fn proxy_requests_payload(
+  database: &str,
+  host_filter: Option<String>,
+  limit: usize,
+  requests: &[crate::storage::ProxyHttpRequestRecord],
+) -> Value {
+  let requests_json: Vec<Value> = requests
+    .iter()
+    .take(limit)
+    .map(proxy_request_to_json)
+    .collect();
+  json!({
+    "database": database,
+    "host_filter": host_filter,
+    "total": requests.len(),
+    "limit": limit,
+    "requests": requests_json
+  })
+}
+
+fn proxy_responses_payload(
+  database: &str,
+  status_filter: Option<u16>,
+  limit: usize,
+  responses: &[crate::storage::ProxyHttpResponseRecord],
+) -> Value {
+  let responses_json: Vec<Value> = responses
+    .iter()
+    .take(limit)
+    .map(proxy_response_to_json)
+    .collect();
+  json!({
+    "database": database,
+    "status_filter": status_filter,
+    "total": responses.len(),
+    "limit": limit,
+    "responses": responses_json
+  })
+}
+
+fn proxy_show_payload(
+  conn: &crate::storage::ProxyConnectionRecord,
+  requests: &[&crate::storage::ProxyHttpRequestRecord],
+  responses: &[&crate::storage::ProxyHttpResponseRecord],
+) -> Value {
+  let requests_json: Vec<Value> = requests
+    .iter()
+    .map(|req| proxy_request_to_json(req))
+    .collect();
+  let responses_json: Vec<Value> = responses
+    .iter()
+    .map(|resp| proxy_response_to_json(resp))
+    .collect();
+  let mut conn_json = proxy_connection_to_json(conn);
+  if let Some(obj) = conn_json.as_object().cloned() {
+    let mut map = obj;
+    map.insert(
+      "duration_seconds".to_string(),
+      json!(conn.ended_at.saturating_sub(conn.started_at)),
+    );
+    map.insert("requests".to_string(), json!(requests_json));
+    map.insert("responses".to_string(), json!(responses_json));
+    conn_json = Value::Object(map);
+  }
+  conn_json
+}
+
+fn proxy_stats_payload(
+  database: &str,
+  tls_intercepted: usize,
+  http_requests: usize,
+  http_responses: usize,
+  total_bytes_sent: u64,
+  total_bytes_received: u64,
+  sorted_hosts: &[(&str, usize)],
+  sorted_status: &[(u16, usize)],
+  connections: usize,
+) -> Value {
+  let top_hosts: Vec<Value> = sorted_hosts
+    .iter()
+    .take(10)
+    .map(|(host, count)| json!({ "host": host.to_string(), "count": *count }))
+    .collect();
+  let status_distribution: Vec<Value> = sorted_status
+    .iter()
+    .map(|(code, count)| json!({ "status_code": *code, "count": *count }))
+    .collect();
+  json!({
+    "database": database,
+    "connections": connections,
+    "tls_intercepted": tls_intercepted,
+    "http_requests": http_requests,
+    "http_responses": http_responses,
+    "total_bytes_sent": total_bytes_sent,
+    "total_bytes_received": total_bytes_received,
+    "top_hosts": top_hosts,
+    "status_distribution": status_distribution
+  })
 }
 
 fn protocol_name(protocol: u8) -> &'static str {

@@ -234,35 +234,8 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
       Output::spinner_done();
     }
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let events_json: Vec<_> = result
-        .events
-        .iter()
-        .map(|event| {
-          json!({
-              "action": event.action.clone(),
-              "date": event.date.clone(),
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "type": "ip",
-          "query": target,
-          "handle": result.handle.clone(),
-          "start_address": result.start_address.clone(),
-          "end_address": result.end_address.clone(),
-          "ip_version": result.ip_version.clone(),
-          "name": result.name.clone(),
-          "country": result.country.clone(),
-          "status": result.status.clone(),
-          "events": events_json,
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+    let payload = build_rdap_ip_payload(target, &result);
+    if render::render_machine_output_with_yaml(ctx, "rb recon domain rdap", &payload, || {
       println!("type: ip");
       println!("query: {}", target);
       println!("handle: {}", result.handle);
@@ -284,6 +257,8 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
         println!("  - action: {}", event.action);
         println!("    date: {}", event.date);
       }
+      Ok(())
+    })? {
       return Ok(());
     }
 
@@ -344,31 +319,8 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
       Output::spinner_done();
     }
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let events_json: Vec<_> = result
-        .events
-        .iter()
-        .map(|event| {
-          json!({
-              "action": event.action.clone(),
-              "date": event.date.clone(),
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "type": "domain",
-          "domain": result.domain.clone(),
-          "registrar": result.registrar.clone(),
-          "status": result.status.clone(),
-          "nameservers": result.nameservers.clone(),
-          "events": events_json,
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+    let payload = build_rdap_domain_payload(target, &result);
+    if render::render_machine_output_with_yaml(ctx, "rb recon domain rdap", &payload, || {
       println!("type: domain");
       println!("query: {}", target);
       println!("name: {}", result.domain);
@@ -388,6 +340,8 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
         println!("  - action: {}", event.action);
         println!("    date: {}", event.date);
       }
+      Ok(())
+    })? {
       return Ok(());
     }
 
@@ -456,4 +410,101 @@ pub fn rdap(ctx: &CliContext) -> Result<(), String> {
   println!();
   Output::success("RDAP lookup completed");
   Ok(())
+}
+
+fn build_rdap_ip_payload(target: &str, result: &RdapIpResponse) -> Value {
+  let events: Vec<_> = result
+    .events
+    .iter()
+    .map(|event| {
+      json!({
+        "action": event.action.clone(),
+        "date": event.date.clone(),
+      })
+    })
+    .collect();
+
+  json!({
+    "type": "ip",
+    "query": target,
+    "handle": result.handle.clone(),
+    "start_address": result.start_address.clone(),
+    "end_address": result.end_address.clone(),
+    "ip_version": result.ip_version.clone(),
+    "name": result.name.clone(),
+    "country": result.country.clone(),
+    "status": result.status.clone(),
+    "events": events,
+  })
+}
+
+fn build_rdap_domain_payload(target: &str, result: &RdapDomainResponse) -> Value {
+  let events: Vec<_> = result
+    .events
+    .iter()
+    .map(|event| {
+      json!({
+        "action": event.action.clone(),
+        "date": event.date.clone(),
+      })
+    })
+    .collect();
+
+  json!({
+    "type": "domain",
+    "query": target,
+    "domain": result.domain.clone(),
+    "registrar": result.registrar.clone(),
+    "status": result.status.clone(),
+    "nameservers": result.nameservers.clone(),
+    "events": events,
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn rdap_ip_payload_includes_type_and_query() {
+    let payload = build_rdap_ip_payload(
+      "8.8.8.8",
+      &RdapIpResponse {
+        handle: "NET-8-8-8-0-1".to_string(),
+        start_address: "8.8.8.0".to_string(),
+        end_address: "8.8.8.255".to_string(),
+        ip_version: "v4".to_string(),
+        name: Some("GOOGLE".to_string()),
+        country: Some("US".to_string()),
+        status: vec!["active".to_string()],
+        events: vec![],
+        entities: vec![],
+        raw_json: "{}".to_string(),
+      },
+    );
+
+    assert_eq!(payload["type"].as_str(), Some("ip"));
+    assert_eq!(payload["query"].as_str(), Some("8.8.8.8"));
+  }
+
+  #[test]
+  fn rdap_domain_payload_includes_registrar_and_nameservers() {
+    let payload = build_rdap_domain_payload(
+      "example.com",
+      &RdapDomainResponse {
+        domain: "example.com".to_string(),
+        registrar: Some("Example Registrar".to_string()),
+        status: vec!["active".to_string()],
+        nameservers: vec!["ns1.example.com".to_string()],
+        events: vec![],
+        entities: vec![],
+        registrant: None,
+        raw_json: "{}".to_string(),
+      },
+    );
+
+    assert_eq!(payload["domain"].as_str(), Some("example.com"));
+    assert_eq!(payload["registrar"].as_str(), Some("Example Registrar"));
+    assert_eq!(payload["nameservers"][0].as_str(), Some("ns1.example.com"));
+  }
 }

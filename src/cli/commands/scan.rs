@@ -3,6 +3,7 @@ use crate::cli::commands::{build_partition_attributes, print_help, Command, Flag
 use crate::cli::{
   format::OutputFormat,
   output::{Output, ProgressBar},
+  render,
   validator::Validator,
   CliContext,
 };
@@ -15,6 +16,7 @@ use crate::modules::network::highspeed::{
   DeduplicationCache, RandomScanIterator, ScanRange, SynCookie, TokenBucket,
 };
 use crate::modules::network::scanner::{AdvancedScanner, PortScanner, ScanType, TimingTemplate};
+use crate::serde_json::Value;
 use crate::storage::service::StorageService;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,6 +34,31 @@ impl Command for ScanCommand {
 
   fn description(&self) -> &str {
     "Port scanning and network discovery"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let machine_output = match verb {
+      "scan" | "range" | "syn-scan" | "udp-scan" | "stealth" => {
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly)
+      }
+      _ => self.metadata().machine_output,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(machine_output)
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -380,23 +407,8 @@ impl ScanCommand {
       }
     }
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let ports_json: Vec<_> = open_ports
-        .iter()
-        .map(|result| port_result_to_json(result))
-        .collect();
-      Output::json_value(&json!({
-          "target": target.to_string(),
-          "preset": preset,
-          "open_count": open_ports.len(),
-          "ports": ports_json
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+    let payload = scan_ports_payload(target, preset, &open_ports);
+    if render::render_machine_output_with_yaml(ctx, "rb network ports scan", &payload, || {
       println!("target: {}", target);
       println!("preset: {}", preset);
       println!("open_count: {}", open_ports.len());
@@ -413,6 +425,8 @@ impl ScanCommand {
           println!("    banner: null");
         }
       }
+      Ok(())
+    })? {
       return Ok(());
     }
 
@@ -676,22 +690,8 @@ impl ScanCommand {
 
     let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
 
-    // JSON output
-    if format == OutputFormat::Json {
-      let ports_json: Vec<_> = open_ports
-        .iter()
-        .map(|result| range_result_to_json(result))
-        .collect();
-      Output::json_value(&json!({
-          "target": target.to_string(),
-          "range_start": start,
-          "range_end": end,
-          "threads": threads,
-          "timeout_ms": timeout,
-          "total_scanned": end - start + 1,
-          "open_count": open_ports.len(),
-          "ports": ports_json
-      }));
+    let payload = scan_range_payload(target, start, end, threads, timeout, &open_ports);
+    if render::render_machine_output(ctx, "rb network ports range", &payload)? {
       return Ok(());
     }
 
@@ -1099,27 +1099,21 @@ impl ScanCommand {
       })
       .collect();
 
-    // JSON output
-    if format == OutputFormat::Json {
-      let scan_type_str = match scan_type {
-        ScanType::Syn => "syn",
-        ScanType::Udp => "udp",
-        _ => "advanced",
-      };
-      let ports_json: Vec<_> = interesting
-        .iter()
-        .map(|result| advanced_result_to_json(result))
-        .collect();
-      Output::json_value(&json!({
-          "scan_type": scan_type_str,
-          "target": target.to_string(),
-          "preset": preset,
-          "threads": threads,
-          "timeout_ms": timeout,
-          "total_scanned": ports.len(),
-          "interesting_count": interesting.len(),
-          "ports": ports_json
-      }));
+    let payload = advanced_scan_payload(
+      scan_type,
+      target,
+      preset,
+      threads,
+      timeout,
+      ports.len(),
+      &interesting,
+    );
+    let route_name = match scan_type {
+      ScanType::Syn => "rb network ports syn-scan",
+      ScanType::Udp => "rb network ports udp-scan",
+      _ => "rb network ports advanced-scan",
+    };
+    if render::render_machine_output(ctx, route_name, &payload)? {
       return Ok(());
     }
 
@@ -1317,29 +1311,17 @@ impl ScanCommand {
       .filter(|r| r.state == PortState::Closed)
       .collect();
 
-    // JSON output
-    if format == OutputFormat::Json {
-      let scan_type_str = match scan_type {
-        ScanType::Fin => "fin",
-        ScanType::Null => "null",
-        ScanType::Xmas => "xmas",
-        _ => "stealth",
-      };
-      let open_filtered_json: Vec<_> = open_filtered
-        .iter()
-        .map(|result| advanced_result_to_json(result))
-        .collect();
-      Output::json_value(&json!({
-          "scan_type": scan_type_str,
-          "target": target.to_string(),
-          "preset": preset,
-          "threads": threads,
-          "timeout_ms": timeout,
-          "total_scanned": ports.len(),
-          "open_filtered_count": open_filtered.len(),
-          "closed_count": closed.len(),
-          "open_filtered_ports": open_filtered_json
-      }));
+    let payload = stealth_scan_payload(
+      scan_type,
+      target,
+      preset,
+      threads,
+      timeout,
+      ports.len(),
+      &open_filtered,
+      closed.len(),
+    );
+    if render::render_machine_output(ctx, "rb network ports stealth", &payload)? {
       return Ok(());
     }
 
@@ -1591,6 +1573,110 @@ fn advanced_result_to_json(
   })
 }
 
+fn scan_ports_payload(
+  target: std::net::IpAddr,
+  preset: &str,
+  open_ports: &[&crate::modules::network::scanner::PortScanResult],
+) -> Value {
+  let ports_json: Vec<Value> = open_ports
+    .iter()
+    .map(|result| port_result_to_json(result))
+    .collect();
+  json!({
+    "target": target.to_string(),
+    "preset": preset,
+    "open_count": open_ports.len(),
+    "ports": ports_json
+  })
+}
+
+fn scan_range_payload(
+  target: std::net::IpAddr,
+  start: u16,
+  end: u16,
+  threads: usize,
+  timeout: u64,
+  open_ports: &[&crate::modules::network::scanner::PortScanResult],
+) -> Value {
+  let ports_json: Vec<Value> = open_ports
+    .iter()
+    .map(|result| range_result_to_json(result))
+    .collect();
+  json!({
+    "target": target.to_string(),
+    "range_start": start,
+    "range_end": end,
+    "threads": threads,
+    "timeout_ms": timeout,
+    "total_scanned": end - start + 1,
+    "open_count": open_ports.len(),
+    "ports": ports_json
+  })
+}
+
+fn advanced_scan_payload(
+  scan_type: ScanType,
+  target: std::net::IpAddr,
+  preset: &str,
+  threads: usize,
+  timeout: u64,
+  total_scanned: usize,
+  interesting: &[&crate::modules::network::scanner::AdvancedScanResult],
+) -> Value {
+  let scan_type_str = match scan_type {
+    ScanType::Syn => "syn",
+    ScanType::Udp => "udp",
+    _ => "advanced",
+  };
+  let ports_json: Vec<Value> = interesting
+    .iter()
+    .map(|result| advanced_result_to_json(result))
+    .collect();
+  json!({
+    "scan_type": scan_type_str,
+    "target": target.to_string(),
+    "preset": preset,
+    "threads": threads,
+    "timeout_ms": timeout,
+    "total_scanned": total_scanned,
+    "interesting_count": interesting.len(),
+    "ports": ports_json
+  })
+}
+
+fn stealth_scan_payload(
+  scan_type: ScanType,
+  target: std::net::IpAddr,
+  preset: &str,
+  threads: usize,
+  timeout: u64,
+  total_scanned: usize,
+  open_filtered: &[&crate::modules::network::scanner::AdvancedScanResult],
+  closed_count: usize,
+) -> Value {
+  let scan_type_str = match scan_type {
+    ScanType::Fin => "fin",
+    ScanType::Null => "null",
+    ScanType::Xmas => "xmas",
+    _ => "stealth",
+  };
+  let open_filtered_json: Vec<Value> = open_filtered
+    .iter()
+    .map(|result| advanced_result_to_json(result))
+    .collect();
+  json!({
+    "scan_type": scan_type_str,
+    "target": target.to_string(),
+    "preset": preset,
+    "threads": threads,
+    "timeout_ms": timeout,
+    "total_scanned": total_scanned,
+    "open_filtered_count": open_filtered.len(),
+    "closed_count": closed_count,
+    "open_filtered_ports": open_filtered_json
+  })
+}
+
 /// Parse port specification like "1-1000,8080,8443"
 fn parse_port_spec(spec: &str) -> Result<Vec<u16>, String> {
   let mut ports = Vec::new();
@@ -1723,4 +1809,50 @@ struct PortIntelligence {
   os_hint: Option<String>,
   timing: Option<timing_analysis::TimingSignature>,
   confidence: f32,
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn scan_ports_payload_reports_open_count() {
+    let result = crate::modules::network::scanner::PortScanResult {
+      port: 443,
+      is_open: true,
+      service: Some("https".to_string()),
+      banner: Some("nginx".to_string()),
+    };
+    let payload = scan_ports_payload(
+      std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+      "common",
+      &[&result],
+    );
+    assert_eq!(payload["open_count"], 1);
+    assert_eq!(payload["ports"][0]["service"], "https");
+  }
+
+  #[test]
+  fn advanced_scan_payload_reports_scan_type() {
+    let result = crate::modules::network::scanner::AdvancedScanResult {
+      port: 22,
+      state: crate::protocols::raw::PortState::Open,
+      service: Some("ssh".to_string()),
+      rtt_ms: Some(12.5),
+      ttl: Some(64),
+      banner: None,
+    };
+    let payload = advanced_scan_payload(
+      ScanType::Syn,
+      std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)),
+      "common",
+      100,
+      500,
+      1000,
+      &[&result],
+    );
+    assert_eq!(payload["scan_type"], "syn");
+    assert_eq!(payload["interesting_count"], 1);
+    assert_eq!(payload["ports"][0]["port"], 22);
+  }
 }

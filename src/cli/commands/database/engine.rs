@@ -11,8 +11,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::cli::commands::print_help;
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use crate::storage::engine::{Database, DatabaseConfig};
 
 use super::DatabaseCommand;
@@ -46,14 +47,12 @@ fn engine_open(ctx: &CliContext) -> Result<(), String> {
     .ok_or("Missing database path.\nUsage: rb database engine open <path> [--password secret]")?;
 
   let path = Path::new(db_path);
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
   let read_only = ctx.has_flag("read-only");
 
   // Check for password
   let password = ctx.get_flag("password");
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_start("Opening database");
   }
 
@@ -73,21 +72,16 @@ fn engine_open(ctx: &CliContext) -> Result<(), String> {
 
   let db = db.map_err(|e| format!("Failed to open database: {}", e))?;
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
   let file_size = db.file_size().unwrap_or(0);
   let page_count = db.page_count();
 
-  if is_json {
-    Output::json_value(&json!({
-        "status": "opened",
-        "path": db_path,
-        "page_count": page_count,
-        "file_size_bytes": file_size,
-        "read_only": read_only,
-    }));
+  let payload = engine_open_payload(db_path, page_count, file_size, read_only);
+  if render::render_machine_output(ctx, "rb database engine open", &payload)? {
+    // Close properly before returning.
   } else {
     Output::success(&format!("Database opened: {}", db_path));
     Output::summary_line(&[
@@ -116,9 +110,6 @@ fn engine_info(ctx: &CliContext) -> Result<(), String> {
     return Err(format!("Database file not found: {}", db_path));
   }
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let config = DatabaseConfig {
     read_only: true,
     create: false,
@@ -138,15 +129,9 @@ fn engine_info(ctx: &CliContext) -> Result<(), String> {
     0
   };
 
-  if is_json {
-    Output::json_value(&json!({
-        "path": db_path,
-        "page_count": page_count,
-        "file_size_bytes": file_size,
-        "page_size_bytes": 4096,
-        "wal_exists": wal_exists,
-        "wal_size_bytes": wal_size,
-    }));
+  let payload = engine_info_payload(db_path, page_count, file_size, wal_exists, wal_size);
+  if render::render_machine_output(ctx, "rb database engine info", &payload)? {
+    return Ok(());
   } else {
     Output::header(&format!("Database: {}", db_path));
     println!();
@@ -177,9 +162,6 @@ fn engine_stats(ctx: &CliContext) -> Result<(), String> {
     return Err(format!("Database file not found: {}", db_path));
   }
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let config = DatabaseConfig {
     read_only: true,
     create: false,
@@ -197,16 +179,15 @@ fn engine_stats(ctx: &CliContext) -> Result<(), String> {
     0.0
   };
 
-  if is_json {
-    Output::json_value(&json!({
-        "cache": json!({
-            "hits": stats.hits,
-            "misses": stats.misses,
-            "evictions": stats.evictions,
-            "hit_rate_percent": hit_rate,
-        }),
-        "pages": page_count,
-    }));
+  let payload = engine_stats_payload(
+    stats.hits,
+    stats.misses,
+    stats.evictions,
+    hit_rate,
+    page_count,
+  );
+  if render::render_machine_output(ctx, "rb database engine stats", &payload)? {
+    return Ok(());
   } else {
     Output::header(&format!("Database Stats: {}", db_path));
     println!();
@@ -235,10 +216,7 @@ fn engine_checkpoint(ctx: &CliContext) -> Result<(), String> {
     return Err(format!("Database file not found: {}", db_path));
   }
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_start("Checkpointing database");
   }
 
@@ -255,16 +233,13 @@ fn engine_checkpoint(ctx: &CliContext) -> Result<(), String> {
     .checkpoint()
     .map_err(|e| format!("Checkpoint failed: {}", e))?;
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
-  if is_json {
-    Output::json_value(&json!({
-        "status": "completed",
-        "pages_checkpointed": result.pages_checkpointed,
-        "transactions_processed": result.transactions_processed,
-    }));
+  let payload = engine_checkpoint_payload(result.pages_checkpointed, result.transactions_processed);
+  if render::render_machine_output(ctx, "rb database engine checkpoint", &payload)? {
+    // Close properly before returning.
   } else {
     Output::success("Checkpoint completed");
     Output::summary_line(&[
@@ -277,4 +252,78 @@ fn engine_checkpoint(ctx: &CliContext) -> Result<(), String> {
     .map_err(|e| format!("Failed to close database: {}", e))?;
 
   Ok(())
+}
+
+fn engine_open_payload(db_path: &str, page_count: u32, file_size: u64, read_only: bool) -> Value {
+  json!({
+    "status": "opened",
+    "path": db_path,
+    "page_count": page_count,
+    "file_size_bytes": file_size,
+    "read_only": read_only,
+  })
+}
+
+fn engine_info_payload(
+  db_path: &str,
+  page_count: u32,
+  file_size: u64,
+  wal_exists: bool,
+  wal_size: u64,
+) -> Value {
+  json!({
+    "path": db_path,
+    "page_count": page_count,
+    "file_size_bytes": file_size,
+    "page_size_bytes": 4096,
+    "wal_exists": wal_exists,
+    "wal_size_bytes": wal_size,
+  })
+}
+
+fn engine_stats_payload(
+  hits: u64,
+  misses: u64,
+  evictions: u64,
+  hit_rate: f64,
+  page_count: u32,
+) -> Value {
+  json!({
+    "cache": json!({
+      "hits": hits,
+      "misses": misses,
+      "evictions": evictions,
+      "hit_rate_percent": hit_rate,
+    }),
+    "pages": page_count,
+  })
+}
+
+fn engine_checkpoint_payload(pages_checkpointed: u64, transactions_processed: u64) -> Value {
+  json!({
+    "status": "completed",
+    "pages_checkpointed": pages_checkpointed,
+    "transactions_processed": transactions_processed,
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn engine_open_payload_reports_mode() {
+    let payload = engine_open_payload("scan.rdb", 32, 4096, true);
+    assert_eq!(payload["status"], "opened");
+    assert_eq!(payload["read_only"], true);
+    assert_eq!(payload["page_count"], 32);
+  }
+
+  #[test]
+  fn engine_stats_payload_nests_cache_data() {
+    let payload = engine_stats_payload(10, 5, 2, 66.6, 99);
+    assert_eq!(payload["cache"]["hits"], 10);
+    assert_eq!(payload["cache"]["evictions"], 2);
+    assert_eq!(payload["pages"], 99);
+  }
 }

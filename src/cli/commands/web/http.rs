@@ -216,12 +216,30 @@ pub fn http2(ctx: &CliContext) -> Result<(), String> {
 
   maybe_persist_http2(ctx, url, &method, &request.authority, &response)?;
 
-  let format = ctx.get_output_format();
-  if format == OutputFormat::Json {
-    render_http2_json(url, &method, &request.authority, &response)?;
-  } else {
-    render_http2_response(url, &method, &response)?;
+  let payload = http2_payload(url, &method, &request.authority, &response);
+  if render::render_machine_output_with_yaml(ctx, "rb web asset http2", &payload, || {
+    println!("request:");
+    println!("  url: {}", url);
+    println!("  method: {}", method);
+    println!("  authority: {}", request.authority);
+    println!("response:");
+    println!("  status: {}", response.status);
+    println!("  body_text: |");
+    for line in String::from_utf8_lossy(&response.body).lines() {
+      println!("    {}", line);
+    }
+    println!("  body_size: {}", response.body.len());
+    println!("  headers:");
+    for header in &response.headers {
+      println!("    - name: {}", header.name);
+      println!("      value: \"{}\"", header.value.replace('"', "\\\""));
+    }
+    Ok(())
+  })? {
+    return Ok(());
   }
+
+  render_http2_response(url, &method, &response)?;
 
   Ok(())
 }
@@ -254,14 +272,14 @@ fn render_http2_response(url: &str, method: &str, response: &Http2Response) -> R
   Ok(())
 }
 
-/// Render HTTP/2 response as JSON
+/// Build HTTP/2 response payload
 #[cfg(not(target_os = "windows"))]
-fn render_http2_json(
+fn http2_payload(
   url: &str,
   method: &str,
   authority: &str,
   response: &Http2Response,
-) -> Result<(), String> {
+) -> crate::serde_json::Value {
   let headers: Vec<_> = response
     .headers
     .iter()
@@ -273,7 +291,7 @@ fn render_http2_json(
     })
     .collect();
   let body_text = String::from_utf8_lossy(&response.body).to_string();
-  Output::json_value(&json!({
+  json!({
       "request": json!({
           "url": url,
           "method": method,
@@ -285,9 +303,7 @@ fn render_http2_json(
           "body_text": body_text,
           "body_size": response.body.len()
       })
-  }));
-
-  Ok(())
+  })
 }
 
 /// Inspect HTTP headers

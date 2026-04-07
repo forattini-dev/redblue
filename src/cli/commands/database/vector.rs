@@ -6,8 +6,9 @@
 //! - info: Display index statistics
 
 use crate::cli::commands::print_help;
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
+use crate::serde_json::Value;
 use crate::storage::engine::distance::DistanceMetric;
 use crate::storage::{EntityData, RedDB};
 use std::collections::HashSet;
@@ -143,30 +144,21 @@ fn vector_search(ctx: &CliContext) -> Result<(), String> {
     .get_flag("collection")
     .ok_or("Missing --collection <name> for vector search")?;
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let db = RedDB::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
   let results = db.similar(&collection, &query_vec, k);
-
-  if is_json {
-    let results_json: Vec<_> = results
-      .iter()
-      .map(|result| {
-        json!({
-            "id": result.entity_id.raw(),
-            "score": result.score,
-            "distance": 1.0 - result.score,
-        })
+  let results_json: Vec<_> = results
+    .iter()
+    .map(|result| {
+      json!({
+        "id": result.entity_id.raw(),
+        "score": result.score,
+        "distance": 1.0 - result.score,
       })
-      .collect();
-    Output::json_value(&json!({
-        "query_dimension": dimension,
-        "k": k,
-        "distance_metric": distance_str,
-        "collection": collection,
-        "results": results_json,
-    }));
+    })
+    .collect();
+  let payload = vector_search_payload(dimension, k, &distance_str, &collection, &results_json);
+  if render::render_machine_output(ctx, "rb database vector search", &payload)? {
+    return Ok(());
   } else {
     Output::header("Vector Similarity Search");
     Output::summary_line(&[
@@ -210,18 +202,15 @@ fn vector_index(ctx: &CliContext) -> Result<(), String> {
   let db = RedDB::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
   let stats = collect_vector_stats(&db, &collection)?;
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
-  if is_json {
-    Output::json_value(&json!({
-        "status": "ready",
-        "type": index_type,
-        "collection": collection,
-        "vector_entities": stats.vector_entities,
-        "embedding_entries": stats.embedding_entries,
-        "dimensions": stats.dimensions,
-    }));
+  let payload = vector_index_payload(
+    &index_type,
+    &collection,
+    stats.vector_entities,
+    stats.embedding_entries,
+    &stats.dimensions,
+  );
+  if render::render_machine_output(ctx, "rb database vector index", &payload)? {
+    return Ok(());
   } else {
     Output::success(&format!("Vector index ready (type: {})", index_type));
     Output::item("Collection", &collection);
@@ -245,18 +234,15 @@ fn vector_info(ctx: &CliContext) -> Result<(), String> {
   let db = RedDB::open(&db_path).map_err(|e| format!("Failed to open database: {}", e))?;
   let stats = collect_vector_stats(&db, &collection)?;
 
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
-  if is_json {
-    Output::json_value(&json!({
-        "collection": collection,
-        "total_entities": stats.total_entities,
-        "vector_entities": stats.vector_entities,
-        "embedding_entries": stats.embedding_entries,
-        "dimensions": stats.dimensions,
-        "distance_metric": "cosine",
-    }));
+  let payload = vector_info_payload(
+    &collection,
+    stats.total_entities,
+    stats.vector_entities,
+    stats.embedding_entries,
+    &stats.dimensions,
+  );
+  if render::render_machine_output(ctx, "rb database vector info", &payload)? {
+    return Ok(());
   } else {
     Output::header("Vector Index Info");
     println!();
@@ -269,4 +255,74 @@ fn vector_info(ctx: &CliContext) -> Result<(), String> {
   }
 
   Ok(())
+}
+
+fn vector_search_payload(
+  dimension: usize,
+  k: usize,
+  distance_str: &str,
+  collection: &str,
+  results: &[Value],
+) -> Value {
+  json!({
+    "query_dimension": dimension,
+    "k": k,
+    "distance_metric": distance_str,
+    "collection": collection,
+    "results": results,
+  })
+}
+
+fn vector_index_payload(
+  index_type: &str,
+  collection: &str,
+  vector_entities: usize,
+  embedding_entries: usize,
+  dimensions: &[usize],
+) -> Value {
+  json!({
+    "status": "ready",
+    "type": index_type,
+    "collection": collection,
+    "vector_entities": vector_entities,
+    "embedding_entries": embedding_entries,
+    "dimensions": dimensions,
+  })
+}
+
+fn vector_info_payload(
+  collection: &str,
+  total_entities: usize,
+  vector_entities: usize,
+  embedding_entries: usize,
+  dimensions: &[usize],
+) -> Value {
+  json!({
+    "collection": collection,
+    "total_entities": total_entities,
+    "vector_entities": vector_entities,
+    "embedding_entries": embedding_entries,
+    "dimensions": dimensions,
+    "distance_metric": "cosine",
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn vector_index_payload_reports_dimensions() {
+    let payload = vector_index_payload("ivf", "assets", 12, 24, &[384, 768]);
+    assert_eq!(payload["status"], "ready");
+    assert_eq!(payload["dimensions"].as_array().unwrap().len(), 2);
+  }
+
+  #[test]
+  fn vector_info_payload_reports_collection() {
+    let payload = vector_info_payload("docs", 100, 55, 80, &[1536]);
+    assert_eq!(payload["collection"], "docs");
+    assert_eq!(payload["vector_entities"], 55);
+    assert_eq!(payload["distance_metric"], "cosine");
+  }
 }

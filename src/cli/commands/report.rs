@@ -7,11 +7,11 @@
 //! - rb report preview <target>
 //! - rb report stats
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::graph::ShadowGraph;
 use crate::modules::report::pentest::PentestReport;
+use crate::serde_json::Value;
 use crate::storage::segments::loot::LootSegment;
 
 use super::{Command, Flag, Route};
@@ -36,6 +36,26 @@ impl Command for ReportCommand {
 
   fn description(&self) -> &str {
     "Generate pentest reports from loot and graph data"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -194,6 +214,11 @@ fn execute_generate(ctx: &CliContext) -> Result<(), String> {
   // Write report
   fs::write(&output_path, &content).map_err(|e| format!("Failed to write report: {}", e))?;
 
+  let payload = generate_payload(&report, target, format, &output_path);
+  if render::render_machine_output(ctx, "rb report pentest generate", &payload)? {
+    return Ok(());
+  }
+
   Output::success(&format!("Report generated: {}", output_path.display()));
   println!();
   println!("  Format:    {}", format.to_uppercase());
@@ -225,6 +250,11 @@ fn execute_preview(ctx: &CliContext) -> Result<(), String> {
   // Try to load graph for insights
   if let Some(graph) = load_graph() {
     report = report.with_graph_insights(&graph);
+  }
+
+  let payload = preview_payload(&report, target);
+  if render::render_machine_output(ctx, "rb report pentest preview", &payload)? {
+    return Ok(());
   }
 
   let counts = report.base.severity_counts();
@@ -336,12 +366,6 @@ fn execute_preview(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_stats(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx
-    .flags
-    .get("format")
-    .map(|s| s.as_str())
-    .unwrap_or("text");
-
   // Load loot data
   let mut loot = load_loot();
   let entries = loot.all();
@@ -373,55 +397,43 @@ fn execute_stats(ctx: &CliContext) -> Result<(), String> {
   // Graph stats
   let graph_stats = load_graph().map(|g| g.stats());
 
-  match format {
-    "json" => {
-      let graph = graph_stats.map(|stats| {
-        json!({
-            "nodes": stats.total_nodes,
-            "edges": stats.total_edges,
-            "components": stats.connected_components,
-            "max_depth": stats.max_depth
-        })
-      });
-      Output::json_value(&json!({
-          "loot": json!({
-              "total": total_entries,
-              "vulnerabilities": vulns,
-              "credentials": creds,
-              "services": services,
-              "confirmed": confirmed,
-              "potential": potential
-          }),
-          "graph": graph
-      }));
-    }
-    _ => {
-      Output::header("Report Statistics");
-      println!();
+  let payload = stats_payload(
+    total_entries,
+    vulns,
+    creds,
+    services,
+    confirmed,
+    potential,
+    graph_stats.clone(),
+  );
+  if render::render_machine_output(ctx, "rb report pentest stats", &payload)? {
+    return Ok(());
+  }
 
-      println!("  \x1b[1mLoot Data\x1b[0m");
-      println!("  ────────────────────────────────────────");
-      println!("  Total entries:    {}", total_entries);
-      println!("  Vulnerabilities:  {}", vulns);
-      println!("  Credentials:      {}", creds);
-      println!("  Services:         {}", services);
-      println!("  Confirmed:        {}", confirmed);
-      println!("  Potential:        {}", potential);
-      println!();
+  Output::header("Report Statistics");
+  println!();
 
-      if let Some(stats) = graph_stats {
-        println!("  \x1b[1mGraph Data\x1b[0m");
-        println!("  ────────────────────────────────────────");
-        println!("  Nodes:            {}", stats.total_nodes);
-        println!("  Edges:            {}", stats.total_edges);
-        println!("  Components:       {}", stats.connected_components);
-        println!("  Max depth:        {}", stats.max_depth);
-        println!();
-      } else {
-        println!("  \x1b[90mNo graph data available. Use 'rb loot graph rebuild' first.\x1b[0m");
-        println!();
-      }
-    }
+  println!("  \x1b[1mLoot Data\x1b[0m");
+  println!("  ────────────────────────────────────────");
+  println!("  Total entries:    {}", total_entries);
+  println!("  Vulnerabilities:  {}", vulns);
+  println!("  Credentials:      {}", creds);
+  println!("  Services:         {}", services);
+  println!("  Confirmed:        {}", confirmed);
+  println!("  Potential:        {}", potential);
+  println!();
+
+  if let Some(stats) = graph_stats {
+    println!("  \x1b[1mGraph Data\x1b[0m");
+    println!("  ────────────────────────────────────────");
+    println!("  Nodes:            {}", stats.total_nodes);
+    println!("  Edges:            {}", stats.total_edges);
+    println!("  Components:       {}", stats.connected_components);
+    println!("  Max depth:        {}", stats.max_depth);
+    println!();
+  } else {
+    println!("  \x1b[90mNo graph data available. Use 'rb loot graph rebuild' first.\x1b[0m");
+    println!();
   }
 
   Ok(())
@@ -471,6 +483,103 @@ fn truncate(s: &str, max_len: usize) -> String {
   }
 }
 
+fn generate_payload(
+  report: &PentestReport,
+  target: &str,
+  format: &str,
+  output_path: &PathBuf,
+) -> Value {
+  json!({
+    "target": target,
+    "format": format,
+    "output_path": output_path.display().to_string(),
+    "findings": report.base.findings.len(),
+    "insights": report.graph_insights.len(),
+    "paths": report.attack_paths.len()
+  })
+}
+
+fn preview_payload(report: &PentestReport, target: &str) -> Value {
+  let counts = report.base.severity_counts();
+  let mut sorted_findings = report.base.findings.clone();
+  sorted_findings.sort_by(|a, b| b.severity.cmp(&a.severity));
+
+  let top_findings: Vec<_> = sorted_findings
+    .iter()
+    .take(5)
+    .map(|finding| {
+      json!({
+        "title": finding.title.clone(),
+        "severity": finding.severity.as_str()
+      })
+    })
+    .collect();
+  let insights: Vec<_> = report
+    .graph_insights
+    .iter()
+    .take(3)
+    .map(|insight| Value::String(insight.clone()))
+    .collect();
+  let recommendations: Vec<_> = report
+    .recommendations
+    .iter()
+    .take(3)
+    .map(|rec| {
+      json!({
+        "title": rec.title.clone(),
+        "priority": rec.priority.as_str()
+      })
+    })
+    .collect();
+  let severity_summary = json!({
+    "critical": counts.get(&crate::modules::common::Severity::Critical).copied().unwrap_or(0),
+    "high": counts.get(&crate::modules::common::Severity::High).copied().unwrap_or(0),
+    "medium": counts.get(&crate::modules::common::Severity::Medium).copied().unwrap_or(0),
+    "low": counts.get(&crate::modules::common::Severity::Low).copied().unwrap_or(0),
+    "info": counts.get(&crate::modules::common::Severity::Info).copied().unwrap_or(0)
+  });
+
+  json!({
+    "target": target,
+    "severity_summary": severity_summary,
+    "top_findings": top_findings,
+    "insights": insights,
+    "recommendations": recommendations
+  })
+}
+
+fn stats_payload(
+  total_entries: usize,
+  vulns: usize,
+  creds: usize,
+  services: usize,
+  confirmed: usize,
+  potential: usize,
+  graph_stats: Option<crate::modules::graph::GraphStats>,
+) -> Value {
+  let graph = graph_stats.map(|stats| {
+    json!({
+      "nodes": stats.total_nodes,
+      "edges": stats.total_edges,
+      "components": stats.connected_components,
+      "max_depth": stats.max_depth
+    })
+  });
+  let loot = json!({
+    "total": total_entries,
+    "vulnerabilities": vulns,
+    "credentials": creds,
+    "services": services,
+    "confirmed": confirmed,
+    "potential": potential
+  });
+
+  json!({
+    "loot": loot,
+    "graph": graph
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -480,5 +589,27 @@ mod tests {
     assert_eq!(sanitize_filename("192.168.1.0/24"), "192.168.1.0_24");
     assert_eq!(sanitize_filename("example.com"), "example.com");
     assert_eq!(sanitize_filename("test:target"), "test_target");
+  }
+
+  #[test]
+  fn test_stats_payload_includes_loot_counts() {
+    let payload = stats_payload(10, 4, 2, 1, 7, 3, None);
+    assert_eq!(payload["loot"]["total"], 10);
+    assert_eq!(payload["loot"]["vulnerabilities"], 4);
+    assert!(payload["graph"].is_null());
+  }
+
+  #[test]
+  fn test_generate_payload_includes_output_path() {
+    let report = PentestReport::from_loot(&[], "example.com");
+    let payload = generate_payload(
+      &report,
+      "example.com",
+      "md",
+      &PathBuf::from("report-example.md"),
+    );
+    assert_eq!(payload["target"], "example.com");
+    assert_eq!(payload["format"], "md");
+    assert_eq!(payload["output_path"], "report-example.md");
   }
 }

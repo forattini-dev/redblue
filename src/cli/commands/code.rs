@@ -1,11 +1,11 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::uuid::Uuid;
 use crate::json;
 use crate::modules::code::secrets::{SecretValidator, ValidationStatus};
 use crate::modules::collection::secrets::git_scanner::GitScanner;
 use crate::modules::collection::secrets::{SecretFinding, SecretScanner};
+use crate::serde_json::Value;
 use std::fs;
 use std::process::Command as ProcessCommand;
 
@@ -22,6 +22,26 @@ impl Command for CodeCommand {
 
   fn description(&self) -> &str {
     "Scan code for secrets, API keys, and credentials (Gitleaks replacement)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -96,7 +116,7 @@ impl Command for CodeCommand {
     match verb.as_str() {
       "scan" => self.scan(ctx),
       "validate" => self.validate(ctx),
-      "providers" => self.list_providers(),
+      "providers" => self.list_providers(ctx),
       _ => {
         print_help(self);
         Err(format!(
@@ -115,16 +135,10 @@ impl CodeCommand {
       .as_ref()
       .ok_or_else(|| "Missing target path. Syntax: rb code secrets scan <path>".to_string())?;
 
-    Output::header("Secret Scanner (Gitleaks)");
-    Output::item("Target", target);
-
-    // Get output format
-    let output_format = ctx
-      .flags
-      .get("output")
-      .or_else(|| ctx.flags.get("o"))
-      .map(|s| s.as_str())
-      .unwrap_or("text");
+    if !ctx.wants_machine_output() {
+      Output::header("Secret Scanner (Gitleaks)");
+      Output::item("Target", target);
+    }
 
     // Check if target is a URL
     let is_url =
@@ -134,27 +148,34 @@ impl CodeCommand {
       self.scan_remote_repo(target, ctx)?
     } else {
       // Local scan
-      Output::spinner_start(&format!("Scanning {} for secrets", target));
+      if !ctx.wants_machine_output() {
+        Output::spinner_start(&format!("Scanning {} for secrets", target));
+      }
       let scanner = SecretScanner::new();
       let res = scanner.scan_directory(target)?;
-      Output::spinner_done();
+      if !ctx.wants_machine_output() {
+        Output::spinner_done();
+      }
       res
     };
 
-    // Display results based on output format
-    match output_format {
-      "json" => self.display_json(&findings)?,
-      _ => self.display_text(&findings, target)?,
+    let payload = self.findings_payload(&findings);
+    if render::render_machine_output(ctx, "rb code secrets scan", &payload)? {
+      return Ok(());
     }
+
+    self.display_text(&findings, target)?;
 
     Ok(())
   }
 
-  fn scan_remote_repo(&self, url: &str, _ctx: &CliContext) -> Result<Vec<SecretFinding>, String> {
+  fn scan_remote_repo(&self, url: &str, ctx: &CliContext) -> Result<Vec<SecretFinding>, String> {
     let temp_dir = std::env::temp_dir().join(format!("redblue-scan-{}", Uuid::new_v4()));
     let temp_path = temp_dir.to_string_lossy().to_string();
 
-    Output::info(&format!("Cloning {} to temporary directory...", url));
+    if !ctx.wants_machine_output() {
+      Output::info(&format!("Cloning {} to temporary directory...", url));
+    }
 
     let status = ProcessCommand::new("git")
       .arg("clone")
@@ -167,22 +188,28 @@ impl CodeCommand {
       return Err("Git clone failed".to_string());
     }
 
-    Output::success("Repository cloned successfully");
-    Output::spinner_start("Scanning git history for secrets...");
+    if !ctx.wants_machine_output() {
+      Output::success("Repository cloned successfully");
+      Output::spinner_start("Scanning git history for secrets...");
+    }
 
     let git_scanner = GitScanner::new();
     // Use scan_history for remote repos to catch secrets in commits
     let findings = git_scanner.scan_history(&temp_path);
 
-    Output::spinner_done();
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
+    }
 
     // Cleanup
     if let Err(e) = fs::remove_dir_all(&temp_path) {
-      Output::error(&format!(
-        "Failed to clean up temporary directory {}: {}",
-        temp_path, e
-      ));
-    } else {
+      if !ctx.wants_machine_output() {
+        Output::error(&format!(
+          "Failed to clean up temporary directory {}: {}",
+          temp_path, e
+        ));
+      }
+    } else if !ctx.wants_machine_output() {
       Output::info("Temporary directory cleaned up");
     }
 
@@ -274,30 +301,6 @@ impl CodeCommand {
     Ok(())
   }
 
-  fn display_json(&self, findings: &[SecretFinding]) -> Result<(), String> {
-    let findings_json: Vec<_> = findings
-      .iter()
-      .map(|finding| {
-        json!({
-            "file": finding.file.clone(),
-            "line": finding.line,
-            "column": finding.column,
-            "rule_id": finding.rule_id.clone(),
-            "description": finding.description.clone(),
-            "secret": self.mask_secret(&finding.secret),
-            "entropy": finding.entropy,
-            "line_content": finding.line_content.clone()
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "findings": findings_json,
-        "total": findings.len()
-    }));
-
-    Ok(())
-  }
-
   /// Mask secret for display (show first 4 and last 4 chars)
   fn mask_secret(&self, secret: &str) -> String {
     if secret.len() <= 12 {
@@ -309,22 +312,15 @@ impl CodeCommand {
     format!("{}...{}", start, end)
   }
 
-  /// Escape JSON string
-  fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\")
-      .replace('"', "\\\"")
-      .replace('\n', "\\n")
-      .replace('\r', "\\r")
-      .replace('\t', "\\t")
-  }
-
   /// Validate a secret against its provider API
   fn validate(&self, ctx: &CliContext) -> Result<(), String> {
     let secret = ctx.target.as_ref().ok_or_else(|| {
       "Missing secret. Syntax: rb code secrets validate <secret> --provider <name>".to_string()
     })?;
 
-    Output::header("Secret Validator");
+    if !ctx.wants_machine_output() {
+      Output::header("Secret Validator");
+    }
 
     let validator = SecretValidator::new();
 
@@ -332,28 +328,43 @@ impl CodeCommand {
     let provider = ctx.flags.get("provider").or_else(|| ctx.flags.get("p"));
 
     let result = if let Some(provider_name) = provider {
-      Output::item("Provider", provider_name);
-      Output::item("Secret", &self.mask_secret(secret));
-      Output::spinner_start("Validating secret...");
+      if !ctx.wants_machine_output() {
+        Output::item("Provider", provider_name);
+        Output::item("Secret", &self.mask_secret(secret));
+        Output::spinner_start("Validating secret...");
+      }
       validator.validate(secret, provider_name)
     } else {
       // Try to auto-detect provider from secret pattern
-      Output::item("Secret", &self.mask_secret(secret));
-      Output::info("No provider specified, attempting auto-detection...");
-      Output::spinner_start("Validating secret...");
+      if !ctx.wants_machine_output() {
+        Output::item("Secret", &self.mask_secret(secret));
+        Output::info("No provider specified, attempting auto-detection...");
+        Output::spinner_start("Validating secret...");
+      }
 
       // Try to detect provider from secret prefix
       let detected_provider = self.detect_provider_from_secret(secret);
       if let Some(provider_name) = detected_provider {
-        Output::item("Detected provider", provider_name);
+        if !ctx.wants_machine_output() {
+          Output::item("Detected provider", provider_name);
+        }
         validator.validate(secret, provider_name)
       } else {
-        Output::spinner_done();
+        if !ctx.wants_machine_output() {
+          Output::spinner_done();
+        }
         return Err("Could not auto-detect provider. Please specify --provider <name>".to_string());
       }
     };
 
-    Output::spinner_done();
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
+    }
+
+    let payload = Self::validation_payload(&result);
+    if render::render_machine_output(ctx, "rb code secrets validate", &payload)? {
+      return Ok(());
+    }
 
     // Display result
     match result.status {
@@ -407,12 +418,20 @@ impl CodeCommand {
   }
 
   /// List all supported secret validation providers
-  fn list_providers(&self) -> Result<(), String> {
-    Output::header("Supported Secret Providers");
-
+  fn list_providers(&self, ctx: &CliContext) -> Result<(), String> {
     let validator = SecretValidator::new();
     let mut providers: Vec<&str> = validator.supported_providers();
     providers.sort();
+
+    let payload = json!({
+      "total": providers.len(),
+      "providers": providers,
+    });
+    if render::render_machine_output(ctx, "rb code secrets providers", &payload)? {
+      return Ok(());
+    }
+
+    Output::header("Supported Secret Providers");
 
     println!("\n\x1b[1m{} providers available:\x1b[0m\n", providers.len());
 
@@ -579,5 +598,99 @@ impl CodeCommand {
     }
 
     None
+  }
+
+  fn findings_payload(&self, findings: &[SecretFinding]) -> Value {
+    let findings_json: Vec<_> = findings
+      .iter()
+      .map(|finding| {
+        json!({
+          "file": finding.file.clone(),
+          "line": finding.line,
+          "column": finding.column,
+          "rule_id": finding.rule_id.clone(),
+          "description": finding.description.clone(),
+          "secret": self.mask_secret(&finding.secret),
+          "entropy": finding.entropy,
+          "line_content": finding.line_content.clone(),
+          "severity": finding.severity.as_str(),
+          "pattern_name": finding.pattern_name.clone(),
+          "matched": finding.matched.clone(),
+          "secret_type": finding.secret_type.clone()
+        })
+      })
+      .collect();
+
+    json!({
+      "findings": findings_json,
+      "total": findings.len()
+    })
+  }
+
+  fn validation_payload(
+    result: &crate::modules::code::secrets::validator::ValidationResult,
+  ) -> Value {
+    json!({
+      "provider": result.provider.clone(),
+      "is_valid": result.is_valid,
+      "status": result.status.to_string(),
+      "info": result.info.clone(),
+      "error": result.error.clone(),
+      "response_time_ms": result.response_time_ms
+    })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::code::secrets::validator::ValidationResult;
+  use crate::modules::common::Severity;
+  use std::collections::HashMap;
+
+  #[test]
+  fn findings_payload_includes_masked_secret_and_total() {
+    let command = CodeCommand;
+    let payload = command.findings_payload(&[SecretFinding {
+      file: "src/main.rs".to_string(),
+      line: Some(12),
+      column: 8,
+      rule_id: "github-token".to_string(),
+      description: "GitHub token".to_string(),
+      secret: "ghp_1234567890ABCDEFGHIJ".to_string(),
+      severity: Severity::High,
+      entropy: Some(4.2),
+      pattern_name: "github".to_string(),
+      matched: "ghp_1234567890ABCDEFGHIJ".to_string(),
+      line_content: "token = \"ghp_1234567890ABCDEFGHIJ\"".to_string(),
+      secret_type: "token".to_string(),
+    }]);
+
+    assert_eq!(payload["total"], 1);
+    assert_eq!(payload["findings"][0]["file"], "src/main.rs");
+    assert_eq!(payload["findings"][0]["severity"], "high");
+    assert!(payload["findings"][0]["secret"]
+      .as_str()
+      .unwrap()
+      .contains("..."));
+  }
+
+  #[test]
+  fn validation_payload_includes_status_and_provider() {
+    let mut info = HashMap::new();
+    info.insert("account".to_string(), "acme".to_string());
+    let payload = CodeCommand::validation_payload(&ValidationResult {
+      provider: "github".to_string(),
+      is_valid: true,
+      status: ValidationStatus::Valid,
+      info,
+      error: None,
+      response_time_ms: 87,
+    });
+
+    assert_eq!(payload["provider"], "github");
+    assert_eq!(payload["is_valid"], true);
+    assert_eq!(payload["status"], "VALID");
+    assert_eq!(payload["response_time_ms"], 87);
   }
 }

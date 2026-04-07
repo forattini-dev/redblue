@@ -93,6 +93,52 @@ impl Command for DatabaseCommand {
     }
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match self.mode {
+      DatabaseMode::Query
+        if matches!(
+          verb,
+          "summary"
+            | "partitions"
+            | "ports"
+            | "dns"
+            | "subdomains"
+            | "http"
+            | "tls"
+            | "whois"
+            | "hosts"
+        ) =>
+      {
+        crate::cli::schema::JsonSupport::Guaranteed
+      }
+      DatabaseMode::Engine if matches!(verb, "open" | "info" | "stats" | "checkpoint") => {
+        crate::cli::schema::JsonSupport::Guaranteed
+      }
+      DatabaseMode::Vector if matches!(verb, "search" | "index" | "info") => {
+        crate::cli::schema::JsonSupport::Guaranteed
+      }
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
+
   fn routes(&self) -> Vec<Route> {
     match self.mode {
       DatabaseMode::Query => vec![

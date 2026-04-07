@@ -44,7 +44,8 @@ impl Command for ReconCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "subdomains" | "whois" | "harvest" | "urls" => crate::cli::schema::RouteMetadata::new()
+      "subdomains" | "whois" | "rdap" | "harvest" | "urls" | "email" | "asn" | "breach"
+      | "secrets" | "dorks" | "social" | "vuln" => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(
           crate::cli::schema::MachineOutputMetadata::new()

@@ -5,7 +5,7 @@
 ///
 /// ⚠️ AUTHORIZED USE ONLY - For penetration testing, CTFs, and educational purposes.
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::CliContext;
+use crate::cli::{render, CliContext};
 use crate::json;
 use crate::modules::network::broker::{Broker, BrokerConfig};
 use crate::modules::network::netcat::{IpVersion, Netcat, NetcatConfig, Protocol};
@@ -31,6 +31,29 @@ impl Command for NetcatCommand {
 
   fn description(&self) -> &str {
     "Netcat - Network Swiss Army Knife for TCP/UDP communication"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let machine_output = match verb {
+      "scan" => crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      _ => self.metadata().machine_output,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(machine_output)
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -420,11 +443,8 @@ impl NetcatCommand {
       .and_then(|s| s.parse::<u64>().ok())
       .unwrap_or(2);
 
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
-    // For JSON output, do a direct connection test and output result
-    if is_json {
+    // For machine output, do a direct connection test and return structured status
+    if ctx.wants_machine_output() {
       use std::net::{TcpStream, ToSocketAddrs};
       let timeout = Duration::from_secs(timeout_secs);
       let start = std::time::Instant::now();
@@ -434,23 +454,15 @@ impl NetcatCommand {
       let addrs: Vec<_> = match addr_str.to_socket_addrs() {
         Ok(a) => a.collect(),
         Err(e) => {
-          crate::cli::output::Output::json_value(&json!({
-              "host": host,
-              "port": port,
-              "status": "error",
-              "error": format!("DNS resolution failed: {}", e),
-          }));
+          let payload = nc_scan_error_payload(host, port, &format!("DNS resolution failed: {}", e));
+          render::render_machine_output(ctx, "rb network nc scan", &payload)?;
           return Ok(());
         }
       };
 
       if addrs.is_empty() {
-        crate::cli::output::Output::json_value(&json!({
-            "host": host,
-            "port": port,
-            "status": "error",
-            "error": "No addresses found",
-        }));
+        let payload = nc_scan_error_payload(host, port, "No addresses found");
+        render::render_machine_output(ctx, "rb network nc scan", &payload)?;
         return Ok(());
       }
 
@@ -458,7 +470,7 @@ impl NetcatCommand {
       let result = TcpStream::connect_timeout(&addrs[0], timeout);
       let elapsed_ms = start.elapsed().as_millis() as u64;
 
-      let value = match result {
+      let payload = match result {
         Ok(_) => json!({
             "host": host,
             "port": port,
@@ -484,7 +496,7 @@ impl NetcatCommand {
           })
         }
       };
-      crate::cli::output::Output::json_value(&value);
+      render::render_machine_output(ctx, "rb network nc scan", &payload)?;
       return Ok(());
     }
 
@@ -694,4 +706,13 @@ impl NetcatCommand {
   fn connect_unix(&self, _ctx: &CliContext, _host: &str) -> Result<(), String> {
     Err("Unix domain sockets are only supported on Unix systems".to_string())
   }
+}
+
+fn nc_scan_error_payload(host: &str, port: u16, error: &str) -> crate::serde_json::Value {
+  json!({
+    "host": host,
+    "port": port,
+    "status": "error",
+    "error": error,
+  })
 }

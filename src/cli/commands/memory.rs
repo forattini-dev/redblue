@@ -12,13 +12,15 @@
 #[cfg(target_os = "linux")]
 use crate::cli::commands::{print_help, Command, Flag, Route};
 #[cfg(target_os = "linux")]
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 #[cfg(target_os = "linux")]
 use crate::json;
 #[cfg(target_os = "linux")]
 use crate::modules::memory::{
   parse_maps, Pattern, PatternScanner, ProcessMemory, ScanType, Scanner, ValueType,
 };
+#[cfg(target_os = "linux")]
+use crate::serde_json::Value;
 
 /// Process information for listing
 #[cfg(target_os = "linux")]
@@ -46,6 +48,26 @@ impl Command for MemoryCommand {
 
   fn description(&self) -> &str {
     "Process memory inspection and manipulation (Cheat Engine-style)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -192,14 +214,11 @@ impl MemoryCommand {
   }
 
   fn cmd_list(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let filter = ctx.flags.get("filter");
     let user_only = ctx.flags.contains_key("user") || !ctx.flags.contains_key("all");
     let current_uid = unsafe { libc::getuid() };
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("Running Processes");
     }
 
@@ -244,19 +263,14 @@ impl MemoryCommand {
       .filter(|p| p.uid == current_uid || current_uid == 0)
       .count();
 
-    if is_json {
-      let processes_json: Vec<crate::serde_json::Value> = processes
-        .iter()
-        .map(|proc| process_info_to_json(proc, current_uid))
-        .collect();
-      Output::json_value(&json!({
-          "current_uid": current_uid,
-          "user_only": user_only,
-          "filter": filter.cloned(),
-          "total": processes.len(),
-          "attachable": attachable_count,
-          "processes": processes_json
-      }));
+    let payload = process_list_payload(
+      &processes,
+      current_uid,
+      user_only,
+      filter.cloned(),
+      attachable_count,
+    );
+    if render::render_machine_output(ctx, "rb memory process list", &payload)? {
       return Ok(());
     }
 
@@ -381,12 +395,9 @@ impl MemoryCommand {
   }
 
   fn cmd_maps(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Memory Regions - PID {}", pid));
     }
 
@@ -401,19 +412,8 @@ impl MemoryCommand {
 
     let total_size: usize = filtered.iter().map(|r| r.size()).sum();
 
-    if is_json {
-      let regions_json: Vec<crate::serde_json::Value> = filtered
-        .iter()
-        .map(|region| memory_region_to_json(region))
-        .collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "total_regions": regions.len(),
-          "filtered_regions": filtered.len(),
-          "scannable_only": scannable_only,
-          "total_size_bytes": total_size,
-          "regions": regions_json
-      }));
+    let payload = memory_maps_payload(pid, &regions, &filtered, scannable_only, total_size);
+    if render::render_machine_output(ctx, "rb memory process maps", &payload)? {
       return Ok(());
     }
 
@@ -458,9 +458,6 @@ impl MemoryCommand {
   }
 
   fn cmd_read(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     // Get address from positional args
@@ -473,7 +470,7 @@ impl MemoryCommand {
       .and_then(|s| s.parse().ok())
       .unwrap_or(64);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Reading {} bytes at 0x{:x}", size, addr));
     }
 
@@ -481,38 +478,8 @@ impl MemoryCommand {
     let data = proc.read_bytes(addr, size)?;
     proc.detach()?;
 
-    if is_json {
-      let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
-      let ascii_str: String = data
-        .iter()
-        .map(|&b| {
-          if b.is_ascii_graphic() || b == b' ' {
-            b as char
-          } else {
-            '.'
-          }
-        })
-        .collect();
-      let bytes_json: Vec<crate::serde_json::Value> = data
-        .chunks(16)
-        .enumerate()
-        .map(|(i, chunk)| {
-          let offset = i * 16;
-          let hex: Vec<String> = chunk.iter().map(|b| format!("{:02X}", b)).collect();
-          json!({
-              "offset": format!("0x{:08x}", addr + offset),
-              "hex": hex.join(" ")
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "address": format!("0x{:x}", addr),
-          "size": data.len(),
-          "hex": hex_str,
-          "ascii": ascii_str,
-          "bytes": bytes_json
-      }));
+    let payload = memory_read_payload(pid, addr, &data);
+    if render::render_machine_output(ctx, "rb memory process read", &payload)? {
       return Ok(());
     }
 
@@ -538,9 +505,6 @@ impl MemoryCommand {
   }
 
   fn cmd_write(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     let addr_str = ctx.args.get(0).ok_or("Missing address argument")?;
@@ -551,7 +515,7 @@ impl MemoryCommand {
     // Parse hex string to bytes
     let bytes = Self::parse_hex_string(hex_bytes)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Writing {} bytes at 0x{:x}", bytes.len(), addr));
     }
 
@@ -567,17 +531,8 @@ impl MemoryCommand {
     let after = proc.read_bytes(addr, bytes.len())?;
     proc.detach()?;
 
-    if is_json {
-      let before_hex: String = before.iter().map(|b| format!("{:02X}", b)).collect();
-      let after_hex: String = after.iter().map(|b| format!("{:02X}", b)).collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "address": format!("0x{:x}", addr),
-          "size": bytes.len(),
-          "before": before_hex,
-          "after": after_hex,
-          "success": true
-      }));
+    let payload = memory_write_payload(pid, addr, bytes.len(), &before, &after);
+    if render::render_machine_output(ctx, "rb memory process write", &payload)? {
       return Ok(());
     }
 
@@ -603,9 +558,6 @@ impl MemoryCommand {
   }
 
   fn cmd_scan(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     let value_str = ctx.flags.get("value").ok_or("Missing --value flag")?;
@@ -632,7 +584,7 @@ impl MemoryCommand {
       ScanType::Exact(val)
     };
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!(
         "Scanning PID {} for {} = {}",
         pid,
@@ -651,7 +603,7 @@ impl MemoryCommand {
 
     let total_size: usize = scannable.iter().map(|r| r.size()).sum();
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::info(&format!(
         "Scanning {} regions ({:.2} MB)",
         scannable.len(),
@@ -663,7 +615,7 @@ impl MemoryCommand {
     let mut scanner = Scanner::new(value_type);
     let count = scanner.first_scan(&mut proc, &scannable, scan_type)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
       Output::success(&format!("Found {} results", count));
     }
@@ -672,22 +624,18 @@ impl MemoryCommand {
     let results = scanner.results();
     let show_count = results.len().min(max_results);
 
-    if is_json {
-      let results_json: Vec<crate::serde_json::Value> = results
-        .iter()
-        .take(show_count)
-        .map(scan_result_to_json)
-        .collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "search_value": value_str.clone(),
-          "value_type": value_type.name(),
-          "regions_scanned": scannable.len(),
-          "total_size_bytes": total_size,
-          "total_results": count,
-          "max_results": max_results,
-          "results": results_json
-      }));
+    let payload = memory_scan_payload(
+      pid,
+      value_str,
+      value_type.name(),
+      scannable.len(),
+      total_size,
+      count,
+      max_results,
+      &results,
+      show_count,
+    );
+    if render::render_machine_output(ctx, "rb memory process scan", &payload)? {
       proc.detach()?;
       return Ok(());
     }
@@ -716,9 +664,6 @@ impl MemoryCommand {
   }
 
   fn cmd_aob(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     let pattern_str = ctx.args.get(0).ok_or("Missing pattern argument")?;
@@ -730,7 +675,7 @@ impl MemoryCommand {
 
     let pattern = Pattern::parse(pattern_str)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("AOB Scan PID {} for: {}", pid, pattern_str));
     }
 
@@ -746,7 +691,7 @@ impl MemoryCommand {
 
     let total_size: usize = readable.iter().map(|r| r.size()).sum();
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::info(&format!(
         "Scanning {} regions ({:.2} MB)",
         readable.len(),
@@ -757,23 +702,20 @@ impl MemoryCommand {
 
     let results = PatternScanner::scan(&mut proc, &readable, &pattern, Some(max_results))?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
       Output::success(&format!("Found {} matches", results.len()));
     }
 
-    if is_json {
-      let matches_json: Vec<crate::serde_json::Value> =
-        results.iter().map(pattern_match_to_json).collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "pattern": pattern_str.clone(),
-          "regions_scanned": readable.len(),
-          "total_size_bytes": total_size,
-          "max_results": max_results,
-          "total_matches": results.len(),
-          "matches": matches_json
-      }));
+    let payload = memory_aob_payload(
+      pid,
+      pattern_str,
+      readable.len(),
+      total_size,
+      max_results,
+      &results,
+    );
+    if render::render_machine_output(ctx, "rb memory process aob", &payload)? {
       proc.detach()?;
       return Ok(());
     }
@@ -798,9 +740,6 @@ impl MemoryCommand {
   }
 
   fn cmd_string(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     let search_str = ctx.args.get(0).ok_or("Missing search string argument")?;
@@ -810,7 +749,7 @@ impl MemoryCommand {
       .and_then(|s| s.parse().ok())
       .unwrap_or(100);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("String Scan PID {} for: \"{}\"", pid, search_str));
     }
 
@@ -825,36 +764,26 @@ impl MemoryCommand {
     let total_size: usize = readable.iter().map(|r| r.size()).sum();
     let pattern = crate::modules::memory::pattern::string_pattern(search_str);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_start("Scanning for string");
     }
 
     let results = PatternScanner::scan(&mut proc, &readable, &pattern, Some(max_results))?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
       Output::success(&format!("Found {} matches", results.len()));
     }
 
-    if is_json {
-      let matches_json: Vec<crate::serde_json::Value> = results
-        .iter()
-        .map(|result| {
-          json!({
-              "address": format!("0x{:x}", result.address),
-              "region": result.region_name.clone()
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "pid": pid,
-          "search_string": search_str.clone(),
-          "regions_scanned": readable.len(),
-          "total_size_bytes": total_size,
-          "max_results": max_results,
-          "total_matches": results.len(),
-          "matches": matches_json
-      }));
+    let payload = memory_string_payload(
+      pid,
+      search_str,
+      readable.len(),
+      total_size,
+      max_results,
+      &results,
+    );
+    if render::render_machine_output(ctx, "rb memory process string", &payload)? {
       proc.detach()?;
       return Ok(());
     }
@@ -878,9 +807,6 @@ impl MemoryCommand {
   }
 
   fn cmd_dump(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let pid = Self::parse_pid(ctx)?;
 
     let addr_str = ctx.args.get(0).ok_or("Missing address argument")?;
@@ -893,7 +819,7 @@ impl MemoryCommand {
 
     let output_file = ctx.flags.get("output").ok_or("Missing --output flag")?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!(
         "Dumping {} bytes from 0x{:x} to {}",
         size, addr, output_file
@@ -902,27 +828,20 @@ impl MemoryCommand {
 
     let mut proc = ProcessMemory::attach(pid)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_start("Reading memory");
     }
 
     let data = proc.read_bytes(addr, size)?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
     std::fs::write(output_file, &data).map_err(|e| format!("Failed to write file: {}", e))?;
 
-    if is_json {
-      Output::json_value(&json!({
-          "pid": pid,
-          "address": format!("0x{:x}", addr),
-          "requested_size": size,
-          "actual_size": data.len(),
-          "output_file": output_file.clone(),
-          "success": true
-      }));
+    let payload = memory_dump_payload(pid, addr, size, data.len(), output_file);
+    if render::render_machine_output(ctx, "rb memory process dump", &payload)? {
       proc.detach()?;
       return Ok(());
     }
@@ -1015,6 +934,196 @@ fn pattern_match_to_json(
   })
 }
 
+#[cfg(target_os = "linux")]
+fn process_list_payload(
+  processes: &[ProcessInfo],
+  current_uid: u32,
+  user_only: bool,
+  filter: Option<String>,
+  attachable_count: usize,
+) -> Value {
+  let processes_json: Vec<Value> = processes
+    .iter()
+    .map(|proc| process_info_to_json(proc, current_uid))
+    .collect();
+  json!({
+    "current_uid": current_uid,
+    "user_only": user_only,
+    "filter": filter,
+    "total": processes.len(),
+    "attachable": attachable_count,
+    "processes": processes_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_maps_payload(
+  pid: i32,
+  regions: &[crate::modules::memory::MemoryRegion],
+  filtered: &[&crate::modules::memory::MemoryRegion],
+  scannable_only: bool,
+  total_size: usize,
+) -> Value {
+  let regions_json: Vec<Value> = filtered
+    .iter()
+    .map(|region| memory_region_to_json(region))
+    .collect();
+  json!({
+    "pid": pid,
+    "total_regions": regions.len(),
+    "filtered_regions": filtered.len(),
+    "scannable_only": scannable_only,
+    "total_size_bytes": total_size,
+    "regions": regions_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_read_payload(pid: i32, addr: usize, data: &[u8]) -> Value {
+  let hex_str: String = data.iter().map(|b| format!("{:02X}", b)).collect();
+  let ascii_str: String = data
+    .iter()
+    .map(|&b| {
+      if b.is_ascii_graphic() || b == b' ' {
+        b as char
+      } else {
+        '.'
+      }
+    })
+    .collect();
+  let bytes_json: Vec<Value> = data
+    .chunks(16)
+    .enumerate()
+    .map(|(i, chunk)| {
+      let offset = i * 16;
+      let hex: Vec<String> = chunk.iter().map(|b| format!("{:02X}", b)).collect();
+      json!({
+        "offset": format!("0x{:08x}", addr + offset),
+        "hex": hex.join(" ")
+      })
+    })
+    .collect();
+  json!({
+    "pid": pid,
+    "address": format!("0x{:x}", addr),
+    "size": data.len(),
+    "hex": hex_str,
+    "ascii": ascii_str,
+    "bytes": bytes_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_write_payload(pid: i32, addr: usize, size: usize, before: &[u8], after: &[u8]) -> Value {
+  let before_hex: String = before.iter().map(|b| format!("{:02X}", b)).collect();
+  let after_hex: String = after.iter().map(|b| format!("{:02X}", b)).collect();
+  json!({
+    "pid": pid,
+    "address": format!("0x{:x}", addr),
+    "size": size,
+    "before": before_hex,
+    "after": after_hex,
+    "success": true
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_scan_payload(
+  pid: i32,
+  search_value: &str,
+  value_type: &str,
+  regions_scanned: usize,
+  total_size: usize,
+  total_results: usize,
+  max_results: usize,
+  results: &[crate::modules::memory::ScanResult],
+  show_count: usize,
+) -> Value {
+  let results_json: Vec<Value> = results
+    .iter()
+    .take(show_count)
+    .map(scan_result_to_json)
+    .collect();
+  json!({
+    "pid": pid,
+    "search_value": search_value,
+    "value_type": value_type,
+    "regions_scanned": regions_scanned,
+    "total_size_bytes": total_size,
+    "total_results": total_results,
+    "max_results": max_results,
+    "results": results_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_aob_payload(
+  pid: i32,
+  pattern: &str,
+  regions_scanned: usize,
+  total_size: usize,
+  max_results: usize,
+  results: &[crate::modules::memory::pattern::PatternMatch],
+) -> Value {
+  let matches_json: Vec<Value> = results.iter().map(pattern_match_to_json).collect();
+  json!({
+    "pid": pid,
+    "pattern": pattern,
+    "regions_scanned": regions_scanned,
+    "total_size_bytes": total_size,
+    "max_results": max_results,
+    "total_matches": results.len(),
+    "matches": matches_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_string_payload(
+  pid: i32,
+  search_string: &str,
+  regions_scanned: usize,
+  total_size: usize,
+  max_results: usize,
+  results: &[crate::modules::memory::pattern::PatternMatch],
+) -> Value {
+  let matches_json: Vec<Value> = results
+    .iter()
+    .map(|result| {
+      json!({
+        "address": format!("0x{:x}", result.address),
+        "region": result.region_name.clone()
+      })
+    })
+    .collect();
+  json!({
+    "pid": pid,
+    "search_string": search_string,
+    "regions_scanned": regions_scanned,
+    "total_size_bytes": total_size,
+    "max_results": max_results,
+    "total_matches": results.len(),
+    "matches": matches_json
+  })
+}
+
+#[cfg(target_os = "linux")]
+fn memory_dump_payload(
+  pid: i32,
+  addr: usize,
+  requested_size: usize,
+  actual_size: usize,
+  output_file: &str,
+) -> Value {
+  json!({
+    "pid": pid,
+    "address": format!("0x{:x}", addr),
+    "requested_size": requested_size,
+    "actual_size": actual_size,
+    "output_file": output_file,
+    "success": true
+  })
+}
+
 // Empty implementation for non-Linux platforms
 #[cfg(not(target_os = "linux"))]
 pub struct MemoryCommand;
@@ -1043,5 +1152,43 @@ impl crate::cli::commands::Command for MemoryCommand {
 
   fn execute(&self, _ctx: &crate::cli::CliContext) -> Result<(), String> {
     Err("Memory inspection is only available on Linux".into())
+  }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn process_list_payload_includes_attachable_summary() {
+    let processes = vec![ProcessInfo {
+      pid: 42,
+      name: "test".to_string(),
+      cmdline: "/bin/test".to_string(),
+      uid: 1000,
+      state: 'S',
+      vm_rss_kb: 2048,
+    }];
+    let payload = process_list_payload(&processes, 1000, true, Some("test".to_string()), 1);
+    assert_eq!(payload["total"], 1);
+    assert_eq!(payload["attachable"], 1);
+    assert_eq!(payload["processes"][0]["name"], "test");
+  }
+
+  #[test]
+  fn memory_read_payload_serializes_ascii_and_chunks() {
+    let payload = memory_read_payload(1234, 0x1000, b"AB\x00CD");
+    assert_eq!(payload["pid"], 1234);
+    assert_eq!(payload["address"], "0x1000");
+    assert_eq!(payload["ascii"], "AB.CD");
+    assert_eq!(payload["bytes"][0]["offset"], "0x00001000");
+  }
+
+  #[test]
+  fn memory_dump_payload_reports_output_file() {
+    let payload = memory_dump_payload(77, 0x4000, 256, 256, "dump.bin");
+    assert_eq!(payload["pid"], 77);
+    assert_eq!(payload["output_file"], "dump.bin");
+    assert_eq!(payload["success"], true);
   }
 }

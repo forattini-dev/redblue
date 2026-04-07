@@ -1,10 +1,9 @@
 //! Username OSINT, email intelligence, and ASN lookup
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
-use crate::modules::recon::asn::AsnClient;
-use crate::modules::recon::osint::{EmailIntel, OsintConfig as EmailOsintConfig};
+use crate::modules::recon::asn::{AsnClient, AsnInfo};
+use crate::modules::recon::osint::{EmailIntel, EmailResult, OsintConfig as EmailOsintConfig};
 
 pub fn osint(ctx: &CliContext) -> Result<(), String> {
   let target = ctx
@@ -14,6 +13,11 @@ pub fn osint(ctx: &CliContext) -> Result<(), String> {
 
   if target.is_empty() {
     return Err("Username cannot be empty".to_string());
+  }
+
+  let payload = osint_placeholder_payload(target);
+  if render::render_machine_output(ctx, "rb recon domain osint", &payload)? {
+    return Ok(());
   }
 
   Output::warning("OSINT helpers not yet implemented");
@@ -31,43 +35,27 @@ pub fn email(ctx: &CliContext) -> Result<(), String> {
     return Err(format!("Invalid email address: {}", target));
   }
 
-  Output::header(&format!("Email Intelligence: {}", target));
-
   let config = EmailOsintConfig::default();
   let intel = EmailIntel::new(config);
-
-  let format = ctx.get_output_format();
 
   // Validate email format
   if !intel.is_valid_format(target) {
     return Err(format!("Invalid email format: {}", target));
   }
 
-  Output::spinner_start(&format!("Investigating {}", target));
+  if !ctx.wants_machine_output() {
+    Output::header(&format!("Email Intelligence: {}", target));
+    Output::spinner_start(&format!("Investigating {}", target));
+  }
 
   let result = intel.investigate(target);
 
-  Output::spinner_done();
+  if !ctx.wants_machine_output() {
+    Output::spinner_done();
+  }
 
-  // JSON output
-  if format == crate::cli::format::OutputFormat::Json {
-    let social_profiles: Vec<_> = result
-      .social_profiles
-      .iter()
-      .map(|profile| {
-        json!({
-            "platform": profile.platform.clone(),
-            "url": profile.url.clone()
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "email": result.email,
-        "valid": result.valid,
-        "provider": result.provider,
-        "services": result.services,
-        "social_profiles": social_profiles
-    }));
+  let payload = email_payload(&result);
+  if render::render_machine_output(ctx, "rb recon domain email", &payload)? {
     return Ok(());
   }
 
@@ -141,10 +129,9 @@ pub fn asn(ctx: &CliContext) -> Result<(), String> {
         "Missing IP address or hostname.\nUsage: rb recon domain asn <IP|HOSTNAME>\nExample: rb recon domain asn 8.8.8.8",
     )?;
 
-  let format = ctx.get_output_format();
   let client = AsnClient::new();
 
-  if format == crate::cli::format::OutputFormat::Human {
+  if !ctx.wants_machine_output() {
     Output::spinner_start(&format!("Looking up ASN for {}", target));
   }
 
@@ -157,29 +144,12 @@ pub fn asn(ctx: &CliContext) -> Result<(), String> {
     client.lookup_host(target)?
   };
 
-  if format == crate::cli::format::OutputFormat::Human {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
-  // JSON output
-  if format == crate::cli::format::OutputFormat::Json {
-    let payload: Vec<_> = results
-      .iter()
-      .map(|info| {
-        json!({
-            "ip": info.ip.to_string(),
-            "announced": info.announced,
-            "asn": info.asn,
-            "organization": info.organization.clone(),
-            "country": info.country.clone(),
-            "cidr": info.cidr.clone()
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "query": target,
-        "results": payload
-    }));
+  let payload = asn_payload(target, &results);
+  if render::render_machine_output(ctx, "rb recon domain asn", &payload)? {
     return Ok(());
   }
 
@@ -211,4 +181,105 @@ pub fn asn(ctx: &CliContext) -> Result<(), String> {
 
   Output::success("ASN lookup completed");
   Ok(())
+}
+
+fn email_payload(result: &EmailResult) -> crate::serde_json::Value {
+  let social_profiles: Vec<_> = result
+    .social_profiles
+    .iter()
+    .map(|profile| {
+      json!({
+        "platform": profile.platform.clone(),
+        "url": profile.url.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "email": result.email,
+    "valid": result.valid,
+    "provider": result.provider,
+    "services": result.services,
+    "social_profiles": social_profiles
+  })
+}
+
+fn osint_placeholder_payload(target: &str) -> crate::serde_json::Value {
+  json!({
+    "target": target,
+    "status": "not_implemented",
+    "message": "OSINT helpers not yet implemented",
+  })
+}
+
+fn asn_payload(query: &str, results: &[AsnInfo]) -> crate::serde_json::Value {
+  let payload: Vec<_> = results
+    .iter()
+    .map(|info| {
+      json!({
+        "ip": info.ip.to_string(),
+        "announced": info.announced,
+        "asn": info.asn,
+        "organization": info.organization.clone(),
+        "country": info.country.clone(),
+        "cidr": info.cidr.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "query": query,
+    "results": payload
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn email_payload_includes_profiles() {
+    let payload = email_payload(&EmailResult {
+      email: "user@example.com".to_string(),
+      valid: true,
+      provider: Some("gmail".to_string()),
+      breaches: vec![],
+      pastes: vec![],
+      services: vec!["github".to_string()],
+      social_profiles: vec![],
+    });
+
+    assert_eq!(payload["email"].as_str(), Some("user@example.com"));
+    assert_eq!(payload["services"][0].as_str(), Some("github"));
+  }
+
+  #[test]
+  fn osint_placeholder_payload_marks_not_implemented() {
+    let payload = osint_placeholder_payload("johndoe");
+
+    assert_eq!(payload["target"].as_str(), Some("johndoe"));
+    assert_eq!(payload["status"].as_str(), Some("not_implemented"));
+  }
+
+  #[test]
+  fn asn_payload_includes_query_and_asn() {
+    let payload = asn_payload(
+      "8.8.8.8",
+      &[AsnInfo {
+        ip: "8.8.8.8".to_string(),
+        announced: true,
+        asn: Some(15169),
+        asn_string: Some("AS15169".to_string()),
+        country: Some("US".to_string()),
+        organization: Some("GOOGLE".to_string()),
+        asn_name: Some("GOOGLE".to_string()),
+        first_ip: Some("8.8.8.0".to_string()),
+        last_ip: Some("8.8.8.255".to_string()),
+        cidr: Some("8.8.8.0/24".to_string()),
+      }],
+    );
+
+    assert_eq!(payload["query"].as_str(), Some("8.8.8.8"));
+    assert_eq!(payload["results"][0]["asn"].as_u64(), Some(15169));
+  }
 }

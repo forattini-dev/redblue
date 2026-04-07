@@ -5,7 +5,7 @@
 //! - Sync objects (techniques, groups, software)
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::intel::taxii::TaxiiClient;
 use crate::serde_json::Value;
@@ -23,6 +23,26 @@ impl Command for IntelTaxiiCommand {
 
   fn description(&self) -> &str {
     "TAXII 2.1 threat intelligence sync"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -114,13 +134,10 @@ impl IntelTaxiiCommand {
   }
 
   fn list_collections(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let client = self.create_client(ctx);
     let url = ctx.get_flag_or("url", "https://cti-taxii.mitre.org/taxii/");
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("TAXII Collections");
       println!("URL: {}", url);
       println!();
@@ -129,27 +146,12 @@ impl IntelTaxiiCommand {
 
     let collections = client.list_collections()?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    if is_json {
-      let collections_json: Vec<_> = collections
-        .iter()
-        .map(|col| {
-          json!({
-              "id": col.id.clone(),
-              "title": col.title.clone(),
-              "description": col.description.clone(),
-              "can_read": col.can_read,
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "url": url,
-          "total": collections.len(),
-          "collections": collections_json,
-      }));
+    let payload = taxii_collections_payload(&url, &collections);
+    if render::render_machine_output(ctx, "rb intel taxii collections", &payload)? {
       return Ok(());
     }
 
@@ -175,9 +177,6 @@ impl IntelTaxiiCommand {
   }
 
   fn sync_objects(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let client = self.create_client(ctx);
     let collection_id = ctx.get_flag_or("collection", "");
 
@@ -185,20 +184,8 @@ impl IntelTaxiiCommand {
     if collection_id.is_empty() {
       let collections = client.list_collections()?;
 
-      if is_json {
-        let collections_json: Vec<_> = collections
-          .iter()
-          .map(|col| {
-            json!({
-                "id": col.id.clone(),
-                "title": col.title.clone(),
-            })
-          })
-          .collect();
-        Output::json_value(&json!({
-            "error": "No collection specified",
-            "available_collections": collections_json,
-        }));
+      let payload = taxii_missing_collection_payload(&collections);
+      if render::render_machine_output(ctx, "rb intel taxii sync", &payload)? {
         return Ok(());
       }
 
@@ -227,7 +214,7 @@ impl IntelTaxiiCommand {
     let obj_type = ctx.get_flag("type");
     let added_after = ctx.get_flag("after");
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("TAXII Sync");
       println!();
       Output::spinner_start(&format!(
@@ -239,7 +226,7 @@ impl IntelTaxiiCommand {
     let envelope =
       client.get_objects(&collection_id, obj_type.as_deref(), added_after.as_deref())?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
       println!();
     }
@@ -255,57 +242,15 @@ impl IntelTaxiiCommand {
       }
     }
 
-    if is_json {
-      let mut sorted_types: Vec<_> = type_counts.iter().collect();
-      sorted_types.sort_by(|a, b| a.0.cmp(b.0));
-      let by_type = Value::Object(
-        sorted_types
-          .iter()
-          .map(|(obj_type, count)| (obj_type.to_string(), json!(**count)))
-          .collect(),
-      );
-      let objects_json: Vec<_> = objects
-        .iter()
-        .map(|obj| {
-          let obj_type = obj
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-          let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
-          let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
-          let ext_id = obj
-            .get("external_references")
-            .and_then(|v| v.as_array())
-            .and_then(|arr| {
-              arr
-                .iter()
-                .find(|r| r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack"))
-            })
-            .and_then(|r| r.get("external_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-          json!({
-              "type": obj_type,
-              "id": id,
-              "name": name,
-              "external_id": ext_id,
-          })
-        })
-        .collect();
-      let mut fields = vec![
-        ("collection_id".to_string(), json!(collection_id)),
-        ("total".to_string(), json!(objects.len())),
-        ("more".to_string(), json!(envelope.more.unwrap_or(false))),
-        ("by_type".to_string(), by_type),
-        ("objects".to_string(), json!(objects_json)),
-      ];
-      if let Some(ref t) = obj_type {
-        fields.push(("type_filter".to_string(), json!(t)));
-      }
-      if let Some(ref a) = added_after {
-        fields.push(("added_after".to_string(), json!(a)));
-      }
-      Output::json_value(&Value::Object(fields.into_iter().collect()));
+    let payload = taxii_sync_payload(
+      &collection_id,
+      obj_type.as_deref(),
+      added_after.as_deref(),
+      envelope.more.unwrap_or(false),
+      &type_counts,
+      &objects,
+    );
+    if render::render_machine_output(ctx, "rb intel taxii sync", &payload)? {
       return Ok(());
     }
 
@@ -406,4 +351,104 @@ impl IntelTaxiiCommand {
     Output::info("Tip: Use --type=attack-pattern to filter by object type");
     Ok(())
   }
+}
+
+fn taxii_collection_to_json(
+  col: &crate::modules::intel::taxii::Collection,
+) -> crate::serde_json::Value {
+  json!({
+    "id": col.id.clone(),
+    "title": col.title.clone(),
+    "description": col.description.clone(),
+    "can_read": col.can_read,
+  })
+}
+
+fn taxii_collections_payload(
+  url: &str,
+  collections: &[crate::modules::intel::taxii::Collection],
+) -> Value {
+  let collections_json: Vec<Value> = collections.iter().map(taxii_collection_to_json).collect();
+  json!({
+    "url": url,
+    "total": collections.len(),
+    "collections": collections_json,
+  })
+}
+
+fn taxii_missing_collection_payload(
+  collections: &[crate::modules::intel::taxii::Collection],
+) -> Value {
+  let collections_json: Vec<Value> = collections
+    .iter()
+    .map(|col| {
+      json!({
+        "id": col.id.clone(),
+        "title": col.title.clone(),
+      })
+    })
+    .collect();
+  json!({
+    "error": "No collection specified",
+    "available_collections": collections_json,
+  })
+}
+
+fn taxii_object_to_json(obj: &Value) -> Value {
+  let obj_type = obj
+    .get("type")
+    .and_then(|v| v.as_str())
+    .unwrap_or("unknown");
+  let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+  let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
+  let ext_id = obj
+    .get("external_references")
+    .and_then(|v| v.as_array())
+    .and_then(|arr| {
+      arr
+        .iter()
+        .find(|r| r.get("source_name").and_then(|s| s.as_str()) == Some("mitre-attack"))
+    })
+    .and_then(|r| r.get("external_id"))
+    .and_then(|v| v.as_str())
+    .unwrap_or("");
+  json!({
+    "type": obj_type,
+    "id": id,
+    "name": name,
+    "external_id": ext_id,
+  })
+}
+
+fn taxii_sync_payload(
+  collection_id: &str,
+  obj_type: Option<&str>,
+  added_after: Option<&str>,
+  more: bool,
+  type_counts: &std::collections::HashMap<String, usize>,
+  objects: &[Value],
+) -> Value {
+  let mut sorted_types: Vec<_> = type_counts.iter().collect();
+  sorted_types.sort_by(|a, b| a.0.cmp(b.0));
+  let by_type = Value::Object(
+    sorted_types
+      .iter()
+      .map(|(obj_type, count)| (obj_type.to_string(), json!(**count)))
+      .collect(),
+  );
+  let objects_json: Vec<Value> = objects.iter().map(taxii_object_to_json).collect();
+  let mut fields = vec![
+    ("collection_id".to_string(), json!(collection_id)),
+    ("total".to_string(), json!(objects.len())),
+    ("more".to_string(), json!(more)),
+    ("by_type".to_string(), by_type),
+    ("objects".to_string(), json!(objects_json)),
+  ];
+  if let Some(t) = obj_type {
+    fields.push(("type_filter".to_string(), json!(t)));
+  }
+  if let Some(a) = added_after {
+    fields.push(("added_after".to_string(), json!(a)));
+  }
+  Value::Object(fields.into_iter().collect())
 }

@@ -7,7 +7,7 @@
 //! - Link to MITRE ATT&CK techniques
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::intel::{Ioc, IocCollection, IocConfidence, IocExtractor, IocSource, IocType};
 use std::net::Ipv4Addr;
@@ -25,6 +25,26 @@ impl Command for IntelIocCommand {
 
   fn description(&self) -> &str {
     "Extract and manage Indicators of Compromise (IOCs)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -154,10 +174,7 @@ impl Command for IntelIocCommand {
 impl IntelIocCommand {
   /// Extract IOCs from provided data
   fn extract_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("IOC Extraction");
       println!();
     }
@@ -278,11 +295,8 @@ impl IntelIocCommand {
     parse_args(&all_args, &mut collection, &mut target);
 
     if collection.is_empty() {
-      if is_json {
-        Output::json_value(&json!({
-            "error": "No IOCs extracted",
-            "iocs": []
-        }));
+      let payload = ioc_extract_empty_payload();
+      if render::render_machine_output(ctx, "rb intel ioc extract", &payload)? {
         return Ok(());
       }
       Output::warning("No IOCs extracted. Provide data using key=value pairs:");
@@ -300,19 +314,8 @@ impl IntelIocCommand {
       return Ok(());
     }
 
-    if is_json {
-      let all_iocs = collection.all();
-      let iocs_json: Vec<crate::serde_json::Value> = all_iocs
-        .iter()
-        .map(|ioc| extract_ioc_to_json(ioc))
-        .collect();
-      let counts = collection.count_by_type();
-      Output::json_value(&json!({
-          "target": target.clone(),
-          "total": collection.len(),
-          "by_type": counts_by_type_to_json(&counts),
-          "iocs": iocs_json
-      }));
+    let payload = ioc_extract_payload(&target, &collection);
+    if render::render_machine_output(ctx, "rb intel ioc extract", &payload)? {
       return Ok(());
     }
 
@@ -355,8 +358,10 @@ impl IntelIocCommand {
 
   /// Export IOCs to file
   fn export_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-    Output::header("IOC Export");
-    println!();
+    if !ctx.wants_machine_output() {
+      Output::header("IOC Export");
+      println!();
+    }
 
     // For now, generate some sample IOCs to export
     let mut collection = IocCollection::new();
@@ -401,6 +406,10 @@ impl IntelIocCommand {
     );
 
     if collection.is_empty() {
+      let payload = ioc_export_empty_payload(&target, &export_format);
+      if render::render_machine_output(ctx, "rb intel ioc export", &payload)? {
+        return Ok(());
+      }
       Output::info("No IOCs to export. Extract IOCs first with 'rb intel ioc extract'");
       return Ok(());
     }
@@ -414,6 +423,17 @@ impl IntelIocCommand {
 
     // Write to file
     std::fs::write(&output_path, &content).map_err(|e| format!("Failed to write file: {}", e))?;
+
+    let payload = ioc_export_payload(
+      &target,
+      &export_format,
+      &output_path,
+      content.len(),
+      &collection,
+    );
+    if render::render_machine_output(ctx, "rb intel ioc export", &payload)? {
+      return Ok(());
+    }
 
     Output::success(&format!(
       "Exported {} IOCs to {}",
@@ -430,9 +450,6 @@ impl IntelIocCommand {
 
   /// Show supported IOC types
   fn show_types(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let types = [
       ("ipv4", "IPv4 address", "192.168.1.1", "network"),
       ("ipv6", "IPv6 address", "2001:db8::1", "network"),
@@ -480,22 +497,8 @@ impl IntelIocCommand {
       ("namedpipe", "Named pipe", "\\\\.\\pipe\\evil", "behavioral"),
     ];
 
-    if is_json {
-      let types_json: Vec<crate::serde_json::Value> = types
-        .iter()
-        .map(|(name, desc, example, category)| {
-          json!({
-              "name": *name,
-              "description": *desc,
-              "example": *example,
-              "category": *category
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "types": types_json,
-          "total": types.len()
-      }));
+    let payload = ioc_types_payload(&types);
+    if render::render_machine_output(ctx, "rb intel ioc types", &payload)? {
       return Ok(());
     }
 
@@ -525,8 +528,6 @@ impl IntelIocCommand {
   /// Run demo extraction
   fn run_demo(&self, ctx: &CliContext) -> Result<(), String> {
     let target = ctx.target.as_deref().unwrap_or("example.com");
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
 
     let mut collection = IocCollection::new();
     let extractor = IocExtractor::new(target);
@@ -570,28 +571,15 @@ impl IntelIocCommand {
       collection.add(ioc.clone());
     }
 
-    if is_json {
-      let counts = collection.count_by_type();
-      let conf_counts = collection.count_by_confidence();
-      let all_iocs = collection.all();
-      let iocs_json: Vec<crate::serde_json::Value> = all_iocs
-        .iter()
-        .map(|ioc| extract_ioc_to_json(ioc))
-        .collect();
-      let sources_json = json!({
-          "port_scan": port_iocs.len(),
-          "dns": dns_iocs.len(),
-          "tls": tls_iocs.len(),
-          "subdomains": subdomain_iocs.len()
-      });
-      Output::json_value(&json!({
-          "target": target,
-          "sources": sources_json,
-          "total": collection.len(),
-          "by_type": counts_by_type_to_json(&counts),
-          "by_confidence": counts_by_confidence_to_json(&conf_counts),
-          "iocs": iocs_json
-      }));
+    let payload = ioc_demo_payload(
+      target,
+      &collection,
+      port_iocs.len(),
+      dns_iocs.len(),
+      tls_iocs.len(),
+      subdomain_iocs.len(),
+    );
+    if render::render_machine_output(ctx, "rb intel ioc demo", &payload)? {
       return Ok(());
     }
 
@@ -694,17 +682,15 @@ impl IntelIocCommand {
 
   /// Import IOCs from external file (JSON, CSV, STIX)
   fn import_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-    let output_format = ctx.get_output_format();
-    let is_json = output_format == crate::cli::format::OutputFormat::Json;
-
     // Get file path from target or args
     let file_path = ctx
       .target
       .as_ref()
       .or_else(|| ctx.args.first())
       .ok_or_else(|| {
-        if is_json {
-          Output::json_value(&json!({ "error": "No file specified" }));
+        if ctx.wants_machine_output() {
+          let payload = ioc_import_missing_file_payload();
+          let _ = render::render_machine_output(ctx, "rb intel ioc import", &payload);
         } else {
           Output::error("No file specified");
           println!();
@@ -741,7 +727,7 @@ impl IntelIocCommand {
       .to_string();
     }
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("IOC Import");
       println!();
       Output::item("File", file_path);
@@ -753,7 +739,7 @@ impl IntelIocCommand {
     let content =
       std::fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_start("Parsing IOCs");
     }
 
@@ -764,37 +750,23 @@ impl IntelIocCommand {
       _ => self.parse_json_iocs(&content, &mut collection)?,
     };
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
       println!();
     }
 
     if import_count == 0 {
-      if is_json {
-        Output::json_value(&json!({
-            "file": file_path.clone(),
-            "format": file_format.clone(),
-            "imported": 0,
-            "iocs": []
-        }));
+      let payload = ioc_import_empty_payload(file_path, &file_format);
+      if render::render_machine_output(ctx, "rb intel ioc import", &payload)? {
+        return Ok(());
       } else {
         Output::warning("No IOCs found in file");
       }
       return Ok(());
     }
 
-    if is_json {
-      let counts = collection.count_by_type();
-      let all_iocs = collection.all();
-      let iocs_json: Vec<crate::serde_json::Value> =
-        all_iocs.iter().map(|ioc| import_ioc_to_json(ioc)).collect();
-      Output::json_value(&json!({
-          "file": file_path.clone(),
-          "format": file_format.clone(),
-          "imported": import_count,
-          "by_type": counts_by_type_to_json(&counts),
-          "iocs": iocs_json
-      }));
+    let payload = ioc_import_payload(file_path, &file_format, import_count, &collection);
+    if render::render_machine_output(ctx, "rb intel ioc import", &payload)? {
       return Ok(());
     }
 
@@ -1094,20 +1066,15 @@ impl IntelIocCommand {
 
   /// Search IOCs by value, type, or tag
   fn search_iocs(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     // Get search query
     let query = ctx
       .target
       .as_ref()
       .or_else(|| ctx.args.first())
       .ok_or_else(|| {
-        if is_json {
-          Output::json_value(&json!({
-              "error": "No search query specified",
-              "results": []
-          }));
+        if ctx.wants_machine_output() {
+          let payload = ioc_search_missing_query_payload();
+          let _ = render::render_machine_output(ctx, "rb intel ioc search", &payload);
         } else {
           Output::error("No search query specified");
           println!();
@@ -1184,23 +1151,14 @@ impl IntelIocCommand {
     // Sort by confidence score descending
     results.sort_by(|a, b| b.confidence_score.cmp(&a.confidence_score));
 
-    if is_json {
-      let results_json: Vec<crate::serde_json::Value> =
-        results.iter().map(|ioc| search_ioc_to_json(ioc)).collect();
-      let mut payload = crate::serde_json::Map::new();
-      payload.insert("query".to_string(), json!(query.clone()));
-      if let Some(ref t) = type_filter {
-        payload.insert("type_filter".to_string(), json!(t.clone()));
-      }
-      if let Some(ref t) = tag_filter {
-        payload.insert("tag_filter".to_string(), json!(t.clone()));
-      }
-      if let Some(ref c) = confidence_filter {
-        payload.insert("confidence_filter".to_string(), json!(c.clone()));
-      }
-      payload.insert("total".to_string(), json!(results.len()));
-      payload.insert("results".to_string(), json!(results_json));
-      Output::json_value(&crate::serde_json::Value::Object(payload));
+    let payload = ioc_search_payload(
+      query,
+      type_filter.as_deref(),
+      tag_filter.as_deref(),
+      confidence_filter.as_deref(),
+      &results,
+    );
+    if render::render_machine_output(ctx, "rb intel ioc search", &payload)? {
       return Ok(());
     }
 
@@ -1631,4 +1589,222 @@ fn search_ioc_to_json(ioc: &Ioc) -> crate::serde_json::Value {
       "techniques": ioc.mitre_techniques.clone(),
       "tags": ioc.tags.clone()
   })
+}
+
+fn ioc_extract_empty_payload() -> crate::serde_json::Value {
+  json!({
+    "error": "No IOCs extracted",
+    "iocs": []
+  })
+}
+
+fn ioc_extract_payload(target: &str, collection: &IocCollection) -> crate::serde_json::Value {
+  let all_iocs = collection.all();
+  let iocs_json: Vec<crate::serde_json::Value> = all_iocs
+    .iter()
+    .map(|ioc| extract_ioc_to_json(ioc))
+    .collect();
+  let counts = collection.count_by_type();
+  json!({
+    "target": target,
+    "total": collection.len(),
+    "by_type": counts_by_type_to_json(&counts),
+    "iocs": iocs_json
+  })
+}
+
+fn ioc_export_empty_payload(target: &str, export_format: &str) -> crate::serde_json::Value {
+  json!({
+    "target": target,
+    "format": export_format,
+    "exported": false,
+    "message": "No IOCs to export. Extract IOCs first with 'rb intel ioc extract'"
+  })
+}
+
+fn ioc_export_payload(
+  target: &str,
+  export_format: &str,
+  output_path: &str,
+  size_bytes: usize,
+  collection: &IocCollection,
+) -> crate::serde_json::Value {
+  json!({
+    "target": target,
+    "format": export_format,
+    "file": output_path,
+    "size_bytes": size_bytes,
+    "exported": true,
+    "total": collection.len()
+  })
+}
+
+fn ioc_types_payload(types: &[(&str, &str, &str, &str)]) -> crate::serde_json::Value {
+  let types_json: Vec<crate::serde_json::Value> = types
+    .iter()
+    .map(|(name, desc, example, category)| {
+      json!({
+        "name": *name,
+        "description": *desc,
+        "example": *example,
+        "category": *category
+      })
+    })
+    .collect();
+  json!({
+    "types": types_json,
+    "total": types.len()
+  })
+}
+
+fn ioc_demo_payload(
+  target: &str,
+  collection: &IocCollection,
+  port_scan_count: usize,
+  dns_count: usize,
+  tls_count: usize,
+  subdomains_count: usize,
+) -> crate::serde_json::Value {
+  let counts = collection.count_by_type();
+  let conf_counts = collection.count_by_confidence();
+  let all_iocs = collection.all();
+  let iocs_json: Vec<crate::serde_json::Value> = all_iocs
+    .iter()
+    .map(|ioc| extract_ioc_to_json(ioc))
+    .collect();
+  let sources_json = json!({
+    "port_scan": port_scan_count,
+    "dns": dns_count,
+    "tls": tls_count,
+    "subdomains": subdomains_count
+  });
+  json!({
+    "target": target,
+    "sources": sources_json,
+    "total": collection.len(),
+    "by_type": counts_by_type_to_json(&counts),
+    "by_confidence": counts_by_confidence_to_json(&conf_counts),
+    "iocs": iocs_json
+  })
+}
+
+fn ioc_import_missing_file_payload() -> crate::serde_json::Value {
+  json!({ "error": "No file specified" })
+}
+
+fn ioc_import_empty_payload(file_path: &str, file_format: &str) -> crate::serde_json::Value {
+  json!({
+    "file": file_path,
+    "format": file_format,
+    "imported": 0,
+    "iocs": []
+  })
+}
+
+fn ioc_import_payload(
+  file_path: &str,
+  file_format: &str,
+  import_count: usize,
+  collection: &IocCollection,
+) -> crate::serde_json::Value {
+  let counts = collection.count_by_type();
+  let all_iocs = collection.all();
+  let iocs_json: Vec<crate::serde_json::Value> =
+    all_iocs.iter().map(|ioc| import_ioc_to_json(ioc)).collect();
+  json!({
+    "file": file_path,
+    "format": file_format,
+    "imported": import_count,
+    "by_type": counts_by_type_to_json(&counts),
+    "iocs": iocs_json
+  })
+}
+
+fn ioc_search_missing_query_payload() -> crate::serde_json::Value {
+  json!({
+    "error": "No search query specified",
+    "results": []
+  })
+}
+
+fn ioc_search_payload(
+  query: &str,
+  type_filter: Option<&str>,
+  tag_filter: Option<&str>,
+  confidence_filter: Option<&str>,
+  results: &[&Ioc],
+) -> crate::serde_json::Value {
+  let results_json: Vec<crate::serde_json::Value> =
+    results.iter().map(|ioc| search_ioc_to_json(ioc)).collect();
+  let mut payload = crate::serde_json::Map::new();
+  payload.insert("query".to_string(), json!(query));
+  if let Some(t) = type_filter {
+    payload.insert("type_filter".to_string(), json!(t));
+  }
+  if let Some(t) = tag_filter {
+    payload.insert("tag_filter".to_string(), json!(t));
+  }
+  if let Some(c) = confidence_filter {
+    payload.insert("confidence_filter".to_string(), json!(c));
+  }
+  payload.insert("total".to_string(), json!(results.len()));
+  payload.insert("results".to_string(), json!(results_json));
+  crate::serde_json::Value::Object(payload)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ioc_extract_payload_serializes_collection() {
+    let mut collection = IocCollection::new();
+    collection.add(
+      Ioc::new(
+        IocType::Domain,
+        "example.com",
+        IocSource::Manual,
+        80,
+        "target",
+      )
+      .with_tag("manual"),
+    );
+
+    let payload = ioc_extract_payload("example.com", &collection);
+
+    assert_eq!(payload["target"].as_str(), Some("example.com"));
+    assert_eq!(payload["total"].as_u64(), Some(1));
+    assert_eq!(payload["iocs"][0]["value"].as_str(), Some("example.com"));
+  }
+
+  #[test]
+  fn ioc_export_payload_serializes_summary() {
+    let mut collection = IocCollection::new();
+    collection.add(Ioc::new(
+      IocType::IPv4,
+      "93.184.216.34",
+      IocSource::DnsQuery,
+      90,
+      "target",
+    ));
+
+    let payload = ioc_export_payload("target", "json", "iocs.json", 128, &collection);
+
+    assert_eq!(payload["exported"].as_bool(), Some(true));
+    assert_eq!(payload["format"].as_str(), Some("json"));
+    assert_eq!(payload["file"].as_str(), Some("iocs.json"));
+    assert_eq!(payload["size_bytes"].as_u64(), Some(128));
+  }
+
+  #[test]
+  fn ioc_search_payload_includes_filters() {
+    let ioc = Ioc::new(IocType::IPv4, "192.168.1.1", IocSource::PortScan, 85, "ctx");
+    let payload = ioc_search_payload("192.168", Some("ipv4"), Some("scan"), Some("high"), &[&ioc]);
+
+    assert_eq!(payload["query"].as_str(), Some("192.168"));
+    assert_eq!(payload["type_filter"].as_str(), Some("ipv4"));
+    assert_eq!(payload["tag_filter"].as_str(), Some("scan"));
+    assert_eq!(payload["confidence_filter"].as_str(), Some("high"));
+    assert_eq!(payload["total"].as_u64(), Some(1));
+  }
 }

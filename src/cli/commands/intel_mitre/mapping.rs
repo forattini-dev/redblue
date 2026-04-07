@@ -2,19 +2,19 @@
 //!
 //! Map findings (ports, CVEs, technologies) to ATT&CK techniques.
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
-use crate::modules::intel::{Confidence, Findings, TechniqueMapper};
-use crate::modules::recon::mitre::{CorrelationEngine, MitreClient};
+use crate::modules::intel::{
+  Confidence, Findings, MappedTechnique, MappingResult, TechniqueMapper,
+};
+use crate::modules::recon::mitre::{
+  CorrelationEngine, CorrelationResult, FindingMatch, MitreClient,
+};
 use crate::serde_json::Value;
 
 /// Map findings to MITRE ATT&CK techniques
 pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("MITRE ATT&CK Technique Mapping");
     println!();
   }
@@ -68,11 +68,8 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
     && findings.fingerprints.is_empty()
     && findings.banners.is_empty()
   {
-    if is_json {
-      Output::json_value(&json!({
-          "error": "No findings provided",
-          "techniques": [],
-      }));
+    let payload = no_findings_payload();
+    if render::render_machine_output(ctx, "rb intel mitre map", &payload)? {
       return Ok(());
     }
     Output::warning("No findings provided. Use flags to specify what to map:");
@@ -86,7 +83,7 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
     return Ok(());
   }
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::section("Input Findings");
     if !findings.ports.is_empty() {
       Output::item(
@@ -123,40 +120,12 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
 
   let result = mapper.map_findings(&findings);
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
-  if is_json {
-    let techniques_json: Vec<_> = result
-      .techniques
-      .iter()
-      .map(|tech| {
-        json!({
-            "technique_id": tech.technique_id.clone(),
-            "name": tech.name.clone(),
-            "tactic": tech.tactic.clone(),
-            "confidence": confidence_label(tech.confidence),
-            "reason": tech.reason.clone(),
-            "source": tech.original_value.clone(),
-        })
-      })
-      .collect();
-    let input_json = json!({
-        "ports": findings.ports.clone(),
-        "cves": findings
-            .cves
-            .iter()
-            .map(|(id, _)| id.clone())
-            .collect::<Vec<_>>(),
-        "technologies": findings.fingerprints.clone(),
-        "banners": findings.banners.clone(),
-    });
-    Output::json_value(&json!({
-        "input": input_json,
-        "unique_technique_ids": result.unique_technique_ids(),
-        "techniques": techniques_json,
-    }));
+  let payload = map_findings_payload(&findings, &result);
+  if render::render_machine_output(ctx, "rb intel mitre map", &payload)? {
     return Ok(());
   }
 
@@ -207,8 +176,6 @@ pub fn map_findings(ctx: &CliContext) -> Result<(), String> {
 
 /// Show port-to-technique mapping table
 pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
   let mapper = TechniqueMapper::new();
 
   // Check if a specific port was requested
@@ -219,23 +186,8 @@ pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
 
     let techniques = mapper.map_port(port);
 
-    if is_json {
-      let techniques_json: Vec<_> = techniques
-        .iter()
-        .map(|tech| {
-          json!({
-              "technique_id": tech.technique_id.clone(),
-              "name": tech.name.clone(),
-              "tactic": tech.tactic.clone(),
-              "confidence": confidence_label(tech.confidence),
-              "reason": tech.reason.clone(),
-          })
-        })
-        .collect();
-      Output::json_value(&json!({
-          "port": port,
-          "techniques": techniques_json,
-      }));
+    let payload = port_payload(port, &techniques);
+    if render::render_machine_output(ctx, "rb intel mitre ports", &payload)? {
       return Ok(());
     }
 
@@ -285,44 +237,8 @@ pub fn show_port_mappings(ctx: &CliContext) -> Result<(), String> {
 
   let techs = mapper.mapped_technologies();
 
-  if is_json {
-    let tactics_order = [
-      "Initial Access",
-      "Execution",
-      "Persistence",
-      "Privilege Escalation",
-      "Defense Evasion",
-      "Credential Access",
-      "Discovery",
-      "Lateral Movement",
-      "Collection",
-      "Command and Control",
-      "Exfiltration",
-      "Impact",
-    ];
-    let mut by_tactic_fields = Vec::new();
-    for tactic in tactics_order {
-      if let Some(entries) = by_tactic.get(tactic) {
-        let entries_json: Vec<_> = entries
-          .iter()
-          .map(|(port, tech_id, name)| {
-            json!({
-                "port": *port,
-                "technique_id": tech_id.clone(),
-                "name": name.clone(),
-            })
-          })
-          .collect();
-        by_tactic_fields.push((tactic.to_string(), json!(entries_json)));
-      }
-    }
-    let by_tactic_json = Value::Object(by_tactic_fields.into_iter().collect());
-    Output::json_value(&json!({
-        "total_ports": ports.len(),
-        "ports": ports.clone(),
-        "technologies": techs.clone(),
-        "by_tactic": by_tactic_json,
-    }));
+  let payload = all_ports_payload(&ports, &techs, &by_tactic);
+  if render::render_machine_output(ctx, "rb intel mitre ports", &payload)? {
     return Ok(());
   }
 
@@ -385,10 +301,7 @@ pub fn correlate_finding(ctx: &CliContext) -> Result<(), String> {
     .as_ref()
     .ok_or("Missing finding text to correlate")?;
 
-  let format = ctx.get_output_format();
-  let is_json = format == crate::cli::format::OutputFormat::Json;
-
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::header("MITRE ATT&CK Finding Correlation");
     println!();
     Output::spinner_start("Fetching ATT&CK data from STIX...");
@@ -403,7 +316,7 @@ pub fn correlate_finding(ctx: &CliContext) -> Result<(), String> {
   }
   .map_err(|e| format!("Failed to fetch ATT&CK data: {}", e))?;
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
     Output::spinner_start("Correlating finding...");
   }
@@ -412,30 +325,12 @@ pub fn correlate_finding(ctx: &CliContext) -> Result<(), String> {
   let engine = CorrelationEngine::new(&attack_data);
   let result = engine.correlate(finding);
 
-  if !is_json {
+  if !ctx.wants_machine_output() {
     Output::spinner_done();
   }
 
-  if is_json {
-    let matches_json: Vec<_> = result
-      .matches
-      .iter()
-      .map(|m| {
-        json!({
-            "technique_id": m.technique_id.clone(),
-            "technique_name": m.technique_name.clone(),
-            "confidence": m.confidence,
-            "match_type": m.match_type.as_str(),
-            "reason": m.reason.clone(),
-            "tactics": m.tactics.clone(),
-        })
-      })
-      .collect();
-    Output::json_value(&json!({
-        "finding": finding,
-        "match_count": result.matches.len(),
-        "matches": matches_json,
-    }));
+  let payload = correlation_payload(finding, &result);
+  if render::render_machine_output(ctx, "rb intel mitre correlate", &payload)? {
     return Ok(());
   }
 
@@ -500,5 +395,207 @@ fn confidence_label(confidence: Confidence) -> &'static str {
     Confidence::High => "high",
     Confidence::Medium => "medium",
     Confidence::Low => "low",
+  }
+}
+
+fn mapped_technique_payload(tech: &MappedTechnique) -> Value {
+  json!({
+    "technique_id": tech.technique_id.clone(),
+    "name": tech.name.clone(),
+    "tactic": tech.tactic.clone(),
+    "confidence": confidence_label(tech.confidence),
+    "reason": tech.reason.clone(),
+    "source_type": tech.source.as_str(),
+    "source": tech.original_value.clone(),
+  })
+}
+
+fn no_findings_payload() -> Value {
+  json!({
+    "error": "No findings provided",
+    "techniques": [],
+  })
+}
+
+fn map_findings_payload(findings: &Findings, result: &MappingResult) -> Value {
+  let techniques_json: Vec<_> = result
+    .techniques
+    .iter()
+    .map(mapped_technique_payload)
+    .collect();
+  let input_json = json!({
+    "ports": findings.ports.clone(),
+    "cves": findings
+      .cves
+      .iter()
+      .map(|(id, _)| id.clone())
+      .collect::<Vec<_>>(),
+    "technologies": findings.fingerprints.clone(),
+    "banners": findings.banners.clone(),
+  });
+  json!({
+    "input": input_json,
+    "unique_technique_ids": result.unique_technique_ids(),
+    "techniques": techniques_json,
+  })
+}
+
+fn port_payload(port: u16, techniques: &[MappedTechnique]) -> Value {
+  let techniques_json: Vec<_> = techniques.iter().map(mapped_technique_payload).collect();
+  json!({
+    "port": port,
+    "techniques": techniques_json,
+  })
+}
+
+fn all_ports_payload(
+  ports: &[u16],
+  technologies: &[&str],
+  by_tactic: &std::collections::HashMap<String, Vec<(u16, String, String)>>,
+) -> Value {
+  let tactics_order = [
+    "Initial Access",
+    "Execution",
+    "Persistence",
+    "Privilege Escalation",
+    "Defense Evasion",
+    "Credential Access",
+    "Discovery",
+    "Lateral Movement",
+    "Collection",
+    "Command and Control",
+    "Exfiltration",
+    "Impact",
+  ];
+  let mut by_tactic_fields = Vec::new();
+  for tactic in tactics_order {
+    if let Some(entries) = by_tactic.get(tactic) {
+      let entries_json: Vec<_> = entries
+        .iter()
+        .map(|(port, tech_id, name)| {
+          json!({
+            "port": *port,
+            "technique_id": tech_id.clone(),
+            "name": name.clone(),
+          })
+        })
+        .collect();
+      by_tactic_fields.push((tactic.to_string(), json!(entries_json)));
+    }
+  }
+  let by_tactic_json = Value::Object(by_tactic_fields.into_iter().collect());
+  json!({
+    "total_ports": ports.len(),
+    "ports": ports,
+    "technologies": technologies,
+    "by_tactic": by_tactic_json,
+  })
+}
+
+fn finding_match_payload(m: &FindingMatch) -> Value {
+  json!({
+    "technique_id": m.technique_id.clone(),
+    "technique_name": m.technique_name.clone(),
+    "confidence": m.confidence,
+    "match_type": m.match_type.as_str(),
+    "reason": m.reason.clone(),
+    "tactics": m.tactics.clone(),
+  })
+}
+
+fn correlation_payload(finding: &str, result: &CorrelationResult) -> Value {
+  let matches_json: Vec<_> = result.matches.iter().map(finding_match_payload).collect();
+  json!({
+    "finding": finding,
+    "match_count": result.matches.len(),
+    "matches": matches_json,
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::intel::{MappedTechnique, MappingSource};
+  use crate::modules::recon::mitre::{CorrelationResult, FindingMatch, MatchType};
+
+  #[test]
+  fn map_findings_payload_serializes_input_and_techniques() {
+    let findings = Findings {
+      ports: vec![22],
+      cves: vec![("CVE-2021-44228".to_string(), "desc".to_string())],
+      fingerprints: vec!["wordpress".to_string()],
+      banners: vec!["Apache/2".to_string()],
+    };
+    let technique = MappedTechnique {
+      technique_id: "T1021.004".to_string(),
+      name: "Remote Services: SSH".to_string(),
+      reason: "SSH enables remote command execution".to_string(),
+      tactic: "Lateral Movement".to_string(),
+      confidence: Confidence::High,
+      source: MappingSource::Port,
+      original_value: "22".to_string(),
+    };
+    let result = MappingResult {
+      techniques: vec![technique],
+      by_tactic: std::collections::HashMap::new(),
+      coverage: Vec::new(),
+    };
+
+    let payload = map_findings_payload(&findings, &result);
+
+    assert_eq!(payload["input"]["ports"][0].as_u64(), Some(22));
+    assert_eq!(payload["input"]["cves"][0].as_str(), Some("CVE-2021-44228"));
+    assert_eq!(
+      payload["techniques"][0]["technique_id"].as_str(),
+      Some("T1021.004")
+    );
+    assert_eq!(
+      payload["techniques"][0]["source_type"].as_str(),
+      Some("port")
+    );
+  }
+
+  #[test]
+  fn all_ports_payload_groups_entries_by_tactic() {
+    let mut by_tactic = std::collections::HashMap::new();
+    by_tactic.insert(
+      "Execution".to_string(),
+      vec![(
+        80,
+        "T1190".to_string(),
+        "Exploit Public-Facing Application".to_string(),
+      )],
+    );
+
+    let payload = all_ports_payload(&[80], &["nginx"], &by_tactic);
+
+    assert_eq!(payload["total_ports"].as_u64(), Some(1));
+    assert_eq!(payload["ports"][0].as_u64(), Some(80));
+    assert_eq!(payload["technologies"][0].as_str(), Some("nginx"));
+    assert_eq!(
+      payload["by_tactic"]["Execution"][0]["technique_id"].as_str(),
+      Some("T1190")
+    );
+  }
+
+  #[test]
+  fn correlation_payload_serializes_matches() {
+    let result = CorrelationResult {
+      finding: "Detected mimikatz.exe execution".to_string(),
+      matches: vec![FindingMatch {
+        technique_id: "T1003".to_string(),
+        technique_name: "OS Credential Dumping".to_string(),
+        confidence: 95,
+        match_type: MatchType::ToolName,
+        reason: "Credential dumping tool".to_string(),
+        tactics: vec!["Credential Access".to_string()],
+      }],
+    };
+
+    let payload = correlation_payload("Detected mimikatz.exe execution", &result);
+
+    assert_eq!(payload["match_count"].as_u64(), Some(1));
+    assert_eq!(payload["matches"][0]["match_type"].as_str(), Some("tool"));
+    assert_eq!(payload["matches"][0]["confidence"].as_u64(), Some(95));
   }
 }

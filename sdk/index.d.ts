@@ -27,6 +27,7 @@ export interface ManifestFlag {
   description: string;
   default?: unknown;
   arg?: string;
+  values?: string[];
   expects_value: boolean;
   camel_name: string;
   machine_output_role?: 'preferred' | string;
@@ -106,6 +107,40 @@ export interface ManifestCommand {
   machine_output?: ManifestMachineOutput;
   flags: ManifestFlag[];
   routes: ManifestRoute[];
+}
+
+export interface ManifestCommandCatalogEntry {
+  domain: string;
+  domain_aliases?: string[];
+  resource: string;
+  resource_aliases?: string[];
+  verb: string;
+  route_aliases?: string[];
+  canonical_path: string;
+  command: string;
+  summary?: string;
+  usage?: string;
+  flags?: ManifestFlag[];
+  positionals?: ManifestPositional[];
+  examples?: Array<{ summary?: string; command: string }>;
+  machine_output?: ManifestMachineOutput;
+}
+
+export interface ManifestCompletionEntry {
+  value: string;
+  kind:
+    | 'domain'
+    | 'resource'
+    | 'verb'
+    | 'command'
+    | 'flag'
+    | 'flag-value'
+    | 'target'
+    | 'positional'
+    | string;
+  summary?: string;
+  aliases?: string[];
+  command?: string;
 }
 
 export interface SdkManifest {
@@ -225,9 +260,16 @@ export interface RedblueClient {
   $manifest: SdkManifest;
   $routes: Record<string, RouteInvocation>;
   $domains: ManifestDomainNode[];
+  $commands: ManifestCommandCatalogEntry[];
   $cliSchema: Record<string, unknown>;
   $createCLI(runtime?: CliInvocationRuntime): Promise<unknown>;
   $findRoute(selector: string | [string, string, string]): RouteInvocation | null;
+  $complete(selector?: string | string[]): {
+    stage: 'domain' | 'resource' | 'verb' | 'command' | 'flag' | 'flag-value' | 'target' | 'positional' | string;
+    completions: ManifestCompletionEntry[];
+  };
+  $describe(selector: string | [string, string, string]): ManifestCommandCatalogEntry | null;
+  $help(selector: string | [string, string, string]): string;
   $suggest(selector?: string | string[]): {
     stage: 'domain' | 'resource' | 'verb' | 'command' | string;
     suggestions: string[];
@@ -252,6 +294,7 @@ export interface CliResult {
 export interface InternalNamespace {
   attachRoute: (...args: unknown[]) => unknown;
   buildDomainCatalog: (...args: unknown[]) => unknown;
+  buildCommandCatalog: (...args: unknown[]) => unknown;
   buildManifestCliSchema: (...args: unknown[]) => unknown;
   buildJsonCliArgs: (...args: unknown[]) => unknown;
   buildInvocation: (...args: unknown[]) => unknown;
@@ -266,6 +309,7 @@ export interface InternalNamespace {
   execFilePromise: (...args: unknown[]) => unknown;
   exists: (...args: unknown[]) => unknown;
   formatManifestHelpSummary: (...args: unknown[]) => unknown;
+  formatRouteHelpSummary: (...args: unknown[]) => unknown;
   formatWrapperBinaryStatus: (...args: unknown[]) => unknown;
   formatWrapperHelp: (...args: unknown[]) => unknown;
   findFlag: (...args: unknown[]) => unknown;
@@ -276,6 +320,8 @@ export interface InternalNamespace {
   getReleaseTag: (...args: unknown[]) => unknown;
   hasLongFlag: (...args: unknown[]) => unknown;
   findRouteInvocation: (...args: unknown[]) => unknown;
+  describeManifestRoute: (...args: unknown[]) => unknown;
+  completeManifestTokens: (...args: unknown[]) => unknown;
   invokeJson: (...args: unknown[]) => unknown;
   invokeRaw: (...args: unknown[]) => unknown;
   isExecutable: (...args: unknown[]) => unknown;

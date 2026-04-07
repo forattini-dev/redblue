@@ -5,12 +5,14 @@
 /// - Email intelligence (holehe-style)
 /// - Breach checking
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::recon::breach::BreachClient;
 use crate::modules::recon::osint::{
-  platforms::get_all_platforms, EmailIntel, OsintConfig, PlatformCategory, UsernameEnumerator,
+  platforms::get_all_platforms, EmailIntel, EmailResult, EnumerationSummary, OsintConfig,
+  PlatformCategory, ProfileResult, UsernameEnumerator,
 };
+use crate::serde_json::Value;
 use std::time::Duration;
 
 pub struct ReconIdentityCommand;
@@ -26,6 +28,26 @@ impl Command for ReconIdentityCommand {
 
   fn description(&self) -> &str {
     "Person/identity OSINT - username enumeration, email intelligence, breach checks"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -138,8 +160,6 @@ impl ReconIdentityCommand {
     let username = ctx.target.as_ref().ok_or(
             "Missing username.\nUsage: rb recon identity username <username>\nExample: rb recon identity username johndoe",
         )?;
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
     let category_filter = ctx.get_flag("category");
     let platforms_filter = ctx.get_flag("platforms");
     let threads: usize = ctx
@@ -208,7 +228,7 @@ impl ReconIdentityCommand {
       platform_count = max_sites;
     }
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Username Search: {}", username));
 
       if let Some(cat) = &category_filter {
@@ -226,29 +246,12 @@ impl ReconIdentityCommand {
     let enumerator = UsernameEnumerator::new(config);
     let result = enumerator.enumerate(username);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    if is_json {
-      let mut found: Vec<_> = result
-        .by_category
-        .values()
-        .flat_map(|v| v.iter())
-        .filter(|r| r.exists)
-        .collect();
-      found.sort_by(|a, b| a.platform.cmp(&b.platform));
-      let profiles_json: Vec<_> = found.into_iter().map(profile_result_to_json).collect();
-
-      Output::json_value(&json!({
-          "username": username.clone(),
-          "category_filter": category_filter.clone(),
-          "total_checked": result.total_checked,
-          "found_count": result.found_count,
-          "error_count": result.error_count,
-          "duration_ms": result.duration.as_millis() as u64,
-          "profiles": profiles_json
-      }));
+    let payload = Self::username_enumeration_payload(username, category_filter.as_deref(), &result);
+    if render::render_machine_output(ctx, "rb recon identity username", &payload)? {
       return Ok(());
     }
 
@@ -306,9 +309,8 @@ impl ReconIdentityCommand {
     platforms_str: &str,
   ) -> Result<(), String> {
     let platform_names: Vec<&str> = platforms_str.split(',').map(|s| s.trim()).collect();
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Username Check: {}", username));
       Output::item("Platforms", &platform_names.join(", "));
 
@@ -362,7 +364,7 @@ impl ReconIdentityCommand {
     let enumerator = UsernameEnumerator::new(config);
     let result = enumerator.enumerate(username);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
@@ -388,34 +390,9 @@ impl ReconIdentityCommand {
     }
     filtered_profiles.sort_by(|a, b| a.platform.cmp(&b.platform));
 
-    if is_json {
-      let profiles_json: Vec<_> = filtered_profiles
-        .iter()
-        .map(|profile| {
-          let status = if profile.exists {
-            "found"
-          } else if profile.error.is_some() {
-            "error"
-          } else {
-            "not_found"
-          };
-          let mut value = profile_result_to_json(profile);
-          if let Some(obj) = value.as_object().cloned() {
-            let mut map = obj;
-            map.insert("status".to_string(), json!(status));
-            value = crate::serde_json::Value::Object(map);
-          }
-          value
-        })
-        .collect();
-
-      Output::json_value(&json!({
-          "username": username.to_string(),
-          "requested_platforms": platform_names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
-          "checked_profiles": filtered_profiles.len(),
-          "found_count": found_count,
-          "profiles": profiles_json
-      }));
+    let payload =
+      Self::username_check_payload(username, &platform_names, &filtered_profiles, found_count);
+    if render::render_machine_output(ctx, "rb recon identity username", &payload)? {
       return Ok(());
     }
 
@@ -471,6 +448,107 @@ impl ReconIdentityCommand {
     }
   }
 
+  fn username_enumeration_payload(
+    username: &str,
+    category_filter: Option<&str>,
+    result: &EnumerationSummary,
+  ) -> Value {
+    let mut found: Vec<_> = result
+      .by_category
+      .values()
+      .flat_map(|profiles| profiles.iter())
+      .filter(|profile| profile.exists)
+      .collect();
+    found.sort_by(|a, b| a.platform.cmp(&b.platform));
+    let profiles: Vec<_> = found.into_iter().map(profile_result_to_json).collect();
+
+    json!({
+      "username": username,
+      "category_filter": category_filter,
+      "total_checked": result.total_checked,
+      "found_count": result.found_count,
+      "error_count": result.error_count,
+      "duration_ms": result.duration.as_millis() as u64,
+      "profiles": profiles
+    })
+  }
+
+  fn username_check_payload(
+    username: &str,
+    platform_names: &[&str],
+    filtered_profiles: &[&ProfileResult],
+    found_count: usize,
+  ) -> Value {
+    let profiles: Vec<_> = filtered_profiles
+      .iter()
+      .map(|profile| {
+        let status = if profile.exists {
+          "found"
+        } else if profile.error.is_some() {
+          "error"
+        } else {
+          "not_found"
+        };
+        let mut value = profile_result_to_json(profile);
+        if let Some(obj) = value.as_object().cloned() {
+          let mut map = obj;
+          map.insert("status".to_string(), json!(status));
+          value = Value::Object(map);
+        }
+        value
+      })
+      .collect();
+
+    json!({
+      "username": username,
+      "requested_platforms": platform_names.iter().map(|name| name.to_string()).collect::<Vec<_>>(),
+      "checked_profiles": filtered_profiles.len(),
+      "found_count": found_count,
+      "profiles": profiles
+    })
+  }
+
+  fn email_intel_payload(email: &str, result: &EmailResult) -> Value {
+    let social_profiles: Vec<_> = result
+      .social_profiles
+      .iter()
+      .map(profile_result_to_json)
+      .collect();
+    let breaches: Vec<_> = result.breaches.iter().map(email_breach_to_json).collect();
+
+    json!({
+      "email": email,
+      "provider": result.provider.clone(),
+      "valid": result.valid,
+      "services": result.services.clone(),
+      "social_profiles": social_profiles,
+      "breaches": breaches
+    })
+  }
+
+  fn email_breach_payload(
+    target: &str,
+    result: &crate::modules::recon::breach::EmailCheckResult,
+  ) -> Value {
+    let breaches: Vec<_> = result.breaches.iter().map(hibp_breach_to_json).collect();
+
+    json!({
+      "type": "email",
+      "target_masked": format!("{}****", &target[..target.len().min(4)]),
+      "pwned": result.pwned,
+      "breach_count": result.breach_count,
+      "breaches": breaches
+    })
+  }
+
+  fn password_breach_payload(result: &crate::modules::recon::breach::PasswordCheckResult) -> Value {
+    json!({
+      "type": "password",
+      "pwned": result.pwned,
+      "count": result.count
+    })
+  }
+
   fn email_intel(&self, ctx: &CliContext) -> Result<(), String> {
     let email = ctx.target.as_ref().ok_or(
             "Missing email.\nUsage: rb recon identity email <email>\nExample: rb recon identity email user@example.com",
@@ -481,9 +559,7 @@ impl ReconIdentityCommand {
       return Err(format!("Invalid email format: {}", email));
     }
 
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header(&format!("Email Intelligence: {}", email));
       Output::spinner_start(&format!("Investigating {}", email));
     }
@@ -502,26 +578,12 @@ impl ReconIdentityCommand {
     let intel = EmailIntel::new(config);
     let result = intel.investigate(email);
 
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::spinner_done();
     }
 
-    if is_json {
-      let social_profiles: Vec<_> = result
-        .social_profiles
-        .iter()
-        .map(profile_result_to_json)
-        .collect();
-      let breaches: Vec<_> = result.breaches.iter().map(email_breach_to_json).collect();
-
-      Output::json_value(&json!({
-          "email": email.clone(),
-          "provider": result.provider.clone(),
-          "valid": result.valid,
-          "services": result.services.clone(),
-          "social_profiles": social_profiles,
-          "breaches": breaches
-      }));
+    let payload = Self::email_intel_payload(email, &result);
+    if render::render_machine_output(ctx, "rb recon identity email", &payload)? {
       return Ok(());
     }
 
@@ -588,9 +650,7 @@ impl ReconIdentityCommand {
       .unwrap_or_else(|| "password".to_string());
     let hibp_key = ctx.get_flag("hibp-key");
 
-    let is_json = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
-
-    if !is_json {
+    if !ctx.wants_machine_output() {
       Output::header("Breach Check (HIBP)");
       Output::item("Target", &format!("{}****", &target[..target.len().min(4)]));
       Output::item("Type", &check_type);
@@ -605,20 +665,13 @@ impl ReconIdentityCommand {
     match check_type.as_str() {
       "email" => {
         let result = client.check_email(target);
-        if !is_json {
+        if !ctx.wants_machine_output() {
           Output::spinner_done();
         }
         let result = result?;
 
-        if is_json {
-          let breaches: Vec<_> = result.breaches.iter().map(hibp_breach_to_json).collect();
-          Output::json_value(&json!({
-              "type": "email",
-              "target_masked": format!("{}****", &target[..target.len().min(4)]),
-              "pwned": result.pwned,
-              "breach_count": result.breach_count,
-              "breaches": breaches
-          }));
+        let payload = Self::email_breach_payload(target, &result);
+        if render::render_machine_output(ctx, "rb recon identity breach", &payload)? {
           return Ok(());
         }
 
@@ -644,17 +697,13 @@ impl ReconIdentityCommand {
       }
       _ => {
         let result = client.check_password(target);
-        if !is_json {
+        if !ctx.wants_machine_output() {
           Output::spinner_done();
         }
         let result = result?;
 
-        if is_json {
-          Output::json_value(&json!({
-              "type": "password",
-              "pwned": result.pwned,
-              "count": result.count
-          }));
+        let payload = Self::password_breach_payload(&result);
+        if render::render_machine_output(ctx, "rb recon identity breach", &payload)? {
           return Ok(());
         }
 
@@ -726,4 +775,90 @@ fn hibp_breach_to_json(
       "pwn_count": breach.pwn_count,
       "data_classes": breach.data_classes.clone()
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::modules::recon::breach::{EmailCheckResult, PasswordCheckResult};
+  use crate::modules::recon::osint::{BreachInfo, ProfileMetadata};
+
+  #[test]
+  fn username_check_payload_includes_status() {
+    let profile = ProfileResult {
+      platform: "GitHub".to_string(),
+      category: PlatformCategory::Development,
+      exists: true,
+      url: Some("https://github.com/johndoe".to_string()),
+      metadata: ProfileMetadata::default(),
+      duration: Duration::from_millis(42),
+      error: None,
+    };
+
+    let payload =
+      ReconIdentityCommand::username_check_payload("johndoe", &["github"], &[&profile], 1);
+
+    assert_eq!(payload["found_count"].as_u64(), Some(1));
+    assert_eq!(payload["profiles"][0]["status"].as_str(), Some("found"));
+  }
+
+  #[test]
+  fn email_breach_payload_masks_target() {
+    let payload = ReconIdentityCommand::email_breach_payload(
+      "user@example.com",
+      &EmailCheckResult {
+        email: "user@example.com".to_string(),
+        pwned: true,
+        breach_count: 1,
+        breaches: vec![crate::modules::recon::breach::BreachInfo {
+          name: "Example".to_string(),
+          domain: "example.com".to_string(),
+          breach_date: "2024-01-01".to_string(),
+          pwn_count: 10,
+          data_classes: vec!["Emails".to_string()],
+        }],
+      },
+    );
+
+    assert_eq!(payload["type"].as_str(), Some("email"));
+    assert_eq!(payload["target_masked"].as_str(), Some("user****"));
+  }
+
+  #[test]
+  fn email_intel_payload_includes_services_and_breaches() {
+    let payload = ReconIdentityCommand::email_intel_payload(
+      "user@example.com",
+      &EmailResult {
+        email: "user@example.com".to_string(),
+        valid: true,
+        provider: Some("gmail".to_string()),
+        breaches: vec![BreachInfo {
+          name: "Example".to_string(),
+          date: Some("2024-01-01".to_string()),
+          accounts: Some(10),
+          data_types: vec!["Emails".to_string()],
+          description: Some("Example breach".to_string()),
+          verified: true,
+          sensitive: false,
+        }],
+        pastes: vec![],
+        services: vec!["github".to_string()],
+        social_profiles: vec![],
+      },
+    );
+
+    assert_eq!(payload["services"][0].as_str(), Some("github"));
+    assert_eq!(payload["breaches"][0]["name"].as_str(), Some("Example"));
+  }
+
+  #[test]
+  fn password_breach_payload_includes_count() {
+    let payload = ReconIdentityCommand::password_breach_payload(&PasswordCheckResult {
+      pwned: true,
+      count: 123,
+    });
+
+    assert_eq!(payload["type"].as_str(), Some("password"));
+    assert_eq!(payload["count"].as_u64(), Some(123));
+  }
 }
