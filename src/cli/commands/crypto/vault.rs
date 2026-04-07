@@ -1,7 +1,7 @@
 //! Vault command - Secure file encryption with AES-256-GCM
 
 use crate::cli::commands::{print_help, Command, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::sha256::Sha256;
 use crate::crypto::{aes256_gcm_decrypt, aes256_gcm_encrypt};
 use crate::json;
@@ -73,6 +73,31 @@ impl Command for CryptoCommand {
 
   fn description(&self) -> &str {
     "Secure file encryption vault - AES-256-GCM with password"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "info" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -346,9 +371,6 @@ impl CryptoCommand {
   }
 
   fn show_info(&self, ctx: &CliContext) -> Result<(), String> {
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-    let is_json = format == "json";
-
     let input_path = ctx
       .target
       .as_ref()
@@ -362,29 +384,28 @@ impl CryptoCommand {
     let min_size = VAULT_MAGIC.len() + 1 + SALT_SIZE + NONCE_SIZE + TAG_SIZE;
     let is_valid = vault_data.len() >= min_size && &vault_data[0..4] == VAULT_MAGIC;
 
-    if is_json {
-      let mut payload = json!({
-          "file": input_path,
-          "total_size": vault_data.len(),
-          "valid": is_valid
-      });
-      if is_valid {
-        let version = vault_data[4];
-        let ciphertext_size = vault_data.len() - min_size;
-        if let Some(map) = payload.as_object().cloned() {
-          let mut map = map;
-          map.insert("version".to_string(), json!(version));
-          map.insert("salt_size".to_string(), json!(SALT_SIZE));
-          map.insert("nonce_size".to_string(), json!(NONCE_SIZE));
-          map.insert("ciphertext_size".to_string(), json!(ciphertext_size));
-          map.insert("tag_size".to_string(), json!(TAG_SIZE));
-          map.insert("encryption".to_string(), json!("AES-256-GCM"));
-          map.insert("key_derivation".to_string(), json!("PBKDF2-HMAC-SHA256"));
-          map.insert("iterations".to_string(), json!(PBKDF2_ITERATIONS));
-          payload = crate::serde_json::Value::Object(map);
-        }
+    let mut payload = json!({
+      "file": input_path,
+      "total_size": vault_data.len(),
+      "valid": is_valid
+    });
+    if is_valid {
+      let version = vault_data[4];
+      let ciphertext_size = vault_data.len() - min_size;
+      if let Some(map) = payload.as_object().cloned() {
+        let mut map = map;
+        map.insert("version".to_string(), json!(version));
+        map.insert("salt_size".to_string(), json!(SALT_SIZE));
+        map.insert("nonce_size".to_string(), json!(NONCE_SIZE));
+        map.insert("ciphertext_size".to_string(), json!(ciphertext_size));
+        map.insert("tag_size".to_string(), json!(TAG_SIZE));
+        map.insert("encryption".to_string(), json!("AES-256-GCM"));
+        map.insert("key_derivation".to_string(), json!("PBKDF2-HMAC-SHA256"));
+        map.insert("iterations".to_string(), json!(PBKDF2_ITERATIONS));
+        payload = crate::serde_json::Value::Object(map);
       }
-      Output::json_value(&payload);
+    }
+    if render::render_machine_output(ctx, "rb crypto vault info", &payload)? {
       return Ok(());
     }
 
