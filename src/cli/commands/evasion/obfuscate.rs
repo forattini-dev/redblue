@@ -1,7 +1,6 @@
 //! String and data obfuscation command
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::obfuscate;
 
@@ -20,6 +19,26 @@ impl Command for EvasionObfuscateCommand {
 
   fn description(&self) -> &str {
     "String and data obfuscation techniques"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -98,9 +117,6 @@ impl Command for EvasionObfuscateCommand {
 }
 
 fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let data = ctx.target.as_ref().ok_or("Missing string to obfuscate")?;
 
   let key: u8 = ctx
@@ -124,18 +140,18 @@ fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
   let obfuscated = obfuscate::xor_obfuscate(data, key);
   let hex: String = obfuscated.iter().map(|b| format!("{:02x}", b)).collect();
 
-  if is_json {
-    Output::json_value(&json!({
-        "original": data,
-        "key": key,
-        "key_hex": format!("0x{:02X}", key),
-        "obfuscated_hex": hex,
-        "obfuscated_bytes": obfuscated,
-        "deobfuscate_command": format!(
-            "rb evasion obfuscate deobfuscate {} --key {}",
-            hex, key
-        ),
-    }));
+  let payload = json!({
+      "original": data,
+      "key": key,
+      "key_hex": format!("0x{:02X}", key),
+      "obfuscated_hex": hex,
+      "obfuscated_bytes": obfuscated,
+      "deobfuscate_command": format!(
+          "rb evasion obfuscate deobfuscate {} --key {}",
+          hex, key
+      ),
+  });
+  if render::render_machine_output(ctx, "rb evasion obfuscate xor", &payload)? {
     return Ok(());
   }
 
@@ -160,17 +176,14 @@ fn execute_obfuscate_xor(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_obfuscate_base64(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let data = ctx.target.as_ref().ok_or("Missing data to encode")?;
   let encoded = obfuscate::base64_encode(data.as_bytes());
 
-  if is_json {
-    Output::json_value(&json!({
-        "original": data,
-        "encoded": encoded,
-    }));
+  let payload = json!({
+      "original": data,
+      "encoded": encoded,
+  });
+  if render::render_machine_output(ctx, "rb evasion obfuscate base64", &payload)? {
     return Ok(());
   }
 
@@ -184,8 +197,6 @@ fn execute_obfuscate_base64(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_obfuscate_rot(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
   let data = ctx.target.as_ref().ok_or("Missing string to encode")?;
 
   let shift: u8 = ctx
@@ -194,21 +205,21 @@ fn execute_obfuscate_rot(ctx: &CliContext) -> Result<(), String> {
     .and_then(|s| s.parse().ok())
     .unwrap_or(13);
 
-  Output::header(&format!("ROT-{} Encoding", shift));
-  println!();
-
   let encoded = obfuscate::rot_encode(data, shift);
   let decode_shift = 26 - (shift % 26);
 
-  if is_json {
-    Output::json_value(&json!({
-        "original": data,
-        "shift": shift,
-        "encoded": encoded,
-        "decode_shift": decode_shift,
-    }));
+  let payload = json!({
+      "original": data,
+      "shift": shift,
+      "encoded": encoded,
+      "decode_shift": decode_shift,
+  });
+  if render::render_machine_output(ctx, "rb evasion obfuscate rot", &payload)? {
     return Ok(());
   }
+
+  Output::header(&format!("ROT-{} Encoding", shift));
+  println!();
 
   Output::item("Original", data);
   Output::item("Shift", &shift.to_string());
@@ -226,8 +237,6 @@ fn execute_obfuscate_rot(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_deobfuscate(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
   let hex_data = ctx
     .target
     .as_ref()
@@ -242,9 +251,6 @@ fn execute_deobfuscate(ctx: &CliContext) -> Result<(), String> {
     return Err("Invalid hex string".to_string());
   }
 
-  Output::header("XOR Deobfuscation");
-  println!();
-
   // Parse hex string to bytes
   let bytes: Result<Vec<u8>, _> = (0..hex_data.len())
     .step_by(2)
@@ -255,15 +261,18 @@ fn execute_deobfuscate(ctx: &CliContext) -> Result<(), String> {
 
   let deobfuscated = obfuscate::xor_deobfuscate(&bytes, key);
 
-  if is_json {
-    Output::json_value(&json!({
-        "hex_input": hex_data,
-        "key": key,
-        "key_hex": format!("0x{:02X}", key),
-        "deobfuscated": deobfuscated,
-    }));
+  let payload = json!({
+      "hex_input": hex_data,
+      "key": key,
+      "key_hex": format!("0x{:02X}", key),
+      "deobfuscated": deobfuscated,
+  });
+  if render::render_machine_output(ctx, "rb evasion obfuscate deobfuscate", &payload)? {
     return Ok(());
   }
+
+  Output::header("XOR Deobfuscation");
+  println!();
 
   Output::item("Hex Input", hex_data);
   Output::item("Key", &format!("0x{:02X} ({})", key, key));
