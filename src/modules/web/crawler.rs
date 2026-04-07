@@ -217,85 +217,146 @@ impl WebCrawler {
     }
   }
 
-  /// Crawl a website starting from the given URL
+  /// Crawl a website starting from the given URL.
+  ///
+  /// Uses multi-threaded BFS with 4 worker threads sharing a concurrent
+  /// queue and visited set.  Each worker pops a URL, fetches it, extracts
+  /// links, and pushes new URLs back.  OPSEC jitter (50-200ms) between
+  /// fetches mimics human browsing.
   pub fn crawl(&mut self, start_url: &str) -> Result<CrawlResult, String> {
-    // Normalize start URL
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     let base_url = self.normalize_url(start_url);
     let base_domain = self.extract_domain(&base_url)?;
 
-    // Start HAR page if recording
     if let Some(ref recorder) = self.har_recorder {
       let mut r = recorder.lock().unwrap();
       r.start_page(&format!("Crawl: {}", start_url));
     }
 
-    // Initialize
-    self.visited.clear();
-    self.queue.clear();
-    self.queue.push_back((base_url.clone(), 0));
+    // Shared state for parallel BFS
+    let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let queue: Arc<Mutex<VecDeque<(String, usize)>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let pages: Arc<Mutex<Vec<CrawledPage>>> = Arc::new(Mutex::new(Vec::new()));
+    let active_workers = Arc::new(AtomicUsize::new(0));
 
-    let mut pages = Vec::new();
-    let mut total_links = 0;
-    let mut max_depth_reached = 0;
+    // Seed the queue
+    {
+      let mut q = queue.lock().unwrap();
+      q.push_back((base_url.clone(), 0));
+    }
 
-    // BFS traversal
-    while let Some((url, depth)) = self.queue.pop_front() {
-      // Check limits
-      if pages.len() >= self.config.max_pages {
-        break;
-      }
+    let num_workers = 4usize.min(self.config.max_pages);
+    let max_pages = self.config.max_pages;
+    let max_depth = self.config.max_depth;
+    let same_origin = self.config.same_origin_only;
 
-      if depth > self.config.max_depth {
-        continue;
-      }
+    // thread::scope borrows &self (not &mut self), which is fine because
+    // fetch_page, normalize_url, extract_domain are all &self methods.
+    // The mutable state (visited, queue) is in Arc<Mutex<>> locals.
+    let base_url_ref = &base_url;
+    let base_domain_ref = &base_domain;
+    let crawler = &*self; // reborrow as &WebCrawler so `move` doesn't eat `self`
 
-      // Skip if already visited
-      if self.visited.contains(&url) {
-        continue;
-      }
+    std::thread::scope(|s| {
+      for _ in 0..num_workers {
+        let w_visited = Arc::clone(&visited);
+        let w_queue = Arc::clone(&queue);
+        let w_pages = Arc::clone(&pages);
+        let w_active = Arc::clone(&active_workers);
 
-      // Mark as visited
-      self.visited.insert(url.clone());
+        s.spawn(move || {
+          let visited = w_visited;
+          let queue = w_queue;
+          let pages = w_pages;
+          let active = w_active;
+          let mut idle_rounds = 0u8;
 
-      // Fetch page
-      match self.fetch_page(&url, &base_url) {
-        Ok(mut page) => {
-          page.depth = depth;
-          total_links += page.links.len();
-          max_depth_reached = max_depth_reached.max(depth);
+          loop {
+            // Check page limit
+            if pages.lock().unwrap().len() >= max_pages {
+              break;
+            }
 
-          // Call page callback if set
-          if let Some(ref callback) = self.callback {
-            callback(&page);
-          }
+            // Pop from shared queue
+            let work = queue.lock().unwrap().pop_front();
 
-          // Queue child links
-          for link in &page.links {
-            let normalized = self.normalize_url(link);
-
-            // Check same-origin policy
-            if self.config.same_origin_only {
-              if let Ok(link_domain) = self.extract_domain(&normalized) {
-                if link_domain != base_domain {
-                  continue; // Skip external links
+            let Some((url, depth)) = work else {
+              // No work — wait briefly for other workers to enqueue URLs
+              if active.load(Ordering::SeqCst) == 0 {
+                idle_rounds += 1;
+                if idle_rounds > 20 {
+                  break; // All workers idle + empty queue = done
                 }
               }
+              std::thread::sleep(std::time::Duration::from_millis(10));
+              continue;
+            };
+            idle_rounds = 0;
+
+            if depth > max_depth {
+              continue;
             }
 
-            // Add to queue if not visited
-            if !self.visited.contains(&normalized) {
-              self.queue.push_back((normalized, depth + 1));
+            // Atomic check+insert visited
+            {
+              let mut vis = visited.lock().unwrap();
+              if vis.contains(&url) {
+                continue;
+              }
+              vis.insert(url.clone());
             }
+
+            active.fetch_add(1, Ordering::SeqCst);
+
+            // OPSEC: jitter between fetches to avoid robotic timing
+            crate::modules::common::parallel::jitter_sleep(50, 200);
+
+            // Fetch page (all &self methods — thread-safe)
+            match crawler.fetch_page(&url, base_url_ref) {
+              Ok(mut page) => {
+                page.depth = depth;
+
+                // Queue child links
+                {
+                  let vis = visited.lock().unwrap();
+                  let mut q = queue.lock().unwrap();
+                  for link in &page.links {
+                    let normalized = crawler.normalize_url(link);
+                    if same_origin {
+                      if let Ok(link_domain) = crawler.extract_domain(&normalized) {
+                        if link_domain != *base_domain_ref {
+                          continue;
+                        }
+                      }
+                    }
+                    if !vis.contains(&normalized) {
+                      q.push_back((normalized, depth + 1));
+                    }
+                  }
+                }
+
+                if let Some(ref callback) = crawler.callback {
+                  callback(&page);
+                }
+
+                pages.lock().unwrap().push(page);
+              }
+              Err(_) => {}
+            }
+
+            active.fetch_sub(1, Ordering::SeqCst);
           }
-
-          pages.push(page);
-        }
-        Err(_) => {
-          // Skip failed pages, continue crawling
-          continue;
-        }
+        });
       }
-    }
+    });
+
+    let pages = Arc::try_unwrap(pages).unwrap().into_inner().unwrap();
+    let total_links: usize = pages.iter().map(|p| p.links.len()).sum();
+    let max_depth_reached = pages.iter().map(|p| p.depth).max().unwrap_or(0);
+
+    // Update self for compatibility
+    self.visited = Arc::try_unwrap(visited).unwrap().into_inner().unwrap();
 
     // Emit synergy events for crawl results
     emit_crawl_events(&base_url, &pages);

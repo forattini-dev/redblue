@@ -184,35 +184,40 @@ impl TlsVulnScanner {
         Self { config, scanners }
     }
 
-    /// Run all vulnerability scans
+    /// Run all vulnerability scans (parallel).
+    ///
+    /// Each vuln check opens its own TCP/TLS connection, so they're fully
+    /// independent.  Capped at 4 concurrent to avoid triggering IDS alerts
+    /// for rapid TLS handshake attempts to the same port.
     pub fn scan(&self, host: &str, port: u16) -> Vec<VulnCheckResult> {
-        let mut results = Vec::new();
+        use crate::modules::common::parallel;
 
-        for scanner in &self.scanners {
-            if self.config.verbose {
-                println!("  Scanning for {}...", scanner.name());
+        if self.config.verbose {
+            for scanner in &self.scanners {
+                println!("  Queued: {}", scanner.name());
             }
-
-            let result = scanner.scan(host, port);
-            results.push(result);
         }
 
-        results
+        parallel::map_indexed(4, &self.scanners, |_idx, scanner| {
+            parallel::jitter_sleep(100, 400);
+            scanner.scan(host, port)
+        })
     }
 
-    /// Run only critical vulnerability scans (faster)
+    /// Run only critical vulnerability scans (parallel, faster).
     pub fn quick_scan(&self, host: &str, port: u16) -> Vec<VulnCheckResult> {
+        use crate::modules::common::parallel;
+
         let critical_vulns = ["Heartbleed", "POODLE", "DROWN"];
-        let mut results = Vec::new();
+        let critical_scanners: Vec<&Box<dyn VulnScanner>> = self
+            .scanners
+            .iter()
+            .filter(|s| critical_vulns.contains(&s.name()))
+            .collect();
 
-        for scanner in &self.scanners {
-            if critical_vulns.contains(&scanner.name()) {
-                let result = scanner.scan(host, port);
-                results.push(result);
-            }
-        }
-
-        results
+        parallel::map(2, &critical_scanners, |scanner| {
+            scanner.scan(host, port)
+        })
     }
 
     /// Get summary of scan results

@@ -144,21 +144,29 @@ impl ComprehensiveTlsAuditor {
       .format("%Y-%m-%d %H:%M:%S UTC")
       .to_string();
 
-    // Step 1: Enumerate protocols and ciphers
-    let scanner = TlsScanner::with_timeout(self.timeout);
-    let scan_results = scanner
-      .scan_all(host, port)
-      .map_err(|e| format!("Protocol scan failed: {}", e))?;
+    // Steps 1-3: Run protocol scan, Heartbleed test, and cert chain retrieval
+    // concurrently — each opens its own TCP connection independently.
+    let timeout = self.timeout;
+    let (scan_results, heartbleed_result, certificates) = std::thread::scope(|s| {
+      let scan_handle = s.spawn(move || {
+        let scanner = TlsScanner::with_timeout(timeout);
+        scanner.scan_all(host, port)
+      });
+      let heartbleed_handle = s.spawn(move || {
+        let tester = HeartbleedTester::with_timeout(timeout);
+        tester.test(host, port)
+      });
+      let cert_handle = s.spawn(move || {
+        let client = TlsClient::new();
+        client.get_certificate_chain(host, port).unwrap_or_default()
+      });
 
-    // Step 2: Test for Heartbleed
-    let heartbleed_tester = HeartbleedTester::with_timeout(self.timeout);
-    let heartbleed_result = heartbleed_tester.test(host, port);
-
-    // Step 3: Get certificate chain
-    let tls_client = TlsClient::new();
-    let certificates = tls_client
-      .get_certificate_chain(host, port)
-      .unwrap_or_default();
+      let scan_results = scan_handle.join().unwrap();
+      let heartbleed_result = heartbleed_handle.join().unwrap();
+      let certificates = cert_handle.join().unwrap();
+      (scan_results, heartbleed_result, certificates)
+    });
+    let scan_results = scan_results.map_err(|e| format!("Protocol scan failed: {}", e))?;
 
     // Step 4: OCSP revocation check (if we have certificates)
     let ocsp_status = if certificates.len() >= 2
@@ -181,6 +189,7 @@ impl ComprehensiveTlsAuditor {
     };
 
     // Step 5: Analyze security issues
+    let scanner = TlsScanner::with_timeout(self.timeout);
     let security_issues = scanner.check_vulnerabilities(&scan_results);
 
     // Step 6: Analyze certificate
