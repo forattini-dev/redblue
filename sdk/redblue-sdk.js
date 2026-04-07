@@ -590,6 +590,11 @@ function profileArgs(args) {
   if (args.includes('-S') || args.includes('--stealth')) {
     return args;
   }
+  // -S (strip types) requires Node >= 22; skip on older versions
+  const major = parseInt(process.versions.node, 10);
+  if (major < 22) {
+    return args;
+  }
   return ['-S', 'nodejs'].concat(args);
 }
 
