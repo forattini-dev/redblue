@@ -11,7 +11,7 @@ if (logPath) {
 }
 
 if (args[0] === '--version') {
-  const versionText = process.env.RB_FAKE_VERSION || 'RedBlue CLI v0.1.0\n';
+  const versionText = process.env.RB_FAKE_VERSION || 'RedBlue CLI v0.2.2\n';
   if (process.env.RB_FAKE_VERSION_STREAM === 'stderr') {
     process.stderr.write(versionText);
   } else {
@@ -30,10 +30,9 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
     process.exit(0);
   }
 
-  process.stdout.write(
-    JSON.stringify({
+  const manifest = {
       schema_version: 1,
-      version: '0.1.0',
+      version: '0.2.2',
       binary: 'redblue',
       canonical_order: 'domain-resource-verb',
       canonical_grammar: 'rb <domain> <resource> <verb> [target] [args...] [flags]',
@@ -460,8 +459,18 @@ if (args[0] === 'sdk' && args[1] === 'bridge' && args[2] === 'manifest') {
           ]
         }
       ]
-    })
-  );
+    };
+
+  if (process.env.RB_FAKE_MANIFEST_JSON_UNDECLARED === '1') {
+    if (manifest.commands && manifest.commands[0] && manifest.commands[0].routes && manifest.commands[0].routes[0]) {
+      manifest.commands[0].routes[0].machine_output = {
+        ...manifest.commands[0].routes[0].machine_output,
+        json_support: 'undeclared'
+      };
+    }
+  }
+
+  process.stdout.write(JSON.stringify(manifest));
   process.exit(0);
 }
 
