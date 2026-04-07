@@ -500,6 +500,43 @@ impl HtmlDocument {
   // HTML serialization
   // -----------------------------------------------------------------------
 
+  /// Serialize the entire document back to an HTML string.
+  pub fn to_html(&self) -> String {
+    self.outer_html(self.root)
+  }
+
+  /// Remove nodes from the tree.  Each node in `ids` is detached from its
+  /// parent's children list so it (and its subtree) no longer appears in
+  /// serialization or traversal.
+  pub fn remove_nodes(&mut self, ids: &[usize]) {
+    let id_set: std::collections::HashSet<usize> = ids.iter().copied().collect();
+    // For each node, remove it from its parent's children list
+    for &id in ids {
+      let parent_id = match self.arena.get(id) {
+        Some(n) => n.parent,
+        None => continue,
+      };
+      if let Some(pid) = parent_id {
+        if let Some(parent) = self.arena.get_mut(pid) {
+          parent.children.retain(|c| !id_set.contains(c));
+        }
+      }
+    }
+  }
+
+  /// Remove all elements matching a CSS selector.
+  /// Returns the number of elements removed.
+  pub fn remove_by_selector(&mut self, selector_str: &str) -> usize {
+    use crate::modules::html::selector;
+    let Ok(sel) = selector::parse_selector(selector_str) else {
+      return 0;
+    };
+    let ids = selector::select_all(self, &sel);
+    let count = ids.len();
+    self.remove_nodes(&ids);
+    count
+  }
+
   /// Serialize the children of `node_id` to an HTML string.
   pub fn inner_html(&self, node_id: usize) -> String {
     let mut buf = String::new();
