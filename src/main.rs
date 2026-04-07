@@ -7,7 +7,15 @@ fn main() {
   // Load configuration once at startup so downstream modules can access it.
   let _config = config::init();
 
-  let args: Vec<String> = env::args().skip(1).collect();
+  let raw_args: Vec<String> = env::args().skip(1).collect();
+  let stealth_profile = parse_stealth_flag(&raw_args);
+
+  // --stealth / -S activates heap jitter with the specified profile.
+  let _heap_guard = stealth_profile
+    .as_ref()
+    .map(|profile| force_heap_jitter(profile.as_deref()));
+
+  let args = raw_args;
 
   if args.is_empty() {
     commands::print_global_help();
@@ -66,6 +74,13 @@ fn main() {
     std::process::exit(1);
   }
 
+  // --stealth: rehash the binary after command execution
+  if stealth_profile.is_some() {
+    if let Err(e) = redblue::modules::evasion::rehash::rehash() {
+      eprintln!("warning: stealth rehash failed: {}", e);
+    }
+  }
+
   let _ = maybe_create_rbdb(&ctx);
 }
 
@@ -118,13 +133,174 @@ fn handle_help_flag(ctx: &cli::CliContext) {
 }
 
 fn handle_help_command(ctx: &cli::CliContext) {
-  if ctx.resource.is_some() {
-    Output::error("Use `rb <domain> help` or `rb <domain> <resource> help` for contextual help.");
+  let Some(domain_token) = ctx.resource.as_deref() else {
+    commands::print_global_help();
+    return;
+  };
+
+  let domain = cli::aliases::resolve_domain_alias(domain_token);
+  if cli::schema::find_domain_node(domain, false).is_none() {
+    Output::error(&format!(
+      "Unknown domain '{}'.{}",
+      domain_token,
+      suggest_domains_text(domain_token)
+    ));
     commands::print_global_help();
     return;
   }
 
-  commands::print_global_help();
+  let Some(resource_token) = ctx.verb.as_deref() else {
+    if let Err(err) = commands::print_domain_overview(domain) {
+      Output::error(&err);
+      commands::print_global_help();
+    }
+    return;
+  };
+
+  let resource = cli::aliases::resolve_resource_alias(resource_token);
+  let Some(command) = commands::command_for(domain, resource) else {
+    Output::error(&format!(
+      "Unknown resource '{}' in domain '{}'.{}",
+      resource_token,
+      domain,
+      suggest_resources_text(domain, resource_token)
+    ));
+    return;
+  };
+
+  let Some(verb_token) = ctx.target.as_deref() else {
+    commands::print_help(command);
+    return;
+  };
+
+  let verb = cli::aliases::resolve_verb_alias(verb_token);
+  if let Some(route) = command
+    .routes()
+    .into_iter()
+    .find(|route| route.verb == verb)
+  {
+    let route_metadata = command.route_metadata(route.verb);
+    let flags = command.flags();
+    let examples = route_help_examples(command, domain, resource, verb);
+
+    Output::header(&format!("{} {} {}", domain, resource, verb));
+    println!("\n\x1b[1mSUMMARY:\x1b[0m");
+    println!("  {}", route.summary);
+    println!("\n\x1b[1mUSAGE:\x1b[0m");
+    println!("  {}", route.usage);
+    println!("\n\x1b[1mMACHINE OUTPUT:\x1b[0m");
+    println!(
+      "  {}",
+      cli::schema::machine_output_summary(route_metadata.machine_output)
+    );
+    if !route_metadata.aliases.is_empty() {
+      println!("  aliases: {}", route_metadata.aliases.join(", "));
+    }
+
+    if !flags.is_empty() {
+      println!("\n\x1b[1mFLAGS:\x1b[0m");
+      for flag in flags {
+        let mut label = format!("--{}", flag.long);
+        if let Some(short) = flag.short {
+          label = format!("{}, -{}", label, short);
+        }
+        if let Some(arg) = flag.arg.as_ref() {
+          label = format!("{} <{}>", label, arg);
+        }
+        if let Some(default) = flag.default.as_ref() {
+          println!(
+            "  {:<28} {} (default: {})",
+            label, flag.description, default
+          );
+        } else {
+          println!("  {:<28} {}", label, flag.description);
+        }
+      }
+    }
+
+    if !examples.is_empty() {
+      println!("\n\x1b[1mEXAMPLES:\x1b[0m");
+      for (summary, command_line) in examples {
+        if summary.is_empty() {
+          println!("  {}", command_line);
+        } else {
+          println!("  {}: {}", summary, command_line);
+        }
+      }
+    }
+    return;
+  }
+
+  Output::error(&format!(
+    "Unknown verb '{}' for '{} {}'.{}",
+    verb_token,
+    domain,
+    resource,
+    suggest_routes_text(domain, resource, verb_token)
+  ));
+}
+
+fn suggest_domains_text(input: &str) -> String {
+  let suggestions = cli::schema::suggest_domains(input, 3, false);
+  if suggestions.is_empty() {
+    String::new()
+  } else {
+    format!(
+      "\n\nDid you mean one of these canonical domains?\n  {}",
+      suggestions.join("\n  ")
+    )
+  }
+}
+
+fn suggest_resources_text(domain: &str, resource: &str) -> String {
+  let suggestions = cli::schema::suggest_resources(domain, resource, 3);
+  if suggestions.is_empty() {
+    String::new()
+  } else {
+    format!(
+      "\n\nDid you mean one of these canonical resources?\n  {}",
+      suggestions.join("\n  ")
+    )
+  }
+}
+
+fn suggest_routes_text(domain: &str, resource: &str, verb: &str) -> String {
+  let suggestions = cli::schema::suggest_route_commands(domain, resource, verb, 3);
+  if suggestions.is_empty() {
+    String::new()
+  } else {
+    format!(
+      "\n\nDid you mean one of these canonical routes?\n  {}",
+      suggestions.join("\n  ")
+    )
+  }
+}
+
+fn route_help_examples(
+  command: &dyn commands::Command,
+  domain: &str,
+  resource: &str,
+  verb: &str,
+) -> Vec<(String, String)> {
+  let route_prefix = format!("rb {} {} {}", domain, resource, verb);
+  let mut filtered = Vec::new();
+  let mut fallback = Vec::new();
+
+  for (summary, command_line) in command.examples() {
+    let summary_text = summary.to_string();
+    let command_text = command_line.to_string();
+    if command_line.starts_with(&route_prefix) {
+      filtered.push((summary_text, command_text));
+    } else {
+      fallback.push((summary_text, command_text));
+    }
+  }
+
+  if !filtered.is_empty() {
+    return filtered;
+  }
+
+  fallback.into_iter().take(3).collect()
 }
 
 fn handle_shell_command(ctx: &cli::CliContext) {
@@ -152,7 +328,7 @@ fn handle_shell_command(ctx: &cli::CliContext) {
 }
 
 fn print_version() {
-  println!("RedBlue CLI v{}", env!("CARGO_PKG_VERSION"));
+  println!("RedBlue CLI v{}", redblue::version::current_version());
   println!("Built with Rust from scratch");
 }
 
@@ -239,4 +415,61 @@ fn extract_target_identifier(target: &str) -> Option<String> {
   } else {
     Some(sanitized)
   }
+}
+
+/// Parse --stealth / -S from raw args before full parsing.
+/// Returns Some(optional_profile) if stealth is active, None otherwise.
+///   -S            → Some(None)         → default profile
+///   -S nodejs     → Some(Some("nodejs")) → explicit profile
+///   --stealth=browser → Some(Some("browser"))
+fn parse_stealth_flag(args: &[String]) -> Option<Option<String>> {
+  let known_profiles = ["browser", "nodejs", "node", "system", "random"];
+
+  for (i, arg) in args.iter().enumerate() {
+    // --stealth=<profile>
+    if let Some(val) = arg.strip_prefix("--stealth=") {
+      return Some(Some(val.to_string()));
+    }
+    // --stealth or --stealth <profile>
+    if arg == "--stealth" {
+      if let Some(next) = args.get(i + 1) {
+        if known_profiles.contains(&next.as_str()) {
+          return Some(Some(next.to_string()));
+        }
+      }
+      return Some(None);
+    }
+    // -S or -S <profile>
+    if arg == "-S" {
+      if let Some(next) = args.get(i + 1) {
+        if known_profiles.contains(&next.as_str()) {
+          return Some(Some(next.to_string()));
+        }
+      }
+      return Some(None);
+    }
+  }
+  None
+}
+
+/// Force heap jitter activation (used by --stealth flag).
+/// Uses the explicit profile, then env var, then defaults to Random.
+fn force_heap_jitter(
+  profile_name: Option<&str>,
+) -> redblue::modules::evasion::heap_jitter::HeapJitter {
+  use redblue::modules::evasion::heap_jitter::{HeapJitter, JitterProfile};
+
+  let profile = profile_name
+    .and_then(JitterProfile::from_name)
+    .or_else(|| {
+      env::var("REDBLUE_HEAP_PROFILE")
+        .ok()
+        .and_then(|name| JitterProfile::from_name(&name))
+    })
+    .unwrap_or(JitterProfile::Random);
+
+  let mut jitter = HeapJitter::new(profile);
+  jitter.activate();
+  jitter.spray_decoys(50);
+  jitter
 }
