@@ -608,7 +608,7 @@ impl McpServer {
           ),
           (
             "version".to_string(),
-            JsonValue::String(env!("CARGO_PKG_VERSION").to_string()),
+            JsonValue::String(crate::version::current_version().to_string()),
           ),
         ]),
       ),
