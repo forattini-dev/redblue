@@ -19,7 +19,9 @@
   "files": [
     "sdk/redblue-sdk.js",
     "sdk/postinstall.js",
-    "sdk/index.d.ts"
+    "sdk/index.d.ts",
+    "sdk/generated-routes.d.ts",
+    "sdk/generated-routes.json"
   ],
   "engines": {
     "node": ">=20"
@@ -51,12 +53,15 @@
     "cli-args-parser": "^1.0.6"
   },
   "scripts": {
+    "version:sync": "node scripts/sync-version.js",
+    "sdk:generate": "node scripts/generate-sdk-surface.js",
+    "sdk:check": "node scripts/generate-sdk-surface.js --check",
     "postinstall": "node sdk/postinstall.js",
     "build": "node --check sdk/redblue-sdk.js",
     "test": "node --test --test-reporter=spec sdk/test/*.test.js",
     "coverage": "node scripts/check-sdk-coverage.js",
     "pack-check": "npm pack --dry-run",
-    "prepublishOnly": "npm run build && npm run coverage && npm run pack-check",
+    "prepublishOnly": "npm run version:sync && npm run build && npm run coverage && npm run pack-check",
     "publish:npm": "npm publish --provenance",
     "publish:npm:next": "npm publish --tag next --provenance"
   }
