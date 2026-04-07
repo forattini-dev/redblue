@@ -377,7 +377,7 @@ impl CmsDetector {
       None => return result,
     };
 
-    // Check all signatures against main page
+    // Phase 1: Check CPU-only signatures (instant, no I/O)
     for sig in &self.signatures {
       let matched = match sig.method {
         DetectionMethod::HtmlBody => main_response.contains(sig.pattern),
@@ -398,26 +398,10 @@ impl CmsDetector {
             false
           }
         }
-        DetectionMethod::PathExists => {
-          let check_url = format!("{}{}", url.trim_end_matches('/'), sig.pattern);
-          self.check_path_exists(&check_url, config)
-        }
-        DetectionMethod::RobotsTxt => {
-          let robots_url = format!("{}/robots.txt", url.trim_end_matches('/'));
-          if let Some(robots) = self.fetch(&robots_url, config) {
-            robots.contains(sig.pattern)
-          } else {
-            false
-          }
-        }
-        DetectionMethod::FileContent(path) => {
-          let file_url = format!("{}{}", url.trim_end_matches('/'), path);
-          if let Some(content) = self.fetch(&file_url, config) {
-            content.contains(sig.pattern)
-          } else {
-            false
-          }
-        }
+        // I/O signatures handled in Phase 2 below
+        DetectionMethod::PathExists
+        | DetectionMethod::RobotsTxt
+        | DetectionMethod::FileContent(_) => continue,
         _ => false,
       };
 
@@ -427,6 +411,62 @@ impl CmsDetector {
           .entry(sig.cms)
           .or_default()
           .push(sig.description.to_string());
+      }
+    }
+
+    // Phase 2: Check I/O signatures in parallel (HTTP probes to target).
+    // Each probe is independent — different paths on the same host.
+    // Capped at 3 concurrent to avoid WAF detection.
+    {
+      use crate::modules::common::parallel;
+
+      let io_sigs: Vec<&CmsSignature> = self
+        .signatures
+        .iter()
+        .filter(|sig| {
+          matches!(
+            sig.method,
+            DetectionMethod::PathExists
+              | DetectionMethod::RobotsTxt
+              | DetectionMethod::FileContent(_)
+          )
+        })
+        .collect();
+
+      let io_results: Vec<(CmsType, u8, &str, bool)> =
+        parallel::map(3, &io_sigs, |sig| {
+          parallel::jitter_sleep(100, 400);
+          let matched = match sig.method {
+            DetectionMethod::PathExists => {
+              let check_url = format!("{}{}", url.trim_end_matches('/'), sig.pattern);
+              self.check_path_exists(&check_url, config)
+            }
+            DetectionMethod::RobotsTxt => {
+              let robots_url = format!("{}/robots.txt", url.trim_end_matches('/'));
+              if let Some(robots) = self.fetch(&robots_url, config) {
+                robots.contains(sig.pattern)
+              } else {
+                false
+              }
+            }
+            DetectionMethod::FileContent(path) => {
+              let file_url = format!("{}{}", url.trim_end_matches('/'), path);
+              if let Some(content) = self.fetch(&file_url, config) {
+                content.contains(sig.pattern)
+              } else {
+                false
+              }
+            }
+            _ => false,
+          };
+          (sig.cms, sig.confidence, sig.description, matched)
+        });
+
+      for (cms, confidence, description, matched) in io_results {
+        if matched {
+          *scores.entry(cms).or_insert(0) += confidence as u16;
+          methods.entry(cms).or_default().push(description.to_string());
+        }
       }
     }
 

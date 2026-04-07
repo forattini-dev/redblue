@@ -149,7 +149,11 @@ impl MagicScan {
       || self.preset.has_module(&Module::WebCrawling)
   }
 
-  /// Phase 1: Passive reconnaissance (zero contact)
+  /// Phase 1: Passive reconnaissance (zero contact with target).
+  ///
+  /// All 5 OSINT sources run in parallel since they query different
+  /// third-party services (DNS resolver, WHOIS, crt.sh, Google, Archive.org).
+  /// Zero OPSEC concern — the target never sees these requests.
   fn run_passive_phase(&self) -> Result<(), String> {
     self
       .session
@@ -157,107 +161,67 @@ impl MagicScan {
     Output::phase("Phase 1: Passive Reconnaissance");
     println!("  ℹ  100% OSINT - no direct contact with target\n");
 
-    // DNS Passive
+    // Define enabled tasks: (label, session_key, task_fn)
+    let mut tasks: Vec<(&str, &str, Box<dyn Fn() -> Result<PhaseResult, String> + Send + Sync>)> =
+      Vec::new();
+
     if self.preset.has_module(&Module::DnsPassive) {
-      Output::task_start("DNS Records");
-      match self.collect_dns_records() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("passive", "dns", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("passive", "dns", "error", &err)?;
-        }
-      }
+      tasks.push(("DNS Records", "dns", Box::new(|| self.collect_dns_records())));
     }
-
-    // WHOIS
     if self.preset.has_module(&Module::WhoisLookup) {
-      Output::task_start("WHOIS Lookup");
-      match self.perform_whois_lookup() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("passive", "whois", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("passive", "whois", "error", &err)?;
-        }
-      }
+      tasks.push(("WHOIS Lookup", "whois", Box::new(|| self.perform_whois_lookup())));
     }
-
-    // Certificate Transparency
     if self.preset.has_module(&Module::CertTransparency) {
-      Output::task_start("Certificate Transparency Logs");
-      match self.query_ct_logs() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("passive", "ct_logs", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("passive", "ct_logs", "error", &err)?;
-        }
-      }
+      tasks.push((
+        "Certificate Transparency Logs",
+        "ct_logs",
+        Box::new(|| self.query_ct_logs()),
+      ));
     }
-
-    // Search Engines
     if self.preset.has_module(&Module::SearchEngines) {
-      Output::task_start("Search Engine Dorking");
-      match self.harvest_osint() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("passive", "search", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("passive", "search", "error", &err)?;
-        }
-      }
+      tasks.push((
+        "Search Engine Dorking",
+        "search",
+        Box::new(|| self.harvest_osint()),
+      ));
+    }
+    if self.preset.has_module(&Module::ArchiveOrg) {
+      tasks.push(("Wayback Machine", "archive", Box::new(|| self.query_archive_org())));
     }
 
-    // Archive.org
-    if self.preset.has_module(&Module::ArchiveOrg) {
-      Output::task_start("Wayback Machine");
-      match self.query_archive_org() {
+    // Run all tasks in parallel, collect results in order
+    let results: std::sync::Mutex<Vec<(usize, Result<PhaseResult, String>)>> =
+      std::sync::Mutex::new(Vec::new());
+
+    std::thread::scope(|s| {
+      for (idx, (_label, _key, task_fn)) in tasks.iter().enumerate() {
+        let results = &results;
+        s.spawn(move || {
+          let result = task_fn();
+          results.lock().unwrap().push((idx, result));
+        });
+      }
+    });
+
+    let mut collected = results.into_inner().unwrap();
+    collected.sort_by_key(|(idx, _)| *idx);
+
+    // Print results sequentially (preserves output order)
+    for (idx, result) in collected {
+      let (label, key, _) = &tasks[idx];
+      Output::task_start(label);
+      match result {
         Ok(outcome) => {
           Output::task_done(&outcome.summary);
           Self::print_details(&outcome.details);
-          self
+          let _ = self
             .session
-            .append_result("passive", "archive", "success", &outcome.summary)?;
+            .append_result("passive", key, "success", &outcome.summary);
         }
         Err(err) => {
           Output::task_done("failed");
           Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("passive", "archive", "error", &err)?;
+          let _ = self.session.append_result("passive", key, "error", &err);
         }
       }
     }
@@ -612,14 +576,25 @@ impl MagicScan {
     let client = self.build_dns_client();
     let mut found = Vec::new();
 
-    for prefix in DNS_ENUM_WORDS {
-      let subdomain = format!("{}.{}", prefix, host);
-      if let Ok(answers) = client.query(&subdomain, DnsRecordType::A) {
-        if !answers.is_empty() {
-          let ips: Vec<String> = answers.iter().filter_map(|a| a.as_ip()).collect();
-          found.push((subdomain, ips));
+    // Query all subdomain prefixes in parallel (5 concurrent DNS queries).
+    // DNS queries go to the resolver, not the target — no OPSEC concern.
+    {
+      use crate::modules::common::parallel;
+
+      let results: std::sync::Mutex<Vec<(String, Vec<String>)>> =
+        std::sync::Mutex::new(Vec::new());
+
+      parallel::run(5, DNS_ENUM_WORDS, |prefix| {
+        let subdomain = format!("{}.{}", prefix, host);
+        if let Ok(answers) = client.query(&subdomain, DnsRecordType::A) {
+          if !answers.is_empty() {
+            let ips: Vec<String> = answers.iter().filter_map(|a| a.as_ip()).collect();
+            results.lock().unwrap().push((subdomain, ips));
+          }
         }
-      }
+      });
+
+      found = results.into_inner().unwrap();
     }
 
     let count = found.len();
