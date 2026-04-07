@@ -69,7 +69,7 @@ impl Command for BenchCommand {
       // Mode flags
       Flag::new(
         "mode",
-        "Testing mode: throughput, connections, realistic, stress",
+        "Testing mode: throughput, connections, realistic, stress, slowloris",
       )
       .with_short('m')
       .with_default("realistic"),
@@ -87,6 +87,11 @@ impl Command for BenchCommand {
         "Think time variance multiplier (realistic mode)",
       )
       .with_default("0.0"),
+      Flag::new(
+        "slowloris-interval",
+        "Seconds between keep-alive headers in slowloris mode",
+      )
+      .with_default("10"),
       Flag::new("ramp-up", "Gradual ramp-up duration in seconds"),
       Flag::new("warmup", "Warmup requests to skip from statistics").with_default("0"),
       Flag::new("rate-limit", "Target RPS limit (0 = unlimited)").with_default("0"),
@@ -149,6 +154,14 @@ impl Command for BenchCommand {
       (
         "Max stress test",
         "rb bench load run https://example.com --mode stress --users 5000",
+      ),
+      (
+        "Slowloris attack (hold connections open)",
+        "rb bench load run https://example.com --mode slowloris --users 500",
+      ),
+      (
+        "Slowloris with custom interval",
+        "rb bench load run https://example.com --mode slowloris --users 200 --slowloris-interval 5",
       ),
       (
         "Real-time dashboard with graphs",
@@ -290,6 +303,11 @@ impl BenchCommand {
       .and_then(|s| s.parse::<usize>().ok())
       .unwrap_or(6);
 
+    let slowloris_interval_secs = ctx
+      .get_flag("slowloris-interval")
+      .and_then(|s| s.parse::<u64>().ok())
+      .unwrap_or(10);
+
     // Build config - apply mode FIRST, then explicit overrides
     let mut config = LoadConfig::new(url.clone())
       .with_mode(mode) // Apply mode defaults first
@@ -308,7 +326,8 @@ impl BenchCommand {
       .with_warmup(warmup)
       .with_rate_limit(rate_limit)
       .with_shared_http2_pool(shared_http2_pool)
-      .with_http2_max_connections(http2_connections);
+      .with_http2_max_connections(http2_connections)
+      .with_slowloris_interval(Duration::from_secs(slowloris_interval_secs));
 
     if let Some(req_count) = requests {
       config = config.with_requests(req_count);
@@ -317,27 +336,43 @@ impl BenchCommand {
     }
 
     // Display config
-    Output::header("HTTP Load Test");
+    if mode == LoadMode::Slowloris {
+      Output::header("HTTP Slowloris Attack");
+      Output::warning("SLOW HTTP DoS - USE ONLY ON AUTHORIZED TARGETS");
+    } else {
+      Output::header("HTTP Load Test");
+    }
     Output::item("Target", url);
     Output::item(
       "Mode",
       &format!("{} ({})", mode.label(), mode.description()),
     );
     Output::item("Concurrent Users", &users.to_string());
+    if mode == LoadMode::Slowloris {
+      Output::item("Header Interval", &format!("{}s", slowloris_interval_secs));
+      Output::item(
+        "Initial Headers",
+        &config.slowloris_initial_headers.to_string(),
+      );
+    }
     if let Some(req) = requests {
       Output::item("Requests/User", &req.to_string());
     } else {
       Output::item("Duration", &format!("{}s", duration_secs));
     }
-    Output::item("Think Time", &format!("{}ms", think_time_ms));
+    if mode != LoadMode::Slowloris {
+      Output::item("Think Time", &format!("{}ms", think_time_ms));
+    }
     Output::item("Protocol", protocol.label());
-    Output::item("Method", &method);
-    let body_display = if body_size > 0 {
-      format!("{} bytes", body_size)
-    } else {
-      "none".to_string()
-    };
-    Output::item("Body", &body_display);
+    if mode != LoadMode::Slowloris {
+      Output::item("Method", &method);
+      let body_display = if body_size > 0 {
+        format!("{} bytes", body_size)
+      } else {
+        "none".to_string()
+      };
+      Output::item("Body", &body_display);
+    }
     Output::item(
       "Connection Pool",
       &format!(
