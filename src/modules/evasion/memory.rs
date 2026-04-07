@@ -21,11 +21,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Simple XOR-based memory encryption key (rotates periodically)
 static MEMORY_KEY: AtomicU64 = AtomicU64::new(0x5A5A5A5A5A5A5A5A);
 
-/// Rotate the memory encryption key
+/// Rotate the memory encryption key using OS CSPRNG.
 pub fn rotate_key() {
-  let old = MEMORY_KEY.load(Ordering::SeqCst);
-  let new = old.rotate_left(7) ^ 0x1234567890ABCDEF;
-  MEMORY_KEY.store(new, Ordering::SeqCst);
+  let mut buf = [0u8; 8];
+  if crate::crypto::os_random::fill_bytes(&mut buf).is_ok() {
+    let new = u64::from_le_bytes(buf);
+    // Avoid zero key (would be a no-op XOR)
+    let new = if new == 0 { 0x5A5A5A5A5A5A5A5A } else { new };
+    MEMORY_KEY.store(new, Ordering::SeqCst);
+  } else {
+    // Fallback: deterministic rotation (better than nothing)
+    let old = MEMORY_KEY.load(Ordering::SeqCst);
+    let new = old.rotate_left(7) ^ 0x1234567890ABCDEF;
+    MEMORY_KEY.store(new, Ordering::SeqCst);
+  }
 }
 
 /// Get current memory key
