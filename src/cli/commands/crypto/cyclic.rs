@@ -1,7 +1,7 @@
 //! Cyclic command - De Bruijn sequence generator for buffer overflow offset detection
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::analysis::CyclicGenerator;
 use crate::json;
 
@@ -20,6 +20,31 @@ impl Command for CryptoCyclicCommand {
 
   fn description(&self) -> &str {
     "De Bruijn sequence generator for buffer overflow offset detection"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "generate" | "find" | "offset" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -136,7 +161,9 @@ impl CryptoCyclicCommand {
               "pattern_hex": hex_encode(&pattern),
           })
         };
-        Output::json_value(&value);
+        if render::render_machine_output(ctx, "rb crypto cyclic generate", &value)? {
+          return Ok(());
+        }
       }
       "raw" => {
         // Write raw bytes to stdout
@@ -229,12 +256,15 @@ impl CryptoCyclicCommand {
 
     match format.as_str() {
       "json" => {
-        Output::json_value(&json!({
-            "pattern": pattern_input,
-            "pattern_size": n,
-            "found": result.is_some(),
-            "offset": result,
-        }));
+        let payload = json!({
+          "pattern": pattern_input,
+          "pattern_size": n,
+          "found": result.is_some(),
+          "offset": result,
+        });
+        if render::render_machine_output(ctx, "rb crypto cyclic find", &payload)? {
+          return Ok(());
+        }
       }
       _ => {
         if let Some(offset) = result {
@@ -308,7 +338,9 @@ impl CryptoCyclicCommand {
               "pattern_hex": hex_encode(&pattern),
           })
         };
-        Output::json_value(&value);
+        if render::render_machine_output(ctx, "rb crypto cyclic offset", &value)? {
+          return Ok(());
+        }
       }
       _ => {
         Output::header("Pattern at Offset");
