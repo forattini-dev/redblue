@@ -80,12 +80,46 @@ pub struct PlaybookRecommendation {
   pub score: u8,
   /// Reasons for recommendation
   pub reasons: Vec<String>,
+  /// Structured score breakdown for explainability
+  pub score_breakdown: ScoreBreakdown,
   /// Risk level
   pub risk_level: RiskLevel,
   /// Related attack options from planner
   pub related_attacks: Vec<String>,
   /// Is this an APT adversary emulation playbook?
   pub is_apt_playbook: bool,
+}
+
+/// Structured score breakdown for a recommendation
+#[derive(Debug, Clone, Default)]
+pub struct ScoreBreakdown {
+  /// Individual scoring components
+  pub components: Vec<ScoreComponent>,
+  /// Score before final normalization/cap
+  pub raw_score: u16,
+  /// Final score exposed to users
+  pub final_score: u8,
+}
+
+/// Single scoring component
+#[derive(Debug, Clone)]
+pub struct ScoreComponent {
+  /// Category key (ports, vulns, os, etc.)
+  pub category: String,
+  /// Points contributed by this category
+  pub points: u8,
+  /// Specific reasons that produced these points
+  pub reasons: Vec<String>,
+}
+
+impl ScoreBreakdown {
+  fn push_component(&mut self, category: &str, points: u8, reasons: Vec<String>) {
+    self.components.push(ScoreComponent {
+      category: category.to_string(),
+      points,
+      reasons,
+    });
+  }
 }
 
 /// Recommendation results
@@ -174,7 +208,7 @@ impl PlaybookRecommender {
         continue;
       }
 
-      let (score, reasons) = self.score_playbook(&playbook, findings);
+      let (score, reasons, score_breakdown) = self.score_playbook(&playbook, findings);
 
       if score >= self.min_score {
         recommendations.push(PlaybookRecommendation {
@@ -182,6 +216,7 @@ impl PlaybookRecommender {
           playbook_name: playbook.metadata.name.clone(),
           score,
           reasons,
+          score_breakdown,
           risk_level: playbook.metadata.risk_level,
           related_attacks: Vec::new(),
           is_apt_playbook: false,
@@ -195,7 +230,7 @@ impl PlaybookRecommender {
         continue;
       }
 
-      let (score, reasons) = self.score_apt_playbook(&playbook, findings);
+      let (score, reasons, score_breakdown) = self.score_apt_playbook(&playbook, findings);
 
       if score >= self.min_score {
         recommendations.push(PlaybookRecommendation {
@@ -203,6 +238,7 @@ impl PlaybookRecommender {
           playbook_name: playbook.metadata.name.clone(),
           score,
           reasons,
+          score_breakdown,
           risk_level: playbook.metadata.risk_level,
           related_attacks: Vec::new(),
           is_apt_playbook: true,
@@ -246,6 +282,16 @@ impl PlaybookRecommender {
             ));
             // Boost score if there's an attack plan match
             rec.score = (rec.score + 10).min(100);
+            rec.score_breakdown.push_component(
+              "attack-plan",
+              10,
+              vec![format!(
+                "Technique {} matched planner option {}",
+                option.technique_id, option.technique_name
+              )],
+            );
+            rec.score_breakdown.raw_score += 10;
+            rec.score_breakdown.final_score = rec.score;
           }
         }
       }
@@ -258,43 +304,72 @@ impl PlaybookRecommender {
   }
 
   /// Score a playbook against findings
-  fn score_playbook(&self, playbook: &Playbook, findings: &ReconFindings) -> (u8, Vec<String>) {
+  fn score_playbook(
+    &self,
+    playbook: &Playbook,
+    findings: &ReconFindings,
+  ) -> (u8, Vec<String>, ScoreBreakdown) {
     let mut score: u32 = 0;
     let mut reasons = Vec::new();
+    let mut breakdown = ScoreBreakdown::default();
 
     // === PORT-BASED SCORING ===
+    let reasons_start = reasons.len();
     let port_score = self.score_ports(playbook, findings, &mut reasons);
     score += port_score as u32;
+    breakdown.push_component("ports", port_score, reasons[reasons_start..].to_vec());
 
     // === VULNERABILITY-BASED SCORING ===
+    let reasons_start = reasons.len();
     let vuln_score = self.score_vulns(playbook, findings, &mut reasons);
     score += vuln_score as u32;
+    breakdown.push_component("vulns", vuln_score, reasons[reasons_start..].to_vec());
 
     // === OS-BASED SCORING ===
+    let reasons_start = reasons.len();
     let os_score = self.score_os(playbook, findings, &mut reasons);
     score += os_score as u32;
+    breakdown.push_component("os", os_score, reasons[reasons_start..].to_vec());
 
     // === FINGERPRINT-BASED SCORING ===
+    let reasons_start = reasons.len();
     let fp_score = self.score_fingerprints(playbook, findings, &mut reasons);
     score += fp_score as u32;
+    breakdown.push_component("fingerprints", fp_score, reasons[reasons_start..].to_vec());
 
     // === TARGET TYPE SCORING ===
+    let reasons_start = reasons.len();
     let target_score = self.score_target_type(playbook, findings, &mut reasons);
     score += target_score as u32;
+    breakdown.push_component(
+      "target-type",
+      target_score,
+      reasons[reasons_start..].to_vec(),
+    );
 
     // === INTERNAL NETWORK SCORING ===
+    let reasons_start = reasons.len();
+    let mut internal_score = 0u8;
     if findings.is_internal
       && (playbook.metadata.id == "internal-network-recon"
         || playbook.metadata.id == "lateral-movement")
     {
-      score += 30;
+      internal_score = 30;
+      score += internal_score as u32;
       reasons.push("Internal network detected".to_string());
     }
+    breakdown.push_component(
+      "internal",
+      internal_score,
+      reasons[reasons_start..].to_vec(),
+    );
 
     // Normalize to 0-100
     let final_score = score.min(100) as u8;
+    breakdown.raw_score = score as u16;
+    breakdown.final_score = final_score;
 
-    (final_score, reasons)
+    (final_score, reasons, breakdown)
   }
 
   /// Score based on open ports
@@ -621,20 +696,27 @@ impl PlaybookRecommender {
   /// 1. Technique correlation: Do discovered vulns/TTPs match APT techniques?
   /// 2. Infrastructure match: Does target infra match typical APT targets?
   /// 3. Fingerprint match: Do discovered technologies align with APT preferences?
-  fn score_apt_playbook(&self, playbook: &Playbook, findings: &ReconFindings) -> (u8, Vec<String>) {
+  fn score_apt_playbook(
+    &self,
+    playbook: &Playbook,
+    findings: &ReconFindings,
+  ) -> (u8, Vec<String>, ScoreBreakdown) {
     let mut score: u32 = 0;
     let mut reasons = Vec::new();
+    let mut breakdown = ScoreBreakdown::default();
     let apt_id = &playbook.metadata.id;
 
     // === TECHNIQUE CORRELATION ===
+    let mut technique_reasons = Vec::new();
+    let mut technique_score = 0u8;
     // Match MITRE techniques in playbook steps against discovered vulnerabilities
     for step in &playbook.steps {
       if let Some(technique) = &step.mitre_technique {
         // Check if any vulnerability matches this technique
         for vuln in &findings.vulns {
           if self.vuln_matches_technique(&vuln, technique) {
-            score += 15;
-            reasons.push(format!(
+            technique_score += 15;
+            technique_reasons.push(format!(
               "Technique {} matches CVE {}",
               technique, vuln.cve_id
             ));
@@ -642,8 +724,13 @@ impl PlaybookRecommender {
         }
       }
     }
+    score += technique_score as u32;
+    reasons.extend(technique_reasons.clone());
+    breakdown.push_component("technique-correlation", technique_score, technique_reasons);
 
     // === OS CORRELATION ===
+    let mut os_reasons = Vec::new();
+    let mut os_score = 0u8;
     if let Some(os) = &findings.detected_os {
       match os {
         DetectedOS::Windows => {
@@ -659,8 +746,8 @@ impl PlaybookRecommender {
               | "fin7"
               | "apt41"
           ) {
-            score += 20;
-            reasons.push("Windows host matches APT targeting profile".to_string());
+            os_score += 20;
+            os_reasons.push("Windows host matches APT targeting profile".to_string());
           }
         }
         DetectedOS::Linux => {
@@ -669,13 +756,16 @@ impl PlaybookRecommender {
             apt_id.as_str(),
             "apt28" | "apt29" | "sandworm-team" | "turla" | "lazarus-group"
           ) {
-            score += 15;
-            reasons.push("Linux host within APT capability".to_string());
+            os_score += 15;
+            os_reasons.push("Linux host within APT capability".to_string());
           }
         }
         _ => {}
       }
     }
+    score += os_score as u32;
+    reasons.extend(os_reasons.clone());
+    breakdown.push_component("os-correlation", os_score, os_reasons);
 
     // === PORT-BASED INFRASTRUCTURE MATCHING ===
     let has_web = findings
@@ -694,6 +784,8 @@ impl PlaybookRecommender {
     let has_rdp = findings.ports.iter().any(|p| p.port == 3389);
     let has_smb = findings.ports.iter().any(|p| matches!(p.port, 445 | 139));
 
+    let mut infra_reasons = Vec::new();
+    let mut infra_score = 0u8;
     // Web-focused APTs
     if has_web
       && matches!(
@@ -701,8 +793,8 @@ impl PlaybookRecommender {
         "apt32" | "muddywater" | "oilrig" | "apt41" | "volt-typhoon"
       )
     {
-      score += 15;
-      reasons.push("Web presence matches APT initial access vectors".to_string());
+      infra_score += 15;
+      infra_reasons.push("Web presence matches APT initial access vectors".to_string());
     }
 
     // Email/phishing-focused APTs
@@ -712,8 +804,8 @@ impl PlaybookRecommender {
         "apt28" | "apt29" | "kimsuky" | "muddywater" | "fin7"
       )
     {
-      score += 20;
-      reasons.push("Email infrastructure aligns with APT phishing TTPs".to_string());
+      infra_score += 20;
+      infra_reasons.push("Email infrastructure aligns with APT phishing TTPs".to_string());
     }
 
     // VPN/Remote access (LOTL APTs)
@@ -723,8 +815,8 @@ impl PlaybookRecommender {
         "volt-typhoon" | "scattered-spider" | "apt29"
       )
     {
-      score += 20;
-      reasons.push("Remote access exposure matches LOTL APT techniques".to_string());
+      infra_score += 20;
+      infra_reasons.push("Remote access exposure matches LOTL APT techniques".to_string());
     }
 
     // Active Directory focused APTs
@@ -735,11 +827,16 @@ impl PlaybookRecommender {
         "apt29" | "wizard-spider" | "scattered-spider" | "turla"
       )
     {
-      score += 25;
-      reasons.push("AD infrastructure matches APT lateral movement profile".to_string());
+      infra_score += 25;
+      infra_reasons.push("AD infrastructure matches APT lateral movement profile".to_string());
     }
+    score += infra_score as u32;
+    reasons.extend(infra_reasons.clone());
+    breakdown.push_component("infrastructure", infra_score, infra_reasons);
 
     // === FINGERPRINT-BASED MATCHING ===
+    let mut fp_reasons = Vec::new();
+    let mut fp_score = 0u8;
     for fp in &findings.fingerprints {
       let fp_lower = fp.to_lowercase();
 
@@ -752,16 +849,16 @@ impl PlaybookRecommender {
           "apt29" | "scattered-spider" | "volt-typhoon"
         )
       {
-        score += 20;
-        reasons.push(format!("Cloud tech {} targeted by APT", fp));
+        fp_score += 20;
+        fp_reasons.push(format!("Cloud tech {} targeted by APT", fp));
       }
 
       // Virtualization
       if (fp_lower.contains("vmware") || fp_lower.contains("esxi"))
         && matches!(apt_id.as_str(), "sandworm-team" | "apt41")
       {
-        score += 20;
-        reasons.push("VMware infrastructure targeted by APT".to_string());
+        fp_score += 20;
+        fp_reasons.push("VMware infrastructure targeted by APT".to_string());
       }
 
       // Fortinet/VPN appliances
@@ -771,16 +868,16 @@ impl PlaybookRecommender {
         || fp_lower.contains("citrix"))
         && matches!(apt_id.as_str(), "volt-typhoon" | "apt41" | "sandworm-team")
       {
-        score += 25;
-        reasons.push("Network appliance known APT target".to_string());
+        fp_score += 25;
+        fp_reasons.push("Network appliance known APT target".to_string());
       }
 
       // Financial systems
       if (fp_lower.contains("swift") || fp_lower.contains("banking"))
         && matches!(apt_id.as_str(), "lazarus-group" | "fin7")
       {
-        score += 30;
-        reasons.push("Financial system targeted by financially-motivated APT".to_string());
+        fp_score += 30;
+        fp_reasons.push("Financial system targeted by financially-motivated APT".to_string());
       }
 
       // Exchange
@@ -790,10 +887,13 @@ impl PlaybookRecommender {
           "apt28" | "apt29" | "turla" | "volt-typhoon"
         )
       {
-        score += 25;
-        reasons.push("Exchange server commonly exploited by APT".to_string());
+        fp_score += 25;
+        fp_reasons.push("Exchange server commonly exploited by APT".to_string());
       }
     }
+    score += fp_score as u32;
+    reasons.extend(fp_reasons.clone());
+    breakdown.push_component("fingerprints", fp_score, fp_reasons);
 
     // === CRITICAL VULNERABILITY BOOST ===
     let has_critical = findings
@@ -802,28 +902,40 @@ impl PlaybookRecommender {
       .any(|v| v.severity == Severity::Critical);
     let has_exploit = findings.vulns.iter().any(|v| v.exploit_available);
 
+    let mut exploit_reasons = Vec::new();
+    let mut exploit_score = 0u8;
     if has_critical && has_exploit {
       // All APTs get a boost for critical exploitable vulns
-      score += 20;
-      reasons.push("Critical exploitable vulnerability available".to_string());
+      exploit_score += 20;
+      exploit_reasons.push("Critical exploitable vulnerability available".to_string());
     }
+    score += exploit_score as u32;
+    reasons.extend(exploit_reasons.clone());
+    breakdown.push_component("exploitable-vulns", exploit_score, exploit_reasons);
 
     // === INTERNAL NETWORK BONUS ===
+    let mut internal_reasons = Vec::new();
+    let mut internal_score = 0u8;
     if findings.is_internal {
       // Post-compromise APTs
       if matches!(
         apt_id.as_str(),
         "apt29" | "turla" | "wizard-spider" | "scattered-spider" | "volt-typhoon"
       ) {
-        score += 25;
-        reasons.push("Internal access enables APT post-compromise TTPs".to_string());
+        internal_score += 25;
+        internal_reasons.push("Internal access enables APT post-compromise TTPs".to_string());
       }
     }
+    score += internal_score as u32;
+    reasons.extend(internal_reasons.clone());
+    breakdown.push_component("internal", internal_score, internal_reasons);
 
     // Normalize to 0-100
     let final_score = score.min(100) as u8;
+    breakdown.raw_score = score as u16;
+    breakdown.final_score = final_score;
 
-    (final_score, reasons)
+    (final_score, reasons, breakdown)
   }
 
   /// Check if a vulnerability matches a MITRE technique
@@ -1243,5 +1355,35 @@ mod tests {
         "Recommendations should be sorted by score descending"
       );
     }
+  }
+
+  #[test]
+  fn test_score_breakdown_contains_port_component() {
+    let findings = ReconFindings {
+      target: "192.168.1.1".to_string(),
+      ports: vec![make_port(22)],
+      ..Default::default()
+    };
+
+    let result = recommend_playbooks(&findings);
+    let ssh_rec = result
+      .recommendations
+      .iter()
+      .find(|r| r.playbook_id == "ssh-credential-test")
+      .expect("should recommend ssh-credential-test");
+
+    let ports_component = ssh_rec
+      .score_breakdown
+      .components
+      .iter()
+      .find(|component| component.category == "ports")
+      .expect("ports component should exist");
+
+    assert!(ports_component.points > 0);
+    assert!(ports_component
+      .reasons
+      .iter()
+      .any(|reason| reason.contains("SSH port")));
+    assert_eq!(ssh_rec.score_breakdown.final_score, ssh_rec.score);
   }
 }
