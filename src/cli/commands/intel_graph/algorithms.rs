@@ -8,7 +8,9 @@
 //! - Cycle Detection: Find circular dependencies
 //! - Path Finding: Attack path discovery
 
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
+use crate::json;
+use crate::serde_json::Value;
 use crate::storage::engine::{
   BetweennessCentrality, ConnectedComponents, CycleDetector, GraphStore, LabelPropagation, PageRank,
 };
@@ -41,12 +43,8 @@ pub fn cmd_pagerank(ctx: &CliContext, graph: &GraphStore, format: &str) -> Resul
   ranked.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
 
   if format == "json" {
-    let json_output: Vec<_> = ranked
-      .iter()
-      .take(limit)
-      .map(|(id, score)| format!(r#"{{"node":"{}","score":{:.6}}}"#, id, score))
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = pagerank_payload(&result, &ranked, limit);
+    render::render_machine_output(ctx, "rb intel graph pagerank", &payload)?;
   } else {
     Output::header("PageRank Results");
     println!(
@@ -99,20 +97,8 @@ pub fn cmd_components(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   let isolated = result.components.iter().filter(|c| c.size == 1).count();
 
   if format == "json" {
-    let json_output: Vec<_> = filtered
-      .iter()
-      .enumerate()
-      .map(|(i, comp)| {
-        let nodes_json: Vec<_> = comp.nodes.iter().map(|n| format!(r#""{}""#, n)).collect();
-        format!(
-          r#"{{"id":{},"size":{},"nodes":[{}]}}"#,
-          i + 1,
-          comp.size,
-          nodes_json.join(",")
-        )
-      })
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = components_payload(&result, &filtered, min_size, isolated);
+    render::render_machine_output(ctx, "rb intel graph components", &payload)?;
   } else {
     Output::header("Connected Components");
     println!(
@@ -164,12 +150,8 @@ pub fn cmd_centrality(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   ranked.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
 
   if format == "json" {
-    let json_output: Vec<_> = ranked
-      .iter()
-      .take(limit)
-      .map(|(id, score)| format!(r#"{{"node":"{}","centrality":{:.6}}}"#, id, score))
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = centrality_payload(&result, &ranked, limit, normalize);
+    render::render_machine_output(ctx, "rb intel graph centrality", &payload)?;
   } else {
     Output::header("Betweenness Centrality (Choke Points)");
     println!("Nodes that control the most shortest paths:");
@@ -218,20 +200,8 @@ pub fn cmd_communities(ctx: &CliContext, graph: &GraphStore, format: &str) -> Re
   let community_count = result.communities.len();
 
   if format == "json" {
-    let json_output: Vec<_> = result
-      .communities
-      .iter()
-      .map(|comm| {
-        let members_json: Vec<_> = comm.nodes.iter().map(|m| format!(r#""{}""#, m)).collect();
-        format!(
-          r#"{{"label":"{}","size":{},"members":[{}]}}"#,
-          comm.label,
-          comm.size,
-          members_json.join(",")
-        )
-      })
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = communities_payload(&result);
+    render::render_machine_output(ctx, "rb intel graph communities", &payload)?;
   } else {
     Output::header("Community Detection Results");
     println!("Converged in {} iterations", result.iterations);
@@ -286,15 +256,8 @@ pub fn cmd_cycles(ctx: &CliContext, graph: &GraphStore, format: &str) -> Result<
   let cycle_count = result.cycles.len();
 
   if format == "json" {
-    let json_output: Vec<_> = result
-      .cycles
-      .iter()
-      .map(|cycle| {
-        let nodes_json: Vec<_> = cycle.nodes.iter().map(|n| format!(r#""{}""#, n)).collect();
-        format!("[{}]", nodes_json.join(","))
-      })
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = cycles_payload(&result, max_length, limit);
+    render::render_machine_output(ctx, "rb intel graph cycles", &payload)?;
   } else {
     Output::header("Cycle Detection Results");
     println!("Found {} cycles", cycle_count);
@@ -348,14 +311,8 @@ pub fn cmd_paths(ctx: &CliContext, graph: &GraphStore, format: &str) -> Result<(
   }
 
   if format == "json" {
-    let json_output: Vec<_> = paths
-      .iter()
-      .map(|path| {
-        let nodes_json: Vec<_> = path.iter().map(|n| format!(r#""{}""#, n)).collect();
-        format!("[{}]", nodes_json.join(","))
-      })
-      .collect();
-    println!("[{}]", json_output.join(","));
+    let payload = paths_payload(from, to, max_depth, &paths);
+    render::render_machine_output(ctx, "rb intel graph paths", &payload)?;
   } else {
     Output::header(&format!("Paths from '{}' to '{}'", from, to));
     println!();
@@ -404,6 +361,155 @@ pub fn find_paths(graph: &GraphStore, from: &str, to: &str, max_depth: usize) ->
   paths
 }
 
+fn pagerank_payload(
+  result: &crate::storage::engine::PageRankResult,
+  ranked: &[(&String, &f64)],
+  limit: usize,
+) -> Value {
+  let scores: Vec<_> = ranked
+    .iter()
+    .take(limit)
+    .enumerate()
+    .map(|(index, (node, score))| {
+      json!({
+        "rank": index + 1,
+        "node": (*node).clone(),
+        "score": **score
+      })
+    })
+    .collect();
+
+  json!({
+    "converged": result.converged,
+    "iterations": result.iterations,
+    "node_count": result.scores.len(),
+    "limit": limit,
+    "scores": scores
+  })
+}
+
+fn components_payload(
+  result: &crate::storage::engine::ComponentsResult,
+  filtered: &[&crate::storage::engine::Component],
+  min_size: usize,
+  isolated: usize,
+) -> Value {
+  let components: Vec<_> = filtered
+    .iter()
+    .enumerate()
+    .map(|(index, component)| {
+      json!({
+        "id": index + 1,
+        "size": component.size,
+        "nodes": component.nodes.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "component_count": result.count,
+    "isolated_nodes": isolated,
+    "min_size": min_size,
+    "components": components
+  })
+}
+
+fn centrality_payload(
+  result: &crate::storage::engine::BetweennessResult,
+  ranked: &[(&String, &f64)],
+  limit: usize,
+  normalize: bool,
+) -> Value {
+  let scores: Vec<_> = ranked
+    .iter()
+    .take(limit)
+    .enumerate()
+    .map(|(index, (node, score))| {
+      json!({
+        "rank": index + 1,
+        "node": (*node).clone(),
+        "centrality": **score
+      })
+    })
+    .collect();
+
+  json!({
+    "normalized": normalize,
+    "node_count": result.scores.len(),
+    "limit": limit,
+    "scores": scores
+  })
+}
+
+fn communities_payload(result: &crate::storage::engine::CommunitiesResult) -> Value {
+  let communities: Vec<_> = result
+    .communities
+    .iter()
+    .map(|community| {
+      json!({
+        "label": community.label.clone(),
+        "size": community.size,
+        "members": community.nodes.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "iterations": result.iterations,
+    "community_count": result.communities.len(),
+    "communities": communities
+  })
+}
+
+fn cycles_payload(
+  result: &crate::storage::engine::CyclesResult,
+  max_length: usize,
+  limit: usize,
+) -> Value {
+  let cycles: Vec<_> = result
+    .cycles
+    .iter()
+    .enumerate()
+    .map(|(index, cycle)| {
+      json!({
+        "id": index + 1,
+        "length": cycle.length,
+        "nodes": cycle.nodes.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "cycle_count": result.cycles.len(),
+    "max_length": max_length,
+    "limit": limit,
+    "limit_reached": result.limit_reached,
+    "cycles": cycles
+  })
+}
+
+fn paths_payload(from: &str, to: &str, max_depth: usize, paths: &[Vec<String>]) -> Value {
+  let values: Vec<_> = paths
+    .iter()
+    .enumerate()
+    .map(|(index, path)| {
+      json!({
+        "id": index + 1,
+        "hops": path.len().saturating_sub(1),
+        "nodes": path.clone()
+      })
+    })
+    .collect();
+
+  json!({
+    "from": from,
+    "to": to,
+    "max_depth": max_depth,
+    "path_count": paths.len(),
+    "paths": values
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -427,5 +533,19 @@ mod tests {
     let paths = find_paths(&graph, "a", "b", 5);
     assert_eq!(paths.len(), 1);
     assert_eq!(paths[0], vec!["a", "b"]);
+  }
+
+  #[test]
+  fn test_paths_payload_includes_hops() {
+    let payload = paths_payload(
+      "a",
+      "c",
+      5,
+      &[vec!["a".to_string(), "b".to_string(), "c".to_string()]],
+    );
+    assert_eq!(payload["from"], "a");
+    assert_eq!(payload["to"], "c");
+    assert_eq!(payload["path_count"], 1);
+    assert_eq!(payload["paths"][0]["hops"], 2);
   }
 }
