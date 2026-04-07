@@ -1,11 +1,14 @@
 /// CLI Aliases & Shortcuts
 ///
-/// Provides 3-tier alias system:
+/// Provides a multi-tier alias system:
 /// 1. Full names: rb intelligence fingerprint extract
 /// 2. Short forms: rb intel fp extract
 /// 3. Single-letter: rb i fp extract
+/// 4. Compact aliases: rb ebr → rb evasion build rehash
 ///
 /// Saves ~45% keystrokes while maintaining readability.
+/// Compact aliases map a single token to a full (domain, resource, verb) triple.
+/// They are intentionally short and inconspicuous for operational use.
 use std::collections::HashMap;
 
 const INTELLIGENCE_DOMAIN_ALIASES: &[&str] = &["i", "intel"];
@@ -389,6 +392,40 @@ impl Default for AliasResolver {
   }
 }
 
+/// Compact alias: a single token that expands to a full (domain, resource, verb) triple.
+/// Used for operational shortcuts that should be inconspicuous in terminal history.
+struct CompactAlias {
+  alias: &'static str,
+  domain: &'static str,
+  resource: &'static str,
+  verb: &'static str,
+}
+
+/// Registry of all compact aliases. Add new entries here.
+const COMPACT_ALIASES: &[CompactAlias] = &[CompactAlias {
+  alias: "ebr",
+  domain: "evasion",
+  resource: "build",
+  verb: "rehash",
+}];
+
+/// Resolve a compact alias (single token → full domain/resource/verb triple).
+/// Returns None if the token is not a registered compact alias.
+pub fn resolve_compact_alias(input: &str) -> Option<(&'static str, &'static str, &'static str)> {
+  COMPACT_ALIASES
+    .iter()
+    .find(|ca| ca.alias == input)
+    .map(|ca| (ca.domain, ca.resource, ca.verb))
+}
+
+/// Return all registered compact aliases (for schema/manifest/help).
+pub fn compact_alias_list() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
+  COMPACT_ALIASES
+    .iter()
+    .map(|ca| (ca.alias, ca.domain, ca.resource, ca.verb))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -478,5 +515,27 @@ mod tests {
     assert_eq!(verb_aliases_for("discover"), &["disc"]);
     assert_eq!(domain_aliases_for("system"), &["sys"]);
     assert_eq!(resource_aliases_for("host"), &["machine", "node"]);
+  }
+
+  #[test]
+  fn test_compact_alias_ebr() {
+    let result = resolve_compact_alias("ebr");
+    assert_eq!(result, Some(("evasion", "build", "rehash")));
+  }
+
+  #[test]
+  fn test_compact_alias_unknown() {
+    assert_eq!(resolve_compact_alias("unknown"), None);
+    assert_eq!(resolve_compact_alias("evasion"), None);
+  }
+
+  #[test]
+  fn test_compact_alias_list() {
+    let list = compact_alias_list();
+    assert!(!list.is_empty());
+    assert!(list.iter().any(|(alias, d, r, v)| *alias == "ebr"
+      && *d == "evasion"
+      && *r == "build"
+      && *v == "rehash"));
   }
 }
