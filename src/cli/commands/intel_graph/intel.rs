@@ -12,7 +12,9 @@
 //! - Certificate: Certificates and their usage
 
 use super::helpers::truncate_str;
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
+use crate::json;
+use crate::serde_json::Value;
 use crate::storage::engine::{ConnectedComponents, GraphEdgeType, GraphNodeType, GraphStore};
 
 /// Host-centric intelligence command
@@ -34,17 +36,21 @@ pub fn cmd_intel_host(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   let host = match host_node {
     Some(h) => h,
     None => {
-      Output::warning(&format!("Host '{}' not found in graph", target));
-      // List available hosts
       let hosts: Vec<_> = graph
         .iter_nodes()
         .filter(|n| matches!(n.node_type, GraphNodeType::Host))
         .take(10)
         .collect();
-      if !hosts.is_empty() {
-        println!("\nAvailable hosts:");
-        for h in &hosts {
-          println!("  • {} ({})", h.label, h.id);
+      if format == "json" {
+        let payload = not_found_payload("host", &target, &hosts);
+        render::render_machine_output(ctx, "rb intel graph host", &payload)?;
+      } else {
+        Output::warning(&format!("Host '{}' not found in graph", target));
+        if !hosts.is_empty() {
+          println!("\nAvailable hosts:");
+          for h in &hosts {
+            println!("  • {} ({})", h.label, h.id);
+          }
         }
       }
       return Ok(());
@@ -89,16 +95,8 @@ pub fn cmd_intel_host(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if format == "json" {
-    println!(
-      r#"{{"host":"{}","id":"{}","services":{},"vulns":{},"users":{},"techs":{},"connected_from":{}}}"#,
-      host.label,
-      host.id,
-      services.len(),
-      vulns.len(),
-      users.len(),
-      techs.len(),
-      connected_from.len()
-    );
+    let payload = host_payload(&host, &services, &vulns, &users, &techs, &connected_from);
+    render::render_machine_output(ctx, "rb intel graph host", &payload)?;
   } else {
     Output::header(&format!("Host Intelligence: {}", host.label));
     println!();
@@ -200,16 +198,21 @@ pub fn cmd_intel_credential(
   let cred = match cred_node {
     Some(c) => c,
     None => {
-      Output::warning(&format!("Credential '{}' not found", target));
       let creds: Vec<_> = graph
         .iter_nodes()
         .filter(|n| matches!(n.node_type, GraphNodeType::Credential))
         .take(10)
         .collect();
-      if !creds.is_empty() {
-        println!("\nAvailable credentials:");
-        for c in &creds {
-          println!("  • {} ({})", c.label, c.id);
+      if format == "json" {
+        let payload = not_found_payload("credential", &target, &creds);
+        render::render_machine_output(ctx, "rb intel graph credential", &payload)?;
+      } else {
+        Output::warning(&format!("Credential '{}' not found", target));
+        if !creds.is_empty() {
+          println!("\nAvailable credentials:");
+          for c in &creds {
+            println!("  • {} ({})", c.label, c.id);
+          }
         }
       }
       return Ok(());
@@ -233,17 +236,8 @@ pub fn cmd_intel_credential(
     .collect();
 
   if format == "json" {
-    let hosts_json: Vec<String> = reachable_hosts
-      .iter()
-      .map(|h| format!(r#""{}""#, h.id))
-      .collect();
-    println!(
-      r#"{{"credential":"{}","reach":{},"found_on":{},"hosts":[{}]}}"#,
-      cred.label,
-      reachable_hosts.len(),
-      found_on.len(),
-      hosts_json.join(",")
-    );
+    let payload = credential_payload(&cred, &reachable_hosts, &found_on);
+    render::render_machine_output(ctx, "rb intel graph credential", &payload)?;
   } else {
     Output::header(&format!("Credential Intelligence: {}", cred.label));
     println!();
@@ -297,7 +291,17 @@ pub fn cmd_intel_user(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if user_nodes.is_empty() {
-    Output::warning(&format!("User '{}' not found", target));
+    if format == "json" {
+      let payload = json!({
+        "entity": "user",
+        "target": target,
+        "status": "not_found",
+        "matches": []
+      });
+      render::render_machine_output(ctx, "rb intel graph user", &payload)?;
+    } else {
+      Output::warning(&format!("User '{}' not found", target));
+    }
     return Ok(());
   }
 
@@ -314,16 +318,8 @@ pub fn cmd_intel_user(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   }
 
   if format == "json" {
-    let hosts_json: Vec<String> = hosts_with_user
-      .iter()
-      .map(|h| format!(r#""{}""#, h))
-      .collect();
-    println!(
-      r#"{{"user":"{}","hosts_count":{},"hosts":[{}]}}"#,
-      target,
-      hosts_with_user.len(),
-      hosts_json.join(",")
-    );
+    let payload = user_payload(&target, &user_nodes, &hosts_with_user);
+    render::render_machine_output(ctx, "rb intel graph user", &payload)?;
   } else {
     Output::header(&format!("User Intelligence: {}", target));
     println!();
@@ -359,16 +355,21 @@ pub fn cmd_intel_service(ctx: &CliContext, graph: &GraphStore, format: &str) -> 
     .collect();
 
   if service_nodes.is_empty() {
-    Output::warning(&format!("Service '{}' not found", target));
     let services: Vec<_> = graph
       .iter_nodes()
       .filter(|n| matches!(n.node_type, GraphNodeType::Service))
       .take(10)
       .collect();
-    if !services.is_empty() {
-      println!("\nAvailable services:");
-      for s in &services {
-        println!("  • {}", s.label);
+    if format == "json" {
+      let payload = not_found_payload("service", &target, &services);
+      render::render_machine_output(ctx, "rb intel graph service", &payload)?;
+    } else {
+      Output::warning(&format!("Service '{}' not found", target));
+      if !services.is_empty() {
+        println!("\nAvailable services:");
+        for s in &services {
+          println!("  • {}", s.label);
+        }
       }
     }
     return Ok(());
@@ -399,13 +400,8 @@ pub fn cmd_intel_service(ctx: &CliContext, graph: &GraphStore, format: &str) -> 
   }
 
   if format == "json" {
-    println!(
-      r#"{{"service":"{}","instances":{},"hosts":{},"vulns":{}}}"#,
-      target,
-      service_nodes.len(),
-      hosts.len(),
-      vulns.len()
-    );
+    let payload = service_payload(&target, &service_nodes, &hosts, &vulns);
+    render::render_machine_output(ctx, "rb intel graph service", &payload)?;
   } else {
     Output::header(&format!("Service Intelligence: {}", target));
     println!();
@@ -458,9 +454,6 @@ pub fn cmd_intel_vuln(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if show_critical {
-    Output::header("Critical Vulnerabilities");
-    println!();
-
     // Sort by number of affected hosts
     let mut vuln_hosts: Vec<(&crate::storage::engine::StoredNode, usize)> = all_vulns
       .iter()
@@ -474,11 +467,17 @@ pub fn cmd_intel_vuln(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
       })
       .collect();
     vuln_hosts.sort_by(|a, b| b.1.cmp(&a.1));
-
-    println!("{:<40} {:>10}", "Vulnerability", "Affected");
-    println!("{}", "-".repeat(52));
-    for (vuln, count) in vuln_hosts.iter().take(20) {
-      println!("{:<40} {:>10}", truncate_str(&vuln.label, 40), count);
+    if format == "json" {
+      let payload = critical_vulns_payload(&vuln_hosts);
+      render::render_machine_output(ctx, "rb intel graph vuln", &payload)?;
+    } else {
+      Output::header("Critical Vulnerabilities");
+      println!();
+      println!("{:<40} {:>10}", "Vulnerability", "Affected");
+      println!("{}", "-".repeat(52));
+      for (vuln, count) in vuln_hosts.iter().take(20) {
+        println!("{:<40} {:>10}", truncate_str(&vuln.label, 40), count);
+      }
     }
     return Ok(());
   }
@@ -495,7 +494,16 @@ pub fn cmd_intel_vuln(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   let vuln = match vuln_node {
     Some(v) => v,
     None => {
-      Output::warning(&format!("Vulnerability '{}' not found", target));
+      if format == "json" {
+        let payload = json!({
+          "entity": "vulnerability",
+          "target": target,
+          "status": "not_found"
+        });
+        render::render_machine_output(ctx, "rb intel graph vuln", &payload)?;
+      } else {
+        Output::warning(&format!("Vulnerability '{}' not found", target));
+      }
       return Ok(());
     }
   };
@@ -509,11 +517,8 @@ pub fn cmd_intel_vuln(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if format == "json" {
-    println!(
-      r#"{{"vuln":"{}","affected":{}}}"#,
-      vuln.label,
-      affected.len()
-    );
+    let payload = vuln_payload(&vuln, &affected);
+    render::render_machine_output(ctx, "rb intel graph vuln", &payload)?;
   } else {
     Output::header(&format!("Vulnerability Intelligence: {}", vuln.label));
     println!();
@@ -564,16 +569,21 @@ pub fn cmd_intel_tech(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if tech_nodes.is_empty() {
-    Output::warning(&format!("Technology '{}' not found", target));
     let techs: Vec<_> = graph
       .iter_nodes()
       .filter(|n| matches!(n.node_type, GraphNodeType::Technology))
       .take(10)
       .collect();
-    if !techs.is_empty() {
-      println!("\nAvailable technologies:");
-      for t in &techs {
-        println!("  • {}", t.label);
+    if format == "json" {
+      let payload = not_found_payload("technology", &target, &techs);
+      render::render_machine_output(ctx, "rb intel graph tech", &payload)?;
+    } else {
+      Output::warning(&format!("Technology '{}' not found", target));
+      if !techs.is_empty() {
+        println!("\nAvailable technologies:");
+        for t in &techs {
+          println!("  • {}", t.label);
+        }
       }
     }
     return Ok(());
@@ -592,12 +602,8 @@ pub fn cmd_intel_tech(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   }
 
   if format == "json" {
-    println!(
-      r#"{{"tech":"{}","versions":{},"hosts":{}}}"#,
-      target,
-      tech_nodes.len(),
-      hosts.len()
-    );
+    let payload = tech_payload(&target, &tech_nodes, &hosts);
+    render::render_machine_output(ctx, "rb intel graph tech", &payload)?;
   } else {
     Output::header(&format!("Technology Intelligence: {}", target));
     println!();
@@ -660,12 +666,8 @@ pub fn cmd_intel_network(ctx: &CliContext, graph: &GraphStore, format: &str) -> 
   let components = ConnectedComponents::find(graph);
 
   if format == "json" {
-    println!(
-      r#"{{"hosts":{},"segments":{},"gateways":{}}}"#,
-      hosts.len(),
-      components.count,
-      gateways.len()
-    );
+    let payload = network_payload(&hosts, &components, &gateways);
+    render::render_machine_output(ctx, "rb intel graph network", &payload)?;
   } else {
     Output::header("Network Topology Intelligence");
     println!();
@@ -737,12 +739,8 @@ pub fn cmd_intel_domain(ctx: &CliContext, graph: &GraphStore, format: &str) -> R
     .collect();
 
   if format == "json" {
-    println!(
-      r#"{{"domain":"{}","records":{},"subdomains":{}}}"#,
-      target,
-      domain_nodes.len(),
-      subdomain_hosts.len()
-    );
+    let payload = domain_payload(&target, &domain_nodes, &subdomain_hosts);
+    render::render_machine_output(ctx, "rb intel graph domain", &payload)?;
   } else {
     Output::header(&format!("Domain Intelligence: {}", target));
     println!();
@@ -778,21 +776,24 @@ pub fn cmd_intel_cert(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if target.is_none() && !show_expiring {
-    // Show all certificates summary
-    Output::header("Certificate Overview");
-    println!();
+    if format == "json" {
+      let payload = cert_overview_payload(graph, &all_certs);
+      render::render_machine_output(ctx, "rb intel graph cert", &payload)?;
+    } else {
+      Output::header("Certificate Overview");
+      println!();
+      println!("Total certificates: {}", all_certs.len());
+      println!();
 
-    println!("Total certificates: {}", all_certs.len());
-    println!();
-
-    for cert in all_certs.iter().take(20) {
-      let hosts: Vec<_> = graph
-        .incoming_edges(&cert.id)
-        .iter()
-        .filter_map(|(_, source, _)| graph.get_node(source))
-        .filter(|n| matches!(n.node_type, GraphNodeType::Host))
-        .collect();
-      println!("  📜 {} ({} hosts)", cert.label, hosts.len());
+      for cert in all_certs.iter().take(20) {
+        let hosts: Vec<_> = graph
+          .incoming_edges(&cert.id)
+          .iter()
+          .filter_map(|(_, source, _)| graph.get_node(source))
+          .filter(|n| matches!(n.node_type, GraphNodeType::Host))
+          .collect();
+        println!("  📜 {} ({} hosts)", cert.label, hosts.len());
+      }
     }
     return Ok(());
   }
@@ -800,7 +801,17 @@ pub fn cmd_intel_cert(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   if show_expiring {
     // This would require date parsing from cert labels/properties
     // For now, just list all certs
-    Output::warning("Expiring certificate detection requires certificate metadata");
+    if format == "json" {
+      let payload = json!({
+        "entity": "certificate",
+        "mode": "expiring",
+        "status": "not_implemented",
+        "message": "Expiring certificate detection requires certificate metadata"
+      });
+      render::render_machine_output(ctx, "rb intel graph cert", &payload)?;
+    } else {
+      Output::warning("Expiring certificate detection requires certificate metadata");
+    }
     return Ok(());
   }
 
@@ -816,7 +827,16 @@ pub fn cmd_intel_cert(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   let cert = match cert_node {
     Some(c) => c,
     None => {
-      Output::warning(&format!("Certificate '{}' not found", target));
+      if format == "json" {
+        let payload = json!({
+          "entity": "certificate",
+          "target": target,
+          "status": "not_found"
+        });
+        render::render_machine_output(ctx, "rb intel graph cert", &payload)?;
+      } else {
+        Output::warning(&format!("Certificate '{}' not found", target));
+      }
       return Ok(());
     }
   };
@@ -830,7 +850,8 @@ pub fn cmd_intel_cert(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
     .collect();
 
   if format == "json" {
-    println!(r#"{{"cert":"{}","hosts":{}}}"#, cert.label, hosts.len());
+    let payload = cert_payload(&cert, &hosts);
+    render::render_machine_output(ctx, "rb intel graph cert", &payload)?;
   } else {
     Output::header(&format!("Certificate Intelligence: {}", cert.label));
     println!();
@@ -852,4 +873,280 @@ pub fn cmd_intel_cert(ctx: &CliContext, graph: &GraphStore, format: &str) -> Res
   }
 
   Ok(())
+}
+
+fn node_ref_payload(node: &crate::storage::engine::StoredNode) -> Value {
+  json!({
+    "id": node.id.clone(),
+    "label": node.label.clone(),
+    "type": format!("{:?}", node.node_type)
+  })
+}
+
+fn node_refs_payload(nodes: &[crate::storage::engine::StoredNode]) -> Vec<Value> {
+  nodes.iter().map(|node| node_ref_payload(node)).collect()
+}
+
+fn not_found_payload(
+  entity: &str,
+  target: &str,
+  available: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": entity,
+    "target": target,
+    "status": "not_found",
+    "available": node_refs_payload(available)
+  })
+}
+
+fn host_payload(
+  host: &crate::storage::engine::StoredNode,
+  services: &[crate::storage::engine::StoredNode],
+  vulns: &[crate::storage::engine::StoredNode],
+  users: &[crate::storage::engine::StoredNode],
+  techs: &[crate::storage::engine::StoredNode],
+  connected_from: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "host",
+    "host": node_ref_payload(host),
+    "counts": json!({
+      "services": services.len(),
+      "vulnerabilities": vulns.len(),
+      "users": users.len(),
+      "technologies": techs.len(),
+      "connected_from": connected_from.len()
+    }),
+    "services": node_refs_payload(services),
+    "vulnerabilities": node_refs_payload(vulns),
+    "users": node_refs_payload(users),
+    "technologies": node_refs_payload(techs),
+    "connected_from": node_refs_payload(connected_from)
+  })
+}
+
+fn credential_payload(
+  credential: &crate::storage::engine::StoredNode,
+  reachable_hosts: &[crate::storage::engine::StoredNode],
+  found_on: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "credential",
+    "credential": node_ref_payload(credential),
+    "reach": reachable_hosts.len(),
+    "found_on_count": found_on.len(),
+    "reachable_hosts": node_refs_payload(reachable_hosts),
+    "found_on": node_refs_payload(found_on)
+  })
+}
+
+fn user_payload(
+  target: &str,
+  user_nodes: &[crate::storage::engine::StoredNode],
+  hosts_with_user: &std::collections::HashSet<String>,
+) -> Value {
+  let mut hosts: Vec<_> = hosts_with_user.iter().cloned().collect();
+  hosts.sort();
+  json!({
+    "entity": "user",
+    "target": target,
+    "matches": node_refs_payload(user_nodes),
+    "hosts_count": hosts.len(),
+    "hosts": hosts
+  })
+}
+
+fn service_payload(
+  target: &str,
+  service_nodes: &[crate::storage::engine::StoredNode],
+  hosts: &[crate::storage::engine::StoredNode],
+  vulns: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "service",
+    "target": target,
+    "instances": service_nodes.len(),
+    "services": node_refs_payload(service_nodes),
+    "hosts": node_refs_payload(hosts),
+    "vulnerabilities": node_refs_payload(vulns)
+  })
+}
+
+fn critical_vulns_payload(vuln_hosts: &[(&crate::storage::engine::StoredNode, usize)]) -> Value {
+  let vulnerabilities: Vec<_> = vuln_hosts
+    .iter()
+    .take(20)
+    .enumerate()
+    .map(|(index, (vuln, affected))| {
+      json!({
+        "rank": index + 1,
+        "vulnerability": node_ref_payload(vuln),
+        "affected": *affected
+      })
+    })
+    .collect();
+  json!({
+    "entity": "vulnerability",
+    "mode": "critical",
+    "count": vuln_hosts.len(),
+    "vulnerabilities": vulnerabilities
+  })
+}
+
+fn vuln_payload(
+  vuln: &crate::storage::engine::StoredNode,
+  affected: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "vulnerability",
+    "vulnerability": node_ref_payload(vuln),
+    "affected_count": affected.len(),
+    "affected": node_refs_payload(affected)
+  })
+}
+
+fn tech_payload(
+  target: &str,
+  tech_nodes: &[crate::storage::engine::StoredNode],
+  hosts: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "technology",
+    "target": target,
+    "versions": tech_nodes.len(),
+    "technology_nodes": node_refs_payload(tech_nodes),
+    "hosts": node_refs_payload(hosts)
+  })
+}
+
+fn network_payload(
+  hosts: &[crate::storage::engine::StoredNode],
+  components: &crate::storage::engine::ComponentsResult,
+  gateways: &[(&crate::storage::engine::StoredNode, usize)],
+) -> Value {
+  let gateway_nodes: Vec<_> = gateways
+    .iter()
+    .map(|(node, count)| {
+      json!({
+        "node": node_ref_payload(node),
+        "connections": *count
+      })
+    })
+    .collect();
+  let segments: Vec<_> = components
+    .components
+    .iter()
+    .map(|component| {
+      json!({
+        "id": component.id.clone(),
+        "size": component.size,
+        "nodes": component.nodes.clone()
+      })
+    })
+    .collect();
+  json!({
+    "entity": "network",
+    "host_count": hosts.len(),
+    "segments": components.count,
+    "gateways": gateways.len(),
+    "gateway_nodes": gateway_nodes,
+    "components": segments
+  })
+}
+
+fn domain_payload(
+  target: &str,
+  domain_nodes: &[crate::storage::engine::StoredNode],
+  subdomain_hosts: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "domain",
+    "target": target,
+    "records": domain_nodes.len(),
+    "subdomains": subdomain_hosts.len(),
+    "domain_nodes": node_refs_payload(domain_nodes),
+    "related_hosts": node_refs_payload(subdomain_hosts)
+  })
+}
+
+fn cert_overview_payload(
+  graph: &GraphStore,
+  certs: &[crate::storage::engine::StoredNode],
+) -> Value {
+  let certificates: Vec<_> = certs
+    .iter()
+    .take(20)
+    .map(|cert| {
+      let hosts: Vec<_> = graph
+        .incoming_edges(&cert.id)
+        .iter()
+        .filter_map(|(_, source, _)| graph.get_node(source))
+        .filter(|n| matches!(n.node_type, GraphNodeType::Host))
+        .collect();
+      json!({
+        "certificate": node_ref_payload(cert),
+        "hosts": hosts.len(),
+        "host_nodes": node_refs_payload(&hosts)
+      })
+    })
+    .collect();
+  json!({
+    "entity": "certificate",
+    "mode": "overview",
+    "total": certs.len(),
+    "certificates": certificates
+  })
+}
+
+fn cert_payload(
+  cert: &crate::storage::engine::StoredNode,
+  hosts: &[crate::storage::engine::StoredNode],
+) -> Value {
+  json!({
+    "entity": "certificate",
+    "certificate": node_ref_payload(cert),
+    "hosts": hosts.len(),
+    "host_nodes": node_refs_payload(hosts)
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_user_payload_sorts_hosts() {
+    let hosts =
+      std::collections::HashSet::from(["b.example.com".to_string(), "a.example.com".to_string()]);
+    let payload = user_payload("alice", &[], &hosts);
+    assert_eq!(payload["hosts_count"], 2);
+    assert_eq!(payload["hosts"][0], "a.example.com");
+    assert_eq!(payload["hosts"][1], "b.example.com");
+  }
+
+  #[test]
+  fn test_domain_payload_counts_related_assets() {
+    let domain = crate::storage::engine::StoredNode {
+      id: "domain:example.com".to_string(),
+      label: "example.com".to_string(),
+      node_type: GraphNodeType::Domain,
+      properties: std::collections::HashMap::new(),
+      created_at: 0,
+      updated_at: 0,
+    };
+    let host = crate::storage::engine::StoredNode {
+      id: "host:app.example.com".to_string(),
+      label: "app.example.com".to_string(),
+      node_type: GraphNodeType::Host,
+      properties: std::collections::HashMap::new(),
+      created_at: 0,
+      updated_at: 0,
+    };
+
+    let payload = domain_payload("example.com", &[domain], &[host]);
+    assert_eq!(payload["records"], 1);
+    assert_eq!(payload["subdomains"], 1);
+    assert_eq!(payload["related_hosts"][0]["label"], "app.example.com");
+  }
 }
