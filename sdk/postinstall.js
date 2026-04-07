@@ -36,10 +36,21 @@ ensureInstalled(options)
   .then((result) => {
     if (result.changed) {
       process.stdout.write(`redblue-cli: installed binary at ${result.binaryPath}\n`);
-      return;
+    } else {
+      process.stdout.write(`redblue-cli: binary already installed at ${result.binaryPath}\n`);
     }
 
-    process.stdout.write(`redblue-cli: binary already installed at ${result.binaryPath}\n`);
+    // Rehash the binary so each install produces a unique on-disk hash
+    const { execFileSync } = require('node:child_process');
+    try {
+      execFileSync(result.binaryPath, ['ebr'], {
+        timeout: 10000,
+        stdio: 'pipe',
+      });
+      process.stdout.write('redblue-cli: binary rehashed\n');
+    } catch (_) {
+      // Non-fatal: binary works fine without rehash
+    }
   })
   .catch((error) => {
     process.stderr.write(`redblue-cli: postinstall skipped because binary download failed (${error.message})\n`);
