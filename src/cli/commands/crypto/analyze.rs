@@ -1,7 +1,7 @@
 //! Analyze command - Hash identification, frequency analysis, entropy, auto-detect
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::analysis::{AutoDetector, EntropyAnalyzer, FrequencyAnalyzer, HashIdentifier};
 use crate::json;
 use std::fs;
@@ -20,6 +20,31 @@ impl Command for CryptoAnalyzeCommand {
 
   fn description(&self) -> &str {
     "Cryptographic analysis (hash identification, frequency analysis, auto-detect)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "hash" | "frequency" | "entropy" | "auto" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -121,7 +146,6 @@ impl CryptoAnalyzeCommand {
     let input = self.get_input(ctx)?;
     let identifier = HashIdentifier::new();
     let results = identifier.identify(&input);
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
     // Calculate confidence based on match quality
     let confidence_base = if results.len() == 1 {
@@ -130,46 +154,52 @@ impl CryptoAnalyzeCommand {
       0.7 / results.len() as f64
     };
 
-    if format == "json" {
-      let results_json: Vec<_> = results
-        .iter()
-        .enumerate()
-        .map(|(i, result)| {
-          let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
-          json!({
-              "name": result.name,
-              "hashcat_mode": result.hashcat_mode.map(|m| m.to_string()),
-              "john_format": result.john_format.clone(),
-              "confidence": confidence.min(1.0),
-          })
+    let results_json: Vec<_> = results
+      .iter()
+      .enumerate()
+      .map(|(i, result)| {
+        let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
+        json!({
+            "name": result.name,
+            "hashcat_mode": result.hashcat_mode.map(|m| m.to_string()),
+            "john_format": result.john_format.clone(),
+            "confidence": confidence.min(1.0),
         })
-        .collect();
-      Output::json_value(&json!(results_json));
-    } else {
-      Output::header("Hash Identification");
-      Output::item("Input", &input);
-      Output::item("Length", &input.len().to_string());
-      println!();
+      })
+      .collect();
+    let payload = json!({
+      "input": input,
+      "input_length": input.len(),
+      "match_count": results_json.len(),
+      "matches": results_json,
+    });
+    if render::render_machine_output(ctx, "rb crypto analyze hash", &payload)? {
+      return Ok(());
+    }
 
-      if results.is_empty() {
-        Output::info("No hash types identified.");
-      } else {
-        for (i, result) in results.iter().take(5).enumerate() {
-          let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
-          let bar_len = (confidence.min(1.0) * 20.0) as usize;
-          let bar = "█".repeat(bar_len) + &"░".repeat(20 - bar_len);
-          println!(
-            "  {:20} {:5.1}% {}",
-            result.name,
-            confidence.min(1.0) * 100.0,
-            bar
-          );
-          if let Some(mode) = result.hashcat_mode {
-            println!("    └─ hashcat: -m {}", mode);
-          }
-          if let Some(fmt) = &result.john_format {
-            println!("    └─ john: --format={}", fmt);
-          }
+    Output::header("Hash Identification");
+    Output::item("Input", &input);
+    Output::item("Length", &input.len().to_string());
+    println!();
+
+    if results.is_empty() {
+      Output::info("No hash types identified.");
+    } else {
+      for (i, result) in results.iter().take(5).enumerate() {
+        let confidence = confidence_base + (results.len() - i) as f64 * 0.05;
+        let bar_len = (confidence.min(1.0) * 20.0) as usize;
+        let bar = "█".repeat(bar_len) + &"░".repeat(20 - bar_len);
+        println!(
+          "  {:20} {:5.1}% {}",
+          result.name,
+          confidence.min(1.0) * 100.0,
+          bar
+        );
+        if let Some(mode) = result.hashcat_mode {
+          println!("    └─ hashcat: -m {}", mode);
+        }
+        if let Some(fmt) = &result.john_format {
+          println!("    └─ john: --format={}", fmt);
         }
       }
     }
@@ -181,47 +211,59 @@ impl CryptoAnalyzeCommand {
     let input = self.get_input(ctx)?;
     let analyzer = FrequencyAnalyzer::new();
     let result = analyzer.analyze(&input);
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
     let cipher_type = analyzer.detect_cipher_type(&input);
 
-    if format == "json" {
-      let top_chars: Vec<_> = result
-        .top_chars
-        .iter()
-        .take(10)
-        .map(|(c, freq)| {
-          json!({
-              "char": c.to_string(),
-              "frequency": freq,
-          })
+    let top_chars: Vec<_> = result
+      .top_chars
+      .iter()
+      .take(10)
+      .map(|(c, freq)| {
+        json!({
+            "char": c.to_string(),
+            "frequency": freq,
         })
-        .collect();
-      Output::json_value(&json!({
-          "ioc": result.ioc,
-          "likely_language": result.likely_language.clone(),
-          "cipher_type": cipher_type,
-          "top_chars": top_chars,
-      }));
-    } else {
-      Output::header("Frequency Analysis");
-      Output::item("Index of Coincidence", &format!("{:.4}", result.ioc));
-      Output::item("Likely language", &result.likely_language);
-      Output::item("Probable cipher type", &cipher_type);
+      })
+      .collect();
+    let top_bigrams: Vec<_> = result
+      .bigrams
+      .iter()
+      .take(10)
+      .map(|(bigram, freq)| {
+        json!({
+            "bigram": bigram,
+            "frequency": freq,
+        })
+      })
+      .collect();
+    let payload = json!({
+      "ioc": result.ioc,
+      "likely_language": result.likely_language.clone(),
+      "cipher_type": cipher_type,
+      "top_chars": top_chars,
+      "top_bigrams": top_bigrams,
+    });
+    if render::render_machine_output(ctx, "rb crypto analyze frequency", &payload)? {
+      return Ok(());
+    }
+
+    Output::header("Frequency Analysis");
+    Output::item("Index of Coincidence", &format!("{:.4}", result.ioc));
+    Output::item("Likely language", &result.likely_language);
+    Output::item("Probable cipher type", &cipher_type);
+    println!();
+
+    Output::subheader("Top Characters");
+    for (c, freq) in result.top_chars.iter().take(10) {
+      let bar_len = (freq * 100.0) as usize;
+      let bar = "█".repeat(bar_len.min(30));
+      println!("  '{}' {:6.2}% {}", c, freq * 100.0, bar);
+    }
+
+    if !result.bigrams.is_empty() {
       println!();
-
-      Output::subheader("Top Characters");
-      for (c, freq) in result.top_chars.iter().take(10) {
-        let bar_len = (freq * 100.0) as usize;
-        let bar = "█".repeat(bar_len.min(30));
-        println!("  '{}' {:6.2}% {}", c, freq * 100.0, bar);
-      }
-
-      if !result.bigrams.is_empty() {
-        println!();
-        Output::subheader("Top Bigrams");
-        for (bigram, freq) in result.bigrams.iter().take(5) {
-          println!("  \"{}\" {:6.2}%", bigram, freq * 100.0);
-        }
+      Output::subheader("Top Bigrams");
+      for (bigram, freq) in result.bigrams.iter().take(5) {
+        println!("  \"{}\" {:6.2}%", bigram, freq * 100.0);
       }
     }
 
@@ -242,87 +284,85 @@ impl CryptoAnalyzeCommand {
 
     let analyzer = EntropyAnalyzer::new();
     let result = analyzer.analyze(&input_bytes);
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
+    let chi_sq = analyzer.chi_squared(&input_bytes);
 
-    if format == "json" {
-      Output::json_value(&json!({
-          "entropy": result.entropy,
-          "entropy_percent": result.entropy_percent,
-          "classification": format!("{}", result.classification),
-          "unique_bytes": result.unique_bytes,
-          "total_bytes": result.total_bytes,
-          "is_likely_compressed": result.is_likely_compressed,
-          "is_likely_encrypted": result.is_likely_encrypted,
-          "is_likely_text": result.is_likely_text,
-      }));
-    } else {
-      Output::header("Entropy Analysis");
-      Output::item("Total bytes", &format!("{}", result.total_bytes));
-      Output::item(
-        "Unique byte values",
-        &format!("{}/256", result.unique_bytes),
-      );
-      println!();
-
-      Output::subheader("Shannon Entropy");
-      let entropy_bar_len = (result.entropy / 8.0 * 40.0) as usize;
-      let entropy_bar = "█".repeat(entropy_bar_len);
-      let empty_bar = "░".repeat(40 - entropy_bar_len);
-      println!(
-        "  {:.4} bits/byte ({:.1}%)",
-        result.entropy, result.entropy_percent
-      );
-      println!("  [{}{}] 0-8 bits", entropy_bar, empty_bar);
-      println!();
-
-      Output::item("Classification", &format!("{}", result.classification));
-      println!();
-
-      Output::subheader("Data Type Indicators");
-      let indicator = |b: bool| if b { "Yes" } else { "No" };
-      println!("  Likely text:       {}", indicator(result.is_likely_text));
-      println!(
-        "  Likely compressed: {}",
-        indicator(result.is_likely_compressed)
-      );
-      println!(
-        "  Likely encrypted:  {}",
-        indicator(result.is_likely_encrypted)
-      );
-
-      // Chi-squared test
-      let chi_sq = analyzer.chi_squared(&input_bytes);
-      println!();
-      Output::item(
-        "Chi-squared",
-        &format!("{:.2} (vs uniform distribution)", chi_sq),
-      );
-
-      // Guidance based on classification
-      println!();
-      Output::subheader("Analysis");
-      match result.classification {
-        crate::crypto::analysis::EntropyClassification::VeryLow => {
-          println!("  Data is highly uniform/repetitive. Likely sparse or constant data.");
-        }
-        crate::crypto::analysis::EntropyClassification::Low => {
-          println!("  Low entropy suggests repetitive patterns. May be simple encoding.");
-        }
-        crate::crypto::analysis::EntropyClassification::Medium => {
-          println!("  Medium entropy typical of natural language text or source code.");
-        }
-        crate::crypto::analysis::EntropyClassification::High => {
-          println!("  High entropy suggests binary/compiled data or mixed content.");
-        }
-        crate::crypto::analysis::EntropyClassification::VeryHigh => {
-          println!("  Very high entropy suggests compressed data (gzip, zlib, etc).");
-        }
-        crate::crypto::analysis::EntropyClassification::Maximum => {
-          println!("  Near-maximum entropy indicates encrypted or cryptographically random data.");
-        }
-      }
+    let payload = json!({
+      "entropy": result.entropy,
+      "entropy_percent": result.entropy_percent,
+      "classification": format!("{}", result.classification),
+      "unique_bytes": result.unique_bytes,
+      "total_bytes": result.total_bytes,
+      "is_likely_compressed": result.is_likely_compressed,
+      "is_likely_encrypted": result.is_likely_encrypted,
+      "is_likely_text": result.is_likely_text,
+      "chi_squared": chi_sq,
+    });
+    if render::render_machine_output(ctx, "rb crypto analyze entropy", &payload)? {
+      return Ok(());
     }
 
+    Output::header("Entropy Analysis");
+    Output::item("Total bytes", &format!("{}", result.total_bytes));
+    Output::item(
+      "Unique byte values",
+      &format!("{}/256", result.unique_bytes),
+    );
+    println!();
+
+    Output::subheader("Shannon Entropy");
+    let entropy_bar_len = (result.entropy / 8.0 * 40.0) as usize;
+    let entropy_bar = "█".repeat(entropy_bar_len);
+    let empty_bar = "░".repeat(40 - entropy_bar_len);
+    println!(
+      "  {:.4} bits/byte ({:.1}%)",
+      result.entropy, result.entropy_percent
+    );
+    println!("  [{}{}] 0-8 bits", entropy_bar, empty_bar);
+    println!();
+
+    Output::item("Classification", &format!("{}", result.classification));
+    println!();
+
+    Output::subheader("Data Type Indicators");
+    let indicator = |b: bool| if b { "Yes" } else { "No" };
+    println!("  Likely text:       {}", indicator(result.is_likely_text));
+    println!(
+      "  Likely compressed: {}",
+      indicator(result.is_likely_compressed)
+    );
+    println!(
+      "  Likely encrypted:  {}",
+      indicator(result.is_likely_encrypted)
+    );
+
+    println!();
+    Output::item(
+      "Chi-squared",
+      &format!("{:.2} (vs uniform distribution)", chi_sq),
+    );
+
+    println!();
+    Output::subheader("Analysis");
+    match result.classification {
+      crate::crypto::analysis::EntropyClassification::VeryLow => {
+        println!("  Data is highly uniform/repetitive. Likely sparse or constant data.");
+      }
+      crate::crypto::analysis::EntropyClassification::Low => {
+        println!("  Low entropy suggests repetitive patterns. May be simple encoding.");
+      }
+      crate::crypto::analysis::EntropyClassification::Medium => {
+        println!("  Medium entropy typical of natural language text or source code.");
+      }
+      crate::crypto::analysis::EntropyClassification::High => {
+        println!("  High entropy suggests binary/compiled data or mixed content.");
+      }
+      crate::crypto::analysis::EntropyClassification::VeryHigh => {
+        println!("  Very high entropy suggests compressed data (gzip, zlib, etc).");
+      }
+      crate::crypto::analysis::EntropyClassification::Maximum => {
+        println!("  Near-maximum entropy indicates encrypted or cryptographically random data.");
+      }
+    }
     Ok(())
   }
 
@@ -337,7 +377,6 @@ impl CryptoAnalyzeCommand {
 
     let detector = AutoDetector::new();
     let paths = detector.magic(input.as_bytes(), depth);
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
 
     // Extract best path (already sorted by confidence)
     let (chain, plaintext, confidence) = if let Some(best_path) = paths.first() {
@@ -353,34 +392,52 @@ impl CryptoAnalyzeCommand {
       (Vec::new(), input.clone(), 1.0)
     };
 
-    if format == "json" {
-      Output::json_value(&json!({
-          "input": input,
-          "output": plaintext,
-          "confidence": confidence,
-          "chain": chain,
-      }));
-    } else {
-      Output::header("Auto-Detect (Magic Mode)");
-      Output::item("Input", &input);
-      println!();
+    let payload = json!({
+      "input": input,
+      "output": plaintext,
+      "confidence": confidence,
+      "chain": chain,
+    });
+    if render::render_machine_output(ctx, "rb crypto analyze auto", &payload)? {
+      return Ok(());
+    }
 
-      if chain.is_empty() {
-        Output::info("Input appears to already be plaintext.");
-        println!("  {}", plaintext);
-      } else {
-        Output::subheader("Decoding Chain");
-        for (i, step) in chain.iter().enumerate() {
-          println!("  {}. {}", i + 1, step);
-        }
-        println!();
-        Output::subheader("Result");
-        println!("  {}", plaintext);
-        println!();
-        Output::item("Confidence", &format!("{:.0}%", confidence * 100.0));
+    Output::header("Auto-Detect (Magic Mode)");
+    Output::item("Input", &input);
+    println!();
+
+    if chain.is_empty() {
+      Output::info("Input appears to already be plaintext.");
+      println!("  {}", plaintext);
+    } else {
+      Output::subheader("Decoding Chain");
+      for (i, step) in chain.iter().enumerate() {
+        println!("  {}. {}", i + 1, step);
       }
+      println!();
+      Output::subheader("Result");
+      println!("  {}", plaintext);
+      println!();
+      Output::item("Confidence", &format!("{:.0}%", confidence * 100.0));
     }
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::cli::schema::JsonSupport;
+
+  #[test]
+  fn analyze_route_metadata_marks_machine_safe_routes_as_guaranteed() {
+    let command = CryptoAnalyzeCommand;
+    for verb in ["hash", "frequency", "entropy", "auto"] {
+      assert_eq!(
+        command.route_metadata(verb).machine_output.json_support,
+        JsonSupport::Guaranteed
+      );
+    }
   }
 }
