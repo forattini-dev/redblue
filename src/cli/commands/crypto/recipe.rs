@@ -1,7 +1,7 @@
 //! Recipe command - CyberChef-style operation chains
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::recipe::RecipeExecutor;
 use crate::json;
 use std::fs;
@@ -22,6 +22,31 @@ impl Command for CryptoRecipeCommand {
 
   fn description(&self) -> &str {
     "Recipe system - CyberChef-style operation chains"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "run" | "bake" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -132,12 +157,15 @@ impl CryptoRecipeCommand {
       } else {
         None
       };
-      Output::json_value(&json!({
-          "success": true,
-          "steps": steps,
-          "output": output,
-          "output_hex": output_hex
-      }));
+      let payload = json!({
+        "success": true,
+        "steps": steps,
+        "output": output,
+        "output_hex": output_hex
+      });
+      if render::render_machine_output(ctx, "rb crypto recipe run", &payload)? {
+        return Ok(());
+      }
     } else {
       if verbose {
         Output::header("Recipe Execution");
