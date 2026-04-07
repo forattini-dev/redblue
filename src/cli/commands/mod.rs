@@ -19,6 +19,7 @@ pub mod docs; // ✅ Documentation search and indexing
 pub mod evasion; // ✅ AV/EDR evasion - sandbox detection, obfuscation, network jitter
 pub mod exploit; // ⚠️ Exploitation framework - privesc, lateral, persist, replicate
 pub mod exploit_browser; // ✅ RBB Browser Exploitation
+pub mod exploit_phish; // ✅ Phishing toolkit - email delivery & credential harvesting
 pub mod file; // ✅ File operations - compression, decompression, hash verification
 pub mod fuzz;
 pub mod git_exposed; // ✅ Exposed .git directory scanner
@@ -144,6 +145,7 @@ impl CommandRegistry {
       #[cfg(not(target_os = "windows"))]
       Box::new(mitm::MitmCommand), // ✅ MITM attack orchestrator
       Box::new(exploit_browser::BrowserExploitCommand), // ✅ RBB Browser Exploitation
+      Box::new(exploit_phish::PhishCommand),   // ✅ Phishing toolkit
       Box::new(http_server::HttpServerCommand), // ✅ HTTP server for file serving
       Box::new(service::ServiceCommand),       // ✅ Service manager - persistence
       Box::new(system::SystemCommand),         // ✅ Local host inventory
