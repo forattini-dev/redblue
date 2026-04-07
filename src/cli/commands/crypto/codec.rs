@@ -1,7 +1,7 @@
 //! Codec command - Encoding/decoding operations
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::codec::CodecRegistry;
 use crate::json;
 use std::fs;
@@ -23,6 +23,31 @@ impl Command for CryptoCodecCommand {
 
   fn description(&self) -> &str {
     "Encoding and decoding operations (Base64, Hex, URL, HTML, Unicode)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "encode" | "decode" | "list" | "detect" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -167,7 +192,9 @@ impl CryptoCodecCommand {
             "output_hex": hex_encode(&encoded),
         })
       };
-      Output::json_value(&value);
+      if render::render_machine_output(ctx, "rb crypto codec encode", &value)? {
+        return Ok(());
+      }
     } else if let Ok(s) = String::from_utf8(encoded.clone()) {
       println!("{}", s);
     } else {
@@ -225,7 +252,9 @@ impl CryptoCodecCommand {
             "output_hex": hex_encode(&decoded),
         })
       };
-      Output::json_value(&value);
+      if render::render_machine_output(ctx, "rb crypto codec decode", &value)? {
+        return Ok(());
+      }
     } else if let Ok(s) = String::from_utf8(decoded.clone()) {
       println!("{}", s);
     } else {
@@ -253,7 +282,10 @@ impl CryptoCodecCommand {
           })
         })
         .collect();
-      Output::json_value(&json!(codecs_json));
+      let payload = json!(codecs_json);
+      if render::render_machine_output(ctx, "rb crypto codec list", &payload)? {
+        return Ok(());
+      }
     } else {
       Output::header("Available Codecs");
       println!();
@@ -283,7 +315,10 @@ impl CryptoCodecCommand {
           })
         })
         .collect();
-      Output::json_value(&json!(detections_json));
+      let payload = json!(detections_json);
+      if render::render_machine_output(ctx, "rb crypto codec detect", &payload)? {
+        return Ok(());
+      }
     } else {
       Output::header("Encoding Detection");
       println!();
