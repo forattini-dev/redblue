@@ -342,9 +342,6 @@ impl HealthCommand {
 
     Validator::validate_host(target)?;
 
-    let format = ctx.get_output_format();
-    let is_json = format == crate::cli::format::OutputFormat::Json;
-
     let ports_str = ctx
       .flags
       .get("ports")
@@ -386,17 +383,13 @@ impl HealthCommand {
       Some(max_count)
     };
 
-    if is_json {
-      Output::json("{");
-      Output::json(&format!("  \"target\": {},", json!(target)));
-      Output::json(&format!("  \"interval_secs\": {},", interval_secs));
-      Output::json(&format!("  \"timeout_ms\": {},", timeout_ms));
-      Output::json(&format!("  \"ports_monitored\": {},", ports.len()));
-      match max_iterations {
-        Some(max) => Output::json(&format!("  \"max_iterations\": {},", max)),
-        None => Output::json("  \"max_iterations\": null,"),
+    if ctx.wants_machine_output() {
+      if max_iterations.is_none() {
+        return Err(
+          "Machine output for `rb network health watch` requires `--count` to avoid an infinite stream."
+            .to_string(),
+        );
       }
-      Output::json("  \"iterations\": [");
     } else {
       Output::header(&format!("Port Health Watch: {}", target));
       Output::info(&format!(
@@ -425,18 +418,27 @@ impl HealthCommand {
 
     let watcher = PortWatcher::new(checker, config);
 
-    watcher.watch(target, &ports, |results, diff, iteration| {
-      if is_json {
-        self.display_watch_iteration_json(results, diff, iteration, max_iterations);
-      } else {
-        self.display_watch_iteration(results, diff, iteration);
-      }
-    });
+    if ctx.wants_machine_output() {
+      let mut iterations: Vec<Value> = Vec::new();
+      watcher.watch(target, &ports, |results, diff, iteration| {
+        iterations.push(Self::watch_iteration_payload(results, diff, iteration));
+      });
 
-    if is_json {
-      Output::json("  ]");
-      Output::json("}");
+      let payload = Self::watch_payload(
+        target,
+        interval_secs,
+        timeout_ms,
+        ports.len(),
+        max_iterations,
+        &iterations,
+      );
+      if render::render_machine_output(ctx, "rb network health watch", &payload)? {
+        return Ok(());
+      }
     } else {
+      watcher.watch(target, &ports, |results, diff, iteration| {
+        self.display_watch_iteration(results, diff, iteration);
+      });
       Output::success("Watch complete");
     }
     Ok(())
@@ -494,24 +496,15 @@ impl HealthCommand {
     println!();
   }
 
-  /// Display watch iteration results as JSON
-  fn display_watch_iteration_json(
-    &self,
+  fn watch_iteration_payload(
     results: &[PortCheckResult],
     diff: &PortDiff,
     iteration: u32,
-    max_iterations: Option<u32>,
-  ) {
+  ) -> Value {
     let open_count = results.iter().filter(|r| r.is_open).count();
     let closed_count = results.len() - open_count;
     let timestamp = chrono_lite_timestamp();
 
-    // Determine if we need a comma after this iteration
-    let needs_comma = match max_iterations {
-      Some(max) => iteration < max,
-      None => true, // In infinite mode, always add comma (streaming)
-    };
-    let comma = if needs_comma { "," } else { "" };
     let open_ports: Vec<_> = results
       .iter()
       .filter(|r| r.is_open)
@@ -538,21 +531,57 @@ impl HealthCommand {
       .iter()
       .map(|result| json!({"port": result.port, "service": result.service}))
       .collect();
-    let payload = json!({
-        "iteration": iteration,
-        "timestamp": timestamp,
-        "open_count": open_count,
-        "closed_count": closed_count,
-        "has_changes": diff.has_changes(),
-        "total_changes": diff.total_changes(),
-        "open_ports": open_ports,
-        "changes": json!({
-            "now_open": now_open,
-            "now_closed": now_closed,
-            "new_ports": new_ports
-        })
-    });
-    Output::json(&format!("    {}{}", payload.to_string_pretty(), comma));
+    json!({
+      "iteration": iteration,
+      "timestamp": timestamp,
+      "open_count": open_count,
+      "closed_count": closed_count,
+      "has_changes": diff.has_changes(),
+      "total_changes": diff.total_changes(),
+      "open_ports": open_ports,
+      "changes": json!({
+          "now_open": now_open,
+          "now_closed": now_closed,
+          "new_ports": new_ports
+      })
+    })
+  }
+
+  fn watch_payload(
+    target: &str,
+    interval_secs: u64,
+    timeout_ms: u64,
+    ports_monitored: usize,
+    max_iterations: Option<u32>,
+    iterations: &[Value],
+  ) -> Value {
+    let total_changes = iterations
+      .iter()
+      .filter_map(|item| item.get("total_changes").and_then(Value::as_i64))
+      .sum::<i64>();
+    let last_open_count = iterations
+      .last()
+      .and_then(|item| item.get("open_count"))
+      .and_then(Value::as_i64)
+      .unwrap_or(0);
+    let last_closed_count = iterations
+      .last()
+      .and_then(|item| item.get("closed_count"))
+      .and_then(Value::as_i64)
+      .unwrap_or(0);
+
+    json!({
+      "target": target,
+      "interval_secs": interval_secs,
+      "timeout_ms": timeout_ms,
+      "ports_monitored": ports_monitored,
+      "max_iterations": max_iterations,
+      "iterations_count": iterations.len(),
+      "total_changes": total_changes,
+      "last_open_count": last_open_count,
+      "last_closed_count": last_closed_count,
+      "iterations": iterations.to_vec()
+    })
   }
 }
 
