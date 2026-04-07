@@ -954,7 +954,7 @@ function formatRouteHelpSummary(manifest = {}, selector) {
     }
   }
 
-  const machineOutput = descriptor.machine_output || {};
+  const machineOutput = descriptor.machine_output;
   if (machineOutput && typeof machineOutput === 'object') {
     const jsonSupport = machineOutput.json_support;
     const preferredFlag = machineOutput.preferred_flag;
@@ -1026,15 +1026,13 @@ function formatWrapperHelp(manifest = null) {
 function waitForChild(child) {
   return new Promise((resolve, reject) => {
     child.on('error', reject);
-    /* node:coverage disable */
     child.on('close', (code, signal) => {
       if (signal) {
         resolve(1);
         return;
       }
-      resolve(typeof code === 'number' ? code : 1);
+      resolve(code);
     });
-    /* node:coverage enable */
   });
 }
 
@@ -1415,6 +1413,10 @@ function normalizeCliArgv(argv) {
   return argv.map((item) => String(item));
 }
 
+function aliasIncludes(aliases, token) {
+  return Array.isArray(aliases) && aliases.includes(token);
+}
+
 function routeInvocationMeta(routeIndex, manifest, argv) {
   if (argv.length < 3) {
     return null;
@@ -1422,7 +1424,10 @@ function routeInvocationMeta(routeIndex, manifest, argv) {
 
   const selector = [argv[0], argv[1], argv[2]];
   const invocation = findRouteInvocation(routeIndex, manifest, selector);
-  return invocation ? invocation.meta : null;
+  if (!invocation) {
+    return null;
+  }
+  return invocation.meta;
 }
 
 function buildJsonCliArgs(argv, routeIndex, manifest) {
@@ -1588,18 +1593,18 @@ function normalizeTokenSelector(selector) {
 function findRouteInvocation(routeIndex, manifest, selector) {
   const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
   const canonicalDomain = (manifest.domains || []).find((domain) => {
-    return domain.name === domainToken || (domain.aliases || []).includes(domainToken);
+    return domain.name === domainToken || aliasIncludes(domain.aliases, domainToken);
   });
   const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
   const canonicalResource = canonicalDomain
     ? (canonicalDomain.resources || []).find((resource) => {
-        return resource.name === resourceToken || (resource.aliases || []).includes(resourceToken);
+        return resource.name === resourceToken || aliasIncludes(resource.aliases, resourceToken);
       })
     : null;
   const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
   const canonicalVerb = canonicalResource
     ? (canonicalResource.verbs || []).find((verb) => {
-        return verb.name === verbToken || (verb.aliases || []).includes(verbToken);
+        return verb.name === verbToken || aliasIncludes(verb.aliases, verbToken);
       })
     : null;
   const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
@@ -1614,18 +1619,18 @@ function findRouteInvocation(routeIndex, manifest, selector) {
 function resolveManifestRouteDescriptor(manifest = {}, selector) {
   const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
   const canonicalDomain = (manifest.domains || []).find((domain) => {
-    return domain.name === domainToken || (domain.aliases || []).includes(domainToken);
+    return domain.name === domainToken || aliasIncludes(domain.aliases, domainToken);
   });
   const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
   const canonicalResource = canonicalDomain
     ? (canonicalDomain.resources || []).find((resource) => {
-        return resource.name === resourceToken || (resource.aliases || []).includes(resourceToken);
+        return resource.name === resourceToken || aliasIncludes(resource.aliases, resourceToken);
       })
     : null;
   const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
   const canonicalVerb = canonicalResource
     ? (canonicalResource.verbs || []).find((verb) => {
-        return verb.name === verbToken || (verb.aliases || []).includes(verbToken);
+        return verb.name === verbToken || aliasIncludes(verb.aliases, verbToken);
       })
     : null;
   const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
@@ -1636,7 +1641,7 @@ function resolveManifestRouteDescriptor(manifest = {}, selector) {
     }
 
     for (const route of command.routes || []) {
-      if (route.verb === verbName || (route.aliases || []).includes(verbToken)) {
+      if (route.verb === verbName || aliasIncludes(route.aliases, verbToken)) {
         return {
           command,
           route,
@@ -1738,7 +1743,7 @@ function suggestCommandTokens(manifest = {}, selector) {
   }
 
   const domain = domains.find((item) => {
-    return item.name === tokens[0] || (item.aliases || []).includes(tokens[0]);
+    return item.name === tokens[0] || aliasIncludes(item.aliases, tokens[0]);
   });
 
   if (!domain) {
@@ -1760,7 +1765,7 @@ function suggestCommandTokens(manifest = {}, selector) {
   }
 
   const resource = (domain.resources || []).find((item) => {
-    return item.name === tokens[1] || (item.aliases || []).includes(tokens[1]);
+    return item.name === tokens[1] || aliasIncludes(item.aliases, tokens[1]);
   });
 
   if (!resource) {
@@ -1818,7 +1823,7 @@ function completeManifestTokens(manifest = {}, selector) {
   }
 
   const domain = domains.find((item) => {
-    return item.name === tokens[0] || (item.aliases || []).includes(tokens[0]);
+    return item.name === tokens[0] || aliasIncludes(item.aliases, tokens[0]);
   });
 
   if (!domain) {
@@ -1844,7 +1849,7 @@ function completeManifestTokens(manifest = {}, selector) {
   }
 
   const resource = (domain.resources || []).find((item) => {
-    return item.name === tokens[1] || (item.aliases || []).includes(tokens[1]);
+    return item.name === tokens[1] || aliasIncludes(item.aliases, tokens[1]);
   });
 
   if (!resource) {
@@ -1854,15 +1859,14 @@ function completeManifestTokens(manifest = {}, selector) {
     };
   }
 
-  const descriptorForExactRoute =
-    tokens.length >= 3 ? resolveManifestRouteDescriptor(manifest, [tokens[0], tokens[1], tokens[2]]) : null;
+  const descriptorForExactRoute = resolveManifestRouteDescriptor(manifest, [tokens[0], tokens[1], tokens[2]]);
 
   if (
     tokens.length === 3 &&
     (!descriptorForExactRoute ||
       !(
         descriptorForExactRoute.route.verb === tokens[2] ||
-        (descriptorForExactRoute.route.aliases || []).includes(tokens[2])
+        aliasIncludes(descriptorForExactRoute.route.aliases, tokens[2])
       ))
   ) {
     return {
@@ -1894,8 +1898,8 @@ function completeManifestTokens(manifest = {}, selector) {
   }
 
   const tail = tokens.slice(3);
-  const route = descriptor.route || {};
-  const command = descriptor.command || {};
+  const route = descriptor.route;
+  const command = descriptor.command;
   const flags = Array.isArray(command.flags) ? command.flags : [];
   const positionals = Array.isArray(route.positionals) ? route.positionals : [];
   const requiredPositionals = positionals.filter((positional) => positional.required === true);
@@ -1986,22 +1990,9 @@ function completeManifestTokens(manifest = {}, selector) {
     };
   }
 
-  if (tail.length >= requiredPositionals.length || (tail[tail.length - 1] || '').startsWith('-')) {
-    return {
-      stage: 'flag',
-      completions: flagCompletions
-    };
-  }
-
   return {
-    stage: 'command',
-    completions: [
-      {
-        value: `rb ${domain.name} ${resource.name} ${tokens[2]}`,
-        kind: 'command',
-        summary: 'Canonical command path'
-      }
-    ]
+    stage: 'flag',
+    completions: flagCompletions
   };
 }
 
@@ -2534,6 +2525,7 @@ module.exports._internal = {
   request,
   requestJson,
   requestText,
+  aliasIncludes,
   findRouteInvocation,
   describeManifestRoute,
   completeManifestTokens,
