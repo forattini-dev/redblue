@@ -1,7 +1,7 @@
 //! Cipher command - Classical ciphers (Caesar, ROT13, Vigenère, XOR, etc.)
 
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
 use crate::crypto::cipher::{CipherKey, CipherRegistry};
 use crate::json;
 use std::fs;
@@ -22,6 +22,31 @@ impl Command for CryptoCipherCommand {
 
   fn description(&self) -> &str {
     "Classical ciphers (Caesar, ROT13, Vigenère, XOR, Atbash, Affine, Rail Fence)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "encrypt" | "decrypt" | "crack" | "list" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -218,25 +243,29 @@ impl CryptoCipherCommand {
       )
     })?;
 
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
     let encrypted = cipher.encrypt(&input, &key).map_err(|e| e.to_string())?;
+    let value = if let Ok(s) = String::from_utf8(encrypted.clone()) {
+      json!({
+          "cipher": cipher_name,
+          "operation": "encrypt",
+          "input_size": input.len(),
+          "output_size": encrypted.len(),
+          "output": s,
+      })
+    } else {
+      json!({
+          "cipher": cipher_name,
+          "operation": "encrypt",
+          "input_size": input.len(),
+          "output_size": encrypted.len(),
+          "output_hex": hex_encode(&encrypted),
+      })
+    };
+    if render::render_machine_output(ctx, "rb crypto cipher encrypt", &value)? {
+      return Ok(());
+    }
 
-    if format == "json" {
-      let value = if let Ok(s) = String::from_utf8(encrypted.clone()) {
-        json!({
-            "cipher": cipher_name,
-            "operation": "encrypt",
-            "output": s,
-        })
-      } else {
-        json!({
-            "cipher": cipher_name,
-            "operation": "encrypt",
-            "output_hex": hex_encode(&encrypted),
-        })
-      };
-      Output::json_value(&value);
-    } else if let Ok(s) = String::from_utf8(encrypted.clone()) {
+    if let Ok(s) = String::from_utf8(encrypted.clone()) {
       println!("{}", s);
     } else {
       println!("{}", hex_encode(&encrypted));
@@ -262,25 +291,29 @@ impl CryptoCipherCommand {
       )
     })?;
 
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
     let decrypted = cipher.decrypt(&input, &key).map_err(|e| e.to_string())?;
+    let value = if let Ok(s) = String::from_utf8(decrypted.clone()) {
+      json!({
+          "cipher": cipher_name,
+          "operation": "decrypt",
+          "input_size": input.len(),
+          "output_size": decrypted.len(),
+          "output": s,
+      })
+    } else {
+      json!({
+          "cipher": cipher_name,
+          "operation": "decrypt",
+          "input_size": input.len(),
+          "output_size": decrypted.len(),
+          "output_hex": hex_encode(&decrypted),
+      })
+    };
+    if render::render_machine_output(ctx, "rb crypto cipher decrypt", &value)? {
+      return Ok(());
+    }
 
-    if format == "json" {
-      let value = if let Ok(s) = String::from_utf8(decrypted.clone()) {
-        json!({
-            "cipher": cipher_name,
-            "operation": "decrypt",
-            "output": s,
-        })
-      } else {
-        json!({
-            "cipher": cipher_name,
-            "operation": "decrypt",
-            "output_hex": hex_encode(&decrypted),
-        })
-      };
-      Output::json_value(&value);
-    } else if let Ok(s) = String::from_utf8(decrypted.clone()) {
+    if let Ok(s) = String::from_utf8(decrypted.clone()) {
       println!("{}", s);
     } else {
       println!("{}", hex_encode(&decrypted));
@@ -305,37 +338,40 @@ impl CryptoCipherCommand {
       )
     })?;
 
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
     let results = cipher.crack(&input);
-
-    if format == "json" {
-      let results_json: Vec<_> = results
-        .iter()
-        .map(|result| {
-          json!({
-              "plaintext": result.plaintext.clone(),
-              "key": format!("{:?}", result.key),
-              "confidence": result.confidence,
-          })
+    let results_json: Vec<_> = results
+      .iter()
+      .map(|result| {
+        json!({
+            "plaintext": result.plaintext.clone(),
+            "key": format!("{:?}", result.key),
+            "confidence": result.confidence,
         })
-        .collect();
-      Output::json_value(&json!(results_json));
+      })
+      .collect();
+    let payload = json!({
+      "cipher": cipher_name,
+      "result_count": results_json.len(),
+      "results": results_json,
+    });
+    if render::render_machine_output(ctx, "rb crypto cipher crack", &payload)? {
+      return Ok(());
+    }
+
+    Output::header(&format!("Cracking {} cipher", cipher_name));
+    println!();
+    if results.is_empty() {
+      Output::info("No results found.");
     } else {
-      Output::header(&format!("Cracking {} cipher", cipher_name));
-      println!();
-      if results.is_empty() {
-        Output::info("No results found.");
-      } else {
-        for (i, result) in results.iter().enumerate() {
-          println!(
-            "  #{} ({:.0}% confidence)",
-            i + 1,
-            result.confidence * 100.0
-          );
-          println!("     Key: {:?}", result.key);
-          println!("     Text: {}", result.plaintext);
-          println!();
-        }
+      for (i, result) in results.iter().enumerate() {
+        println!(
+          "  #{} ({:.0}% confidence)",
+          i + 1,
+          result.confidence * 100.0
+        );
+        println!("     Key: {:?}", result.key);
+        println!("     Text: {}", result.plaintext);
+        println!();
       }
     }
 
@@ -345,31 +381,50 @@ impl CryptoCipherCommand {
   fn list_ciphers(&self, ctx: &CliContext) -> Result<(), String> {
     let registry = CipherRegistry::new();
     let ciphers = registry.list();
-    let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-
-    if format == "json" {
-      let ciphers_json: Vec<_> = ciphers
-        .iter()
-        .filter_map(|name| {
-          registry.get(name).map(|cipher| {
-            json!({
-                "name": name,
-                "description": cipher.description(),
-            })
+    let ciphers_json: Vec<_> = ciphers
+      .iter()
+      .filter_map(|name| {
+        registry.get(name).map(|cipher| {
+          json!({
+              "name": name,
+              "description": cipher.description(),
           })
         })
-        .collect();
-      Output::json_value(&json!(ciphers_json));
-    } else {
-      Output::header("Available Ciphers");
-      println!();
-      for name in ciphers {
-        if let Some(cipher) = registry.get(name) {
-          println!("  {:16} {}", name, cipher.description());
-        }
+      })
+      .collect();
+    let payload = json!({
+      "count": ciphers_json.len(),
+      "ciphers": ciphers_json,
+    });
+    if render::render_machine_output(ctx, "rb crypto cipher list", &payload)? {
+      return Ok(());
+    }
+
+    Output::header("Available Ciphers");
+    println!();
+    for name in ciphers {
+      if let Some(cipher) = registry.get(name) {
+        println!("  {:16} {}", name, cipher.description());
       }
     }
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::cli::schema::JsonSupport;
+
+  #[test]
+  fn cipher_route_metadata_marks_machine_safe_routes_as_guaranteed() {
+    let command = CryptoCipherCommand;
+    for verb in ["encrypt", "decrypt", "crack", "list"] {
+      assert_eq!(
+        command.route_metadata(verb).machine_output.json_support,
+        JsonSupport::Guaranteed
+      );
+    }
   }
 }
