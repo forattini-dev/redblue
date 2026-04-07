@@ -1,7 +1,6 @@
 //! Process injection and shellcode command
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::inject;
 
@@ -20,6 +19,31 @@ impl Command for EvasionInjectCommand {
 
   fn description(&self) -> &str {
     "Process injection and shellcode generation"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "shellcode" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -90,9 +114,6 @@ impl Command for EvasionInjectCommand {
 }
 
 fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let shellcode_type = ctx.target.as_deref().unwrap_or("shell");
 
   let ip_str = ctx
@@ -146,15 +167,15 @@ fn execute_inject_shellcode(ctx: &CliContext) -> Result<(), String> {
     .collect();
   let null_free = !shellcode.bytes().contains(&0);
 
-  if is_json {
-    Output::json_value(&json!({
-        "type": shellcode_type,
-        "description": description,
-        "size": shellcode.len(),
-        "null_free": null_free,
-        "hex": hex,
-        "bytes": shellcode.bytes().to_vec()
-    }));
+  let payload = json!({
+      "type": shellcode_type,
+      "description": description,
+      "size": shellcode.len(),
+      "null_free": null_free,
+      "hex": hex,
+      "bytes": shellcode.bytes().to_vec()
+  });
+  if render::render_machine_output(ctx, "rb evasion inject shellcode", &payload)? {
     return Ok(());
   }
 
