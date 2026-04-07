@@ -371,6 +371,9 @@ export interface InternalNamespace {
   verifyChecksum: (...args: unknown[]) => unknown;
 }
 
+/** SDK version string (e.g. "0.2.2"), read from package.json at load time. */
+export const version: string;
+
 export function checkForUpdates(options?: WrapperOptions): Promise<WrapperStatus>;
 export function createManifestCLI(
   options?: WrapperOptions,

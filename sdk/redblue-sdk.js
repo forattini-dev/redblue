@@ -10,6 +10,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { execFile, spawn } = require('child_process');
 
+const SDK_VERSION = require(path.join(__dirname, '..', 'package.json')).version;
 const DEFAULT_REPO = 'forattini-dev/redblue';
 const LOCAL_CLI_ARGS_PARSER_PATH = path.resolve(
   __dirname,
@@ -2767,6 +2768,7 @@ async function createClient(options = {}) {
 }
 
 module.exports = {
+  version: SDK_VERSION,
   checkForUpdates,
   createManifestCLI,
   createClient,
