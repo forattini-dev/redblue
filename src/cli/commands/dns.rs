@@ -46,7 +46,7 @@ impl Command for DnsCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "lookup" => crate::cli::schema::RouteMetadata::new()
+      "lookup" | "all" | "propagation" | "email" => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(
           crate::cli::schema::MachineOutputMetadata::new()
@@ -559,44 +559,38 @@ impl DnsCommand {
       Err(arc) => arc.lock().unwrap().clone(),
     };
 
-    if all_results.is_empty() {
-      Output::warning("No DNS records found");
-      return Ok(());
-    }
-
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let record_types: Vec<_> = all_results
-        .iter()
-        .map(|(record_type, answers)| {
-          let records: Vec<_> = answers
-            .iter()
-            .map(|answer| {
-              json!({
-                  "value": answer.display_value(),
-                  "ttl": answer.ttl
-              })
+    let record_types: Vec<_> = all_results
+      .iter()
+      .map(|(record_type, answers)| {
+        let records: Vec<_> = answers
+          .iter()
+          .map(|answer| {
+            json!({
+                "value": answer.display_value(),
+                "ttl": answer.ttl
             })
-            .collect();
-          json!({
-              "type": Self::record_type_to_string(*record_type),
-              "count": answers.len(),
-              "records": records
           })
+          .collect();
+        json!({
+            "type": Self::record_type_to_string(*record_type),
+            "count": answers.len(),
+            "records": records
         })
-        .collect();
-      Output::json_value(&json!({
-          "domain": domain,
-          "server": server,
-          "record_types": record_types
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+      })
+      .collect();
+    let total_records: usize = all_results.iter().map(|(_, answers)| answers.len()).sum();
+    let payload = json!({
+      "domain": domain,
+      "server": server,
+      "record_type_count": all_results.len(),
+      "total_records": total_records,
+      "record_types": record_types
+    });
+    if render::render_machine_output_with_yaml(ctx, "rb dns record all", &payload, || {
       println!("domain: {}", domain);
       println!("server: {}", server);
+      println!("record_type_count: {}", all_results.len());
+      println!("total_records: {}", total_records);
       println!("record_types:");
 
       for (record_type, answers) in &all_results {
@@ -608,13 +602,19 @@ impl DnsCommand {
           println!("        ttl: {}", answer.ttl);
         }
       }
+      Ok(())
+    })? {
+      return Ok(());
+    }
+
+    if all_results.is_empty() {
+      Output::warning("No DNS records found");
       return Ok(());
     }
 
     // Human output
     Output::header(&format!("DNS: {} (ALL TYPES) @ {}", domain, server));
 
-    let total_records: usize = all_results.iter().map(|(_, answers)| answers.len()).sum();
     Output::summary_line(&[
       ("Record Types", &all_results.len().to_string()),
       ("Total Records", &total_records.to_string()),
@@ -893,40 +893,36 @@ impl DnsCommand {
       Output::spinner_done();
     }
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let providers: Vec<_> = result
-        .results
-        .iter()
-        .map(|provider_result| {
-          let status = match provider_result.status {
-            PropagationStatus::Success => "success",
-            PropagationStatus::NoRecords => "no_records",
-            PropagationStatus::Error => "error",
-          };
-          json!({
-              "provider": provider_result.provider.clone(),
-              "status": status,
-              "values": provider_result.values.clone(),
-              "ttl": provider_result.ttl
-          })
+    let providers: Vec<_> = result
+      .results
+      .iter()
+      .map(|provider_result| {
+        let status = match provider_result.status {
+          PropagationStatus::Success => "success",
+          PropagationStatus::NoRecords => "no_records",
+          PropagationStatus::Error => "error",
+        };
+        json!({
+            "provider": provider_result.provider.clone(),
+            "status": status,
+            "values": provider_result.values.clone(),
+            "ttl": provider_result.ttl
         })
-        .collect();
-      Output::json_value(&json!({
-          "domain": domain,
-          "record_type": record_type_str,
-          "is_propagated": result.is_propagated,
-          "consensus_values": result.consensus_values.clone(),
-          "providers": providers
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+      })
+      .collect();
+    let payload = json!({
+      "domain": domain,
+      "record_type": record_type_str,
+      "is_propagated": result.is_propagated,
+      "consensus_values": result.consensus_values.clone(),
+      "provider_count": result.results.len(),
+      "providers": providers
+    });
+    if render::render_machine_output_with_yaml(ctx, "rb dns record propagation", &payload, || {
       println!("domain: {}", domain);
       println!("record_type: {}", record_type_str);
       println!("is_propagated: {}", result.is_propagated);
+      println!("provider_count: {}", result.results.len());
       println!("consensus_values:");
       for value in &result.consensus_values {
         println!("  - \"{}\"", value);
@@ -950,6 +946,8 @@ impl DnsCommand {
           println!("    ttl: null");
         }
       }
+      Ok(())
+    })? {
       return Ok(());
     }
 
@@ -1180,52 +1178,48 @@ impl DnsCommand {
       _ => "F",
     };
 
-    // JSON output
-    if format == crate::cli::format::OutputFormat::Json {
-      let selectors: Vec<_> = dkim_results
-        .iter()
-        .map(|(selector, record)| {
-          let truncated = record.as_ref().map(|value| {
-            if value.len() > 80 {
-              format!("{}...", &value[..80])
-            } else {
-              value.clone()
-            }
-          });
-          json!({
-              "selector": selector.clone(),
-              "record": truncated
-          })
+    let selectors: Vec<_> = dkim_results
+      .iter()
+      .map(|(selector, record)| {
+        let truncated = record.as_ref().map(|value| {
+          if value.len() > 80 {
+            format!("{}...", &value[..80])
+          } else {
+            value.clone()
+          }
+        });
+        json!({
+            "selector": selector.clone(),
+            "record": truncated
         })
-        .collect();
-      Output::json_value(&json!({
-          "domain": domain,
-          "score": score,
-          "max_score": max_score,
-          "grade": grade,
-          "spf": json!({
-              "present": spf_record.is_some(),
-              "record": spf_record.clone(),
-              "score": spf_score
-          }),
-          "dkim": json!({
-              "present": !dkim_results.is_empty(),
-              "selectors": selectors,
-              "score": dkim_score
-          }),
-          "dmarc": json!({
-              "present": dmarc_record.is_some(),
-              "record": dmarc_record.clone(),
-              "score": dmarc_score
-          }),
-          "mx": mx_records.clone()
-      }));
-      return Ok(());
-    }
-
-    // YAML output
-    if format == crate::cli::format::OutputFormat::Yaml {
+      })
+      .collect();
+    let payload = json!({
+      "domain": domain,
+      "server": server,
+      "score": score,
+      "max_score": max_score,
+      "grade": grade,
+      "spf": json!({
+          "present": spf_record.is_some(),
+          "record": spf_record.clone(),
+          "score": spf_score
+      }),
+      "dkim": json!({
+          "present": !dkim_results.is_empty(),
+          "selectors": selectors,
+          "score": dkim_score
+      }),
+      "dmarc": json!({
+          "present": dmarc_record.is_some(),
+          "record": dmarc_record.clone(),
+          "score": dmarc_score
+      }),
+      "mx": mx_records.clone()
+    });
+    if render::render_machine_output_with_yaml(ctx, "rb dns record email", &payload, || {
       println!("domain: {}", domain);
+      println!("server: {}", server);
       println!("score: {}", score);
       println!("max_score: {}", max_score);
       println!("grade: {}", grade);
@@ -1266,6 +1260,8 @@ impl DnsCommand {
       for mx in &mx_records {
         println!("  - \"{}\"", mx);
       }
+      Ok(())
+    })? {
       return Ok(());
     }
 
