@@ -211,18 +211,25 @@ impl ConnectionPool {
     self
   }
 
-  /// Get or create an SSL context for the given host with session caching enabled
+  /// Get or create an SSL context for the given host with session caching enabled.
+  /// When a `TlsProfile` is provided, the context is configured to mimic that
+  /// browser's TLS fingerprint (cipher suites, extensions, ALPN, etc.) via BoringSSL.
   fn get_or_create_ssl_context(
     &self,
     host: &str,
     tls_verify: bool,
-    _profile: Option<TlsProfile>,
+    profile: Option<TlsProfile>,
   ) -> Result<SslContext, String> {
     let mut contexts = self.ssl_contexts.lock().unwrap();
+    let profile_tag = match profile {
+      Some(p) => format!("{:?}", p),
+      None => "default".to_string(),
+    };
     let key = format!(
-      "{}:{}",
+      "{}:{}:{}",
       host,
-      if tls_verify { "verify" } else { "noverify" }
+      if tls_verify { "verify" } else { "noverify" },
+      profile_tag,
     );
 
     if let Some(ctx) = contexts.get(&key) {
@@ -232,6 +239,12 @@ impl ConnectionPool {
     // Create new SSL context with session caching enabled
     let mut builder = SslContext::builder(SslMethod::tls())
       .map_err(|e| format!("SSL context creation failed: {}", e))?;
+
+    // Apply browser TLS fingerprint if requested
+    if let Some(p) = profile {
+      p.apply_context(&mut builder)
+        .map_err(|e| format!("Failed to apply TLS profile {:?}: {}", p, e))?;
+    }
 
     // Enable client-side session caching (TLS session resumption)
     builder.set_session_cache_mode(SslSessionCacheMode::CLIENT);
@@ -265,6 +278,7 @@ impl ConnectionPool {
     use_tls: bool,
     tls_verify: bool,
     tls_pins: &[[u8; 32]],
+    tls_profile: Option<TlsProfile>,
   ) -> Result<PooledStream, String> {
     let key = connection_key(host, port, use_tls, tls_verify, tls_pins);
 
@@ -283,8 +297,8 @@ impl ConnectionPool {
     }
 
     if use_tls {
-      // Use cached SSL context for session resumption
-      let ctx = self.get_or_create_ssl_context(host, tls_verify, None)?;
+      // Use cached SSL context with browser TLS fingerprint
+      let ctx = self.get_or_create_ssl_context(host, tls_verify, tls_profile)?;
       let addr = format!("{}:{}", host, port);
       let tcp_stream =
         TcpStream::connect(&addr).map_err(|e| format!("Failed to connect to {}: {}", addr, e))?;
@@ -477,6 +491,7 @@ impl ConnectionPool {
     use_tls: bool,
     _tls_verify: bool,
     _tls_pins: &[[u8; 32]],
+    _tls_profile: Option<TlsProfile>,
   ) -> Result<PooledStream, String> {
     if use_tls {
       return Err("HTTPS/TLS is not supported on Windows. Use HTTP instead.".to_string());
@@ -632,7 +647,7 @@ impl PooledHttpClient {
     })?;
     let mut stream = self
       .pool
-      .get_connection(&host, port, use_tls, true, &[])
+      .get_connection(&host, port, use_tls, true, &[], Some(TlsProfile::Chrome120))
       .map_err(|e| PooledError {
         message: e,
         ttfb: None,

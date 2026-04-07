@@ -245,7 +245,7 @@ impl HttpRequest {
       host: parsed.host,
       port: parsed.port,
       scheme: parsed.scheme,
-      tls_profile: None,
+      tls_profile: Some(TlsProfile::Chrome120),
     }
   }
 
@@ -895,7 +895,7 @@ impl HttpDispatcher {
 
     let mut stream = self
       .pool
-      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins)
+      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins, request.tls_profile)
       .map_err(HttpSendError::from)?;
     stream
       .set_write_timeout(Some(self.connect_timeout))
@@ -958,7 +958,7 @@ impl HttpDispatcher {
 
     let mut stream = self
       .pool
-      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins)
+      .get_connection(&host, port, use_tls, request.tls_verify, &request.tls_pins, request.tls_profile)
       .map_err(HttpSendError::from)?;
     stream
       .set_write_timeout(Some(self.connect_timeout))
