@@ -1,7 +1,8 @@
 //! Build-time binary mutation command
 
 use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{render, CliContext};
+use crate::json;
 use crate::modules::evasion::mutations;
 
 use crate::cli::commands::{Command, Flag, Route};
@@ -38,7 +39,22 @@ impl Command for EvasionBuildCommand {
         summary: "Deobfuscate hex data using build-specific key",
         usage: "rb evasion build deobfuscate <hex>",
       },
+      Route {
+        verb: "rehash",
+        summary: "Mutate binary on disk to change SHA256 hash",
+        usage: "rb evasion build rehash  (alias: rb ebr)",
+      },
     ]
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new()
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(self.metadata().machine_output)
   }
 
   fn flags(&self) -> Vec<Flag> {
@@ -59,6 +75,8 @@ impl Command for EvasionBuildCommand {
         "Build-key deobfuscate",
         "rb evasion build deobfuscate a1b2c3",
       ),
+      ("Rehash binary on disk", "rb evasion build rehash"),
+      ("Rehash (short alias)", "rb ebr"),
     ]
   }
 
@@ -69,6 +87,7 @@ impl Command for EvasionBuildCommand {
       "info" => execute_build_info(),
       "obfuscate" => execute_build_obfuscate(ctx),
       "deobfuscate" => execute_build_deobfuscate(ctx),
+      "rehash" => execute_rehash(ctx),
       _ => Err(format!("Unknown verb: {}", verb)),
     }
   }
@@ -175,6 +194,57 @@ fn execute_build_deobfuscate(ctx: &CliContext) -> Result<(), String> {
     &format!("0x{:02X}", mutations::get_xor_key()),
   );
   Output::item("Deobfuscated", &deobfuscated);
+
+  Ok(())
+}
+
+fn execute_rehash(ctx: &CliContext) -> Result<(), String> {
+  use crate::modules::evasion::rehash;
+
+  let machine_output = ctx.wants_machine_output();
+
+  if !machine_output {
+    Output::spinner_start("Rehashing binary");
+  }
+
+  let result = rehash::rehash()?;
+
+  let payload = json!({
+      "binary_path": result.binary_path,
+      "old_hash": result.old_hash,
+      "new_hash": result.new_hash,
+      "junk_bytes_mutated": result.junk_bytes_mutated,
+      "fp_bytes_mutated": result.fp_bytes_mutated,
+      "memory_key_rotated": result.memory_key_rotated,
+  });
+  if render::render_machine_output(ctx, "rb evasion build rehash", &payload)? {
+    return Ok(());
+  }
+
+  Output::spinner_done();
+  println!();
+
+  Output::item("Binary", &result.binary_path);
+  Output::item("Old SHA256", &result.old_hash);
+  Output::item("New SHA256", &result.new_hash);
+  Output::item(
+    "Bytes mutated",
+    &format!(
+      "{} (junk) + {} (fingerprint)",
+      result.junk_bytes_mutated, result.fp_bytes_mutated
+    ),
+  );
+  Output::item(
+    "Memory key rotated",
+    if result.memory_key_rotated {
+      "yes"
+    } else {
+      "no"
+    },
+  );
+
+  println!();
+  Output::success("Binary hash changed. Signature-based detection invalidated.");
 
   Ok(())
 }
