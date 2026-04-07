@@ -15,6 +15,12 @@
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash
 ```
 
+[**Documentation**](https://forattini-dev.github.io/redblue/) |
+[Quick Start](#quick-start) |
+[Install](#installation)
+
+</div>
+
 ### JavaScript / TypeScript
 
 Use `redblue-cli` to run `rb` from JavaScript/TypeScript ecosystems (npm, npx, CI and scripts).
@@ -35,12 +41,6 @@ npm exec --package redblue-cli rb -- dns record lookup example.com --type MX
 npm i -g redblue-cli
 rb dns record lookup example.com --type MX
 ```
-
-[**Documentation**](https://forattini-dev.github.io/redblue/) |
-[Quick Start](#quick-start) |
-[Install](#installation)
-
-</div>
 
 ---
 
@@ -159,11 +159,51 @@ rb crypto recipe "base64_encode | hex_encode" "hello"
 # Process memory (Linux)
 rb memory scan --pid 1234 --value 42
 
-# Playbooks
-rb playbook run web-pentest --target example.com
+# Attack planning & playbooks
+rb attack target plan example.com
+rb attack target run apt29 example.com --dry-run
+
+# Pentest reporting
+rb report pentest preview acme-external
+rb report pentest generate acme-external --format md
+rb report pentest stats
+
+# Compatibility (legacy automation)
+rb report pentest generate --project acme-external
+
+# Local host inventory
+rb system host inspect --json
+# Cross-platform capability map (implemented vs unavailable collectors)
+rb system host inspect --json | jq '.capabilities.collectors'
 
 # MCP server (for Claude AI)
 rb mcp serve
+```
+
+### Pentest Workflows
+
+redblue is also built for real pentest workflows, not just isolated point commands. A typical flow looks like this:
+
+```bash
+# 1. Recon and validation
+rb recon domain subdomains example.com --resolve -o json
+rb web asset security https://example.com
+rb tls security audit example.com
+
+# 2. Vulnerability intelligence and attack planning
+rb intel vuln scan https://example.com --deep
+rb attack target plan example.com
+rb exploit payload playbooks
+
+# 3. Controlled execution helpers
+rb attack target run apt29 example.com --dry-run
+rb mitm intercept generate-ca --output ./certs
+rb mitm intercept proxy --proxy-port 8080
+
+# 4. Reporting
+rb report pentest preview acme-external
+rb report pentest generate acme-external --format md
+rb report pentest stats
 ```
 
 ### JavaScript / npm Quick Start
@@ -181,16 +221,17 @@ npx rb network ports scan 192.168.1.1 --preset common
 npx redblue-cli --install --print-binary-path
 npx redblue-cli --check-update
 npx redblue-cli --upgrade --channel next
+
+# Wrapper contextual help (manifest-driven)
+npx redblue-cli --sdk-help dns record lookup
+npx redblue-cli --sdk-help dns rec
 ```
 
 ```js
 const { createClient } = require('redblue-cli');
 
 (async () => {
-  const rb = await createClient({
-    autoDownload: true,
-    targetDir: '.redblue/bin'
-  });
+  const rb = await createClient();
 
   const records = await rb.dns.record.lookup({
     target: 'example.com',
@@ -207,7 +248,7 @@ const { createClient } = require('redblue-cli');
 import { createClient } from 'redblue-cli';
 
 (async () => {
-  const rb = await createClient({ autoDownload: true });
+  const rb = await createClient();
   const records = await rb.dns.record.lookup({
     target: 'example.com',
     type: 'MX'
@@ -257,24 +298,18 @@ Every protocol is implemented from first principles -- no external crates, no wr
 
 ```bash
 # Privilege escalation enumeration
-rb exploit privesc enumerate
-rb exploit privesc suggest
+rb exploit payload privesc
+rb exploit payload suggest example.com
 
-# Reverse shells (encrypted, ICMP, HTTP, DNS, WebSocket)
+# Attack planning and playbooks
+rb exploit payload plan example.com
+rb exploit payload playbooks
+rb exploit payload apt
+rb attack target plan example.com
+rb attack target run apt29 example.com --dry-run
+
+# Reverse shells
 rb exploit payload shell bash 10.0.0.1 4444
-rb exploit payload shell python 10.0.0.1 4444 --encrypted
-
-# Lateral movement
-rb exploit lateral ssh-keys --target 10.0.0.0/24
-rb exploit lateral pass-the-hash --hash NTLM_HASH
-
-# Post-exploitation
-rb exploit post-exploit enumerate
-rb exploit persistence cron --command "rb agent connect"
-
-# Browser exploitation
-rb exploit-browser serve --port 8080
-rb exploit-browser exec --id ZOMBIE_ID --script "document.cookie"
 
 # CVE database
 rb intel vuln cve CVE-2021-44228
@@ -287,17 +322,17 @@ rb intel vuln cve CVE-2021-44228
 Full man-in-the-middle proxy with a k9s-style TUI for real-time traffic inspection.
 
 ```bash
+# Generate a local CA for interception
+rb mitm intercept generate-ca --output ./certs
+
 # Start MITM proxy with TLS interception
-rb proxy mitm --port 8080 --intercept
+rb mitm intercept proxy --proxy-port 8080 --ca-cert ./certs/mitm-ca.pem --ca-key ./certs/mitm-ca-key.pem
 
-# SOCKS5 proxy
-rb proxy socks5 --port 1080
-
-# Transparent proxy (Linux, requires iptables)
-rb proxy transparent --port 8080
+# Full DNS hijack + TLS interception flow
+rb mitm intercept start --target *.example.com --proxy-ip 10.0.0.5
 
 # Interactive proxy shell
-rb proxy shell --port 8080
+rb mitm intercept shell --proxy-port 8080
 ```
 
 **Interactive shell features:**
@@ -451,17 +486,17 @@ Risk = (CVSS x 10) + Exploit Bonus (+25) + KEV Bonus (+30) + Age Factor + Impact
 Automated security assessment workflows with MITRE ATT&CK mapping:
 
 ```bash
-# List available playbooks
-rb playbook list
+# Build recommendations from recon
+rb attack target plan example.com
 
-# Run a web pentest playbook
-rb playbook run web-pentest --target example.com
+# List available exploit playbooks
+rb exploit payload playbooks
 
 # Run APT emulation
-rb playbook run apt29 --target 10.0.0.0/24
+rb attack target run apt29 10.0.0.0/24
 
 # Dry run
-rb playbook run network-audit --target 10.0.0.1 --dry-run
+rb attack target run apt29 10.0.0.1 --dry-run
 ```
 
 Playbooks support variable substitution, conditional execution, and action recording.
@@ -569,6 +604,7 @@ WHERE h.criticality > 8
 rb [domain] [resource] [verb] [target] [flags]
 rb help
 rb [domain] help
+rb help [domain] [resource] [verb]
 rb [target]              # Magic scan -- auto-detect
 rb shell [target]        # Interactive TUI
 ```
@@ -581,23 +617,25 @@ rb shell [target]        # Interactive TUI
 | `dns` | DNS queries, server, hijacking | `rb dns record lookup example.com` |
 | `recon` | Subdomain enum, WHOIS, OSINT | `rb recon domain subdomains example.com` |
 | `web` | Fuzzing, crawling, scraping, security | `rb web fuzz http://target/FUZZ` |
-| `tls` | TLS audit, cipher analysis | `rb tls audit security example.com` |
+| `tls` | TLS audit, cipher analysis | `rb tls security audit example.com` |
 | `auth` | Credential testing | `rb auth test http://target --type basic` |
-| `exploit` | Privesc, lateral, persistence, payloads | `rb exploit privesc enumerate` |
+| `exploit` | Privesc, payload planning, playbooks | `rb exploit payload privesc` |
+| `attack` | Attack planning and guided playbook execution | `rb attack target plan example.com` |
 | `binary` | ELF/PE analysis, ROP, shellcode | `rb binary elf checksec ./target` |
 | `password` | Hash cracking | `rb password crack hashes.txt -w dict.txt` |
 | `evasion` | Anti-analysis, obfuscation | `rb evasion sandbox detect` |
 | `intel` | Vuln search, MITRE, IOC, TAXII | `rb intel vuln search nginx` |
 | `proxy` | MITM, SOCKS5, transparent | `rb proxy mitm --port 8080` |
+| `mitm` | DNS hijack + TLS interception workflows | `rb mitm intercept proxy --proxy-port 8080` |
 | `agent` | C2 server/client | `rb agent server --port 4444` |
 | `crypto` | Vault, codecs, ciphers, recipes | `rb crypto vault encrypt file.txt` |
 | `code` | Secrets scanning, analysis | `rb code secrets scan .` |
 | `cloud` | Takeover detection, S3 scanning | `rb cloud takeover example.com` |
 | `memory` | Process memory scanning | `rb memory scan --pid 1234` |
-| `playbook` | Automated pentest workflows | `rb playbook run web-pentest` |
+| `system` | Local host inventory, runtime detection, and explicit collector capability map | `rb system host inspect --json` |
 | `database` | RedDB operations | `rb database query "SELECT * FROM hosts"` |
 | `mcp` | MCP server for Claude AI | `rb mcp serve` |
-| `report` | Pentest report generation | `rb report generate --format pdf` |
+| `report` | Pentest report generation | `rb report pentest generate acme-external --format md` |
 | `loot` | Findings and credential management | `rb loot list` |
 | `hex` | Hex editor | `rb hex view binary_file` |
 | `nc` | Netcat | `rb nc 10.0.0.1 80` |
@@ -626,7 +664,7 @@ curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --channel next
 
 # Specific version
-curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --version v0.2.2
 
 # Custom directory
 curl -fsSL https://raw.githubusercontent.com/forattini-dev/redblue/main/install.sh | bash -s -- --install-dir /usr/local/bin
@@ -681,7 +719,7 @@ const { createClient } = require('redblue-cli');
 import { createClient } from 'redblue-cli';
 
 (async () => {
-  const rb = await createClient({ targetDir: '/tmp/redblue/bin', autoDownload: true });
+  const rb = await createClient();
   const ports = await rb.network.ports.scan({
     target: '192.168.1.1',
     preset: 'common'
@@ -692,8 +730,8 @@ import { createClient } from 'redblue-cli';
 
 If you want the wrapper to manage the binary explicitly, use `--install`, `--check-update`, or `--upgrade`. Managed installs default to `~/.local/bin`, and the wrapper still detects legacy installs in `~/.redblue/bin`.
 
-`npm install redblue-cli` already runs a `postinstall` hook by default, so in the normal npm install flow the binary is usually already available and `autoDownload: true` is not required.
-Keep `autoDownload: true` only as a fallback (for custom `targetDir`, isolated runtime containers, or flows where postinstall is intentionally skipped).
+`npm install redblue-cli` already runs `postinstall` in the normal flow, so the binary should already be provisioned.
+If npm lifecycle scripts are skipped (`REDBLUE_SKIP_POSTINSTALL=1`), use wrapper commands like `--install`, `--check-update`, or `--upgrade` to provision/manage the binary explicitly.
 
 > **Note:** the exact command `npx rb` works after `redblue-cli` is installed in the project or globally. For zero-install usage, prefer `npx redblue-cli ...` or `npm exec --package redblue-cli rb -- ...`. Use bare `rb --version` to query the real binary version; use wrapper `--version <tag>` or `--release-version <tag>` before the command when you want to pin a release download.
 
