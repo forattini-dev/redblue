@@ -54,7 +54,7 @@ impl Default for EmbeddingsLoaderConfig {
       force_download: false,
       offline: false,
       repository: "tetigo/redblue".to_string(),
-      version: env!("CARGO_PKG_VERSION").to_string(),
+      version: crate::version::current_version().to_string(),
     }
   }
 }
