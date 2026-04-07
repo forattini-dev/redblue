@@ -3,11 +3,9 @@
 /// Canonical pattern:
 ///   rb [domain] [resource] [verb] [target] [args...] [flags]
 ///
-/// Compatibility pattern:
-///   rb [domain] [verb] [resource] [target] [args...] [flags]
-///
-/// The parser prefers canonical `domain resource verb` order and only falls back
-/// to compatibility order when that resolves to a known route.
+/// This parser intentionally keeps positional order as provided and does not try
+/// to reorder `resource`/`verb` heuristically. Compatibility translation from
+/// legacy `domain verb resource` order happens explicitly in dispatch.
 use super::CliContext;
 
 pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
@@ -74,14 +72,6 @@ pub fn parse_args(args: &[String]) -> Result<CliContext, String> {
   Ok(ctx)
 }
 
-fn matches_resource_first_route(domain: &str, resource: &str, verb: &str) -> bool {
-  crate::cli::schema::route_exists(domain, resource, verb)
-}
-
-fn matches_compat_route(domain: &str, verb: &str, resource: &str) -> bool {
-  matches_resource_first_route(domain, resource, verb)
-}
-
 #[derive(Default)]
 struct ParsedPositionals {
   domain: Option<String>,
@@ -104,16 +94,6 @@ fn parse_positionals(positionals: &[String]) -> Option<ParsedPositionals> {
 
   if let Some(third) = positionals.get(2) {
     parsed.verb = Some(third.clone());
-
-    if let Some(second) = positionals.get(1) {
-      if matches_resource_first_route(&domain, second, third) {
-        parsed.resource = Some(second.clone());
-        parsed.verb = Some(third.clone());
-      } else if matches_compat_route(&domain, second, third) {
-        parsed.resource = Some(third.clone());
-        parsed.verb = Some(second.clone());
-      }
-    }
   }
 
   if let Some(target) = positionals.get(3) {
@@ -198,9 +178,9 @@ fn apply_config_defaults(ctx: &mut CliContext, config: &crate::config::yaml::Yam
 mod tests {
   use super::*;
 
-  // Compatibility pattern: rb [domain] [verb] [resource] [target]
+  // Parser preserves positional order; compatibility translation is a dispatch concern.
   #[test]
-  fn test_compat_pattern_network_scan() {
+  fn test_preserves_positional_order_network_scan_ports() {
     // rb network scan ports 192.168.1.1
     let args = vec![
       "network".to_string(),
@@ -211,13 +191,13 @@ mod tests {
     let ctx = parse_args(&args).unwrap();
 
     assert_eq!(ctx.domain, Some("network".to_string()));
-    assert_eq!(ctx.verb, Some("scan".to_string()));
-    assert_eq!(ctx.resource, Some("ports".to_string()));
+    assert_eq!(ctx.resource, Some("scan".to_string()));
+    assert_eq!(ctx.verb, Some("ports".to_string()));
     assert_eq!(ctx.target, Some("192.168.1.1".to_string()));
   }
 
   #[test]
-  fn test_compat_pattern_exploit_shell() {
+  fn test_preserves_positional_order_exploit_shell_payload() {
     // rb exploit shell payload 10.10.10.10
     let args = vec![
       "exploit".to_string(),
@@ -228,13 +208,13 @@ mod tests {
     let ctx = parse_args(&args).unwrap();
 
     assert_eq!(ctx.domain, Some("exploit".to_string()));
-    assert_eq!(ctx.verb, Some("shell".to_string()));
-    assert_eq!(ctx.resource, Some("payload".to_string()));
+    assert_eq!(ctx.resource, Some("shell".to_string()));
+    assert_eq!(ctx.verb, Some("payload".to_string()));
     assert_eq!(ctx.target, Some("10.10.10.10".to_string()));
   }
 
   #[test]
-  fn test_compat_pattern_dns_lookup() {
+  fn test_preserves_positional_order_dns_lookup_record() {
     // rb dns lookup record example.com
     let args = vec![
       "dns".to_string(),
@@ -245,13 +225,13 @@ mod tests {
     let ctx = parse_args(&args).unwrap();
 
     assert_eq!(ctx.domain, Some("dns".to_string()));
-    assert_eq!(ctx.verb, Some("lookup".to_string()));
-    assert_eq!(ctx.resource, Some("record".to_string()));
+    assert_eq!(ctx.resource, Some("lookup".to_string()));
+    assert_eq!(ctx.verb, Some("record".to_string()));
     assert_eq!(ctx.target, Some("example.com".to_string()));
   }
 
   #[test]
-  fn test_compat_pattern_web_get() {
+  fn test_preserves_positional_order_web_get_asset() {
     // rb web get asset https://example.com
     let args = vec![
       "web".to_string(),
@@ -262,8 +242,8 @@ mod tests {
     let ctx = parse_args(&args).unwrap();
 
     assert_eq!(ctx.domain, Some("web".to_string()));
-    assert_eq!(ctx.verb, Some("get".to_string()));
-    assert_eq!(ctx.resource, Some("asset".to_string()));
+    assert_eq!(ctx.resource, Some("get".to_string()));
+    assert_eq!(ctx.verb, Some("asset".to_string()));
     assert_eq!(ctx.target, Some("https://example.com".to_string()));
   }
 
@@ -366,8 +346,8 @@ mod tests {
     let ctx = parse_args(&args).unwrap();
 
     assert_eq!(ctx.domain, Some("network".to_string()));
-    assert_eq!(ctx.verb, Some("scan".to_string()));
-    assert_eq!(ctx.resource, Some("ports".to_string()));
+    assert_eq!(ctx.resource, Some("scan".to_string()));
+    assert_eq!(ctx.verb, Some("ports".to_string()));
     assert_eq!(ctx.target, Some("192.168.1.1".to_string()));
     assert_eq!(ctx.get_flag("threads"), Some("200".to_string()));
   }
