@@ -983,6 +983,105 @@ impl Document {
   pub fn select_by_id(&self, id: &str) -> Selection<'_> {
     Selection::new(self.get_element_by_id(id).into_iter().collect::<Vec<_>>())
   }
+
+  /// Select elements using full CSS selectors (delegates to html::selector).
+  ///
+  /// Supports: tag, #id, .class, [attr], [attr=val], [attr^=val],
+  /// descendant (space), child (>), sibling (+, ~), :first-child,
+  /// :last-child, :nth-child(), :not(), :empty, comma groups.
+  ///
+  /// This bridges the existing web/dom Document to the html/ selector engine
+  /// by building a temporary HtmlDocument for the query.
+  pub fn css_select(&self, selector: &str) -> Selection<'_> {
+    use crate::modules::html::HtmlDocument;
+    use crate::modules::html::selector;
+
+    // Rebuild HTML from our elements for the selector engine to parse
+    // This is not ideal perf-wise but avoids a full rewrite of Document.
+    // For hot paths, consider using HtmlDocument directly.
+    let html = self.to_html();
+    let html_doc = HtmlDocument::parse(&html);
+
+    let Ok(parsed_selector) = selector::parse_selector(selector) else {
+      return Selection::empty();
+    };
+
+    let matched_ids = selector::select_all(&html_doc, &parsed_selector);
+
+    // Map matched node IDs to tag+attribute signatures so we can find
+    // the corresponding elements in our Document
+    let mut result_elements = Vec::new();
+
+    for node_id in matched_ids {
+      let tag = html_doc.tag_name(node_id);
+      let node_id_attr = html_doc.get_attribute(node_id, "id");
+      let node_class = html_doc.get_attribute(node_id, "class");
+
+      // Find matching element in our Document by tag + id + class
+      for elem in &self.elements {
+        if elem.tag != tag {
+          continue;
+        }
+        let elem_id = elem.attr("id").map(|s| s.as_str());
+        let elem_class = elem.attr("class").map(|s| s.as_str());
+
+        if elem_id == node_id_attr && elem_class == node_class {
+          result_elements.push(elem);
+          break;
+        }
+      }
+    }
+
+    Selection::new(result_elements)
+  }
+
+  /// Serialize the document back to an HTML string.
+  fn to_html(&self) -> String {
+    let mut out = String::new();
+    for &root_idx in &self.roots {
+      self.serialize_element(root_idx, &mut out);
+    }
+    out
+  }
+
+  fn serialize_element(&self, idx: usize, out: &mut String) {
+    let Some(elem) = self.elements.get(idx) else {
+      return;
+    };
+
+    out.push('<');
+    out.push_str(&elem.tag);
+    for (name, value) in &elem.attributes {
+      out.push(' ');
+      out.push_str(name);
+      out.push_str("=\"");
+      out.push_str(&escape_html_attr(value));
+      out.push('"');
+    }
+
+    if elem.is_void_element() {
+      out.push_str(" />");
+      return;
+    }
+
+    out.push('>');
+
+    for child in &elem.children {
+      match child {
+        Node::ElementRef(child_idx) => self.serialize_element(*child_idx, out),
+        Node::Text(text) => out.push_str(&escape_html_text(text)),
+        Node::Comment(comment) => {
+          out.push_str("<!--");
+          out.push_str(comment);
+          out.push_str("-->");
+        }
+      }
+    }
+
+    out.push_str("</");
+    out.push_str(&elem.tag);
+    out.push('>');
+  }
 }
 
 // ============================================================================
