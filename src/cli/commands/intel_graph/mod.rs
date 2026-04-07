@@ -56,6 +56,35 @@ impl Command for IntelGraphCommand {
     "Graph intelligence - algorithms for attack path and network analysis"
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "pagerank" | "components" | "centrality" | "communities" | "cycles" | "paths" | "summary"
+      | "insights" | "export" | "report" | "query" | "stats" | "import" | "host" | "credential"
+      | "user" | "service" | "vuln" | "tech" | "network" | "domain" | "cert" => {
+        crate::cli::schema::JsonSupport::Guaranteed
+      }
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
+  }
+
   fn routes(&self) -> Vec<Route> {
     vec![
       Route {
@@ -280,13 +309,13 @@ impl Command for IntelGraphCommand {
       "paths" => cmd_paths(ctx, &graph, output_format),
 
       // Core operation commands
-      "summary" => cmd_summary(&graph, output_format),
-      "insights" => cmd_insights(&graph, output_format),
+      "summary" => cmd_summary(ctx, &graph, output_format),
+      "insights" => cmd_insights(ctx, &graph, output_format),
       "export" => cmd_export(ctx, &graph),
       "report" => cmd_report(ctx, &graph),
       "query" => cmd_query(ctx, &graph, output_format),
       "rql" => cmd_rql_help(),
-      "stats" => cmd_stats(&graph, output_format),
+      "stats" => cmd_stats(ctx, &graph, output_format),
       "import" => cmd_import(ctx),
 
       // Visualization commands
