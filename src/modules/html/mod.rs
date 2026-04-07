@@ -31,7 +31,7 @@ pub mod parser;
 pub mod selector;
 
 // Re-export primary types for convenient access
-pub use parser::{HtmlDocument, Node, NodeType};
+pub use parser::{Arena, HtmlDocument, Node, NodeType};
 pub use selector::{
   parse_selector, select_all, select_first, matches, AttrOp, AttrSelector, CombinatorOp,
   NthExpr, PseudoSelector, Selector,

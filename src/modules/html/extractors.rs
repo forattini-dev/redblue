@@ -800,11 +800,11 @@ mod tests {
 
   #[test]
   fn test_extract_links_classify_types() {
-    let html = r#"
+    let html = r##"
       <a href="https://example.com/a">Internal</a>
       <a href="https://other.com/b">External</a>
       <a href="#top">Anchor</a>
-    "#;
+    "##;
     let doc = HtmlDocument::parse(html);
     let links = extract_links(&doc, Some("https://example.com"));
 
