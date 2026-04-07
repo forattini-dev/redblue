@@ -1,7 +1,6 @@
 //! API hashing command
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::api_hash;
 
@@ -20,6 +19,31 @@ impl Command for EvasionApihashCommand {
 
   fn description(&self) -> &str {
     "API hashing for dynamic function resolution"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "hash" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -82,9 +106,6 @@ impl Command for EvasionApihashCommand {
 }
 
 fn execute_apihash_hash(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let name = ctx.target.as_ref().ok_or("Missing function name to hash")?;
   let algo = ctx.flags.get("algo").map(|s| s.as_str()).unwrap_or("ror13");
 
@@ -96,19 +117,19 @@ fn execute_apihash_hash(ctx: &CliContext) -> Result<(), String> {
     _ => return Err(format!("Unknown algorithm: {}", algo)),
   };
 
-  if is_json {
-    Output::json_value(&json!({
-        "function": name,
-        "algorithm": algo,
-        "hash": hash,
-        "hash_hex": format!("0x{:08X}", hash),
-        "all_algorithms": json!({
-            "ror13": format!("0x{:08X}", api_hash::ror13_hash(name)),
-            "djb2": format!("0x{:08X}", api_hash::djb2_hash(name)),
-            "fnv1a": format!("0x{:08X}", api_hash::fnv1a_hash(name)),
-            "crc32": format!("0x{:08X}", api_hash::crc32_hash(name))
-        })
-    }));
+  let payload = json!({
+      "function": name,
+      "algorithm": algo,
+      "hash": hash,
+      "hash_hex": format!("0x{:08X}", hash),
+      "all_algorithms": json!({
+          "ror13": format!("0x{:08X}", api_hash::ror13_hash(name)),
+          "djb2": format!("0x{:08X}", api_hash::djb2_hash(name)),
+          "fnv1a": format!("0x{:08X}", api_hash::fnv1a_hash(name)),
+          "crc32": format!("0x{:08X}", api_hash::crc32_hash(name))
+      })
+  });
+  if render::render_machine_output(ctx, "rb evasion apihash hash", &payload)? {
     return Ok(());
   }
 
