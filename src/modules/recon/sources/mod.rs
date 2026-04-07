@@ -313,26 +313,30 @@ pub fn create_passive_sources() -> Vec<Box<dyn SubdomainSource>> {
     .collect()
 }
 
-/// Query multiple sources in parallel and aggregate results
+/// Query multiple sources in parallel and aggregate results.
+///
+/// Uses `thread::scope` so each thread borrows `&dyn SubdomainSource` directly
+/// — no Arc/clone gymnastics needed.  A counting semaphore caps concurrency at
+/// 6 threads to avoid bursting too many requests from a single IP.
 pub fn query_all_sources(
   domain: &str,
   sources: &[Box<dyn SubdomainSource>],
   category_filter: SourceCategory,
 ) -> AggregatedResults {
-  use std::sync::{Arc, Mutex};
-  use std::thread;
+  use crate::modules::common::parallel;
+  use std::sync::Mutex;
   use std::time::Instant;
 
-  let results = Arc::new(Mutex::new(AggregatedResults::new()));
-  let handles: Vec<thread::JoinHandle<()>> = vec![];
+  // Pre-filter sources to only those we'll actually query
+  let active_sources: Vec<&Box<dyn SubdomainSource>> = sources
+    .iter()
+    .filter(|s| category_filter == SourceCategory::All || s.category() == category_filter)
+    .collect();
 
-  for source in sources.iter() {
-    // Filter by category
-    if category_filter != SourceCategory::All && source.category() != category_filter {
-      continue;
-    }
+  let results = Mutex::new(AggregatedResults::new());
 
-    // Check availability
+  // Mark unavailable sources as errors (no network needed)
+  for source in &active_sources {
     if !source.is_available() {
       if let Ok(mut r) = results.lock() {
         r.add_error(
@@ -340,19 +344,19 @@ pub fn query_all_sources(
           SourceError::Unavailable("Not configured".into()),
         );
       }
-      continue;
     }
+  }
 
-    let domain = domain.to_string();
+  // Query available sources in parallel (max 6 concurrent to avoid burst detection)
+  let available: Vec<&&Box<dyn SubdomainSource>> =
+    active_sources.iter().filter(|s| s.is_available()).collect();
+
+  parallel::run_with_jitter(6, 1500, &available, |source| {
     let source_name = source.name().to_string();
     let source_type = source.source_type();
-    let results = Arc::clone(&results);
 
-    // Note: We can't move the source into the thread since it's behind a reference.
-    // In a real impl, we'd clone or use Arc<dyn SubdomainSource>
-    // For now, query sequentially
     let start = Instant::now();
-    let query_result = source.query(&domain);
+    let query_result = source.query(domain);
     let duration_ms = start.elapsed().as_millis() as u64;
 
     match query_result {
@@ -384,17 +388,9 @@ pub fn query_all_sources(
         }
       }
     }
-  }
+  });
 
-  // Wait for all threads
-  for handle in handles {
-    let _ = handle.join();
-  }
-
-  Arc::try_unwrap(results)
-    .ok()
-    .and_then(|mutex| mutex.into_inner().ok())
-    .unwrap_or_else(AggregatedResults::new)
+  results.into_inner().unwrap()
 }
 
 impl Clone for AggregatedResults {

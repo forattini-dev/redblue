@@ -122,17 +122,17 @@ impl TakeoverChecker {
     }
   }
 
-  /// Check multiple domains for takeover vulnerabilities
+  /// Check multiple domains for takeover vulnerabilities (parallel).
+  ///
+  /// Each domain gets an independent DNS CNAME lookup + HTTP fingerprint check.
+  /// Concurrency capped at 15 threads with jitter to avoid burst patterns.
   pub fn check_bulk(&self, domains: &[String]) -> Vec<TakeoverResult> {
-    let mut results = Vec::new();
+    use crate::modules::common::parallel;
 
-    for domain in domains {
-      if let Ok(result) = self.check(domain) {
-        results.push(result);
-      }
-    }
-
-    results
+    parallel::map(15, domains, |domain| self.check(domain).ok())
+      .into_iter()
+      .flatten()
+      .collect()
   }
 
   /// Match CNAME against vulnerable service fingerprints

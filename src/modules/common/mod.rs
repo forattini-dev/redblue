@@ -37,6 +37,7 @@
 //! ```
 
 pub mod http;
+pub mod parallel;
 
 use std::fmt;
 use std::time::Duration;

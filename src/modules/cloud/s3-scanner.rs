@@ -131,23 +131,24 @@ impl S3Scanner {
     }
   }
 
-  /// Scan multiple bucket names
+  /// Scan multiple bucket names (parallel).
+  ///
+  /// Each bucket is an independent HTTP HEAD/GET to S3.
+  /// Capped at 10 concurrent to stay under AWS radar.
   pub fn scan_buckets(&self, bucket_names: &[String]) -> S3ScanResult {
-    let mut buckets = Vec::new();
-    let mut total_exists = 0;
-    let mut total_public = 0;
+    use crate::modules::common::parallel;
 
-    for name in bucket_names {
-      if let Ok(bucket) = self.check_bucket(name) {
-        if bucket.exists {
-          total_exists += 1;
-        }
-        if bucket.public_list || bucket.public_read {
-          total_public += 1;
-        }
-        buckets.push(bucket);
-      }
-    }
+    let buckets: Vec<S3Bucket> =
+      parallel::map(10, bucket_names, |name| self.check_bucket(name).ok())
+        .into_iter()
+        .flatten()
+        .collect();
+
+    let total_exists = buckets.iter().filter(|b| b.exists).count();
+    let total_public = buckets
+      .iter()
+      .filter(|b| b.public_list || b.public_read)
+      .count();
 
     S3ScanResult {
       total_scanned: bucket_names.len(),

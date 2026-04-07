@@ -181,104 +181,62 @@ impl SubdomainEnumerator {
       progressln!("  ℹ️ Wildcard IPs detected: {:?}", self.wildcard_ips);
     }
 
-    // ==== PHASE 1: Initial Passive Sources ====
-    progressln!("🔍 [Phase 1] Passive Reconnaissance");
+    // ==== PHASE 1: Initial Passive Sources (parallel) ====
+    progressln!("🔍 [Phase 1] Passive Reconnaissance (5 sources in parallel)");
 
-    // 1.1 Certificate Transparency logs
-    progressln!("  ├─ Querying Certificate Transparency logs...");
-    match self.enumerate_ct_logs() {
-      Ok(ct_results) => {
-        let filtered_results = self.filter_wildcard_results(ct_results);
-        let count = filtered_results.len();
-        progressln!("  │  ✅ Found {} subdomains from CT logs", count);
-        for result in filtered_results {
-          if all_found.insert(result.subdomain.clone()) {
-            queue.push_back(result.subdomain.clone());
-            results.push(result);
+    // Query all 5 passive sources concurrently — each is an independent HTTP
+    // request to a different external API, so parallelism is safe and fast.
+    type SourceResult = (&'static str, Result<Vec<SubdomainResult>, String>);
+
+    let source_results: Vec<SourceResult> = {
+      use std::sync::Mutex;
+      let collected: Mutex<Vec<SourceResult>> = Mutex::new(Vec::new());
+
+      std::thread::scope(|s| {
+        s.spawn(|| {
+          let r = self.enumerate_ct_logs();
+          collected.lock().unwrap().push(("CT logs", r));
+        });
+        s.spawn(|| {
+          let r = self.enumerate_hackertarget();
+          collected.lock().unwrap().push(("HackerTarget", r));
+        });
+        s.spawn(|| {
+          let r = self.enumerate_alienvault_otx();
+          collected.lock().unwrap().push(("AlienVault OTX", r));
+        });
+        s.spawn(|| {
+          let r = self.enumerate_threatcrowd();
+          collected.lock().unwrap().push(("ThreatCrowd", r));
+        });
+        s.spawn(|| {
+          let r = self.enumerate_wayback();
+          collected.lock().unwrap().push(("Wayback", r));
+        });
+      });
+
+      collected.into_inner().unwrap()
+    };
+
+    // Merge results sequentially (dedup + progress output)
+    for (source_name, query_result) in source_results {
+      match query_result {
+        Ok(raw_results) => {
+          let filtered = self.filter_wildcard_results(raw_results);
+          let new_count = filtered
+            .iter()
+            .filter(|r| !all_found.contains(&r.subdomain))
+            .count();
+          progressln!("  ├─ ✅ {} new subdomains from {}", new_count, source_name);
+          for result in filtered {
+            if all_found.insert(result.subdomain.clone()) {
+              queue.push_back(result.subdomain.clone());
+              results.push(result);
+            }
           }
         }
+        Err(e) => progressln!("  ├─ ⚠️  {} failed: {}", source_name, e),
       }
-      Err(e) => progressln!("  │  ⚠️  CT logs failed: {}", e),
-    }
-
-    // 1.2 HackerTarget API
-    progressln!("  ├─ Querying HackerTarget API...");
-    match self.enumerate_hackertarget() {
-      Ok(ht_results) => {
-        let filtered_results = self.filter_wildcard_results(ht_results);
-        let count = filtered_results.len();
-        progressln!("  │  ✅ Found {} subdomains from HackerTarget", count);
-        for result in filtered_results {
-          if all_found.insert(result.subdomain.clone()) {
-            queue.push_back(result.subdomain.clone());
-            results.push(result);
-          }
-        }
-      }
-      Err(e) => progressln!("  │  ⚠️  HackerTarget failed: {}", e),
-    }
-
-    // 1.3 AlienVault OTX
-    progressln!("  ├─ Querying AlienVault OTX...");
-    match self.enumerate_alienvault_otx() {
-      Ok(otx_results) => {
-        let filtered_results = self.filter_wildcard_results(otx_results);
-        let new_count = filtered_results
-          .iter()
-          .filter(|r| !all_found.contains(&r.subdomain))
-          .count();
-        progressln!("  │  ✅ Found {} new subdomains from OTX", new_count);
-        for result in filtered_results {
-          if all_found.insert(result.subdomain.clone()) {
-            queue.push_back(result.subdomain.clone());
-            results.push(result);
-          }
-        }
-      }
-      Err(e) => progressln!("  │  ⚠️  AlienVault OTX failed: {}", e),
-    }
-
-    // 1.4 ThreatCrowd
-    progressln!("  ├─ Querying ThreatCrowd...");
-    match self.enumerate_threatcrowd() {
-      Ok(tc_results) => {
-        let filtered_results = self.filter_wildcard_results(tc_results);
-        let new_count = filtered_results
-          .iter()
-          .filter(|r| !all_found.contains(&r.subdomain))
-          .count();
-        progressln!(
-          "  │  ✅ Found {} new subdomains from ThreatCrowd",
-          new_count
-        );
-        for result in filtered_results {
-          if all_found.insert(result.subdomain.clone()) {
-            queue.push_back(result.subdomain.clone());
-            results.push(result);
-          }
-        }
-      }
-      Err(e) => progressln!("  │  ⚠️  ThreatCrowd failed: {}", e),
-    }
-
-    // 1.5 Wayback Machine
-    progressln!("  ├─ Querying Wayback Machine...");
-    match self.enumerate_wayback() {
-      Ok(wb_results) => {
-        let filtered_results = self.filter_wildcard_results(wb_results);
-        let new_count = filtered_results
-          .iter()
-          .filter(|r| !all_found.contains(&r.subdomain))
-          .count();
-        progressln!("  │  ✅ Found {} new subdomains from Wayback", new_count);
-        for result in filtered_results {
-          if all_found.insert(result.subdomain.clone()) {
-            queue.push_back(result.subdomain.clone());
-            results.push(result);
-          }
-        }
-      }
-      Err(e) => progressln!("  │  ⚠️  Wayback Machine failed: {}", e),
     }
 
     progressln!(
