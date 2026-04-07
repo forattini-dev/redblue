@@ -39,6 +39,16 @@ impl Command for DnsServerCommand {
     ]
   }
 
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new()
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(self.metadata().machine_output)
+  }
+
   fn flags(&self) -> Vec<Flag> {
     vec![
       Flag::new("bind", "Bind address (IP:port)")
