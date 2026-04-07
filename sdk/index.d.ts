@@ -1,3 +1,9 @@
+import type {
+  GeneratedCanonicalRoutePath,
+  GeneratedRouteSurface,
+  GeneratedRouteTuple
+} from './generated-routes';
+
 export interface ExecResult {
   code: number;
   stdout: string;
@@ -254,22 +260,28 @@ export type ResourceBucket = {
   [resource: string]: RouteBucket;
 };
 
-export interface RedblueClient {
+export type RouteSelector =
+  | GeneratedCanonicalRoutePath
+  | GeneratedRouteTuple
+  | string
+  | [string, string, string];
+
+export interface RedblueClient extends GeneratedRouteSurface<RouteInvocation> {
   [domain: string]: ResourceBucket;
   $binaryPath: string;
   $manifest: SdkManifest;
-  $routes: Record<string, RouteInvocation>;
+  $routes: Record<GeneratedCanonicalRoutePath, RouteInvocation> & Record<string, RouteInvocation>;
   $domains: ManifestDomainNode[];
   $commands: ManifestCommandCatalogEntry[];
   $cliSchema: Record<string, unknown>;
   $createCLI(runtime?: CliInvocationRuntime): Promise<unknown>;
-  $findRoute(selector: string | [string, string, string]): RouteInvocation | null;
+  $findRoute(selector: RouteSelector): RouteInvocation | null;
   $complete(selector?: string | string[]): {
     stage: 'domain' | 'resource' | 'verb' | 'command' | 'flag' | 'flag-value' | 'target' | 'positional' | string;
     completions: ManifestCompletionEntry[];
   };
-  $describe(selector: string | [string, string, string]): ManifestCommandCatalogEntry | null;
-  $help(selector: string | [string, string, string]): string;
+  $describe(selector: RouteSelector): ManifestCommandCatalogEntry | null;
+  $help(selector: RouteSelector): string;
   $suggest(selector?: string | string[]): {
     stage: 'domain' | 'resource' | 'verb' | 'command' | string;
     suggestions: string[];
