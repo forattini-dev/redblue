@@ -31,12 +31,17 @@ const {
   execFilePromise,
   exists,
   formatManifestHelpSummary,
+  formatPartialRouteHelp,
   formatRouteHelpSummary,
+  formatSdkHelpOutput,
+  formatUnknownRouteHelp,
   formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
   findRouteInvocation,
   describeManifestRoute,
+  globalOptionExpectsValue,
+  findCommandStartIndex,
   getBinaryInfo,
   getParserCandidatePaths,
   getDefaultBinaryName,
@@ -52,6 +57,7 @@ const {
   looksLikeCanonicalCommandArgs,
   normalizeCliArgv,
   normalizeReleaseTag,
+  normalizeSdkHelpSelector,
   normalizeTokenSelector,
   normalizeRouteSelector,
   parseWrapperArgs,
@@ -61,6 +67,9 @@ const {
   requestText,
   routeInvocationMeta,
   resolveMachineOutput,
+  buildGlobalOptionIndex,
+  extractRouteSelectorFromArgv,
+  resolveCanonicalRouteTokens,
   routeIdentifier,
   runJson,
   suggestCommandTokens,
@@ -1126,6 +1135,14 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
     /did not emit valid JSON/
   );
 
+  await assert.rejects(
+    runJson(['dns', 'record', 'lookup', 'example.com'], {
+      binaryPath: fixtureBinary,
+      env: { RB_FAKE_MANIFEST_JSON_UNDECLARED: '1' }
+    }),
+    /does not declare machine-safe JSON output/
+  );
+
   await assert.rejects(() => runJson('dns'), /CLI argv must be an array of strings/);
 
   const manifestCli = await createManifestCLI(
@@ -1148,6 +1165,16 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
       { binaryPath: fixtureBinary },
       { localParserPath: parserDist }
     )).command.join('/'),
+    'dns/record/lookup'
+  );
+  assert.equal(
+    (
+      await validateManifestCommandArgs(
+        ['--output', 'json', 'dns', 'record', 'lookup', 'example.com'],
+        { binaryPath: fixtureBinary },
+        { localParserPath: parserDist }
+      )
+    ).command.join('/'),
     'dns/record/lookup'
   );
   await assert.rejects(
@@ -1229,6 +1256,8 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls, ports an
   assert.equal(describeManifestRoute(manifestInfo.manifest, 'sys/machine/inventory').canonical_path, 'system/host/inspect');
   assert.equal(describeManifestRoute(manifestInfo.manifest, 'missing/route/here'), null);
   assert.equal(routeInvocationMeta(routeIndex, manifestInfo.manifest, ['dns', 'record', 'lookup']).route.verb, 'lookup');
+  assert.equal(routeInvocationMeta(null, manifestInfo.manifest, ['dns', 'record', 'lookup']).route.verb, 'lookup');
+  assert.equal(routeInvocationMeta(null, manifestInfo.manifest, ['sys', 'machine', 'inventory']).route.verb, 'inspect');
   assert.equal(routeInvocationMeta(routeIndex, manifestInfo.manifest, ['dns']), null);
   assert.deepEqual(buildJsonCliArgs(['dns', 'record', 'lookup', 'example.com'], routeIndex, manifestInfo.manifest), [
     'dns',
@@ -1242,6 +1271,42 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls, ports an
   assert.deepEqual(normalizeCliArgv(['dns', 'record', 'lookup']), ['dns', 'record', 'lookup']);
   assert.equal(normalizeRouteSelector('dns.record.lookup').join('/'), 'dns/record/lookup');
   assert.equal(normalizeTokenSelector('dns record lookup example.com').join('/'), 'dns/record/lookup/example.com');
+  assert.equal(globalOptionExpectsValue({ kind: 'output-format' }), true);
+  assert.equal(globalOptionExpectsValue({ long: 'json', value: 'json' }), false);
+  assert.equal(globalOptionExpectsValue({ values: ['json', 'yaml'] }), true);
+  const optionIndex = buildGlobalOptionIndex(manifestInfo.manifest);
+  assert.equal(optionIndex.long.get('json').long, 'json');
+  assert.equal(optionIndex.short.get('j').long, 'json');
+  assert.deepEqual(
+    extractRouteSelectorFromArgv(['--json', 'dns', 'record', 'lookup', 'example.com'], manifestInfo.manifest),
+    ['dns', 'record', 'lookup']
+  );
+  assert.deepEqual(
+    extractRouteSelectorFromArgv(
+      ['--output', 'json', 'dns', 'record', 'lookup', 'example.com'],
+      manifestInfo.manifest
+    ),
+    ['dns', 'record', 'lookup']
+  );
+  assert.equal(
+    findCommandStartIndex(['--output', 'json', 'dns', 'record', 'lookup'], manifestInfo.manifest),
+    2
+  );
+  assert.equal(findCommandStartIndex(['--json', 'dns', 'record', 'lookup'], manifestInfo.manifest), 1);
+  const expectedSystemDomain = manifestInfo.manifest.domains.find((domain) => domain.name === 'system');
+  const expectedHostResource = expectedSystemDomain.resources.find((resource) => resource.name === 'host');
+  const expectedInspectVerb = expectedHostResource.verbs.find((verb) => verb.name === 'inspect');
+  assert.deepEqual(resolveCanonicalRouteTokens(manifestInfo.manifest, 'sys/machine/inventory'), {
+    domainToken: 'sys',
+    resourceToken: 'machine',
+    verbToken: 'inventory',
+    domainName: 'system',
+    resourceName: 'host',
+    verbName: 'inspect',
+    canonicalDomain: expectedSystemDomain,
+    canonicalResource: expectedHostResource,
+    canonicalVerb: expectedInspectVerb
+  });
   assert.throws(() => normalizeRouteSelector('dns record'), /domain\/resource\/verb/);
   assert.deepEqual(suggestCommandTokens(manifestInfo.manifest, []), {
     stage: 'domain',
@@ -1362,6 +1427,7 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls, ports an
     /rb system host inspect/
   );
   assert.match(formatRouteHelpSummary(manifestInfo.manifest, 'sys/machine/inventory'), /Usage:/);
+  assert.match(formatRouteHelpSummary(manifestInfo.manifest, 'dns/record/lookup'), /Positionals:/);
   assert.match(formatRouteHelpSummary(manifestInfo.manifest, 'dns/record/lookup'), /\[human\|json\|yaml\]/);
   assert.equal(formatRouteHelpSummary(manifestInfo.manifest, 'missing/route/here'), '');
 
@@ -2105,6 +2171,80 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
   assert.match(richHelp, /Canonical domains:/);
   assert.match(richHelp, /network/);
   assert.match(richHelp, /Examples:/);
+
+  const routeManifest = {
+    domains: [
+      {
+        name: 'dns',
+        aliases: [],
+        resources: [
+          {
+            name: 'record',
+            description: 'DNS record lookups',
+            aliases: ['rec'],
+            verbs: [
+              {
+                name: 'lookup',
+                summary: 'Lookup DNS records',
+                aliases: ['find']
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        flags: [
+          {
+            long: 'type',
+            short: 't',
+            description: 'Record type',
+            expects_value: true,
+            camel_name: 'type'
+          }
+        ],
+        routes: [
+          {
+            verb: 'lookup',
+            summary: 'Lookup DNS records',
+            usage: 'rb dns record lookup <target>',
+            aliases: ['find'],
+            canonical_path: 'dns/record/lookup',
+            command: 'rb dns record lookup',
+            machine_output: {
+              json_support: 'best-effort',
+              preferred_flag: 'format',
+              preferred_value: 'json'
+            },
+            positionals: [
+              {
+                name: 'target',
+                required: true,
+                repeated: false,
+                slot: 'target'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  assert.deepEqual(normalizeSdkHelpSelector(['rb', 'help', 'dns', 'record', 'lookup']), [
+    'dns',
+    'record',
+    'lookup'
+  ]);
+  assert.deepEqual(normalizeSdkHelpSelector(['--json', 'dns', 'record']), ['dns', 'record']);
+  assert.match(formatSdkHelpOutput(routeManifest, ['dns', 'record', 'lookup']), /Usage:/);
+  assert.match(formatSdkHelpOutput(routeManifest, ['dns', 'record', 'lookup']), /Aliases: find/);
+  assert.match(formatPartialRouteHelp(routeManifest, ['dns', 'rec']), /Partial route:/);
+  assert.match(formatPartialRouteHelp(routeManifest, ['dns', 'rec']), /Expected next token: resource/);
+  assert.match(formatUnknownRouteHelp(routeManifest, ['dns', 'record', 'loookup']), /Unknown route:/);
+  assert.match(formatUnknownRouteHelp(routeManifest, ['dns', 'record', 'loookup']), /Closest canonical routes:/);
 });
 
 test('branch-only helper paths stay covered', async () => {
@@ -4003,6 +4143,45 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     0
   );
   assert.match(stdoutChunks.join(''), /Wrapper options:/);
+  assert.equal(stderrChunks.join(''), '');
+
+  resetOutput();
+  assert.equal(
+    await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'record', 'lookup'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /rb dns record lookup/);
+  assert.match(stdoutChunks.join(''), /Usage:/);
+  assert.equal(stderrChunks.join(''), '');
+
+  resetOutput();
+  assert.equal(
+    await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'rec'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /Partial route:/);
+  assert.match(stdoutChunks.join(''), /Expected next token: resource/);
+  assert.equal(stderrChunks.join(''), '');
+
+  resetOutput();
+  assert.equal(
+    await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'record', 'loookup'], {
+      localParserPath: parserDist,
+      stdout,
+      stderr
+    }),
+    0
+  );
+  assert.match(stdoutChunks.join(''), /Unknown route:/);
+  assert.match(stdoutChunks.join(''), /Closest canonical routes:/);
   assert.equal(stderrChunks.join(''), '');
 
   resetOutput();
