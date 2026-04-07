@@ -138,3 +138,6 @@ pub mod code {
 
 // CTF Challenge Generation (juice-shop-ctf style)
 pub mod ctf;
+
+// HTML Parsing and CSS Selector Engine (arena-based DOM)
+pub mod html;
