@@ -1123,7 +1123,7 @@ impl ResourceRegistry {
   fn gen_system_info(&self) -> String {
     format!(
       r#"{{"name":"redblue","version":"{}","tools_replaced":30,"binary_size_kb":500}}"#,
-      env!("CARGO_PKG_VERSION")
+      crate::version::current_version()
     )
   }
 
