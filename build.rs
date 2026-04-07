@@ -10,7 +10,7 @@
 //! making signature-based AV detection ineffective.
 
 use std::env;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,6 +19,16 @@ fn main() {
   // Get output directory
   let out_dir = env::var("OUT_DIR").unwrap();
   let dest_path = Path::new(&out_dir).join("build_mutations.rs");
+  let version_path = Path::new(&out_dir).join("version_info.rs");
+  let build_version = read_build_version();
+  let cargo_version = env::var("CARGO_PKG_VERSION").unwrap_or_default();
+
+  if build_version != cargo_version {
+    panic!(
+      "VERSION ({}) does not match Cargo.toml version ({}). Run `node scripts/sync-version.js`.",
+      build_version, cargo_version
+    );
+  }
 
   // Generate entropy from multiple sources
   let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -62,6 +72,15 @@ fn main() {
 
   // Write generated code
   let mut file = File::create(&dest_path).unwrap();
+  let mut version_file = File::create(&version_path).unwrap();
+
+  writeln!(version_file, "// Auto-generated version info - DO NOT EDIT").unwrap();
+  writeln!(
+    version_file,
+    "pub const BUILD_VERSION: &str = \"{}\";",
+    build_version
+  )
+  .unwrap();
 
   writeln!(file, "// Auto-generated build mutations - DO NOT EDIT").unwrap();
   writeln!(file, "// Generated at: {} (secs) + {} (nanos)", secs, nanos).unwrap();
@@ -99,6 +118,62 @@ fn main() {
     junk_data.as_slice()
   )
   .unwrap();
+  writeln!(file).unwrap();
+
+  // Rehash markers: contiguous blocks with magic sentinel + mutable data
+  // so the runtime rehash scanner can locate and overwrite them in the binary.
+  let junk_marker: [u8; 16] = [
+    0x52, 0x42, 0x4A, 0x55, 0x4E, 0x4B, 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0x52, 0x42, 0x4A, 0x4B,
+  ];
+  let fp_marker: [u8; 16] = [
+    0x52, 0x42, 0x46, 0x50, 0x52, 0x49, 0x4E, 0x54, 0xDE, 0xAD, 0xBE, 0xEF, 0x46, 0x50, 0x52, 0x42,
+  ];
+
+  // REHASH_JUNK_BLOCK: 16-byte marker + junk_size mutable bytes (contiguous)
+  let mut junk_block = Vec::with_capacity(16 + junk_size);
+  junk_block.extend_from_slice(&junk_marker);
+  junk_block.extend_from_slice(&junk_data);
+
+  writeln!(
+    file,
+    "/// Rehash: contiguous marker + junk data for runtime mutation"
+  )
+  .unwrap();
+  writeln!(file, "#[used]").unwrap();
+  writeln!(file, "#[allow(dead_code)]").unwrap();
+  writeln!(
+    file,
+    "pub static REHASH_JUNK_BLOCK: [u8; {}] = {:?};",
+    16 + junk_size,
+    junk_block.as_slice()
+  )
+  .unwrap();
+  writeln!(file).unwrap();
+
+  // REHASH_FP_BLOCK: 16-byte marker + 16-byte fingerprint (contiguous)
+  let mut fp_block = Vec::with_capacity(32);
+  fp_block.extend_from_slice(&fp_marker);
+  fp_block.extend_from_slice(&fingerprint);
+
+  writeln!(
+    file,
+    "/// Rehash: contiguous marker + fingerprint for runtime mutation"
+  )
+  .unwrap();
+  writeln!(file, "#[used]").unwrap();
+  writeln!(file, "#[allow(dead_code)]").unwrap();
+  writeln!(
+    file,
+    "pub static REHASH_FP_BLOCK: [u8; 32] = {:?};",
+    fp_block.as_slice()
+  )
+  .unwrap();
+  writeln!(file).unwrap();
+
+  // Only emit the mutable region size — marker bytes are hard-coded in rehash.rs
+  // to avoid duplicate data-section copies that confuse the binary scanner.
+  writeln!(file, "/// Size of the mutable junk region (after marker)").unwrap();
+  writeln!(file, "pub const REHASH_JUNK_SIZE: usize = {};", junk_size).unwrap();
   writeln!(file).unwrap();
 
   // Obfuscation keys
@@ -187,6 +262,8 @@ pub fn dead_code_block() {{
 pub fn polymorphic_nop() {{
     let _ = std::hint::black_box(&JUNK_DATA);
     let _ = std::hint::black_box(BUILD_FINGERPRINT);
+    let _ = std::hint::black_box(&REHASH_JUNK_BLOCK);
+    let _ = std::hint::black_box(&REHASH_FP_BLOCK);
 }}
 "#
   )
@@ -194,9 +271,17 @@ pub fn polymorphic_nop() {{
 
   // Print build info
   println!("cargo:rerun-if-changed=build.rs");
+  println!("cargo:rerun-if-changed=VERSION");
   println!("cargo:warning=Build fingerprint: {}", fingerprint_hex);
   println!("cargo:warning=XOR key: 0x{:02X}", xor_key);
 
   // Force rebuild when Cargo.toml changes
   println!("cargo:rerun-if-changed=Cargo.toml");
+}
+
+fn read_build_version() -> String {
+  fs::read_to_string("VERSION")
+    .unwrap_or_else(|err| panic!("failed to read VERSION file: {}", err))
+    .trim()
+    .to_string()
 }
