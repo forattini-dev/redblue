@@ -11,16 +11,19 @@
 /// ```
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{render, CliContext};
 use crate::json;
 use crate::modules::common::Severity as StorageSeverity;
 use crate::playbooks::{
   all_playbooks, get_apt_playbook, get_playbook, list_apt_groups, DetectedOS, PlaybookContext,
   PlaybookExecutor, PlaybookRecommendation, PlaybookRecommender, ReconFindings, RiskLevel,
 };
+use crate::serde_json::Value;
 use crate::storage::records::{PortScanRecord, PortStatus, VulnerabilityRecord};
 use crate::storage::service::StorageService;
-use crate::storage::{RedDB, UnifiedEntity};
+use crate::storage::{
+  ActionOutcome, ActionRecord, ActionSource, RecordPayload, RedDB, UnifiedEntity,
+};
 use std::net::IpAddr;
 
 pub struct AttackCommand;
@@ -36,6 +39,31 @@ impl Command for AttackCommand {
 
   fn description(&self) -> &str {
     "Attack planning and playbook execution workflow"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "plan" | "run" | "playbooks" | "apt" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -231,11 +259,8 @@ impl AttackCommand {
       Err(_) => {
         // Handle case where no DB exists yet
         if is_json {
-          Output::json_value(&json!({
-              "target": target.clone(),
-              "error": "no_recon_data",
-              "message": "No reconnaissance data found for target"
-          }));
+          let payload = missing_recon_payload(target);
+          render::render_machine_output(ctx, "rb attack target plan", &payload)?;
           return Ok(());
         }
         println!();
@@ -280,36 +305,8 @@ impl AttackCommand {
 
     // JSON output
     if is_json {
-      let recommendations_json: Vec<_> = result
-        .recommendations
-        .iter()
-        .map(playbook_recommendation_to_json)
-        .collect();
-      let findings_json = json!({
-          "open_ports": findings
-              .ports
-              .iter()
-              .filter(|p| p.status == PortStatus::Open)
-              .count(),
-          "vulnerabilities": findings.vulns.len(),
-          "fingerprints": findings.fingerprints.len(),
-          "detected_os": findings.detected_os.as_ref().map(|os| format!("{:?}", os))
-      });
-      let summary_json = json!({
-          "total_matched": result.summary.total_matched,
-          "high_risk_count": result.summary.high_risk_count,
-          "medium_risk_count": result.summary.medium_risk_count,
-          "low_risk_count": result.summary.low_risk_count,
-          "has_critical_findings": result.summary.has_critical_findings,
-          "top_recommendation": result.summary.top_recommendation.clone(),
-          "apt_playbooks_matched": result.summary.apt_playbooks_matched
-      });
-      Output::json_value(&json!({
-          "target": target.clone(),
-          "findings": findings_json,
-          "summary": summary_json,
-          "recommendations": recommendations_json
-      }));
+      let payload = attack_plan_payload(target, &findings, &result);
+      render::render_machine_output(ctx, "rb attack target plan", &payload)?;
       return Ok(());
     }
 
@@ -350,10 +347,81 @@ impl AttackCommand {
   }
 
   /// Convert UnifiedEntity to VulnerabilityRecord (Placeholder)
-  fn entity_to_vuln_record(&self, _entity: &UnifiedEntity) -> Option<VulnerabilityRecord> {
-    // Implementation depends on how vulns are stored in RedDB
-    // For now return None as migration is incremental
-    None
+  fn entity_to_vuln_record(&self, entity: &UnifiedEntity) -> Option<VulnerabilityRecord> {
+    let node = entity.data.as_node()?;
+    let cve_id = node.get("cve_id").and_then(|v| v.as_text())?.to_string();
+    let technology = node
+      .get("technology")
+      .and_then(|v| v.as_text())?
+      .to_string();
+    let description = node
+      .get("description")
+      .and_then(|v| v.as_text())
+      .unwrap_or("")
+      .to_string();
+    let source = node
+      .get("source")
+      .and_then(|v| v.as_text())
+      .unwrap_or("unknown")
+      .to_string();
+    let version = node
+      .get("version")
+      .and_then(|v| v.as_text())
+      .map(|s| s.to_string());
+    let cvss = node.get("cvss").and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+    let risk_score = node
+      .get("risk_score")
+      .and_then(|v| v.as_integer())
+      .unwrap_or(0) as u8;
+    let severity = node
+      .get("severity")
+      .and_then(|v| v.as_text())
+      .and_then(StorageSeverity::from_str)
+      .or_else(|| self.severity_from_cvss(cvss))
+      .unwrap_or(StorageSeverity::Info);
+    let exploit_available = node
+      .get("exploit_available")
+      .and_then(|v| v.as_boolean())
+      .unwrap_or(false);
+    let in_kev = node
+      .get("in_kev")
+      .and_then(|v| v.as_boolean())
+      .unwrap_or(false);
+    let discovered_at = node
+      .get("discovered_at")
+      .and_then(|v| v.as_integer())
+      .map(|value| value as u32)
+      .unwrap_or(entity.updated_at as u32);
+    let references = node
+      .get("references")
+      .and_then(|v| v.as_text())
+      .map(parse_references)
+      .unwrap_or_default();
+
+    Some(VulnerabilityRecord {
+      cve_id,
+      technology,
+      version,
+      cvss,
+      risk_score,
+      severity,
+      description,
+      references,
+      exploit_available,
+      in_kev,
+      discovered_at,
+      source,
+    })
+  }
+
+  fn severity_from_cvss(&self, cvss: f32) -> Option<StorageSeverity> {
+    match cvss {
+      score if score >= 9.0 => Some(StorageSeverity::Critical),
+      score if score >= 7.0 => Some(StorageSeverity::High),
+      score if score >= 4.0 => Some(StorageSeverity::Medium),
+      score if score > 0.0 => Some(StorageSeverity::Low),
+      _ => None,
+    }
   }
 
   /// Execute a playbook
@@ -411,31 +479,76 @@ impl AttackCommand {
 
     // Dry run check
     if ctx.has_flag("dry-run") {
+      let execution_preview = playbook_execution_preview(&playbook);
       if is_json {
-        let steps_json: Vec<_> = playbook
-          .steps
-          .iter()
-          .map(|step| {
-            json!({
-                "number": step.number,
-                "name": step.name.clone(),
-                "phase": step.phase.as_str(),
-                "description": step.description.replace('\n', " ")
-            })
-          })
-          .collect();
-        Output::json_value(&json!({
-            "playbook_id": playbook.metadata.id.clone(),
-            "playbook_name": playbook.metadata.name.clone(),
-            "target": target.clone(),
-            "dry_run": true,
-            "is_apt": is_apt,
-            "steps": steps_json
-        }));
+        let payload = playbook_dry_run_payload(&playbook, target, is_apt, &execution_preview);
+        render::render_machine_output(ctx, "rb attack target run", &payload)?;
         return Ok(());
       }
       println!();
       Output::info("DRY RUN - showing steps without execution:");
+      println!();
+      Output::item("Estimated Duration", &playbook.metadata.estimated_duration);
+      Output::item(
+        "Command Hints",
+        &execution_preview.total_commands.to_string(),
+      );
+      Output::item("Manual Steps", &execution_preview.manual_steps.to_string());
+      Output::item(
+        "Optional Steps",
+        &execution_preview.optional_steps.to_string(),
+      );
+
+      if !execution_preview.phases.is_empty() {
+        println!();
+        Output::section("Execution Summary");
+        for phase in &execution_preview.phases {
+          println!(
+            "  \x1b[36m•\x1b[0m {}: {} step(s), {} command hint(s)",
+            phase.phase, phase.total_steps, phase.command_count
+          );
+        }
+      }
+
+      if !execution_preview.narrative.is_empty() {
+        println!();
+        Output::section("Execution Narrative");
+        for item in &execution_preview.narrative {
+          println!("  \x1b[36m•\x1b[0m {}", item);
+        }
+      }
+
+      if !playbook.preconditions.is_empty() {
+        println!();
+        Output::section("Preconditions");
+        for condition in &playbook.preconditions {
+          let required = if condition.required {
+            "required"
+          } else {
+            "optional"
+          };
+          println!(
+            "  \x1b[36m•\x1b[0m {} ({})",
+            condition.description, required
+          );
+        }
+      }
+
+      if !playbook.assertions.is_empty() {
+        println!();
+        Output::section("Assertions");
+        for assertion in &playbook.assertions {
+          let critical = if assertion.critical {
+            "critical"
+          } else {
+            "non-critical"
+          };
+          println!(
+            "  \x1b[36m•\x1b[0m {} ({})",
+            assertion.description, critical
+          );
+        }
+      }
       println!();
 
       for step in &playbook.steps {
@@ -466,6 +579,21 @@ impl AttackCommand {
 
     let mut executor = PlaybookExecutor::new();
     let result = executor.execute(&playbook, &mut context);
+    let actions = executor.actions();
+    let action_summary = execution_action_summary(actions);
+    let execution_narrative = execution_narrative_from_action_summary(&action_summary);
+    let persisted_actions = match executor.persist_actions() {
+      Ok(count) => PersistenceSummary {
+        attempted: actions.len(),
+        persisted: count,
+        error: None,
+      },
+      Err(error) => PersistenceSummary {
+        attempted: actions.len(),
+        persisted: 0,
+        error: Some(error),
+      },
+    };
 
     if !is_json {
       Output::spinner_done();
@@ -473,17 +601,14 @@ impl AttackCommand {
 
     // JSON output
     if is_json {
-      let mut result_json = json!(result.clone());
-      if let Some(obj) = result_json.as_object().cloned() {
-        let mut map = obj;
-        map.insert("is_apt".to_string(), json!(is_apt));
-        map.insert(
-          "duration_secs".to_string(),
-          json!(result.duration.as_secs_f64()),
-        );
-        result_json = crate::serde_json::Value::Object(map);
-      }
-      Output::json_value(&result_json);
+      let payload = playbook_result_payload(
+        &result,
+        is_apt,
+        &action_summary,
+        &execution_narrative,
+        &persisted_actions,
+      );
+      render::render_machine_output(ctx, "rb attack target run", &payload)?;
       return Ok(());
     }
 
@@ -531,6 +656,42 @@ impl AttackCommand {
       "Duration",
       &format!("{:.2}s", result.duration.as_secs_f64()),
     );
+    Output::item(
+      "Actions recorded",
+      &action_summary.total_actions.to_string(),
+    );
+    Output::item(
+      "Actions persisted",
+      &persisted_actions.persisted.to_string(),
+    );
+
+    if !action_summary.phases.is_empty() {
+      println!();
+      Output::section("Execution Summary");
+      for phase in &action_summary.phases {
+        println!(
+          "  \x1b[36m•\x1b[0m {}: {} total, {} success, {} failed, {} skipped",
+          phase.phase,
+          phase.total_steps,
+          phase.successful_steps,
+          phase.failed_steps,
+          phase.skipped_steps
+        );
+      }
+    }
+
+    if !execution_narrative.is_empty() {
+      println!();
+      Output::section("Execution Narrative");
+      for item in &execution_narrative {
+        println!("  \x1b[36m•\x1b[0m {}", item);
+      }
+    }
+
+    if let Some(error) = &persisted_actions.error {
+      println!();
+      Output::warning(&format!("Could not persist execution actions: {}", error));
+    }
 
     Ok(())
   }
@@ -549,25 +710,8 @@ impl AttackCommand {
       let playbooks = all_playbooks();
       let apt_groups = list_apt_groups();
 
-      let playbooks_json: Vec<_> = playbooks
-        .iter()
-        .map(|pb| {
-          json!({
-              "id": pb.metadata.id.clone(),
-              "name": pb.metadata.name.clone(),
-              "risk_level": format!("{:?}", pb.metadata.risk_level),
-              "steps": pb.steps.len()
-          })
-        })
-        .collect();
-      let apt_groups_json: Vec<_> = apt_groups
-        .iter()
-        .map(|(id, name)| json!({ "id": id.to_string(), "name": name.to_string() }))
-        .collect();
-      Output::json_value(&json!({
-          "playbooks": playbooks_json,
-          "apt_groups": apt_groups_json
-      }));
+      let payload = playbooks_listing_payload(&playbooks, &apt_groups);
+      render::render_machine_output(ctx, "rb attack target playbooks", &payload)?;
       return Ok(());
     }
 
@@ -626,7 +770,8 @@ impl AttackCommand {
 
       // JSON output for specific playbook
       if is_json {
-        Output::json_value(&json!(playbook.clone()));
+        let payload = apt_playbook_payload(&playbook);
+        render::render_machine_output(ctx, "rb attack target apt", &payload)?;
         return Ok(());
       }
 
@@ -692,13 +837,8 @@ impl AttackCommand {
       // JSON output for listing all APT groups
       if is_json {
         let apt_groups = list_apt_groups();
-        let apt_groups_json: Vec<_> = apt_groups
-          .iter()
-          .map(|(id, name)| json!({ "id": id.to_string(), "name": name.to_string() }))
-          .collect();
-        Output::json_value(&json!({
-            "apt_groups": apt_groups_json
-        }));
+        let payload = apt_groups_payload(&apt_groups);
+        render::render_machine_output(ctx, "rb attack target apt", &payload)?;
         return Ok(());
       }
 
@@ -966,6 +1106,22 @@ impl AttackCommand {
         println!("    \x1b[32m•\x1b[0m {}", reason);
       }
     }
+
+    let non_zero_components: Vec<_> = rec
+      .score_breakdown
+      .components
+      .iter()
+      .filter(|component| component.points > 0)
+      .collect();
+    if !non_zero_components.is_empty() {
+      println!("    Score Breakdown:");
+      for component in non_zero_components.iter().take(4) {
+        println!(
+          "      \x1b[36m•\x1b[0m {}: +{}",
+          component.category, component.points
+        );
+      }
+    }
   }
 
   fn detect_os_from_ports(&self, ports: &[PortScanRecord]) -> Option<DetectedOS> {
@@ -1065,7 +1221,695 @@ fn playbook_recommendation_to_json(rec: &PlaybookRecommendation) -> crate::serde
       "score": rec.score,
       "risk_level": format!("{:?}", rec.risk_level),
       "reasons": rec.reasons.clone(),
+      "score_breakdown": score_breakdown_to_json(&rec.score_breakdown),
       "related_attacks": rec.related_attacks.clone(),
       "is_apt_playbook": rec.is_apt_playbook
   })
+}
+
+fn score_breakdown_to_json(
+  breakdown: &crate::playbooks::ScoreBreakdown,
+) -> crate::serde_json::Value {
+  let components: Vec<Value> = breakdown
+    .components
+    .iter()
+    .map(|component| {
+      json!({
+        "category": component.category,
+        "points": component.points,
+        "reasons": component.reasons
+      })
+    })
+    .collect();
+
+  json!({
+    "raw_score": breakdown.raw_score,
+    "final_score": breakdown.final_score,
+    "components": components
+  })
+}
+
+fn missing_recon_payload(target: &str) -> Value {
+  json!({
+    "target": target,
+    "error": "no_recon_data",
+    "message": "No reconnaissance data found for target"
+  })
+}
+
+fn findings_summary_payload(findings: &ReconFindings) -> Value {
+  json!({
+    "open_ports": findings
+      .ports
+      .iter()
+      .filter(|p| p.status == PortStatus::Open)
+      .count(),
+    "vulnerabilities": findings.vulns.len(),
+    "fingerprints": findings.fingerprints.len(),
+    "detected_os": findings.detected_os.as_ref().map(|os| format!("{:?}", os)),
+    "target_type": findings.target_type.as_ref().map(|tt| format!("{:?}", tt)),
+    "is_internal": findings.is_internal
+  })
+}
+
+fn recommendation_summary_payload(result: &crate::playbooks::RecommendationResult) -> Value {
+  json!({
+    "total_matched": result.summary.total_matched,
+    "high_risk_count": result.summary.high_risk_count,
+    "medium_risk_count": result.summary.medium_risk_count,
+    "low_risk_count": result.summary.low_risk_count,
+    "has_critical_findings": result.summary.has_critical_findings,
+    "top_recommendation": result.summary.top_recommendation,
+    "apt_playbooks_matched": result.summary.apt_playbooks_matched
+  })
+}
+
+fn attack_plan_payload(
+  target: &str,
+  findings: &ReconFindings,
+  result: &crate::playbooks::RecommendationResult,
+) -> Value {
+  let recommendations: Vec<Value> = result
+    .recommendations
+    .iter()
+    .map(playbook_recommendation_to_json)
+    .collect();
+  json!({
+    "target": target,
+    "findings": findings_summary_payload(findings),
+    "summary": recommendation_summary_payload(result),
+    "recommendations": recommendations
+  })
+}
+
+fn playbook_step_payload(step: &crate::playbooks::PlaybookStep) -> Value {
+  json!({
+    "number": step.number,
+    "name": step.name,
+    "phase": step.phase.as_str(),
+    "description": step.description.replace('\n', " "),
+    "commands": step.commands,
+    "mitre_technique": step.mitre_technique
+  })
+}
+
+fn playbook_dry_run_payload(
+  playbook: &crate::playbooks::Playbook,
+  target: &str,
+  is_apt: bool,
+  preview: &ExecutionPreview,
+) -> Value {
+  let steps: Vec<Value> = playbook.steps.iter().map(playbook_step_payload).collect();
+  let summary = json!({
+    "total_steps": playbook.steps.len(),
+    "total_commands": preview.total_commands,
+    "optional_steps": preview.optional_steps,
+    "manual_steps": preview.manual_steps,
+    "preconditions": playbook.preconditions.len(),
+    "assertions": playbook.assertions.len()
+  });
+  let preconditions: Vec<Value> = playbook
+    .preconditions
+    .iter()
+    .map(|condition| {
+      json!({
+        "description": condition.description,
+        "required": condition.required,
+        "check": condition.check,
+        "notes": condition.notes
+      })
+    })
+    .collect();
+  let assertions: Vec<Value> = playbook
+    .assertions
+    .iter()
+    .map(|assertion| {
+      json!({
+        "description": assertion.description,
+        "critical": assertion.critical
+      })
+    })
+    .collect();
+  json!({
+    "playbook_id": playbook.metadata.id,
+    "playbook_name": playbook.metadata.name,
+    "target": target,
+    "dry_run": true,
+    "is_apt": is_apt,
+    "risk_level": playbook.metadata.risk_level.as_str(),
+    "estimated_duration": playbook.metadata.estimated_duration,
+    "summary": summary,
+    "phase_summary": execution_preview_phases_payload(&preview.phases),
+    "execution_narrative": preview.narrative,
+    "preconditions": preconditions,
+    "assertions": assertions,
+    "steps": steps
+  })
+}
+
+fn playbook_result_payload(
+  result: &crate::playbooks::PlaybookExecutionResult,
+  is_apt: bool,
+  action_summary: &ExecutionActionSummary,
+  execution_narrative: &[String],
+  persisted_actions: &PersistenceSummary,
+) -> Value {
+  let mut result_json = json!(result.clone());
+  if let Some(obj) = result_json.as_object().cloned() {
+    let mut map = obj;
+    map.insert("is_apt".to_string(), json!(is_apt));
+    map.insert(
+      "duration_secs".to_string(),
+      json!(result.duration.as_secs_f64()),
+    );
+    map.insert(
+      "action_summary".to_string(),
+      execution_action_summary_payload(action_summary),
+    );
+    map.insert(
+      "execution_narrative".to_string(),
+      json!(execution_narrative),
+    );
+    map.insert(
+      "persistence".to_string(),
+      persistence_summary_payload(persisted_actions),
+    );
+    result_json = Value::Object(map);
+  }
+  result_json
+}
+
+#[derive(Debug, Clone, Default)]
+struct ExecutionActionSummary {
+  total_actions: usize,
+  successful_actions: usize,
+  failed_actions: usize,
+  skipped_actions: usize,
+  exploit_actions: usize,
+  scan_actions: usize,
+  enumerate_actions: usize,
+  report_actions: usize,
+  phases: Vec<ExecutionPhaseSummary>,
+  steps: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ExecutionPhaseSummary {
+  phase: String,
+  total_steps: usize,
+  successful_steps: usize,
+  failed_steps: usize,
+  skipped_steps: usize,
+  total_duration_ms: u64,
+  command_count: usize,
+  steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ExecutionPreview {
+  total_commands: usize,
+  optional_steps: usize,
+  manual_steps: usize,
+  phases: Vec<ExecutionPhaseSummary>,
+  narrative: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PersistenceSummary {
+  attempted: usize,
+  persisted: usize,
+  error: Option<String>,
+}
+
+fn execution_action_summary(actions: &[ActionRecord]) -> ExecutionActionSummary {
+  let mut summary = ExecutionActionSummary {
+    total_actions: actions.len(),
+    ..ExecutionActionSummary::default()
+  };
+
+  for action in actions {
+    match &action.outcome {
+      ActionOutcome::Success => summary.successful_actions += 1,
+      ActionOutcome::Failed { .. } | ActionOutcome::Timeout { .. } => summary.failed_actions += 1,
+      ActionOutcome::Skipped { .. } => summary.skipped_actions += 1,
+      ActionOutcome::Partial { .. } => summary.successful_actions += 1,
+    }
+
+    match action.action_type {
+      crate::storage::ActionType::Exploit => summary.exploit_actions += 1,
+      crate::storage::ActionType::Scan => summary.scan_actions += 1,
+      crate::storage::ActionType::Enumerate => summary.enumerate_actions += 1,
+      crate::storage::ActionType::Report => summary.report_actions += 1,
+      _ => {}
+    }
+
+    if let Some(custom) = custom_action_payload(action) {
+      if let Some(phase_name) = custom
+        .get("phase")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+      {
+        let step_name = custom
+          .get("step_name")
+          .and_then(|value| value.as_str())
+          .unwrap_or("Unnamed Step")
+          .to_string();
+        let duration_ms = custom
+          .get("duration_ms")
+          .and_then(|value| value.as_i64())
+          .unwrap_or(0)
+          .max(0) as u64;
+        upsert_execution_phase(
+          &mut summary.phases,
+          &phase_name,
+          &step_name,
+          action,
+          duration_ms,
+          custom
+            .get("command_count")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0)
+            .max(0) as usize,
+        );
+      }
+    }
+
+    summary.steps.push(action_record_summary_payload(action));
+  }
+
+  summary
+}
+
+fn action_record_summary_payload(action: &ActionRecord) -> Value {
+  let mut payload = json!({
+    "timestamp": action.timestamp,
+    "action_type": action.action_type.as_str(),
+    "target": action.target.host_str(),
+    "source": action_source_payload(&action.source),
+    "outcome": action_outcome_payload(&action.outcome),
+  });
+
+  if let Some(custom) = custom_action_payload(action) {
+    if let Some(obj) = payload.as_object().cloned() {
+      let mut map = obj;
+      map.insert("context".to_string(), custom);
+      payload = Value::Object(map);
+    }
+  }
+
+  payload
+}
+
+fn execution_action_summary_payload(summary: &ExecutionActionSummary) -> Value {
+  json!({
+    "total_actions": summary.total_actions,
+    "successful_actions": summary.successful_actions,
+    "failed_actions": summary.failed_actions,
+    "skipped_actions": summary.skipped_actions,
+    "exploit_actions": summary.exploit_actions,
+    "scan_actions": summary.scan_actions,
+    "enumerate_actions": summary.enumerate_actions,
+    "report_actions": summary.report_actions,
+    "phases": execution_preview_phases_payload(&summary.phases),
+    "steps": summary.steps,
+  })
+}
+
+fn persistence_summary_payload(summary: &PersistenceSummary) -> Value {
+  json!({
+    "attempted": summary.attempted,
+    "persisted": summary.persisted,
+    "error": summary.error,
+  })
+}
+
+fn action_source_payload(source: &ActionSource) -> Value {
+  match source {
+    ActionSource::Tool { name } => json!({ "kind": "tool", "name": name }),
+    ActionSource::Playbook { id, step } => json!({
+      "kind": "playbook",
+      "step": step,
+      "run_id_prefix": format!("{:02x}{:02x}{:02x}{:02x}", id[0], id[1], id[2], id[3]),
+    }),
+    ActionSource::Manual => json!({ "kind": "manual" }),
+  }
+}
+
+fn action_outcome_payload(outcome: &ActionOutcome) -> Value {
+  match outcome {
+    ActionOutcome::Success => json!({ "status": "success" }),
+    ActionOutcome::Failed { error } => json!({ "status": "failed", "error": error }),
+    ActionOutcome::Timeout { after_ms } => json!({ "status": "timeout", "after_ms": after_ms }),
+    ActionOutcome::Partial { completed, total } => json!({
+      "status": "partial",
+      "completed": completed,
+      "total": total
+    }),
+    ActionOutcome::Skipped { reason } => json!({ "status": "skipped", "reason": reason }),
+  }
+}
+
+fn custom_action_payload(action: &ActionRecord) -> Option<Value> {
+  match &action.payload {
+    RecordPayload::Custom(data) if !data.is_empty() => crate::serde_json::from_slice(data).ok(),
+    _ => None,
+  }
+}
+
+fn playbook_catalog_entry_payload(playbook: &crate::playbooks::Playbook) -> Value {
+  json!({
+    "id": playbook.metadata.id,
+    "name": playbook.metadata.name,
+    "objective": playbook.metadata.objective,
+    "risk_level": format!("{:?}", playbook.metadata.risk_level),
+    "steps": playbook.steps.len()
+  })
+}
+
+fn playbooks_listing_payload(
+  playbooks: &[crate::playbooks::Playbook],
+  apt_groups: &[(&str, &str)],
+) -> Value {
+  let playbooks_json: Vec<Value> = playbooks
+    .iter()
+    .map(playbook_catalog_entry_payload)
+    .collect();
+  let apt_groups_json: Vec<Value> = apt_groups
+    .iter()
+    .map(|(id, name)| json!({ "id": id, "name": name }))
+    .collect();
+  json!({
+    "playbooks": playbooks_json,
+    "apt_groups": apt_groups_json
+  })
+}
+
+fn apt_groups_payload(apt_groups: &[(&str, &str)]) -> Value {
+  let apt_groups_json: Vec<Value> = apt_groups
+    .iter()
+    .map(|(id, name)| json!({ "id": id, "name": name }))
+    .collect();
+  json!({ "apt_groups": apt_groups_json })
+}
+
+fn apt_playbook_payload(playbook: &crate::playbooks::Playbook) -> Value {
+  json!(playbook.clone())
+}
+
+fn playbook_execution_preview(playbook: &crate::playbooks::Playbook) -> ExecutionPreview {
+  let mut preview = ExecutionPreview::default();
+
+  for step in &playbook.steps {
+    preview.total_commands += step.commands.len();
+    if step.optional {
+      preview.optional_steps += 1;
+    }
+    if step.manual_instructions.is_some() {
+      preview.manual_steps += 1;
+    }
+
+    let phase_name = step.phase.as_str().to_string();
+    if let Some(existing) = preview
+      .phases
+      .iter_mut()
+      .find(|item| item.phase == phase_name)
+    {
+      existing.total_steps += 1;
+      existing.command_count += step.commands.len();
+      if !existing.steps.iter().any(|name| name == &step.name) {
+        existing.steps.push(step.name.clone());
+      }
+    } else {
+      preview.phases.push(ExecutionPhaseSummary {
+        phase: phase_name,
+        total_steps: 1,
+        command_count: step.commands.len(),
+        steps: vec![step.name.clone()],
+        ..ExecutionPhaseSummary::default()
+      });
+    }
+  }
+
+  preview.narrative = execution_preview_narrative(&preview.phases);
+  preview
+}
+
+fn execution_preview_narrative(phases: &[ExecutionPhaseSummary]) -> Vec<String> {
+  phases
+    .iter()
+    .map(|phase| {
+      format!(
+        "{} is planned with {} step(s) and {} command hint(s).",
+        phase.phase, phase.total_steps, phase.command_count
+      )
+    })
+    .collect()
+}
+
+fn execution_narrative_from_action_summary(summary: &ExecutionActionSummary) -> Vec<String> {
+  summary
+    .phases
+    .iter()
+    .map(|phase| {
+      format!(
+        "{} executed {} step(s): {} succeeded, {} failed, {} skipped.",
+        phase.phase,
+        phase.total_steps,
+        phase.successful_steps,
+        phase.failed_steps,
+        phase.skipped_steps
+      )
+    })
+    .collect()
+}
+
+fn execution_preview_phases_payload(phases: &[ExecutionPhaseSummary]) -> Value {
+  let items: Vec<Value> = phases
+    .iter()
+    .map(|phase| {
+      json!({
+        "phase": phase.phase,
+        "total_steps": phase.total_steps,
+        "successful_steps": phase.successful_steps,
+        "failed_steps": phase.failed_steps,
+        "skipped_steps": phase.skipped_steps,
+        "total_duration_ms": phase.total_duration_ms,
+        "command_count": phase.command_count,
+        "steps": phase.steps
+      })
+    })
+    .collect();
+
+  Value::Array(items)
+}
+
+fn upsert_execution_phase(
+  phases: &mut Vec<ExecutionPhaseSummary>,
+  phase_name: &str,
+  step_name: &str,
+  action: &ActionRecord,
+  duration_ms: u64,
+  command_count: usize,
+) {
+  let phase = if let Some(existing) = phases.iter_mut().find(|item| item.phase == phase_name) {
+    existing
+  } else {
+    phases.push(ExecutionPhaseSummary {
+      phase: phase_name.to_string(),
+      ..ExecutionPhaseSummary::default()
+    });
+    phases.last_mut().expect("phase inserted")
+  };
+
+  phase.total_steps += 1;
+  phase.total_duration_ms += duration_ms;
+  phase.command_count += command_count;
+
+  match &action.outcome {
+    ActionOutcome::Success | ActionOutcome::Partial { .. } => phase.successful_steps += 1,
+    ActionOutcome::Failed { .. } | ActionOutcome::Timeout { .. } => phase.failed_steps += 1,
+    ActionOutcome::Skipped { .. } => phase.skipped_steps += 1,
+  }
+
+  if !phase.steps.iter().any(|name| name == step_name) {
+    phase.steps.push(step_name.to_string());
+  }
+}
+
+fn parse_references(value: &str) -> Vec<String> {
+  value
+    .split('\n')
+    .map(str::trim)
+    .filter(|item| !item.is_empty())
+    .map(|item| item.to_string())
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::storage::schema::Value as StorageValue;
+  use crate::storage::{EntityId, UnifiedEntity};
+  use std::collections::HashMap;
+
+  #[test]
+  fn missing_recon_payload_marks_error() {
+    let payload = missing_recon_payload("example.com");
+    assert_eq!(payload["target"], json!("example.com"));
+    assert_eq!(payload["error"], json!("no_recon_data"));
+  }
+
+  #[test]
+  fn apt_groups_payload_lists_groups() {
+    let payload = apt_groups_payload(&[("apt29", "Cozy Bear"), ("apt28", "Fancy Bear")]);
+    assert_eq!(payload["apt_groups"][0]["id"], json!("apt29"));
+    assert_eq!(payload["apt_groups"][1]["name"], json!("Fancy Bear"));
+  }
+
+  #[test]
+  fn entity_to_vuln_record_maps_graph_node() {
+    let mut props = HashMap::new();
+    props.insert(
+      "cve_id".to_string(),
+      StorageValue::Text("CVE-2024-1234".to_string()),
+    );
+    props.insert(
+      "technology".to_string(),
+      StorageValue::Text("nginx".to_string()),
+    );
+    props.insert(
+      "version".to_string(),
+      StorageValue::Text("1.25.3".to_string()),
+    );
+    props.insert("cvss".to_string(), StorageValue::Float(9.8));
+    props.insert("risk_score".to_string(), StorageValue::Integer(92));
+    props.insert(
+      "severity".to_string(),
+      StorageValue::Text("critical".to_string()),
+    );
+    props.insert(
+      "description".to_string(),
+      StorageValue::Text("Remote code execution in crafted request path".to_string()),
+    );
+    props.insert(
+      "references".to_string(),
+      StorageValue::Text(
+        "https://nvd.nist.gov/vuln/detail/CVE-2024-1234\nhttps://example.com/advisory".to_string(),
+      ),
+    );
+    props.insert("exploit_available".to_string(), StorageValue::Boolean(true));
+    props.insert("in_kev".to_string(), StorageValue::Boolean(true));
+    props.insert(
+      "discovered_at".to_string(),
+      StorageValue::Integer(1_712_345_678),
+    );
+    props.insert("source".to_string(), StorageValue::Text("nvd".to_string()));
+
+    let entity = UnifiedEntity::graph_node(EntityId::new(1), "vuln", "finding", props);
+    let record = AttackCommand
+      .entity_to_vuln_record(&entity)
+      .expect("expected vuln record");
+
+    assert_eq!(record.cve_id, "CVE-2024-1234");
+    assert_eq!(record.technology, "nginx");
+    assert_eq!(record.version.as_deref(), Some("1.25.3"));
+    assert_eq!(record.severity, StorageSeverity::Critical);
+    assert_eq!(record.references.len(), 2);
+    assert!(record.exploit_available);
+    assert!(record.in_kev);
+  }
+
+  #[test]
+  fn entity_to_vuln_record_falls_back_to_cvss_for_severity() {
+    let mut props = HashMap::new();
+    props.insert(
+      "cve_id".to_string(),
+      StorageValue::Text("CVE-2023-9999".to_string()),
+    );
+    props.insert(
+      "technology".to_string(),
+      StorageValue::Text("apache".to_string()),
+    );
+    props.insert("cvss".to_string(), StorageValue::Float(7.5));
+
+    let entity = UnifiedEntity::graph_node(EntityId::new(2), "vuln", "finding", props);
+    let record = AttackCommand
+      .entity_to_vuln_record(&entity)
+      .expect("expected vuln record");
+
+    assert_eq!(record.severity, StorageSeverity::High);
+    assert_eq!(record.source, "unknown");
+    assert_eq!(record.references, Vec::<String>::new());
+  }
+
+  #[test]
+  fn execution_action_summary_counts_and_keeps_context() {
+    let action = ActionRecord::new(
+      ActionSource::playbook([1u8; 16], 2),
+      crate::storage::Target::Domain("example.com".to_string()),
+      crate::storage::ActionType::Exploit,
+      RecordPayload::Custom(
+        crate::serde_json::to_vec(&json!({
+          "step_name": "Privilege Escalation",
+          "phase": "Privilege Escalation",
+          "duration_ms": 4200
+        }))
+        .unwrap(),
+      ),
+      ActionOutcome::Success,
+    );
+
+    let summary = execution_action_summary(&[action]);
+
+    assert_eq!(summary.total_actions, 1);
+    assert_eq!(summary.successful_actions, 1);
+    assert_eq!(summary.exploit_actions, 1);
+    assert_eq!(
+      summary.steps[0]["context"]["step_name"],
+      json!("Privilege Escalation")
+    );
+    assert_eq!(summary.phases[0].phase, "Privilege Escalation");
+    assert_eq!(summary.phases[0].successful_steps, 1);
+  }
+
+  #[test]
+  fn playbook_dry_run_payload_includes_phase_summary_and_narrative() {
+    let playbook = crate::playbooks::Playbook::new("pb-1", "Privilege Escalation")
+      .with_risk(RiskLevel::High)
+      .with_duration("15 minutes")
+      .add_precondition(crate::playbooks::PreCondition::new(
+        "Operator authorization",
+      ))
+      .add_step(
+        crate::playbooks::PlaybookStep::new(
+          1,
+          crate::playbooks::PlaybookPhase::Discovery,
+          "Enumerate sudo rights",
+        )
+        .with_command("rb access system process list")
+        .with_manual("Confirm local shell access"),
+      )
+      .add_step(
+        crate::playbooks::PlaybookStep::new(
+          2,
+          crate::playbooks::PlaybookPhase::PrivilegeEscalation,
+          "Escalate privileges",
+        )
+        .with_command("rb exploit payload privesc")
+        .with_success("Root shell obtained"),
+      )
+      .add_assertion(crate::playbooks::Assertion::new("Root privileges confirmed").critical());
+
+    let preview = playbook_execution_preview(&playbook);
+    let payload = playbook_dry_run_payload(&playbook, "example.com", false, &preview);
+
+    assert_eq!(payload["summary"]["total_steps"], json!(2));
+    assert_eq!(payload["summary"]["manual_steps"], json!(1));
+    assert_eq!(payload["phase_summary"][0]["phase"], json!("Discovery"));
+    assert_eq!(
+      payload["execution_narrative"][1],
+      json!("Privilege Escalation is planned with 1 step(s) and 1 command hint(s).")
+    );
+    assert_eq!(payload["assertions"][0]["critical"], json!(true));
+  }
 }
