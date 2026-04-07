@@ -1,8 +1,7 @@
 //! Anti-debugging detection command
 
 use super::{colored, GREEN, RED};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::antidebug;
 
@@ -21,6 +20,31 @@ impl Command for EvasionAntidebugCommand {
 
   fn description(&self) -> &str {
     "Anti-debugging detection and evasion techniques"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "check" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -78,8 +102,7 @@ impl Command for EvasionAntidebugCommand {
 }
 
 fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
   let sensitivity: u32 = ctx
     .flags
@@ -88,7 +111,7 @@ fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
     .unwrap_or(50);
   let aggressive = ctx.flags.contains_key("aggressive");
 
-  if !is_json {
+  if !machine_output {
     Output::header("Anti-Debugging Checks");
     println!();
     Output::spinner_start("Running detection checks");
@@ -97,26 +120,26 @@ fn execute_antidebug_check(ctx: &CliContext) -> Result<(), String> {
   let ad = antidebug::AntiDebug::new(sensitivity, aggressive);
   let result = ad.check_all();
 
-  if is_json {
-    let checks: Vec<_> = result
-      .checks
-      .iter()
-      .map(|(name, detected)| {
-        json!({
-            "name": name.clone(),
-            "key": name.to_lowercase().replace(' ', "_"),
-            "detected": *detected
-        })
+  let checks: Vec<_> = result
+    .checks
+    .iter()
+    .map(|(name, detected)| {
+      json!({
+          "name": name.clone(),
+          "key": name.to_lowercase().replace(' ', "_"),
+          "detected": *detected
       })
-      .collect();
-    Output::json_value(&json!({
-        "debugger_detected": result.debugger_detected,
-        "score": result.score,
-        "sensitivity": sensitivity,
-        "aggressive": aggressive,
-        "action": format!("{:?}", result.action),
-        "checks": checks
-    }));
+    })
+    .collect();
+  let payload = json!({
+      "debugger_detected": result.debugger_detected,
+      "score": result.score,
+      "sensitivity": sensitivity,
+      "aggressive": aggressive,
+      "action": format!("{:?}", result.action),
+      "checks": checks
+  });
+  if render::render_machine_output(ctx, "rb evasion antidebug check", &payload)? {
     return Ok(());
   }
 
