@@ -1,43 +1,34 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
-use crate::cli::{output::Output, CliContext};
+use crate::cli::{output::Output, render, CliContext};
+use crate::json;
 use crate::modules::web::fuzzer::{
   FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, FUZZ_KEYWORD,
 };
-use crate::utils::json::JsonValue;
+use crate::serde_json::Value;
 use crate::wordlists::Loader;
 use std::path::Path;
 
-// Helper to convert FuzzResult to JsonValue
-fn fuzz_result_to_json(result: &FuzzResult) -> JsonValue {
-  let mut obj_entries = vec![
-    (
-      "payload".to_string(),
-      JsonValue::String(result.payload.clone()),
-    ),
-    ("url".to_string(), JsonValue::String(result.url.clone())),
-    (
-      "status_code".to_string(),
-      JsonValue::Number(result.status_code as f64),
-    ),
-    ("size".to_string(), JsonValue::Number(result.size as f64)),
-    ("words".to_string(), JsonValue::Number(result.words as f64)),
-    ("lines".to_string(), JsonValue::Number(result.lines as f64)),
-    (
-      "duration_ms".to_string(),
-      JsonValue::Number(result.duration.as_millis() as f64),
-    ),
-    ("filtered".to_string(), JsonValue::Bool(result.filtered)),
-  ];
+// Helper to convert FuzzResult to JSON payload
+fn fuzz_result_to_json(result: &FuzzResult) -> Value {
+  let mut payload = json!({
+    "payload": result.payload.clone(),
+    "url": result.url.clone(),
+    "status_code": result.status_code,
+    "size": result.size,
+    "words": result.words,
+    "lines": result.lines,
+    "duration_ms": result.duration.as_millis() as u64,
+    "filtered": result.filtered
+  });
+
   if let Some(ref redirect) = result.redirect {
-    obj_entries.push(("redirect".to_string(), JsonValue::String(redirect.clone())));
+    payload["redirect"] = Value::String(redirect.clone());
   }
   if let Some(ref content_type) = result.content_type {
-    obj_entries.push((
-      "content_type".to_string(),
-      JsonValue::String(content_type.clone()),
-    ));
+    payload["content_type"] = Value::String(content_type.clone());
   }
-  JsonValue::Object(obj_entries)
+
+  payload
 }
 
 // Helper to convert FuzzResult to a CSV row string
@@ -70,6 +61,26 @@ impl Command for FuzzCommand {
 
   fn description(&self) -> &str {
     "Fuzz web applications with wordlists"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -136,10 +147,12 @@ impl FuzzCommand {
     let total_words = words.len() as u64;
 
     if !url.contains(FUZZ_KEYWORD) {
-      Output::warning(&format!(
-        "URL does not contain the '{}' keyword. Appending it to the end.",
-        FUZZ_KEYWORD
-      ));
+      if !ctx.wants_machine_output() {
+        Output::warning(&format!(
+          "URL does not contain the '{}' keyword. Appending it to the end.",
+          FUZZ_KEYWORD
+        ));
+      }
       let new_url = format!("{}/{}", url.trim_end_matches('/'), FUZZ_KEYWORD);
       // This is an error because fuzzing won't work without FUZZ.
       return Err(format!(
@@ -159,8 +172,10 @@ impl FuzzCommand {
 
     let mut fuzzer = WebFuzzer::new(config);
 
-    Output::info("Starting fuzzing...");
-    let progress_enabled = output_format == "plain"; // Only show progress for plain output
+    if !ctx.wants_machine_output() {
+      Output::info("Starting fuzzing...");
+    }
+    let progress_enabled = !ctx.wants_machine_output() && output_format == "plain";
     let progress_bar = Output::progress_bar("Fuzzing", total_words, progress_enabled);
 
     let mut all_results = Vec::new();
@@ -176,10 +191,23 @@ impl FuzzCommand {
     }
     progress_bar.finish(); // Ensure progress bar finishes
 
+    let machine_results: Vec<Value> = all_results.iter().map(fuzz_result_to_json).collect();
+    let filtered_count = all_results.iter().filter(|result| result.filtered).count();
+    let payload = json!({
+      "target": url.clone(),
+      "wordlist": wordlist_path_str.clone(),
+      "total_candidates": total_words,
+      "results_count": all_results.len(),
+      "filtered_count": filtered_count,
+      "results": machine_results
+    });
+    if render::render_machine_output(ctx, "rb web fuzz run", &payload)? {
+      return Ok(());
+    }
+
     match output_format.as_str() {
       "json" => {
-        let json_results: Vec<JsonValue> = all_results.iter().map(fuzz_result_to_json).collect();
-        Output::json(&JsonValue::Array(json_results).to_json_string());
+        Output::raw(&payload["results"].to_string_pretty());
       }
       "xml" => {
         Output::error("XML output not implemented due to zero external dependencies constraint. Requires a dedicated XML library.");
