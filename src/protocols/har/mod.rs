@@ -111,7 +111,7 @@ mod tests {
         version: "1.2".to_string(),
         creator: HarCreator {
           name: "redblue".to_string(),
-          version: "0.1.0".to_string(),
+          version: crate::version::current_version().to_string(),
           comment: Some("Test HAR".to_string()),
         },
         browser: None,
