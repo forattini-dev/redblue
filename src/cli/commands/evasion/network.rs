@@ -1,7 +1,6 @@
 //! Network evasion command (jitter, timing)
 
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::network;
 
@@ -20,6 +19,31 @@ impl Command for EvasionNetworkCommand {
 
   fn description(&self) -> &str {
     "Network evasion techniques (jitter, timing)"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "jitter" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -78,9 +102,6 @@ impl Command for EvasionNetworkCommand {
 }
 
 fn execute_network_jitter(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let base_ms: u64 = ctx
     .target
     .as_ref()
@@ -109,14 +130,14 @@ fn execute_network_jitter(ctx: &CliContext) -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(1));
   }
 
-  if is_json {
-    Output::json_value(&json!({
-        "base_ms": base_ms,
-        "jitter_percent": jitter_percent,
-        "min_ms": min,
-        "max_ms": max,
-        "samples": samples
-    }));
+  let payload = json!({
+      "base_ms": base_ms,
+      "jitter_percent": jitter_percent,
+      "min_ms": min,
+      "max_ms": max,
+      "samples": samples
+  });
+  if render::render_machine_output(ctx, "rb evasion network jitter", &payload)? {
     return Ok(());
   }
 
