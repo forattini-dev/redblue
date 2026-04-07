@@ -5,6 +5,7 @@
 use super::{Command, Flag, Route};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
+use crate::modules::binary::got_targets;
 use crate::modules::binary::{Binary, GadgetClass, GadgetFinder, Pattern};
 
 /// Binary analysis command
@@ -59,6 +60,11 @@ impl Command for BinaryCommand {
         verb: "got",
         summary: "Resolve GOT address for function",
         usage: "rb binary analysis got ./target puts",
+      },
+      Route {
+        verb: "got-targets",
+        summary: "Analyze GOT entries and rank exploitation targets",
+        usage: "rb binary analysis got-targets ./target",
       },
       Route {
         verb: "pattern",
@@ -131,6 +137,7 @@ impl Command for BinaryCommand {
       "rop" => self.cmd_rop(ctx, json_output),
       "plt" => self.cmd_plt(ctx, json_output),
       "got" => self.cmd_got(ctx, json_output),
+      "got-targets" => self.cmd_got_targets(ctx, json_output),
       "pattern" => self.cmd_pattern(ctx),
       "find" => self.cmd_find(ctx, json_output),
       _ => Err(format!("Unknown verb: {}", verb)),
@@ -404,6 +411,19 @@ impl BinaryCommand {
       None => {
         return Err(format!("GOT entry for '{}' not found", func_name));
       }
+    }
+
+    Ok(())
+  }
+
+  fn cmd_got_targets(&self, ctx: &CliContext, json: bool) -> Result<(), String> {
+    let binary = self.load_binary(ctx)?;
+    let analysis = got_targets::analyze_got_targets(&binary);
+
+    if json {
+      println!("{}", got_targets::format_analysis_json(&analysis));
+    } else {
+      print!("{}", got_targets::format_analysis(&analysis));
     }
 
     Ok(())

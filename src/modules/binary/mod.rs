@@ -6,6 +6,7 @@
 mod checksec;
 mod elf;
 pub mod fmtstr;
+pub mod got_targets;
 mod packing;
 mod pattern;
 mod pe;
