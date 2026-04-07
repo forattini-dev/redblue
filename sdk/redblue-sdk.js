@@ -585,11 +585,18 @@ async function upgradeBinary(options = {}) {
   };
 }
 
+function profileArgs(args) {
+  if (args.includes('-S') || args.includes('--stealth')) {
+    return args;
+  }
+  return ['-S', 'nodejs'].concat(args);
+}
+
 function execFilePromise(binaryPath, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(
       binaryPath,
-      args,
+      profileArgs(args),
       {
         cwd: options.cwd,
         env: options.env,
@@ -616,7 +623,7 @@ function execFilePromise(binaryPath, args, options = {}) {
 }
 
 function spawnBinary(binaryPath, args, options = {}) {
-  return spawn(binaryPath, args, {
+  return spawn(binaryPath, profileArgs(args), {
     cwd: options.cwd,
     env: options.env,
     stdio: options.stdio || 'inherit',
@@ -925,6 +932,27 @@ function formatRouteHelpSummary(manifest = {}, selector) {
     lines.push(`Aliases: ${descriptor.route_aliases.join(', ')}`);
   }
 
+  if (Array.isArray(descriptor.positionals) && descriptor.positionals.length > 0) {
+    lines.push('');
+    lines.push('Positionals:');
+    for (const positional of descriptor.positionals) {
+      if (!positional || typeof positional.name !== 'string' || positional.name.length === 0) {
+        continue;
+      }
+      const required = positional.required === true ? 'required' : 'optional';
+      const repeated = positional.repeated === true ? ', repeatable' : '';
+      const slot =
+        typeof positional.slot === 'string' && positional.slot.length > 0
+          ? ` [${positional.slot}]`
+          : '';
+      const description =
+        typeof positional.description === 'string' && positional.description.length > 0
+          ? ` - ${positional.description}`
+          : '';
+      lines.push(`  ${positional.name}${slot} (${required}${repeated})${description}`);
+    }
+  }
+
   if (Array.isArray(descriptor.flags) && descriptor.flags.length > 0) {
     lines.push('');
     lines.push('Flags:');
@@ -1023,6 +1051,114 @@ function formatWrapperHelp(manifest = null) {
   return lines.join('\n');
 }
 
+function normalizeSdkHelpSelector(selector) {
+  const rawTokens = normalizeTokenSelector(selector)
+    .map((token) => String(token).trim())
+    .filter(Boolean);
+  const tokens = rawTokens.slice();
+
+  if (tokens[0] === 'rb') {
+    tokens.shift();
+  }
+  if (tokens[0] === 'help') {
+    tokens.shift();
+  }
+
+  return tokens.filter((token) => !token.startsWith('-')).slice(0, 3);
+}
+
+function formatPartialRouteHelp(manifest = {}, selector) {
+  const tokens = normalizeSdkHelpSelector(selector);
+  if (tokens.length === 0) {
+    return '';
+  }
+
+  const hint = suggestCommandTokens(manifest, tokens);
+  const stage = typeof hint.stage === 'string' ? hint.stage : 'command';
+  const suggestions = Array.isArray(hint.suggestions) ? hint.suggestions : [];
+  const routeLabel = tokens.join(' ');
+  const lines = [];
+
+  lines.push(`Partial route: rb ${routeLabel}`);
+  lines.push(`Expected next token: ${stage}`);
+
+  if (suggestions.length > 0) {
+    lines.push('');
+    lines.push('Suggestions:');
+    for (const suggestion of suggestions.slice(0, 8)) {
+      lines.push(`  ${suggestion}`);
+    }
+  } else {
+    lines.push('');
+    lines.push('No direct suggestions from manifest for this prefix.');
+  }
+
+  const completion = completeManifestTokens(manifest, tokens);
+  const completionValues = Array.isArray(completion.completions)
+    ? completion.completions
+        .map((item) => (item && typeof item.value === 'string' ? item.value : null))
+        .filter((value) => typeof value === 'string' && value.length > 0)
+    : [];
+
+  if (completionValues.length > 0) {
+    lines.push('');
+    lines.push('Completions:');
+    for (const value of completionValues.slice(0, 8)) {
+      lines.push(`  ${value}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatUnknownRouteHelp(manifest = {}, selector) {
+  const tokens = normalizeSdkHelpSelector(selector);
+  if (tokens.length !== 3) {
+    return '';
+  }
+
+  const lines = [];
+  lines.push(`Unknown route: rb ${tokens.join(' ')}`);
+  const commandSuggestions = suggestRouteCommands(manifest, tokens, 5);
+
+  if (commandSuggestions.length > 0) {
+    lines.push('');
+    lines.push('Closest canonical routes:');
+    for (const command of commandSuggestions) {
+      lines.push(`  ${command}`);
+    }
+  }
+
+  const partial = formatPartialRouteHelp(manifest, tokens);
+  if (partial) {
+    lines.push('');
+    lines.push(partial);
+  }
+
+  return lines.join('\n');
+}
+
+function formatSdkHelpOutput(manifest = null, selector = null) {
+  if (!manifest || typeof manifest !== 'object') {
+    return formatWrapperHelp(null);
+  }
+
+  const tokens = normalizeSdkHelpSelector(selector);
+  if (tokens.length === 0) {
+    return formatWrapperHelp(manifest);
+  }
+
+  if (tokens.length === 3) {
+    const routeHelp = formatRouteHelpSummary(manifest, tokens);
+    if (routeHelp.length > 0) {
+      return routeHelp;
+    }
+    return formatUnknownRouteHelp(manifest, tokens);
+  }
+
+  return formatPartialRouteHelp(manifest, tokens);
+}
+
 function waitForChild(child) {
   return new Promise((resolve, reject) => {
     child.on('error', reject);
@@ -1049,25 +1185,154 @@ function looksLikeCanonicalCommandArgs(argv) {
   );
 }
 
+function globalOptionExpectsValue(option = {}) {
+  if (!option || typeof option !== 'object') {
+    return false;
+  }
+
+  if (Array.isArray(option.values) && option.values.length > 0) {
+    return true;
+  }
+
+  return option.kind === 'output-format';
+}
+
+function buildGlobalOptionIndex(manifest = {}) {
+  const index = {
+    long: new Map(),
+    short: new Map()
+  };
+
+  const globalOptions = Array.isArray(manifest.global_options) ? manifest.global_options : [];
+  for (const option of globalOptions) {
+    if (!option || typeof option !== 'object') {
+      continue;
+    }
+    if (typeof option.long === 'string' && option.long.length > 0) {
+      index.long.set(option.long, option);
+    }
+    if (typeof option.short === 'string' && option.short.length > 0) {
+      index.short.set(option.short, option);
+    }
+  }
+
+  return index;
+}
+
+function extractRouteSelectorFromArgv(argv, manifest = {}) {
+  const args = normalizeCliArgv(argv);
+  const selector = [];
+  const optionIndex = buildGlobalOptionIndex(manifest);
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--') {
+      continue;
+    }
+
+    if (typeof token === 'string' && token.startsWith('--')) {
+      const longName = token.slice(2).split('=')[0];
+      const option = optionIndex.long.get(longName);
+      const expectsValue = globalOptionExpectsValue(option);
+      if (!token.includes('=') && expectsValue && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (typeof token === 'string' && token.startsWith('-') && token.length === 2) {
+      const shortName = token.slice(1);
+      const option = optionIndex.short.get(shortName);
+      const expectsValue = globalOptionExpectsValue(option);
+      if (expectsValue && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+        index += 1;
+      }
+      continue;
+    }
+
+    selector.push(token);
+    if (selector.length >= 3) {
+      return selector.slice(0, 3);
+    }
+  }
+
+  return null;
+}
+
+function findCommandStartIndex(argv, manifest = {}) {
+  const args = normalizeCliArgv(argv);
+  const optionIndex = buildGlobalOptionIndex(manifest);
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--') {
+      return index + 1 < args.length ? index + 1 : null;
+    }
+
+    if (typeof token === 'string' && token.startsWith('--')) {
+      const longName = token.slice(2).split('=')[0];
+      const option = optionIndex.long.get(longName);
+      if (!option) {
+        return index;
+      }
+      const expectsValue = globalOptionExpectsValue(option);
+      if (!token.includes('=') && expectsValue && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (typeof token === 'string' && token.startsWith('-') && token.length === 2) {
+      const shortName = token.slice(1);
+      const option = optionIndex.short.get(shortName);
+      if (!option) {
+        return index;
+      }
+      const expectsValue = globalOptionExpectsValue(option);
+      if (expectsValue && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+        index += 1;
+      }
+      continue;
+    }
+
+    return index;
+  }
+
+  return null;
+}
+
 async function validateManifestCommandArgs(argv, options = {}, runtime = {}) {
   const args = normalizeCliArgv(argv);
-  if (!looksLikeCanonicalCommandArgs(args)) {
+  const defaults = ensureObject(options, 'validateManifestCommandArgs options');
+  const { manifest } = await getManifest(defaults);
+  const selector = looksLikeCanonicalCommandArgs(args)
+    ? args.slice(0, 3)
+    : extractRouteSelectorFromArgv(args, manifest);
+  if (!selector) {
     return null;
   }
 
-  const defaults = ensureObject(options, 'validateManifestCommandArgs options');
-  const { manifest } = await getManifest(defaults);
-  const proxy = createDomainProxy('__validation__', manifest, defaults);
-  const routeIndex = createRouteIndex(proxy);
-  if (!findRouteInvocation(routeIndex, manifest, args.slice(0, 3))) {
-    const suggestions = suggestRouteCommands(manifest, args.slice(0, 3), 3);
+  if (!resolveManifestRouteDescriptor(manifest, selector)) {
+    const suggestions = suggestRouteCommands(manifest, selector, 3);
     const suggestionText =
       suggestions.length > 0 ? `\nDid you mean:\n  ${suggestions.join('\n  ')}` : '';
-    throw new Error(`Unknown command: ${args.slice(0, 3).join(' ')}${suggestionText}`);
+    throw new Error(`Unknown command: ${selector.join(' ')}${suggestionText}`);
   }
 
   const cli = await createManifestCLI(defaults, runtime);
-  const parsed = cli.parse(args);
+  const parseArgs =
+    looksLikeCanonicalCommandArgs(args) || selector.length < 3
+      ? args
+      : (() => {
+          const commandStart = findCommandStartIndex(args, manifest);
+          if (typeof commandStart !== 'number' || commandStart <= 0 || commandStart >= args.length) {
+            return args;
+          }
+          return args.slice(commandStart);
+        })();
+  const parsed = cli.parse(parseArgs);
   if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
     throw new Error(parsed.errors.join('; '));
   }
@@ -1092,7 +1357,7 @@ async function runCli(argv = process.argv.slice(2), runtime = {}) {
       } catch (_) {
         manifest = null;
       }
-      writeLine(stdout, formatWrapperHelp(manifest));
+      writeLine(stdout, formatSdkHelpOutput(manifest, parsed.passthroughArgs));
       return 0;
     }
 
@@ -1423,11 +1688,22 @@ function routeInvocationMeta(routeIndex, manifest, argv) {
   }
 
   const selector = [argv[0], argv[1], argv[2]];
-  const invocation = findRouteInvocation(routeIndex, manifest, selector);
-  if (!invocation) {
-    return null;
+  if (routeIndex && typeof routeIndex === 'object') {
+    const invocation = findRouteInvocation(routeIndex, manifest, selector);
+    if (invocation && invocation.meta) {
+      return invocation.meta;
+    }
   }
-  return invocation.meta;
+
+  const descriptor = resolveManifestRouteDescriptor(manifest, selector);
+  if (descriptor && descriptor.command && descriptor.route) {
+    return {
+      command: descriptor.command,
+      route: descriptor.route
+    };
+  }
+
+  return null;
 }
 
 function buildJsonCliArgs(argv, routeIndex, manifest) {
@@ -1460,9 +1736,25 @@ async function runJson(argv, options = {}) {
   const inputArgv = normalizeCliArgv(argv);
   const { binaryPath, manifest } = await getManifest(defaults);
   await validateManifestCommandArgs(inputArgv, defaults, {});
-  const proxy = createDomainProxy(binaryPath, manifest, defaults);
-  const routeIndex = createRouteIndex(proxy);
-  const args = buildJsonCliArgs(inputArgv, routeIndex, manifest);
+  const selector = looksLikeCanonicalCommandArgs(inputArgv)
+    ? inputArgv.slice(0, 3)
+    : extractRouteSelectorFromArgv(inputArgv, manifest);
+  if (!selector) {
+    throw new Error('Unable to resolve command route selector for JSON execution');
+  }
+  const descriptor = resolveManifestRouteDescriptor(manifest, selector);
+  if (!descriptor) {
+    throw new Error(`Unknown command: ${selector.join(' ')}`);
+  }
+  const machineOutput = resolveMachineOutput(descriptor.command, descriptor.route);
+  const jsonSupport =
+    typeof machineOutput.json_support === 'string' ? machineOutput.json_support : 'undeclared';
+  if (jsonSupport === 'undeclared') {
+    throw new Error(
+      `Route ${descriptor.route.command || `rb ${selector.join(' ')}`} does not declare machine-safe JSON output`
+    );
+  }
+  const args = buildJsonCliArgs(inputArgv, null, manifest);
   const result = await execFilePromise(binaryPath, args, {
     cwd: defaults.cwd,
     env: defaults.env,
@@ -1537,11 +1829,6 @@ function createRouteIndex(client) {
 
         const key = routeIdentifier(invocation.meta.command, invocation.meta.route);
         routes[key] = invocation;
-
-        const fallbackKey = `${domain}/${resource}/${verb}`;
-        if (!routes[fallbackKey]) {
-          routes[fallbackKey] = invocation;
-        }
       }
     }
   }
@@ -1590,24 +1877,44 @@ function normalizeTokenSelector(selector) {
   throw new TypeError('Token selector must be a string, array, or nullish');
 }
 
-function findRouteInvocation(routeIndex, manifest, selector) {
+function resolveCanonicalRouteTokens(manifest = {}, selector) {
   const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
-  const canonicalDomain = (manifest.domains || []).find((domain) => {
+  const domains = Array.isArray(manifest.domains) ? manifest.domains : [];
+  const canonicalDomain = domains.find((domain) => {
     return domain.name === domainToken || aliasIncludes(domain.aliases, domainToken);
   });
   const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
-  const canonicalResource = canonicalDomain
-    ? (canonicalDomain.resources || []).find((resource) => {
-        return resource.name === resourceToken || aliasIncludes(resource.aliases, resourceToken);
-      })
-    : null;
+  const resources =
+    canonicalDomain && Array.isArray(canonicalDomain.resources)
+      ? canonicalDomain.resources
+      : [];
+  const canonicalResource = resources.find((resource) => {
+    return resource.name === resourceToken || aliasIncludes(resource.aliases, resourceToken);
+  });
   const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
-  const canonicalVerb = canonicalResource
-    ? (canonicalResource.verbs || []).find((verb) => {
-        return verb.name === verbToken || aliasIncludes(verb.aliases, verbToken);
-      })
-    : null;
+  const verbs =
+    canonicalResource && Array.isArray(canonicalResource.verbs) ? canonicalResource.verbs : [];
+  const canonicalVerb = verbs.find((verb) => {
+    return verb.name === verbToken || aliasIncludes(verb.aliases, verbToken);
+  });
   const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
+
+  return {
+    domainToken,
+    resourceToken,
+    verbToken,
+    domainName,
+    resourceName,
+    verbName,
+    canonicalDomain: canonicalDomain || null,
+    canonicalResource: canonicalResource || null,
+    canonicalVerb: canonicalVerb || null
+  };
+}
+
+function findRouteInvocation(routeIndex, manifest, selector) {
+  const { domainToken, resourceToken, verbToken, domainName, resourceName, verbName } =
+    resolveCanonicalRouteTokens(manifest, selector);
 
   return (
     routeIndex[`${domainName}/${resourceName}/${verbName}`] ||
@@ -1617,23 +1924,16 @@ function findRouteInvocation(routeIndex, manifest, selector) {
 }
 
 function resolveManifestRouteDescriptor(manifest = {}, selector) {
-  const [domainToken, resourceToken, verbToken] = normalizeRouteSelector(selector);
-  const canonicalDomain = (manifest.domains || []).find((domain) => {
-    return domain.name === domainToken || aliasIncludes(domain.aliases, domainToken);
-  });
-  const domainName = canonicalDomain ? canonicalDomain.name : domainToken;
-  const canonicalResource = canonicalDomain
-    ? (canonicalDomain.resources || []).find((resource) => {
-        return resource.name === resourceToken || aliasIncludes(resource.aliases, resourceToken);
-      })
-    : null;
-  const resourceName = canonicalResource ? canonicalResource.name : resourceToken;
-  const canonicalVerb = canonicalResource
-    ? (canonicalResource.verbs || []).find((verb) => {
-        return verb.name === verbToken || aliasIncludes(verb.aliases, verbToken);
-      })
-    : null;
-  const verbName = canonicalVerb ? canonicalVerb.name : verbToken;
+  const {
+    domainToken,
+    verbToken,
+    domainName,
+    resourceName,
+    verbName,
+    canonicalDomain,
+    canonicalResource,
+    canonicalVerb
+  } = resolveCanonicalRouteTokens(manifest, selector);
 
   for (const command of manifest.commands || []) {
     if (command.domain !== domainName || command.resource !== resourceName) {
@@ -2499,7 +2799,10 @@ module.exports._internal = {
   execFilePromise,
   exists,
   formatManifestHelpSummary,
+  formatPartialRouteHelp,
   formatRouteHelpSummary,
+  formatSdkHelpOutput,
+  formatUnknownRouteHelp,
   formatWrapperBinaryStatus,
   formatWrapperHelp,
   findFlag,
@@ -2518,8 +2821,14 @@ module.exports._internal = {
   loadCliArgsParser,
   normalizeReleaseTag,
   normalizeCliArgv,
+  normalizeSdkHelpSelector,
   normalizeTokenSelector,
   normalizeRouteSelector,
+  globalOptionExpectsValue,
+  buildGlobalOptionIndex,
+  extractRouteSelectorFromArgv,
+  findCommandStartIndex,
+  resolveCanonicalRouteTokens,
   parseWrapperArgs,
   parseInstalledVersion,
   request,
@@ -2545,6 +2854,7 @@ module.exports._internal = {
   sha256File,
   splitWrapperArgs,
   spawnBinary,
+  profileArgs,
   toImportSpecifier,
   upgradeBinary,
   validateManifestCommandArgs,
