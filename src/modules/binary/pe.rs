@@ -202,6 +202,7 @@ impl PeParser {
       symbols,
       plt,
       got: HashMap::new(),
+      relocations: Vec::new(),
       security,
       data,
       program_headers: Vec::new(),

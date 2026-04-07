@@ -9,15 +9,17 @@ pub mod fmtstr;
 mod packing;
 mod pattern;
 mod pe;
+pub mod ret2dlresolve;
 mod rop;
 pub mod shellcode;
 
 pub use checksec::{RelroLevel, SecurityFeatures};
-pub use elf::{Elf32Header, Elf64Header, ElfHeader, ElfParser};
+pub use elf::{Elf32Header, Elf64Header, ElfHeader, ElfParser, RelocationEntry};
 pub use fmtstr::FmtStr;
 pub use packing::*;
 pub use pattern::{Pattern, PatternGenerator};
 pub use pe::{PeHeader, PeParser};
+pub use ret2dlresolve::{Ret2dlresolve32, Ret2dlresolve64, Ret2dlresolvePayload};
 pub use rop::{Gadget, GadgetClass, GadgetFinder, RopChain, SigreturnFrame};
 pub use shellcode::{Encoder, LinuxX64, LinuxX86, ShellcodeBuilder};
 
@@ -258,6 +260,7 @@ pub struct Binary {
   pub symbols: Vec<Symbol>,
   pub plt: HashMap<String, u64>,
   pub got: HashMap<String, u64>,
+  pub relocations: Vec<elf::RelocationEntry>,
   pub security: SecurityFeatures,
   data: Vec<u8>,
   pub(crate) program_headers: Vec<elf::ProgramHeader>,

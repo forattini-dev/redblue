@@ -66,6 +66,21 @@ const DT_JMPREL: u64 = 23;
 const DT_FLAGS: u64 = 30;
 const DT_FLAGS_1: u64 = 0x6ffffffb;
 
+// Section header types (additional)
+const SHT_REL: u32 = 9;
+
+// Dynamic entry tags (additional for relocation parsing)
+const DT_PLTRELSZ: u64 = 2; // size of PLT relocation entries
+const DT_RELAENT: u64 = 9; // size of RELA entry
+const DT_SYMENT: u64 = 11; // size of symbol table entry
+const DT_REL: u64 = 17; // .rel address
+const DT_RELENT: u64 = 19; // size of REL entry
+const DT_PLTREL: u64 = 20; // type of PLT relocs (DT_REL=17 or DT_RELA=7)
+
+// Relocation types
+const R_X86_64_JUMP_SLOT: u32 = 7;
+const R_386_JMP_SLOT: u32 = 7;
+
 // Dynamic flags
 const DF_BIND_NOW: u64 = 0x8;
 const DF_1_NOW: u64 = 0x1;
@@ -250,6 +265,21 @@ struct ElfSymbol {
   st_shndx: u16,
 }
 
+/// ELF relocation entry
+#[derive(Debug, Clone)]
+pub struct RelocationEntry {
+  /// r_offset: GOT address where the resolved address will be written
+  pub offset: u64,
+  /// Symbol table index
+  pub sym_index: u32,
+  /// Relocation type
+  pub rel_type: u32,
+  /// r_addend (0 for REL, present for RELA)
+  pub addend: i64,
+  /// Resolved symbol name from .dynsym + .dynstr
+  pub symbol_name: String,
+}
+
 /// ELF Parser
 pub struct ElfParser;
 
@@ -299,9 +329,9 @@ impl ElfParser {
     // Parse dynamic section
     let dynamic_entries = Self::parse_dynamic_64(&data, &program_headers, endian)?;
 
-    // Parse symbols
-    let (symbols, plt, got) =
-      Self::parse_symbols_64(&data, &section_headers, &dynamic_entries, endian)?;
+    // Parse symbols and relocations
+    let (symbols, plt, got, relocations) =
+      Self::parse_symbols_64(&data, &section_headers, &dynamic_entries, &shstrtab, endian)?;
 
     // Build security features
     let mut binary = Binary {
@@ -315,6 +345,7 @@ impl ElfParser {
       symbols,
       plt,
       got,
+      relocations,
       security: SecurityFeatures::default(),
       data,
       program_headers,
@@ -351,9 +382,9 @@ impl ElfParser {
     // Parse dynamic section
     let dynamic_entries = Self::parse_dynamic_32(&data, &program_headers, endian)?;
 
-    // Parse symbols
-    let (symbols, plt, got) =
-      Self::parse_symbols_32(&data, &section_headers, &dynamic_entries, endian)?;
+    // Parse symbols and relocations
+    let (symbols, plt, got, relocations) =
+      Self::parse_symbols_32(&data, &section_headers, &dynamic_entries, &shstrtab, endian)?;
 
     let mut binary = Binary {
       path,
@@ -366,6 +397,7 @@ impl ElfParser {
       symbols,
       plt,
       got,
+      relocations,
       security: SecurityFeatures::default(),
       data,
       program_headers,
@@ -619,15 +651,21 @@ impl ElfParser {
   fn parse_symbols_64(
     data: &[u8],
     shdrs: &[SectionHeader],
-    _dynamic: &[DynamicEntry],
+    dynamic: &[DynamicEntry],
+    shstrtab: &[u8],
     endian: Endianness,
-  ) -> BinaryResult<(Vec<Symbol>, HashMap<String, u64>, HashMap<String, u64>)> {
+  ) -> BinaryResult<(
+    Vec<Symbol>,
+    HashMap<String, u64>,
+    HashMap<String, u64>,
+    Vec<RelocationEntry>,
+  )> {
     let mut symbols = Vec::new();
-    let plt = HashMap::new();
-    let got = HashMap::new();
+    let mut plt = HashMap::new();
+    let mut got = HashMap::new();
 
     // Find .dynsym and .symtab sections
-    for (i, shdr) in shdrs.iter().enumerate() {
+    for shdr in shdrs.iter() {
       if shdr.sh_type != SHT_SYMTAB && shdr.sh_type != SHT_DYNSYM {
         continue;
       }
@@ -663,7 +701,7 @@ impl ElfParser {
 
         let st_name = Self::read_u32(data, off, endian)?;
         let st_info = data[off + 4];
-        let st_other = data[off + 5];
+        let _st_other = data[off + 5];
         let st_shndx = Self::read_u16(data, off + 6, endian)?;
         let st_value = Self::read_u64(data, off + 8, endian)?;
         let st_size = Self::read_u64(data, off + 16, endian)?;
@@ -685,18 +723,49 @@ impl ElfParser {
       }
     }
 
-    Ok((symbols, plt, got))
+    // Parse relocations and build PLT/GOT maps
+    let relocations = Self::parse_relocations_64(data, dynamic, shdrs, shstrtab, endian);
+
+    // Find .plt section base address for computing PLT entry addresses
+    let plt_base = shdrs
+      .iter()
+      .find(|shdr| Self::section_name(shdr, shstrtab) == ".plt")
+      .map(|shdr| shdr.sh_addr);
+
+    // PLT entry size is 16 bytes on x86_64
+    let plt_entry_size: u64 = 16;
+
+    for (idx, reloc) in relocations.iter().enumerate() {
+      if reloc.rel_type == R_X86_64_JUMP_SLOT && !reloc.symbol_name.is_empty() {
+        // GOT entry: r_offset is the GOT slot virtual address
+        got.insert(reloc.symbol_name.clone(), reloc.offset);
+
+        // PLT entry: first PLT entry is the resolver stub, actual entries start at index+1
+        if let Some(base) = plt_base {
+          let plt_addr = base + ((idx as u64) + 1) * plt_entry_size;
+          plt.insert(reloc.symbol_name.clone(), plt_addr);
+        }
+      }
+    }
+
+    Ok((symbols, plt, got, relocations))
   }
 
   fn parse_symbols_32(
     data: &[u8],
     shdrs: &[SectionHeader],
-    _dynamic: &[DynamicEntry],
+    dynamic: &[DynamicEntry],
+    shstrtab: &[u8],
     endian: Endianness,
-  ) -> BinaryResult<(Vec<Symbol>, HashMap<String, u64>, HashMap<String, u64>)> {
+  ) -> BinaryResult<(
+    Vec<Symbol>,
+    HashMap<String, u64>,
+    HashMap<String, u64>,
+    Vec<RelocationEntry>,
+  )> {
     let mut symbols = Vec::new();
-    let plt = HashMap::new();
-    let got = HashMap::new();
+    let mut plt = HashMap::new();
+    let mut got = HashMap::new();
 
     for shdr in shdrs.iter() {
       if shdr.sh_type != SHT_SYMTAB && shdr.sh_type != SHT_DYNSYM {
@@ -734,7 +803,7 @@ impl ElfParser {
         let st_value = Self::read_u32(data, off + 4, endian)? as u64;
         let st_size = Self::read_u32(data, off + 8, endian)? as u64;
         let st_info = data[off + 12];
-        let st_other = data[off + 13];
+        let _st_other = data[off + 13];
         let st_shndx = Self::read_u16(data, off + 14, endian)?;
 
         let name = Self::read_string(strtab, st_name as usize);
@@ -754,7 +823,32 @@ impl ElfParser {
       }
     }
 
-    Ok((symbols, plt, got))
+    // Parse relocations and build PLT/GOT maps
+    let relocations = Self::parse_relocations_32(data, dynamic, shdrs, shstrtab, endian);
+
+    // Find .plt section base address for computing PLT entry addresses
+    let plt_base = shdrs
+      .iter()
+      .find(|shdr| Self::section_name(shdr, shstrtab) == ".plt")
+      .map(|shdr| shdr.sh_addr);
+
+    // PLT entry size is 16 bytes on x86
+    let plt_entry_size: u64 = 16;
+
+    for (idx, reloc) in relocations.iter().enumerate() {
+      if reloc.rel_type == R_386_JMP_SLOT && !reloc.symbol_name.is_empty() {
+        // GOT entry: r_offset is the GOT slot virtual address
+        got.insert(reloc.symbol_name.clone(), reloc.offset);
+
+        // PLT entry: first PLT entry is the resolver stub, actual entries start at index+1
+        if let Some(base) = plt_base {
+          let plt_addr = base + ((idx as u64) + 1) * plt_entry_size;
+          plt.insert(reloc.symbol_name.clone(), plt_addr);
+        }
+      }
+    }
+
+    Ok((symbols, plt, got, relocations))
   }
 
   fn get_string_table(data: &[u8], shdrs: &[SectionHeader], index: usize) -> BinaryResult<Vec<u8>> {
@@ -771,6 +865,327 @@ impl ElfParser {
     }
 
     Ok(data[offset..offset + size].to_vec())
+  }
+
+  /// Convert a virtual address to a file offset using section headers.
+  fn vaddr_to_offset(shdrs: &[SectionHeader], vaddr: u64) -> Option<usize> {
+    for shdr in shdrs {
+      if shdr.sh_size > 0 && shdr.sh_addr <= vaddr && vaddr < shdr.sh_addr + shdr.sh_size {
+        return Some((shdr.sh_offset + (vaddr - shdr.sh_addr)) as usize);
+      }
+    }
+    None
+  }
+
+  /// Get section name from section header using the section name string table.
+  fn section_name(shdr: &SectionHeader, shstrtab: &[u8]) -> String {
+    Self::read_string(shstrtab, shdr.sh_name as usize)
+  }
+
+  /// Parse 64-bit relocations from PLT relocation table.
+  /// Handles both RELA (24 bytes: r_offset, r_info, r_addend) and
+  /// REL (16 bytes: r_offset, r_info) formats.
+  fn parse_relocations_64(
+    data: &[u8],
+    dynamic: &[DynamicEntry],
+    shdrs: &[SectionHeader],
+    shstrtab: &[u8],
+    endian: Endianness,
+  ) -> Vec<RelocationEntry> {
+    let mut entries = Vec::new();
+
+    // Extract dynamic entry values
+    let mut jmprel_vaddr: Option<u64> = None;
+    let mut pltrelsz: Option<u64> = None;
+    let mut pltrel_type: Option<u64> = None;
+    let mut symtab_vaddr: Option<u64> = None;
+    let mut strtab_vaddr: Option<u64> = None;
+    let mut strsz: Option<u64> = None;
+
+    for d in dynamic {
+      match d.d_tag {
+        DT_JMPREL => jmprel_vaddr = Some(d.d_val),
+        DT_PLTRELSZ => pltrelsz = Some(d.d_val),
+        DT_PLTREL => pltrel_type = Some(d.d_val),
+        DT_SYMTAB => symtab_vaddr = Some(d.d_val),
+        DT_STRTAB => strtab_vaddr = Some(d.d_val),
+        DT_STRSZ => strsz = Some(d.d_val),
+        _ => {}
+      }
+    }
+
+    // Strategy 1: Use DT_JMPREL + DT_PLTRELSZ from dynamic entries
+    let (rel_offset, rel_size, is_rela) =
+      if let (Some(jmprel), Some(sz), Some(ptype)) = (jmprel_vaddr, pltrelsz, pltrel_type) {
+        let offset = match Self::vaddr_to_offset(shdrs, jmprel) {
+          Some(o) => o,
+          None => return entries,
+        };
+        // DT_PLTREL value of 7 (DT_RELA constant) means RELA, 17 (DT_REL) means REL
+        let is_rela = ptype == 7;
+        (offset, sz as usize, is_rela)
+      } else {
+        // Strategy 2 (fallback): Find .rela.plt or .rel.plt section
+        let mut found = None;
+        for shdr in shdrs {
+          let name = Self::section_name(shdr, shstrtab);
+          if name == ".rela.plt" && shdr.sh_type == SHT_RELA {
+            found = Some((shdr.sh_offset as usize, shdr.sh_size as usize, true));
+            break;
+          } else if name == ".rel.plt" && shdr.sh_type == SHT_REL {
+            found = Some((shdr.sh_offset as usize, shdr.sh_size as usize, false));
+            break;
+          }
+        }
+        match found {
+          Some(v) => v,
+          None => return entries,
+        }
+      };
+
+    // Resolve .dynsym and .dynstr file offsets
+    let (symtab_off, strtab_off, strtab_sz) =
+      if let (Some(sv), Some(tv), Some(tsz)) = (symtab_vaddr, strtab_vaddr, strsz) {
+        let so = match Self::vaddr_to_offset(shdrs, sv) {
+          Some(o) => o,
+          None => return entries,
+        };
+        let to = match Self::vaddr_to_offset(shdrs, tv) {
+          Some(o) => o,
+          None => return entries,
+        };
+        (so, to, tsz as usize)
+      } else {
+        // Fallback: find .dynsym and .dynstr sections directly
+        let mut dynsym_off = None;
+        let mut dynstr_off = None;
+        let mut dynstr_sz = 0usize;
+        for shdr in shdrs {
+          if shdr.sh_type == SHT_DYNSYM {
+            dynsym_off = Some(shdr.sh_offset as usize);
+          }
+          let name = Self::section_name(shdr, shstrtab);
+          if name == ".dynstr" && shdr.sh_type == SHT_STRTAB {
+            dynstr_off = Some(shdr.sh_offset as usize);
+            dynstr_sz = shdr.sh_size as usize;
+          }
+        }
+        match (dynsym_off, dynstr_off) {
+          (Some(so), Some(to)) => (so, to, dynstr_sz),
+          _ => return entries,
+        }
+      };
+
+    if strtab_off + strtab_sz > data.len() {
+      return entries;
+    }
+    let strtab = &data[strtab_off..strtab_off + strtab_sz];
+
+    // Entry size: RELA = 24 bytes, REL = 16 bytes (64-bit)
+    let entsize = if is_rela { 24usize } else { 16usize };
+    // Symbol table entry size for 64-bit ELF is 24 bytes
+    let sym_entsize = 24usize;
+
+    let mut i = 0;
+    while i + entsize <= rel_size && rel_offset + i + entsize <= data.len() {
+      let off = rel_offset + i;
+
+      let r_offset = match Self::read_u64(data, off, endian) {
+        Ok(v) => v,
+        Err(_) => break,
+      };
+      let r_info = match Self::read_u64(data, off + 8, endian) {
+        Ok(v) => v,
+        Err(_) => break,
+      };
+      let r_addend = if is_rela {
+        match Self::read_u64(data, off + 16, endian) {
+          Ok(v) => v as i64,
+          Err(_) => break,
+        }
+      } else {
+        0i64
+      };
+
+      // 64-bit: sym_index = upper 32 bits, rel_type = lower 32 bits
+      let sym_index = (r_info >> 32) as u32;
+      let rel_type = (r_info & 0xffffffff) as u32;
+
+      // Look up symbol name from .dynsym + .dynstr
+      let symbol_name = {
+        let sym_off = symtab_off + (sym_index as usize) * sym_entsize;
+        if sym_off + sym_entsize <= data.len() {
+          let st_name = Self::read_u32(data, sym_off, endian).unwrap_or(0);
+          Self::read_string(strtab, st_name as usize)
+        } else {
+          String::new()
+        }
+      };
+
+      entries.push(RelocationEntry {
+        offset: r_offset,
+        sym_index,
+        rel_type,
+        addend: r_addend,
+        symbol_name,
+      });
+
+      i += entsize;
+    }
+
+    entries
+  }
+
+  /// Parse 32-bit relocations from PLT relocation table.
+  /// Handles both RELA (12 bytes: r_offset, r_info, r_addend) and
+  /// REL (8 bytes: r_offset, r_info) formats.
+  fn parse_relocations_32(
+    data: &[u8],
+    dynamic: &[DynamicEntry],
+    shdrs: &[SectionHeader],
+    shstrtab: &[u8],
+    endian: Endianness,
+  ) -> Vec<RelocationEntry> {
+    let mut entries = Vec::new();
+
+    // Extract dynamic entry values
+    let mut jmprel_vaddr: Option<u64> = None;
+    let mut pltrelsz: Option<u64> = None;
+    let mut pltrel_type: Option<u64> = None;
+    let mut symtab_vaddr: Option<u64> = None;
+    let mut strtab_vaddr: Option<u64> = None;
+    let mut strsz: Option<u64> = None;
+
+    for d in dynamic {
+      match d.d_tag {
+        DT_JMPREL => jmprel_vaddr = Some(d.d_val),
+        DT_PLTRELSZ => pltrelsz = Some(d.d_val),
+        DT_PLTREL => pltrel_type = Some(d.d_val),
+        DT_SYMTAB => symtab_vaddr = Some(d.d_val),
+        DT_STRTAB => strtab_vaddr = Some(d.d_val),
+        DT_STRSZ => strsz = Some(d.d_val),
+        _ => {}
+      }
+    }
+
+    // Strategy 1: Use DT_JMPREL + DT_PLTRELSZ from dynamic entries
+    let (rel_offset, rel_size, is_rela) =
+      if let (Some(jmprel), Some(sz), Some(ptype)) = (jmprel_vaddr, pltrelsz, pltrel_type) {
+        let offset = match Self::vaddr_to_offset(shdrs, jmprel) {
+          Some(o) => o,
+          None => return entries,
+        };
+        let is_rela = ptype == 7;
+        (offset, sz as usize, is_rela)
+      } else {
+        // Strategy 2 (fallback): Find .rel.plt or .rela.plt section
+        let mut found = None;
+        for shdr in shdrs {
+          let name = Self::section_name(shdr, shstrtab);
+          if name == ".rel.plt" && shdr.sh_type == SHT_REL {
+            found = Some((shdr.sh_offset as usize, shdr.sh_size as usize, false));
+            break;
+          } else if name == ".rela.plt" && shdr.sh_type == SHT_RELA {
+            found = Some((shdr.sh_offset as usize, shdr.sh_size as usize, true));
+            break;
+          }
+        }
+        match found {
+          Some(v) => v,
+          None => return entries,
+        }
+      };
+
+    // Resolve .dynsym and .dynstr file offsets
+    let (symtab_off, strtab_off, strtab_sz) =
+      if let (Some(sv), Some(tv), Some(tsz)) = (symtab_vaddr, strtab_vaddr, strsz) {
+        let so = match Self::vaddr_to_offset(shdrs, sv) {
+          Some(o) => o,
+          None => return entries,
+        };
+        let to = match Self::vaddr_to_offset(shdrs, tv) {
+          Some(o) => o,
+          None => return entries,
+        };
+        (so, to, tsz as usize)
+      } else {
+        let mut dynsym_off = None;
+        let mut dynstr_off = None;
+        let mut dynstr_sz = 0usize;
+        for shdr in shdrs {
+          if shdr.sh_type == SHT_DYNSYM {
+            dynsym_off = Some(shdr.sh_offset as usize);
+          }
+          let name = Self::section_name(shdr, shstrtab);
+          if name == ".dynstr" && shdr.sh_type == SHT_STRTAB {
+            dynstr_off = Some(shdr.sh_offset as usize);
+            dynstr_sz = shdr.sh_size as usize;
+          }
+        }
+        match (dynsym_off, dynstr_off) {
+          (Some(so), Some(to)) => (so, to, dynstr_sz),
+          _ => return entries,
+        }
+      };
+
+    if strtab_off + strtab_sz > data.len() {
+      return entries;
+    }
+    let strtab = &data[strtab_off..strtab_off + strtab_sz];
+
+    // Entry size: RELA = 12 bytes, REL = 8 bytes (32-bit)
+    let entsize = if is_rela { 12usize } else { 8usize };
+    // Symbol table entry size for 32-bit ELF is 16 bytes
+    let sym_entsize = 16usize;
+
+    let mut i = 0;
+    while i + entsize <= rel_size && rel_offset + i + entsize <= data.len() {
+      let off = rel_offset + i;
+
+      let r_offset = match Self::read_u32(data, off, endian) {
+        Ok(v) => v as u64,
+        Err(_) => break,
+      };
+      let r_info = match Self::read_u32(data, off + 4, endian) {
+        Ok(v) => v,
+        Err(_) => break,
+      };
+      let r_addend = if is_rela {
+        match Self::read_u32(data, off + 8, endian) {
+          Ok(v) => v as i32 as i64,
+          Err(_) => break,
+        }
+      } else {
+        0i64
+      };
+
+      // 32-bit: sym_index = upper 24 bits, rel_type = lower 8 bits
+      let sym_index = (r_info >> 8) as u32;
+      let rel_type = (r_info & 0xff) as u32;
+
+      // Look up symbol name from .dynsym + .dynstr
+      let symbol_name = {
+        let sym_off = symtab_off + (sym_index as usize) * sym_entsize;
+        if sym_off + sym_entsize <= data.len() {
+          let st_name = Self::read_u32(data, sym_off, endian).unwrap_or(0);
+          Self::read_string(strtab, st_name as usize)
+        } else {
+          String::new()
+        }
+      };
+
+      entries.push(RelocationEntry {
+        offset: r_offset,
+        sym_index,
+        rel_type,
+        addend: r_addend,
+        symbol_name,
+      });
+
+      i += entsize;
+    }
+
+    entries
   }
 
   fn build_sections(shdrs: &[SectionHeader], strtab: &[u8]) -> Vec<Section> {
