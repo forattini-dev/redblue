@@ -1,8 +1,7 @@
 //! Track covering and history clearing command
 
 use super::{colored, GREEN, RED, YELLOW};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::tracks;
 
@@ -21,6 +20,26 @@ impl Command for EvasionTracksCommand {
 
   fn description(&self) -> &str {
     "Track covering and history clearing for operational security"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -88,10 +107,9 @@ impl Command for EvasionTracksCommand {
 }
 
 fn execute_tracks_scan(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
-  if !is_json {
+  if !machine_output {
     Output::header("Track Scanner");
     println!();
     Output::spinner_start("Scanning for history files");
@@ -111,30 +129,30 @@ fn execute_tracks_scan(ctx: &CliContext) -> Result<(), String> {
       .collect()
   }
 
-  if is_json {
-    let bash_files = collect_files(&files.bash);
-    let zsh_files = collect_files(&files.zsh);
-    let fish_files = collect_files(&files.fish);
-    let other_files = collect_files(&files.other);
-    let file_entries = |entries: Vec<(String, u64)>| {
-      entries
-        .into_iter()
-        .map(|(path, size)| json!({ "path": path, "size": size }))
-        .collect::<Vec<_>>()
-    };
-    Output::json_value(&json!({
-        "summary": json!({
-            "total_history_files": stats.history_files,
-            "total_history_bytes": stats.history_bytes,
-            "session_files": stats.session_files,
-        }),
-        "files": json!({
-            "bash": file_entries(bash_files),
-            "zsh": file_entries(zsh_files),
-            "fish": file_entries(fish_files),
-            "other": file_entries(other_files),
-        }),
-    }));
+  let bash_files = collect_files(&files.bash);
+  let zsh_files = collect_files(&files.zsh);
+  let fish_files = collect_files(&files.fish);
+  let other_files = collect_files(&files.other);
+  let file_entries = |entries: Vec<(String, u64)>| {
+    entries
+      .into_iter()
+      .map(|(path, size)| json!({ "path": path, "size": size }))
+      .collect::<Vec<_>>()
+  };
+  let payload = json!({
+      "summary": json!({
+          "total_history_files": stats.history_files,
+          "total_history_bytes": stats.history_bytes,
+          "session_files": stats.session_files,
+      }),
+      "files": json!({
+          "bash": file_entries(bash_files),
+          "zsh": file_entries(zsh_files),
+          "fish": file_entries(fish_files),
+          "other": file_entries(other_files),
+      }),
+  });
+  if render::render_machine_output(ctx, "rb evasion tracks scan", &payload)? {
     return Ok(());
   }
 
@@ -202,15 +220,14 @@ fn execute_tracks_scan(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
   let secure = ctx.flags.contains_key("secure");
   let shell_filter = ctx.flags.get("shell");
 
   let mode = if secure { "secure" } else { "quick" };
 
-  if !is_json {
+  if !machine_output {
     Output::header("Track Clearer");
     println!();
     Output::warning("This will PERMANENTLY clear shell history files!");
@@ -238,7 +255,7 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
     tracks::clear_all_history(secure)
   };
 
-  if !is_json {
+  if !machine_output {
     Output::spinner_done();
     println!();
   }
@@ -256,30 +273,30 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
     }
   }
 
-  if is_json {
-    let shell = tracks::detect_shell();
-    let files_json: Vec<_> = results
-      .iter()
-      .map(|result| {
-        json!({
-            "path": result.file.display().to_string(),
-            "success": result.success,
-            "bytes_cleared": result.bytes_cleared,
-            "error": result.error,
-        })
+  let shell = tracks::detect_shell();
+  let files_json: Vec<_> = results
+    .iter()
+    .map(|result| {
+      json!({
+          "path": result.file.display().to_string(),
+          "success": result.success,
+          "bytes_cleared": result.bytes_cleared,
+          "error": result.error,
       })
-      .collect();
-    Output::json_value(&json!({
-        "mode": mode,
-        "secure": secure,
-        "shell_filter": shell_filter,
-        "success_count": success_count,
-        "failed_count": failed_count,
-        "total_bytes": total_bytes,
-        "files": files_json,
-        "detected_shell": shell,
-        "clear_session_command": tracks::get_clear_session_command(&shell),
-    }));
+    })
+    .collect();
+  let payload = json!({
+      "mode": mode,
+      "secure": secure,
+      "shell_filter": shell_filter,
+      "success_count": success_count,
+      "failed_count": failed_count,
+      "total_bytes": total_bytes,
+      "files": files_json,
+      "detected_shell": shell,
+      "clear_session_command": tracks::get_clear_session_command(&shell),
+  });
+  if render::render_machine_output(ctx, "rb evasion tracks clear", &payload)? {
     return Ok(());
   }
 
@@ -319,10 +336,9 @@ fn execute_tracks_clear(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
-  if !is_json {
+  if !machine_output {
     Output::header("Session File Cleaner");
     println!();
     Output::warning("This will clear redblue session files!");
@@ -332,19 +348,19 @@ fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
 
   let results = tracks::clear_redblue_sessions();
 
-  if !is_json {
+  if !machine_output {
     Output::spinner_done();
     println!();
   }
 
   if results.is_empty() {
-    if is_json {
-      Output::json_value(&json!({
-          "success": true,
-          "total_cleared": 0,
-          "total_bytes": 0,
-          "files": [],
-      }));
+    let payload = json!({
+        "success": true,
+        "total_cleared": 0,
+        "total_bytes": 0,
+        "files": [],
+    });
+    if render::render_machine_output(ctx, "rb evasion tracks sessions", &payload)? {
       return Ok(());
     }
     Output::info("No session files found");
@@ -361,22 +377,22 @@ fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
     }
   }
 
-  if is_json {
-    let files_json: Vec<_> = results
-      .iter()
-      .map(|result| {
-        json!({
-            "path": result.file.display().to_string(),
-            "bytes": result.bytes_cleared,
-        })
+  let files_json: Vec<_> = results
+    .iter()
+    .map(|result| {
+      json!({
+          "path": result.file.display().to_string(),
+          "bytes": result.bytes_cleared,
       })
-      .collect();
-    Output::json_value(&json!({
-        "success": true,
-        "total_cleared": success_count,
-        "total_bytes": total_bytes,
-        "files": files_json,
-    }));
+    })
+    .collect();
+  let payload = json!({
+      "success": true,
+      "total_cleared": success_count,
+      "total_bytes": total_bytes,
+      "files": files_json,
+  });
+  if render::render_machine_output(ctx, "rb evasion tracks sessions", &payload)? {
     return Ok(());
   }
 
@@ -401,9 +417,6 @@ fn execute_tracks_sessions(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let shell = ctx
     .flags
     .get("shell")
@@ -413,18 +426,18 @@ fn execute_tracks_command(ctx: &CliContext) -> Result<(), String> {
   let detected_shell = tracks::detect_shell();
   let clear_command = tracks::get_clear_session_command(&shell);
 
-  if is_json {
-    Output::json_value(&json!({
-        "detected_shell": detected_shell,
-        "target_shell": shell,
-        "clear_command": clear_command,
-        "all_commands": json!({
-            "bash": "history -c && history -w",
-            "zsh": "fc -p && history -p",
-            "fish": "history clear",
-            "sh": "unset HISTFILE",
-        }),
-    }));
+  let payload = json!({
+      "detected_shell": detected_shell,
+      "target_shell": shell,
+      "clear_command": clear_command,
+      "all_commands": json!({
+          "bash": "history -c && history -w",
+          "zsh": "fc -p && history -p",
+          "fish": "history clear",
+          "sh": "unset HISTFILE",
+      }),
+  });
+  if render::render_machine_output(ctx, "rb evasion tracks command", &payload)? {
     return Ok(());
   }
 
