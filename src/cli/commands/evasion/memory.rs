@@ -1,10 +1,9 @@
 //! Memory encryption and protection command
 
 use super::{GREEN, RESET};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
-use crate::modules::evasion::memory;
+use crate::modules::evasion::{heap_jitter, memory, sleep_encrypt};
 
 use crate::cli::commands::{Command, Flag, Route};
 
@@ -21,6 +20,31 @@ impl Command for EvasionMemoryCommand {
 
   fn description(&self) -> &str {
     "Memory encryption and protection techniques"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    let json_support = match verb {
+      "encrypt" => crate::cli::schema::JsonSupport::Guaranteed,
+      _ => crate::cli::schema::JsonSupport::BestEffort,
+    };
+
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(json_support)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -45,13 +69,37 @@ impl Command for EvasionMemoryCommand {
         summary: "Demo SecureVault for protected variable storage",
         usage: "rb evasion memory vault",
       },
+      Route {
+        verb: "heap",
+        summary: "Spray decoy allocations to camouflage heap pattern",
+        usage: "rb evasion memory heap [--profile <name>] [--count <n>]",
+      },
+      Route {
+        verb: "sleep",
+        summary: "Demo encrypted sleep (encrypt heap, sleep, decrypt)",
+        usage: "rb evasion memory sleep [--duration <ms>]",
+      },
     ]
   }
 
   fn flags(&self) -> Vec<Flag> {
-    vec![Flag::new("format", "Output format (text, json)")
-      .with_short('f')
-      .with_default("text")]
+    vec![
+      Flag::new("format", "Output format (text, json)")
+        .with_short('f')
+        .with_default("text"),
+      Flag::new(
+        "profile",
+        "Heap jitter profile (browser, nodejs, system, random)",
+      )
+      .with_short('p')
+      .with_default("browser"),
+      Flag::new("count", "Number of decoy allocations to spray")
+        .with_short('c')
+        .with_default("50"),
+      Flag::new("duration", "Sleep duration in milliseconds")
+        .with_short('d')
+        .with_default("3000"),
+    ]
   }
 
   fn examples(&self) -> Vec<(&str, &str)> {
@@ -62,6 +110,18 @@ impl Command for EvasionMemoryCommand {
       ),
       ("Demo operations", "rb evasion memory demo"),
       ("Rotate key", "rb evasion memory rotate"),
+      (
+        "Heap camouflage (browser)",
+        "rb evasion memory heap --profile browser --count 50",
+      ),
+      (
+        "Heap camouflage (nodejs)",
+        "rb evasion memory heap --profile nodejs",
+      ),
+      (
+        "Encrypted sleep 5s",
+        "rb evasion memory sleep --duration 5000",
+      ),
     ]
   }
 
@@ -73,15 +133,14 @@ impl Command for EvasionMemoryCommand {
       "demo" => execute_memory_demo(),
       "rotate" => execute_memory_rotate(),
       "vault" => execute_memory_vault(),
+      "heap" => execute_heap_camouflage(ctx),
+      "sleep" => execute_encrypted_sleep(ctx),
       _ => Err(format!("Unknown verb: {}", verb)),
     }
   }
 }
 
 fn execute_memory_encrypt(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
-
   let data = ctx.target.as_ref().ok_or("Missing string to encrypt")?;
 
   let buf = memory::SecureBuffer::from_data(data.as_bytes());
@@ -93,14 +152,14 @@ fn execute_memory_encrypt(ctx: &CliContext) -> Result<(), String> {
     .collect();
   let recovered = buf.read_string();
 
-  if is_json {
-    Output::json_value(&json!({
-        "original": data,
-        "size": buf.len(),
-        "integrity": integrity,
-        "encrypted_hex": encrypted_hex,
-        "recovered": recovered
-    }));
+  let payload = json!({
+      "original": data,
+      "size": buf.len(),
+      "integrity": integrity,
+      "encrypted_hex": encrypted_hex,
+      "recovered": recovered
+  });
+  if render::render_machine_output(ctx, "rb evasion memory encrypt", &payload)? {
     return Ok(());
   }
 
@@ -261,4 +320,198 @@ fn execute_memory_vault() -> Result<(), String> {
   Output::success("Vault automatically wiped on drop (emergency_wipe)");
 
   Ok(())
+}
+
+fn execute_heap_camouflage(ctx: &CliContext) -> Result<(), String> {
+  let profile_name = ctx
+    .flags
+    .get("profile")
+    .map(|s| s.as_str())
+    .unwrap_or("browser");
+
+  let profile = heap_jitter::JitterProfile::from_name(profile_name).ok_or_else(|| {
+    format!(
+      "Unknown profile '{}'. Available: browser, nodejs, system, random",
+      profile_name
+    )
+  })?;
+
+  let count: usize = ctx
+    .flags
+    .get("count")
+    .and_then(|s| s.parse().ok())
+    .unwrap_or(50);
+
+  let machine_output = ctx.wants_machine_output();
+
+  if !machine_output {
+    Output::header("Heap Allocation Camouflage");
+    println!();
+    Output::info(&format!(
+      "Profile: {} ({})",
+      profile.name(),
+      profile_description(profile)
+    ));
+    Output::info(&format!("Decoys: {}", count));
+    println!();
+    Output::spinner_start("Spraying heap");
+  }
+
+  let mut jitter = heap_jitter::HeapJitter::new(profile);
+  jitter.activate();
+  let result = jitter.camouflage(count);
+
+  let payload = json!({
+      "profile": result.profile,
+      "decoys_created": result.decoys_created,
+      "total_decoys": result.total_decoys,
+      "total_memory_bytes": result.total_memory_bytes,
+      "timing_noise_us": result.timing_noise_us,
+      "jitter_active": heap_jitter::HeapJitter::is_active(),
+  });
+  if render::render_machine_output(ctx, "rb evasion memory heap", &payload)? {
+    return Ok(());
+  }
+
+  Output::spinner_done();
+  println!();
+
+  Output::item("Profile", &result.profile);
+  Output::item("Decoys sprayed", &result.decoys_created.to_string());
+  Output::item(
+    "Total decoy memory",
+    &format_bytes(result.total_memory_bytes),
+  );
+  Output::item("Timing noise", &format!("{}us", result.timing_noise_us));
+
+  println!();
+  Output::info("How it works:");
+  println!("    EDR/AV builds histograms of allocation sizes to fingerprint processes.");
+  println!(
+    "    Decoy allocations flood the heap with sizes typical of '{}',",
+    profile.name()
+  );
+  println!("    making redblue's allocation pattern indistinguishable from legitimate software.");
+  println!();
+  Output::info("Allocation jitter also pads every real allocation with random bytes,");
+  Output::info("so the same code path produces different sizes each run.");
+
+  println!();
+  Output::success("Heap pattern camouflaged.");
+
+  Ok(())
+}
+
+fn execute_encrypted_sleep(ctx: &CliContext) -> Result<(), String> {
+  let duration_ms: u64 = ctx
+    .flags
+    .get("duration")
+    .and_then(|s| s.parse().ok())
+    .unwrap_or(3000);
+
+  let machine_output = ctx.wants_machine_output();
+
+  // Create demo sensitive data
+  let mut secret1 = b"API_KEY=sk_live_demo_1234567890abcdef".to_vec();
+  let mut secret2 = b"DB_PASSWORD=super_secret_database_pass!".to_vec();
+  let mut secret3 = b"BEACON_URL=https://c2.example.com/callback".to_vec();
+
+  if !machine_output {
+    Output::header("Encrypted Sleep Demo");
+    println!();
+    Output::info("Registering sensitive memory regions:");
+    println!("    Region 1: {} bytes (API key)", secret1.len());
+    println!("    Region 2: {} bytes (DB password)", secret2.len());
+    println!("    Region 3: {} bytes (Beacon URL)", secret3.len());
+    println!();
+  }
+
+  let mut encryptor = sleep_encrypt::SleepEncryptor::new();
+  // Safety: the Vecs are not resized or dropped while the encryptor is alive.
+  unsafe {
+    encryptor.register_vec(&mut secret1);
+    encryptor.register_vec(&mut secret2);
+    encryptor.register_vec(&mut secret3);
+  }
+
+  if !machine_output {
+    Output::info("Before sleep (plaintext in memory):");
+    println!("    secret1: {}", String::from_utf8_lossy(&secret1));
+    println!();
+
+    Output::spinner_start(&format!(
+      "Encrypted sleep ({}ms) - memory is ciphertext",
+      duration_ms
+    ));
+  }
+
+  let start = std::time::Instant::now();
+  encryptor.encrypted_sleep(std::time::Duration::from_millis(duration_ms));
+  let actual_ms = start.elapsed().as_millis() as u64;
+
+  let stats = encryptor.stats();
+
+  let payload = json!({
+      "duration_requested_ms": duration_ms,
+      "duration_actual_ms": actual_ms,
+      "regions": stats.regions,
+      "total_bytes_protected": stats.total_bytes,
+      "is_encrypted": stats.is_encrypted,
+      "total_sleeps": stats.total_sleeps,
+      "data_restored": secret1 == b"API_KEY=sk_live_demo_1234567890abcdef",
+  });
+  if render::render_machine_output(ctx, "rb evasion memory sleep", &payload)? {
+    return Ok(());
+  }
+
+  Output::spinner_done();
+  println!();
+
+  Output::info("After wake (plaintext restored):");
+  println!("    secret1: {}", String::from_utf8_lossy(&secret1));
+  println!();
+
+  Output::item("Duration", &format!("{}ms", actual_ms));
+  Output::item("Regions protected", &stats.regions.to_string());
+  Output::item("Bytes encrypted", &format_bytes(stats.total_bytes));
+  Output::item(
+    "Data integrity",
+    if secret1 == b"API_KEY=sk_live_demo_1234567890abcdef" {
+      "OK (plaintext restored)"
+    } else {
+      "CORRUPT"
+    },
+  );
+
+  println!();
+  Output::info("How it works:");
+  println!("    Before sleep: all registered memory is XOR-encrypted with a one-time key.");
+  println!("    During sleep: memory scanners see only ciphertext. No strings, no keys.");
+  println!("    After wake:   data is decrypted and the key is securely zeroed.");
+  println!();
+  Output::info("Critical for C2 agents: beaconing intervals are idle time where EDR scans memory.");
+
+  println!();
+  Output::success("Memory was encrypted during entire sleep period.");
+
+  Ok(())
+}
+
+fn format_bytes(bytes: usize) -> String {
+  if bytes >= 1024 * 1024 {
+    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+  } else if bytes >= 1024 {
+    format!("{:.1} KB", bytes as f64 / 1024.0)
+  } else {
+    format!("{} bytes", bytes)
+  }
+}
+
+fn profile_description(profile: heap_jitter::JitterProfile) -> &'static str {
+  match profile {
+    heap_jitter::JitterProfile::Browser => "mimics Chromium allocation patterns",
+    heap_jitter::JitterProfile::NodeJs => "mimics Node.js/V8 heap pages",
+    heap_jitter::JitterProfile::SystemService => "mimics system daemon allocations",
+    heap_jitter::JitterProfile::Random => "maximum unpredictability",
+  }
 }
