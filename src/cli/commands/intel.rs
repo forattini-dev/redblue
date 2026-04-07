@@ -51,7 +51,7 @@ impl Command for IntelCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "search" | "cve" | "kev" | "exploit" | "cpe" | "correlate" | "scan" => {
+      "search" | "cve" | "kev" | "exploit" | "cpe" | "correlate" | "scan" | "report" => {
         crate::cli::schema::RouteMetadata::new()
           .with_aliases(aliases)
           .with_machine_output(
@@ -1052,28 +1052,52 @@ impl IntelCommand {
     let url = ctx.target.as_ref().ok_or("Missing URL")?;
     let format = ctx.get_flag_or("format", "text");
 
-    Output::header(&format!("Vulnerability Report: {}", url));
-    println!();
+    if !ctx.wants_machine_output() {
+      Output::header(&format!("Vulnerability Report: {}", url));
+      println!();
+    }
 
     // Step 1: Fingerprint
-    Output::spinner_start("Fingerprinting target...");
+    if !ctx.wants_machine_output() {
+      Output::spinner_start("Fingerprinting target...");
+    }
     let techs = self.fingerprint_target(url)?;
-    Output::spinner_done();
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
+    }
 
     if techs.is_empty() {
+      if render::render_machine_output(
+        ctx,
+        "rb intel vuln report",
+        &json!({
+          "error": "No technologies detected",
+          "url": url
+        }),
+      )? {
+        return Ok(());
+      }
       Output::warning("No technologies detected.");
       return Ok(());
     }
 
     // Step 2: Full correlation
-    Output::spinner_start("Correlating vulnerabilities (all sources)...");
+    if !ctx.wants_machine_output() {
+      Output::spinner_start("Correlating vulnerabilities (all sources)...");
+    }
     let config = self.build_correlator_config("all");
     let mut correlator = VulnCorrelator::with_config(config);
     let report = correlator.correlate(&techs);
-    Output::spinner_done();
+    if !ctx.wants_machine_output() {
+      Output::spinner_done();
+    }
+
+    let json_payload = self.output_report_json(&report);
+    if render::render_machine_output(ctx, "rb intel vuln report", &json_payload)? {
+      return Ok(());
+    }
 
     match format.as_str() {
-      "json" => Output::json_value(&self.output_report_json(&report)),
       "markdown" | "md" => self.output_report_markdown(url, &techs, &report),
       _ => self.output_report_text(url, &techs, &report),
     }
