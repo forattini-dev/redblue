@@ -235,7 +235,7 @@ pub fn build_manifest(include_hidden: bool) -> JsonValue {
     ),
     (
       "version".to_string(),
-      JsonValue::from(env!("CARGO_PKG_VERSION")),
+      JsonValue::from(crate::version::current_version()),
     ),
     ("binary".to_string(), JsonValue::from("redblue")),
     (
@@ -372,6 +372,15 @@ pub fn route_exists(domain: &str, resource: &str, verb: &str) -> bool {
   super::commands::command_for(&domain, resource)
     .map(|command| command.routes().iter().any(|route| route.verb == verb))
     .unwrap_or(false)
+}
+
+pub fn resource_exists(domain: &str, resource: &str) -> bool {
+  let (domain, resource, _) = resolve_command_tokens(domain, Some(resource), None);
+  let Some(resource) = resource.as_deref() else {
+    return false;
+  };
+
+  super::commands::command_for(&domain, resource).is_some()
 }
 
 pub fn suggest_domains(domain: &str, limit: usize, include_hidden: bool) -> Vec<String> {
@@ -701,6 +710,15 @@ fn global_options_manifest() -> Vec<JsonValue> {
           JsonValue::from("yaml"),
         ]),
       ),
+    ]),
+    JsonValue::object(vec![
+      ("long".to_string(), JsonValue::from("stealth")),
+      ("short".to_string(), JsonValue::from("S")),
+      (
+        "description".to_string(),
+        JsonValue::from("Full evasion: heap jitter + rehash after execution"),
+      ),
+      ("kind".to_string(), JsonValue::from("evasion")),
     ]),
   ]
 }
@@ -1294,6 +1312,13 @@ mod tests {
 
     let system = find_domain_node("sys", false).expect("system alias should resolve");
     assert_eq!(system.name, "system");
+  }
+
+  #[test]
+  fn resource_exists_resolves_aliases_and_known_resources() {
+    assert!(resource_exists("web", "asset"));
+    assert!(resource_exists("intelligence", "graph"));
+    assert!(!resource_exists("web", "not-a-resource"));
   }
 
   #[test]
