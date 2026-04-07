@@ -458,11 +458,54 @@ fn canonical_route_suggestion_text(domain: &str, resource: &str, verb: &str) -> 
   }
 }
 
+fn canonical_command_for(domain: &str, resource: &str, verb: &str) -> String {
+  format!("rb {} {} {}", domain, resource, verb)
+}
+
+fn translate_compat_route(
+  domain: &str,
+  resource: Option<String>,
+  verb: Option<String>,
+) -> (Option<String>, Option<String>, Option<String>) {
+  let (Some(resource_token), Some(verb_token)) = (resource.clone(), verb.clone()) else {
+    return (resource, verb, None);
+  };
+
+  if crate::cli::schema::route_exists(domain, &resource_token, &verb_token) {
+    return (resource, verb, None);
+  }
+
+  // Legacy translation stays intentionally narrow:
+  // only swap when the first token is not already a known canonical resource.
+  if crate::cli::schema::resource_exists(domain, &resource_token) {
+    return (resource, verb, None);
+  }
+
+  if crate::cli::schema::route_exists(domain, &verb_token, &resource_token) {
+    let canonical = canonical_command_for(domain, &verb_token, &resource_token);
+    return (Some(verb_token), Some(resource_token), Some(canonical));
+  }
+
+  (resource, verb, None)
+}
+
 pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
   let domain = ctx
     .domain
     .as_deref()
     .ok_or_else(|| "Missing domain. Syntax: rb <domain> <resource> <verb> [target]".to_string())?;
+
+  // Compact command aliases — defined in aliases.rs (single source of truth)
+  // rb ebr → rb evasion build rehash
+  if ctx.resource.is_none() {
+    if let Some((d, r, v)) = crate::cli::aliases::resolve_compact_alias(domain) {
+      let mut alias_ctx = ctx.clone();
+      alias_ctx.domain = Some(d.to_string());
+      alias_ctx.resource = Some(r.to_string());
+      alias_ctx.verb = Some(v.to_string());
+      return dispatch(&alias_ctx);
+    }
+  }
 
   // Magic scan detection: if domain looks like a URL/domain, trigger magic scan
   // Do this BEFORE alias resolution to avoid false positives
@@ -478,11 +521,22 @@ pub fn dispatch(ctx: &CliContext) -> Result<(), String> {
       ctx.verb.as_deref(),
     );
 
+  let (resolved_resource, resolved_verb, compat_canonical) =
+    translate_compat_route(&resolved_domain, resolved_resource, resolved_verb);
+
   // Create new context with resolved names
   let mut resolved_ctx = ctx.clone();
   resolved_ctx.domain = Some(resolved_domain.clone());
   resolved_ctx.resource = resolved_resource.clone();
   resolved_ctx.verb = resolved_verb.clone();
+  if let Some(canonical) = compat_canonical.as_deref() {
+    if !resolved_ctx.wants_machine_output() {
+      Output::warning(&format!(
+        "Compatibility command order detected. Canonical form: {}",
+        canonical
+      ));
+    }
+  }
 
   // Use resolved names for the rest of dispatch
   let domain = resolved_domain.as_str();
@@ -746,6 +800,7 @@ fn is_magic_scan_target(input: &str) -> bool {
       "bench",
       "service", // service manager
       "evasion", // AV/EDR evasion
+      "ebr",     // compact alias: evasion build rehash
       "config",  // configuration management
       "search",  // global search across databases
       "help",
@@ -798,6 +853,42 @@ mod tests {
     let error = dispatch(&ctx).expect_err("dispatch should fail for unknown resource");
     assert!(error.contains("Unknown resource 'securit'"));
     assert!(error.contains("rb tls security audit"));
+  }
+
+  #[test]
+  fn translate_compat_route_swaps_legacy_order_when_canonical_exists() {
+    let (resource, verb, canonical) = translate_compat_route(
+      "network",
+      Some("scan".to_string()),
+      Some("ports".to_string()),
+    );
+
+    assert_eq!(resource.as_deref(), Some("ports"));
+    assert_eq!(verb.as_deref(), Some("scan"));
+    assert_eq!(canonical.as_deref(), Some("rb network ports scan"));
+  }
+
+  #[test]
+  fn translate_compat_route_keeps_canonical_order_intact() {
+    let (resource, verb, canonical) = translate_compat_route(
+      "tls",
+      Some("security".to_string()),
+      Some("audit".to_string()),
+    );
+
+    assert_eq!(resource.as_deref(), Some("security"));
+    assert_eq!(verb.as_deref(), Some("audit"));
+    assert!(canonical.is_none());
+  }
+
+  #[test]
+  fn translate_compat_route_does_not_swap_when_resource_is_already_canonical() {
+    let (resource, verb, canonical) =
+      translate_compat_route("web", Some("fuzz".to_string()), Some("asset".to_string()));
+
+    assert_eq!(resource.as_deref(), Some("fuzz"));
+    assert_eq!(verb.as_deref(), Some("asset"));
+    assert!(canonical.is_none());
   }
 }
 
@@ -873,6 +964,7 @@ pub fn print_global_help() {
   rb help                  Show global overview
   rb commands              List all available commands
   rb <domain> help         List resources inside a domain
+  rb help <d> <r> <v>      Show contextual route help
   rb version               Show version information
 
 {bold}GLOBAL OUTPUT:{reset}
@@ -880,6 +972,10 @@ pub fn print_global_help() {
   rb ... -j                Short alias for --json
   rb ... --output json     Explicit output format selection
   rb ... --format yaml     Alias for --output
+
+{bold}EVASION:{reset}
+  rb ... --stealth, -S     Full evasion: heap jitter + rehash after execution
+  rb ebr                   Manual binary rehash
 
 For detailed documentation: Check docs/cli-semantics.md and QUICKSTART.md
 ",
