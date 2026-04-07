@@ -1,8 +1,7 @@
 //! Sandbox detection command
 
 use super::{colored, GREEN, RED};
-use crate::cli::output::Output;
-use crate::cli::CliContext;
+use crate::cli::{output::Output, render, CliContext};
 use crate::json;
 use crate::modules::evasion::sandbox;
 
@@ -21,6 +20,26 @@ impl Command for EvasionSandboxCommand {
 
   fn description(&self) -> &str {
     "Sandbox and VM detection techniques"
+  }
+
+  fn metadata(&self) -> crate::cli::schema::CommandMetadata {
+    crate::cli::schema::CommandMetadata::new().with_machine_output(
+      crate::cli::schema::MachineOutputMetadata::new()
+        .with_json_support(crate::cli::schema::JsonSupport::BestEffort)
+        .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+        .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+    )
+  }
+
+  fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
+    crate::cli::schema::RouteMetadata::new()
+      .with_aliases(crate::cli::aliases::verb_aliases_for(verb))
+      .with_machine_output(
+        crate::cli::schema::MachineOutputMetadata::new()
+          .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+          .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+          .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+      )
   }
 
   fn routes(&self) -> Vec<Route> {
@@ -73,10 +92,9 @@ impl Command for EvasionSandboxCommand {
 }
 
 fn execute_sandbox_check(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
-  if !is_json {
+  if !machine_output {
     Output::header("Sandbox Detection");
     println!();
     Output::spinner_start("Running sandbox checks");
@@ -93,21 +111,21 @@ fn execute_sandbox_check(ctx: &CliContext) -> Result<(), String> {
     ("Debugger Present", sandbox::check_debugger()),
   ];
 
-  if is_json {
-    let checks_json: Vec<_> = checks
-      .iter()
-      .map(|(name, detected)| {
-        json!({
-            "name": name,
-            "key": name.to_lowercase().replace(' ', "_"),
-            "detected": detected,
-        })
+  let checks_json: Vec<_> = checks
+    .iter()
+    .map(|(name, detected)| {
+      json!({
+          "name": name,
+          "key": name.to_lowercase().replace(' ', "_"),
+          "detected": detected,
       })
-      .collect();
-    Output::json_value(&json!({
-        "sandbox_detected": is_sandbox,
-        "checks": checks_json,
-    }));
+    })
+    .collect();
+  let payload = json!({
+      "sandbox_detected": is_sandbox,
+      "checks": checks_json,
+  });
+  if render::render_machine_output(ctx, "rb evasion sandbox check", &payload)? {
     return Ok(());
   }
 
@@ -140,10 +158,9 @@ fn execute_sandbox_check(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
 
-  if !is_json {
+  if !machine_output {
     Output::header("Sandbox Detection Score");
     println!();
     Output::spinner_start("Calculating score");
@@ -158,45 +175,45 @@ fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
   let susp_user = sandbox::check_suspicious_username();
   let debugger = sandbox::check_debugger();
 
-  if is_json {
-    let risk = if score >= 50 {
-      "high"
-    } else if score >= 25 {
-      "medium"
-    } else {
-      "low"
-    };
-    let breakdown = json!({
-        "vm_files": json!({
-            "detected": vm_files,
-            "points": if vm_files { 20 } else { 0 }
-        }),
-        "sandbox_processes": json!({
-            "detected": sandbox_procs,
-            "points": if sandbox_procs { 20 } else { 0 }
-        }),
-        "timing_anomaly": json!({
-            "detected": timing,
-            "points": if timing { 25 } else { 0 }
-        }),
-        "low_resources": json!({
-            "detected": low_res,
-            "points": if low_res { 15 } else { 0 }
-        }),
-        "suspicious_user": json!({
-            "detected": susp_user,
-            "points": if susp_user { 10 } else { 0 }
-        }),
-        "debugger_present": json!({
-            "detected": debugger,
-            "points": if debugger { 10 } else { 0 }
-        })
-    });
-    Output::json_value(&json!({
-        "score": score,
-        "risk": risk,
-        "breakdown": breakdown,
-    }));
+  let risk = if score >= 50 {
+    "high"
+  } else if score >= 25 {
+    "medium"
+  } else {
+    "low"
+  };
+  let breakdown = json!({
+      "vm_files": json!({
+          "detected": vm_files,
+          "points": if vm_files { 20 } else { 0 }
+      }),
+      "sandbox_processes": json!({
+          "detected": sandbox_procs,
+          "points": if sandbox_procs { 20 } else { 0 }
+      }),
+      "timing_anomaly": json!({
+          "detected": timing,
+          "points": if timing { 25 } else { 0 }
+      }),
+      "low_resources": json!({
+          "detected": low_res,
+          "points": if low_res { 15 } else { 0 }
+      }),
+      "suspicious_user": json!({
+          "detected": susp_user,
+          "points": if susp_user { 10 } else { 0 }
+      }),
+      "debugger_present": json!({
+          "detected": debugger,
+          "points": if debugger { 10 } else { 0 }
+      })
+  });
+  let payload = json!({
+      "score": score,
+      "risk": risk,
+      "breakdown": breakdown,
+  });
+  if render::render_machine_output(ctx, "rb evasion sandbox score", &payload)? {
     return Ok(());
   }
 
@@ -259,15 +276,14 @@ fn execute_sandbox_score(ctx: &CliContext) -> Result<(), String> {
 }
 
 fn execute_sandbox_delay(ctx: &CliContext) -> Result<(), String> {
-  let format = ctx.get_flag("format").unwrap_or_else(|| "text".to_string());
-  let is_json = format == "json";
+  let machine_output = ctx.wants_machine_output();
   let delay_ms: u64 = ctx
     .target
     .as_ref()
     .and_then(|s| s.parse().ok())
     .unwrap_or(300_000);
 
-  if !is_json {
+  if !machine_output {
     Output::header("Sandbox-Aware Delay");
     println!();
   }
@@ -278,12 +294,12 @@ fn execute_sandbox_delay(ctx: &CliContext) -> Result<(), String> {
     sandbox::delay_execution(delay_ms);
   }
 
-  if is_json {
-    Output::json_value(&json!({
-        "sandbox_detected": is_sandbox,
-        "delay_ms": delay_ms,
-        "delayed": is_sandbox,
-    }));
+  let payload = json!({
+      "sandbox_detected": is_sandbox,
+      "delay_ms": delay_ms,
+      "delayed": is_sandbox,
+  });
+  if render::render_machine_output(ctx, "rb evasion sandbox delay", &payload)? {
     return Ok(());
   }
 
