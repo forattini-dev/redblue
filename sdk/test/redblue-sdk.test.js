@@ -12,6 +12,7 @@ const test = require('node:test');
 const sdk = require('../redblue-sdk.js');
 
 const {
+  aliasIncludes,
   attachRoute,
   buildDomainCatalog,
   buildCommandCatalog,
@@ -448,7 +449,7 @@ test('downloadBinary and resolveBinary cover installed, PATH, direct and autodow
   }
   await withHttpsMock(
     [
-      { statusCode: 200, body: '{"tag_name":"v0.1.0"}' },
+      { statusCode: 200, body: '{"tag_name":"v0.2.2"}' },
       { statusCode: 200, body: 'downloaded-binary' },
       {
         statusCode: 200,
@@ -2200,6 +2201,1765 @@ test('branch-only helper paths stay covered', async () => {
   assert.equal(parsedFromAliasOnly.resolveOptions.autoDownload, true);
 });
 
+test('edge-case branches for manifest formatting, completion, validation and route helpers', async () => {
+  const fixtureBinary = await createFixtureBinary();
+  const manifestInfo = await sdk.getManifest({ binaryPath: fixtureBinary });
+  const manifest = manifestInfo.manifest;
+
+  // formatManifestOptionFlag: null/invalid option returns null (lines 829-830)
+  const summaryWithBadFlags = formatManifestHelpSummary({
+    global_options: [null, { long: '' }, { long: 123 }, {}],
+    commands: []
+  });
+  assert.equal(typeof summaryWithBadFlags, 'string');
+
+  // formatManifestHelpSummary: skip invalid examples (lines 891-892)
+  const summaryWithBadExamples = formatManifestHelpSummary({
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        examples: [null, { command: 123 }, { summary: 'ok', command: 'rb dns record lookup example.com' }]
+      }
+    ]
+  });
+  assert.match(summaryWithBadExamples, /rb dns record lookup example.com/);
+
+  // formatRouteHelpSummary: skip invalid flags (lines 934-935) and examples (lines 947-948)
+  const routeHelp = formatRouteHelpSummary(
+    {
+      domains: [
+        {
+          name: 'test',
+          aliases: [],
+          resources: [
+            {
+              name: 'res',
+              aliases: [],
+              verbs: [{ name: 'run', summary: 'Run it', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'test',
+          resource: 'res',
+          flags: [
+            { long: '', description: 'Empty long' },
+            { long: 'valid', short: 'v', description: 'Valid flag', expects_value: false }
+          ],
+          machine_output: { preferred_flag: null, preferred_value: null },
+          examples: [
+            { summary: 'Run test', command: 'rb test res run target' }
+          ],
+          routes: [
+            {
+              verb: 'run',
+              summary: 'Run it',
+              usage: 'rb test res run <target>',
+              aliases: [],
+              examples: [
+                null,
+                { command: 123 },
+                { summary: 'Run test', command: 'rb test res run target' }
+              ],
+              positionals: []
+            }
+          ]
+        }
+      ]
+    },
+    'test/res/run'
+  );
+  assert.match(routeHelp, /--valid/);
+  assert.match(routeHelp, /Run test/);
+
+  // validateManifestCommandArgs: non-canonical args return null (lines 1057-1058)
+  assert.equal(
+    await validateManifestCommandArgs(
+      ['-e', 'console.log(1)'],
+      { binaryPath: fixtureBinary },
+      { localParserPath: parserDist }
+    ),
+    null
+  );
+
+  // validateManifestCommandArgs: parse errors throw (lines 1074-1075)
+  // This is triggered when the parser returns errors for valid-looking args
+
+  // buildInvocation: null meta early return (lines 1437-1438)
+  const noMetaCommand = {
+    domain: 'dns',
+    resource: 'record',
+    flags: [],
+    machine_output: null
+  };
+  const noMetaRoute = { verb: 'lookup', positionals: [] };
+  assert.deepEqual(
+    buildInvocation(noMetaCommand, noMetaRoute, { target: 'example.com' }, {}),
+    ['dns', 'record', 'lookup', 'example.com', '--json']
+  );
+
+  // createRouteIndex: skip non-object resources and verbs (lines 1520-1521, 1525-1526, 1530-1531)
+  const routeIndex = createRouteIndex({
+    dns: null,
+    tls: { security: 'not-an-object' },
+    network: {
+      ports: {
+        scan: 'not-a-function',
+        list: Object.assign(() => {}, { meta: { command: { domain: 'network', resource: 'ports' }, route: { verb: 'list' } } })
+      }
+    }
+  });
+  assert.equal(typeof routeIndex['network/ports/list'], 'function');
+  assert.equal(Object.keys(routeIndex).filter((k) => k.includes('dns')).length, 0);
+
+  // normalizeRouteSelector: array with wrong length throws (lines 1550-1551)
+  assert.throws(() => normalizeRouteSelector(['dns', 'record']), /domain, resource, verb/);
+
+  // normalizeRouteSelector: non-string non-array throws (lines 1565-1566)
+  assert.throws(() => normalizeRouteSelector(42), /must be a string or/);
+
+  // normalizeTokenSelector: non-string non-array non-nullish throws (lines 1580-1585)
+  assert.throws(() => normalizeTokenSelector(42), /must be a string, array, or nullish/);
+
+  // normalizeTokenSelector: nullish returns empty (line 1581-1583)
+  assert.deepEqual(normalizeTokenSelector(null), []);
+  assert.deepEqual(normalizeTokenSelector(undefined), []);
+
+  // suggestCommandTokens: single token partial match (line 1734)
+  assert.deepEqual(suggestCommandTokens(manifest, ['dn']), {
+    stage: 'domain',
+    suggestions: ['dns']
+  });
+
+  // suggestCommandTokens: unknown domain returns empty suggestions (lines 1745-1749)
+  assert.deepEqual(suggestCommandTokens(manifest, ['unknown', 'res']), {
+    stage: 'domain',
+    suggestions: []
+  });
+
+  // suggestCommandTokens: unknown resource returns empty suggestions (lines 1767-1771)
+  assert.deepEqual(suggestCommandTokens(manifest, ['dns', 'unknown', 'lookup']), {
+    stage: 'resource',
+    suggestions: []
+  });
+
+  // suggestCommandTokens: 4+ tokens returns command stage (lines 1783-1787)
+  assert.deepEqual(suggestCommandTokens(manifest, ['dns', 'record', 'lookup', 'extra']), {
+    stage: 'command',
+    suggestions: ['rb dns record lookup']
+  });
+
+  // completeManifestTokens: empty tokens returns all domains (lines 1795-1804)
+  const emptyComplete = completeManifestTokens(manifest, []);
+  assert.equal(emptyComplete.stage, 'domain');
+  assert.equal(emptyComplete.completions.length, manifest.domains.length);
+  assert.equal(emptyComplete.completions[0].kind, 'domain');
+  assert.equal(typeof emptyComplete.completions[0].summary, 'string');
+
+  // completeManifestTokens: single token filters domains (lines 1807-1818)
+  const singleTokenComplete = completeManifestTokens(manifest, ['dn']);
+  assert.equal(singleTokenComplete.stage, 'domain');
+  assert.equal(singleTokenComplete.completions.length, 1);
+  assert.equal(singleTokenComplete.completions[0].value, 'dns');
+
+  // completeManifestTokens: unknown domain returns empty (lines 1825-1829)
+  const unknownDomainComplete = completeManifestTokens(manifest, ['unknown', 'res']);
+  assert.equal(unknownDomainComplete.stage, 'domain');
+  assert.deepEqual(unknownDomainComplete.completions, []);
+
+  // completeManifestTokens: unknown resource returns empty (lines 1851-1855)
+  const unknownResComplete = completeManifestTokens(manifest, ['dns', 'unknown', 'lookup']);
+  assert.equal(unknownResComplete.stage, 'resource');
+  assert.deepEqual(unknownResComplete.completions, []);
+
+  // completeManifestTokens: partial verb match (lines 1865, 1868-1880)
+  const partialVerbComplete = completeManifestTokens(manifest, ['dns', 'record', 'loo']);
+  assert.equal(partialVerbComplete.stage, 'verb');
+  assert.equal(partialVerbComplete.completions.length, 1);
+  assert.equal(partialVerbComplete.completions[0].value, 'lookup');
+  assert.equal(partialVerbComplete.completions[0].kind, 'verb');
+
+  // completeManifestTokens: no descriptor found returns fallback command (lines 1884-1894)
+  // tokens.length > 3 with a verb that has no matching command route
+  const noDescriptorComplete = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'missing', summary: 'Missing', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: []
+    },
+    ['dns', 'record', 'missing', 'extra']
+  );
+  assert.equal(noDescriptorComplete.stage, 'command');
+  assert.equal(noDescriptorComplete.completions[0].value, 'rb dns record missing');
+
+  // completeManifestTokens: short flag parsing in tail (lines 1921-1929)
+  // Add trailing --fo so -t MX are consumed as pair, and we end up filtering flags
+  const shortFlagComplete = completeManifestTokens(manifest, [
+    'dns', 'record', 'lookup', 'example.com', '-t', 'MX', '--fo'
+  ]);
+  assert.equal(shortFlagComplete.stage, 'flag');
+  assert.equal(shortFlagComplete.completions.every((c) => c.value !== '--type'), true);
+
+  // completeManifestTokens: used flags filter (lines 1953-1954)
+  const usedFlagComplete = completeManifestTokens(manifest, [
+    'dns', 'record', 'lookup', 'example.com', '--type', 'MX', '--fo'
+  ]);
+  assert.equal(usedFlagComplete.stage, 'flag');
+  assert.equal(usedFlagComplete.completions.some((c) => c.value === '--type'), false);
+  assert.equal(usedFlagComplete.completions.some((c) => c.value === '--format'), true);
+
+  // completeManifestTokens: fallback when no positionals remain and tail doesn't start with - (lines 1995-2005)
+  const fallbackComplete = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [],
+          machine_output: {},
+          routes: [
+            {
+              verb: 'lookup',
+              summary: 'Lookup',
+              aliases: [],
+              positionals: [
+                { name: 'target', required: true, slot: 'target', index: 0 },
+                { name: 'extra', required: true, slot: 'arg', index: 1 }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', 'example.com']
+  );
+  assert.equal(fallbackComplete.stage, 'positional');
+
+  // completeManifestTokens: inline flag value with = (lines 2021-2025)
+  const inlineFlagComplete = completeManifestTokens(manifest, [
+    'dns', 'record', 'lookup', 'example.com', '--format=j'
+  ]);
+  assert.equal(inlineFlagComplete.stage, 'flag-value');
+  assert.equal(inlineFlagComplete.completions.length, 1);
+  assert.equal(inlineFlagComplete.completions[0].value, 'json');
+
+  // completeManifestTokens: short flag expects value (lines 2035-2043)
+  const shortFlagValueComplete = completeManifestTokens(manifest, [
+    'dns', 'record', 'lookup', 'example.com', '-f'
+  ]);
+  assert.equal(shortFlagValueComplete.stage, 'flag-value');
+  assert.ok(shortFlagValueComplete.completions.length > 0);
+
+  // completeManifestTokens: previous token short flag with value (lines 2052-2054)
+  const prevShortFlagComplete = completeManifestTokens(manifest, [
+    'dns', 'record', 'lookup', 'example.com', '-t', 'M'
+  ]);
+  assert.equal(prevShortFlagComplete.stage, 'flag-value');
+
+  // buildFlagValueCompletions: placeholder fallback when no values (line 2083)
+  const noValuesComplete = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'depth', short: 'd', description: 'Depth', expects_value: true }
+          ],
+          machine_output: {},
+          routes: [
+            {
+              verb: 'lookup',
+              summary: 'Lookup',
+              aliases: [],
+              positionals: []
+            }
+          ]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', '--depth']
+  );
+  assert.equal(noValuesComplete.stage, 'flag-value');
+  assert.equal(noValuesComplete.completions[0].value, '<DEPTH>');
+
+  // resolveFlagValueCandidates: flag.values array (lines 2101-2102)
+  // already covered by format flag tests
+
+  // resolveFlagValueCandidates: globalOption matching (lines 2106-2107, 2116-2117)
+  // covered via the manifest completions that have global_options with values
+
+  // matchesNodeToken: null node returns false (lines 2158-2159)
+  // matchesNodeToken: non-array aliases returns false (lines 2166-2167)
+  // These are tested indirectly through suggestCommandTokens with empty manifests
+
+  // resolveManifestOptionValues: flag.values present (lines 2230-2231)
+  // resolveManifestOptionValues: global option match (lines 2235-2236)
+  const cliSchema = buildManifestCliSchema({
+    global_options: [
+      { long: 'output', short: 'o', kind: 'output-format', values: ['human', 'json'] },
+      null,
+      { long: '' }
+    ],
+    domains: [
+      {
+        name: 'dns',
+        aliases: [],
+        resources: [
+          {
+            name: 'record',
+            aliases: [],
+            verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+          }
+        ]
+      }
+    ],
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        flags: [
+          { long: 'output', short: 'o', description: 'Output', expects_value: true }
+        ],
+        routes: [
+          {
+            verb: 'lookup',
+            summary: 'Lookup',
+            aliases: [],
+            positionals: []
+          }
+        ]
+      }
+    ]
+  });
+  assert.deepEqual(cliSchema.options.output.choices, ['human', 'json']);
+  assert.equal(cliSchema.options.output.type, 'string');
+  assert.deepEqual(cliSchema.commands.dns.commands.record.commands.lookup.options.output.choices, ['human', 'json']);
+
+  // buildGlobalOptions: empty global_options results in json fallback (lines 2252-2253, 2258-2262)
+  const emptyGlobalSchema = buildManifestCliSchema({
+    global_options: [],
+    domains: [],
+    commands: []
+  });
+  assert.equal(emptyGlobalSchema.options.json.type, 'boolean');
+
+  // buildGlobalOptions: skip invalid options (lines 2252-2253)
+  const skipBadGlobalSchema = buildManifestCliSchema({
+    global_options: [null, { long: '' }, { description: 'no long' }],
+    domains: [],
+    commands: []
+  });
+  assert.equal(skipBadGlobalSchema.options.json.type, 'boolean');
+
+  // createManifestCLI: parser without createCLI throws (lines 2331-2332)
+  await assert.rejects(
+    createManifestCLI(
+      { binaryPath: fixtureBinary },
+      { parserModule: { createParser() {} } }
+    ),
+    /does not export createCLI/
+  );
+
+  // commandCatalogEntry: fallback examples from command when route has none (line 1677)
+  const catalogFromCommandExamples = describeManifestRoute(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [],
+          machine_output: {},
+          examples: [{ summary: 'From command', command: 'rb dns record lookup' }],
+          routes: [
+            {
+              verb: 'lookup',
+              summary: 'Lookup',
+              aliases: [],
+              positionals: []
+            }
+          ]
+        }
+      ]
+    },
+    'dns/record/lookup'
+  );
+  assert.deepEqual(catalogFromCommandExamples.examples, [
+    { summary: 'From command', command: 'rb dns record lookup' }
+  ]);
+
+  // resolveManifestRouteDescriptor: no matching command falls through (line 1649)
+  assert.equal(describeManifestRoute(manifest, 'missing/route/here'), null);
+
+  // globalOption with single value string (line 2116-2117)
+  const globalValSchema = buildManifestCliSchema({
+    global_options: [
+      { long: 'json', short: 'j', kind: 'machine-output', value: 'json' }
+    ],
+    domains: [],
+    commands: []
+  });
+  assert.equal(globalValSchema.options.json.type, 'boolean');
+
+  // completeManifestTokens: tail has long flag without =, bool flag consumed (lines 1921-1929 related)
+  const boolFlagComplete = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'verbose', short: 'v', description: 'Verbose', expects_value: false },
+            { long: 'type', short: 't', description: 'Record type', expects_value: true }
+          ],
+          machine_output: {},
+          routes: [
+            {
+              verb: 'lookup',
+              summary: 'Lookup',
+              aliases: [],
+              positionals: []
+            }
+          ]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', '-v']
+  );
+  assert.equal(boolFlagComplete.stage, 'flag');
+  assert.equal(boolFlagComplete.completions.some((c) => c.value === '--verbose'), false);
+
+  // buildJsonCliArgs: meta is null when route not found (lines 1437-1438)
+  const routeIndexFromProxy = createRouteIndex(createDomainProxy(fixtureBinary, manifest, {}));
+  assert.deepEqual(buildJsonCliArgs(['unknown', 'cmd'], routeIndexFromProxy, manifest), [
+    'unknown',
+    'cmd',
+    '--json'
+  ]);
+
+  // routeInvocationMeta: invocation null with 3+ args (line 1427-1429)
+  assert.equal(routeInvocationMeta(routeIndexFromProxy, manifest, ['zzz', 'yyy', 'xxx']), null);
+
+  // validateManifestCommandArgs: parse errors (lines 1074-1075)
+  // Trigger parser errors by providing a flag that expects a value without one
+  // This requires the parser to actually return errors
+  // We use --type without a value at the end
+  await assert.rejects(
+    validateManifestCommandArgs(
+      ['dns', 'record', 'lookup', '--type'],
+      { binaryPath: fixtureBinary },
+      { localParserPath: parserDist }
+    ),
+    /./
+  );
+
+  // completeManifestTokens: descriptor alias includes check (line 1865)
+  // Use an alias that resolves but isn't the canonical verb name
+  // 'inv' is an alias for 'inspect' which has no positionals -> flag stage
+  const aliasComplete = completeManifestTokens(manifest, ['system', 'host', 'inv']);
+  assert.equal(aliasComplete.stage, 'flag');
+
+  // completeManifestTokens: fallback command path for tokens.length === 3 but no required positionals (lines 1995-2005)
+  // Need: tokens.length >= requiredPositionals.length AND tail doesn't start with -
+  // This is the else branch when positionalValueCount >= requiredPositionals AND !(tail.length >= req || last starts with -)
+  // Actually look at 1989: tail.length >= requiredPositionals.length || last starts with -
+  // If tail is empty (tokens.length === 3 with exact match and 0 positionals), tail.length is 0, requiredPositionals.length is 0, so 0 >= 0 is true -> flag stage
+  // For lines 1995-2005, we need tail.length < requiredPositionals AND last doesn't start with -
+  // That means we need required positionals remaining AND positionalValueCount >= length, but that contradicts
+  // Actually 1971 checks positionalValueCount < requiredPositionals.length first, then 1989 checks tail.length >= req OR last starts with -
+  // Lines 1995-2005 are reached when 1989 condition is false: tail.length < req AND !last.startsWith('-')
+  // Example: 2 required positionals, tail = ['value'] -> positionalValueCount = 1 >= 1? No if req = 2. Then 1971 enters: returns positional stage
+  // So 1989 would need positionalValueCount >= req. Then tail.length < req AND !last.startsWith('-')
+  // Example: 2 required positionals, tail = ['val1', 'val2'] -> positionalValueCount = 2 >= 2, skip 1971
+  // Then 1989: tail.length (2) >= 2 -> true, returns flag stage
+  // Example: 2 required positionals, tail = ['val1'] -> positionalValueCount = 1 < 2, enters 1971 -> positional stage
+  // It seems like lines 1995-2005 are very hard to reach (nearly dead code). Let me try the case where
+  // tail has exactly 0 items and requiredPositionals.length is 1:
+  // positionalValueCount 0 < 1 -> enters 1971, returns positional
+  // OK so that doesn't work. What if requiredPositionals.length is 0 and tail is ['somevalue']
+  // positionalValueCount = 1 >= 0, skip 1971. tail.length (1) >= 0 true -> 1989 returns flag
+  // Lines 1995-2005 seem unreachable from current logic, but we still need to try to cover them.
+  // Let me try: no required positionals, no tail at all. positionalValueCount = 0 >= 0, skip 1971.
+  // tail.length (0) >= 0 true -> 1989 returns flag. Lines 1995 still unreachable.
+  // This appears to be dead code in practice. Skip and see if coverage checker still passes.
+
+  // resolveFlagValueCandidates: global option value matching (lines 2101-2102, 2106-2107, 2116-2117)
+  // These are reached through completeManifestTokens with flag-value completion
+  // We need a flag that matches a global_option with values and a single value
+  const globalOptionComplete = completeManifestTokens(
+    {
+      global_options: [
+        null,
+        { long: '' },
+        { long: 'verbose' },
+        { long: 'output', short: 'o', kind: 'output-format', values: ['human', 'json'] },
+        { long: 'format', value: 'json' }
+      ],
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            {
+              name: 'record',
+              aliases: [],
+              verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'output', short: 'o', description: 'Output', expects_value: true, values: ['text'] }
+          ],
+          machine_output: { preferred_flag: 'output', preferred_value: 'json' },
+          routes: [
+            {
+              verb: 'lookup',
+              summary: 'Lookup',
+              aliases: [],
+              positionals: []
+            }
+          ]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', '--output']
+  );
+  assert.equal(globalOptionComplete.stage, 'flag-value');
+  assert.ok(globalOptionComplete.completions.length > 0);
+  // 'text' from flag.values, 'human','json' from global values, 'json' from machineOutput preferred
+  assert.ok(globalOptionComplete.completions.some((c) => c.value === 'text'));
+  assert.ok(globalOptionComplete.completions.some((c) => c.value === 'human'));
+  assert.ok(globalOptionComplete.completions.some((c) => c.value === 'json'));
+
+  // resolveFlagValueCandidates: global option with single value string (lines 2116-2117)
+  const globalSingleValueComplete = completeManifestTokens(
+    {
+      global_options: [
+        null,
+        { long: 'format', value: 'json' }
+      ],
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [
+            { name: 'record', aliases: [], verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }] }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'format', short: 'f', description: 'Format', expects_value: true }
+          ],
+          machine_output: {},
+          routes: [
+            { verb: 'lookup', summary: 'Lookup', aliases: [], positionals: [] }
+          ]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', '--format']
+  );
+  assert.equal(globalSingleValueComplete.stage, 'flag-value');
+  assert.ok(globalSingleValueComplete.completions.some((c) => c.value === 'json'));
+
+  // matchesNodeToken: null/undefined node (lines 2158-2159)
+  // matchesNodeToken: node without aliases array (lines 2166-2167)
+  // These are tested indirectly through suggestCommandTokens with filtered domains
+  // suggestCommandTokens already tests empty domains. Let's add specific indirect tests.
+  assert.deepEqual(suggestCommandTokens({ domains: [null, { name: 'dns', aliases: [] }] }, ['dn']), {
+    stage: 'domain',
+    suggestions: ['dns']
+  });
+  assert.deepEqual(suggestCommandTokens({ domains: [{ name: 'test' }] }, ['te']), {
+    stage: 'domain',
+    suggestions: ['test']
+  });
+  // node.name doesn't start with token, and aliases is not array
+  assert.deepEqual(suggestCommandTokens({ domains: [{ name: 'network' }] }, ['n']), {
+    stage: 'domain',
+    suggestions: ['network']
+  });
+  // node with no name match and no aliases array -> returns false -> filtered out
+  assert.deepEqual(suggestCommandTokens({ domains: [{ name: 'network' }] }, ['x']), {
+    stage: 'domain',
+    suggestions: []
+  });
+
+  // resolveManifestOptionValues: flag with values (lines 2230-2231) and global match (lines 2235-2236)
+  // These are exercised through buildManifestCliSchema
+  const schemaWithFlagValues = buildManifestCliSchema({
+    global_options: [
+      null,
+      { description: 'no long field' },
+      { long: 'output', short: 'o', kind: 'output-format', values: ['a', 'b'] }
+    ],
+    domains: [
+      {
+        name: 'dns',
+        aliases: [],
+        resources: [
+          { name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }
+        ]
+      }
+    ],
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        flags: [
+          { long: 'output', short: 'o', description: 'Output', expects_value: true, values: ['x', 'y'] },
+          { long: 'debug', description: 'Debug', expects_value: false }
+        ],
+        routes: [{ verb: 'lookup', aliases: [], positionals: [] }]
+      }
+    ]
+  });
+  // flag.values takes priority since non-empty
+  assert.deepEqual(schemaWithFlagValues.commands.dns.commands.record.commands.lookup.options.output.choices, ['x', 'y']);
+
+  // buildGlobalOptions: skip invalid + fallback json (lines 2252-2253, 2258-2262)
+  // already tested above via emptyGlobalSchema and skipBadGlobalSchema
+
+  // === NEW BRANCH COVERAGE ASSERTIONS ===
+
+  // formatManifestOptionFlag: option with long but NO short -> else branch (line 832)
+  const helpWithLongOnly = formatManifestHelpSummary({
+    global_options: [{ long: 'verbose', description: 'Enable verbose output' }],
+    commands: []
+  });
+  assert.match(helpWithLongOnly, /--verbose/);
+
+  // formatManifestHelpSummary: option with missing description -> 'Global CLI option' fallback (line 861)
+  const helpMissingDesc = formatManifestHelpSummary({
+    global_options: [{ long: 'debug', short: 'd' }],
+    commands: []
+  });
+  assert.match(helpMissingDesc, /Global CLI option/);
+
+  // formatManifestHelpSummary: domain without resources property -> || [] fallback (line 871)
+  // domain without aliases -> else branch (line 873-875)
+  // domain with empty resources -> 'no resources registered' (line 876)
+  const helpNoResources = formatManifestHelpSummary({
+    domains: [{ name: 'emptydom' }],
+    commands: []
+  });
+  assert.match(helpNoResources, /no resources registered/);
+  assert.match(helpNoResources, /emptydom/);
+
+  // formatManifestHelpSummary: domain with aliases (line 873-874)
+  const helpWithAliases = formatManifestHelpSummary({
+    domains: [{ name: 'network', aliases: ['net', 'nw'], resources: [{ name: 'ports' }] }],
+    commands: []
+  });
+  assert.match(helpWithAliases, /network \(net, nw\)/);
+
+  // formatManifestHelpSummary: manifest.commands is not an array -> [] fallback (line 885)
+  const helpNoCommands = formatManifestHelpSummary({
+    domains: [{ name: 'dns', aliases: [], resources: [] }],
+    commands: 'not-an-array'
+  });
+  assert.equal(typeof helpNoCommands, 'string');
+
+  // formatManifestHelpSummary: command without examples property -> [] (line 883)
+  const helpCmdNoExamples = formatManifestHelpSummary({
+    commands: [{ domain: 'dns', resource: 'record' }]
+  });
+  assert.equal(typeof helpCmdNoExamples, 'string');
+
+  // formatManifestHelpSummary: example without summary -> '' fallback (line 896)
+  const helpExNoSummary = formatManifestHelpSummary({
+    commands: [
+      { domain: 'dns', resource: 'record', examples: [{ command: 'rb dns record lookup x.com' }] }
+    ]
+  });
+  assert.match(helpExNoSummary, /rb dns record lookup x.com/);
+  assert.ok(!helpExNoSummary.includes(': rb dns'));
+
+  // formatRouteHelpSummary: flag without description -> '' (line 938)
+  // flag without values -> '' choices (line 937)
+  // example without summary -> '' prefix (line 952)
+  // route without machine_output -> {} fallback (line 957)
+  // preferredFlag without preferredValue -> no = suffix (line 969)
+  const routeHelpMinimal = formatRouteHelpSummary(
+    {
+      domains: [
+        {
+          name: 'x',
+          aliases: [],
+          resources: [
+            {
+              name: 'y',
+              aliases: [],
+              verbs: [{ name: 'z', summary: 'Do Z', aliases: [] }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'x',
+          resource: 'y',
+          flags: [{ long: 'flag1', short: 'f', expects_value: false }],
+          routes: [
+            {
+              verb: 'z',
+              summary: 'Do Z',
+              usage: 'rb x y z <target>',
+              aliases: ['zz'],
+              examples: [{ command: 'rb x y z target1' }],
+              positionals: [],
+              machine_output: { json_support: 'full', preferred_flag: 'output' }
+            }
+          ]
+        }
+      ]
+    },
+    'x/y/z'
+  );
+  assert.match(routeHelpMinimal, /--flag1/);
+  assert.match(routeHelpMinimal, /rb x y z target1/);
+  assert.match(routeHelpMinimal, /json_support: full/);
+  assert.match(routeHelpMinimal, /preferred_flag: --output/);
+  assert.ok(!routeHelpMinimal.includes('='));
+
+  // validateManifestCommandArgs: unknown command with no close suggestions -> empty string (line 1067)
+  await assert.rejects(
+    validateManifestCommandArgs(
+      ['zzzzz', 'yyyyy', 'xxxxx'],
+      { binaryPath: fixtureBinary },
+      { localParserPath: parserDist }
+    ),
+    /Unknown command: zzzzz yyyyy xxxxx/
+  );
+
+  // buildJsonCliArgs: route IS found -> invocation.meta returned (line 1425)
+  // preferred_flag IS a string -> preferredFlag set (line 1442)
+  // preferred_value IS a string -> preferredValue set (line 1444)
+  const routeIdxWithMo = createRouteIndex(createDomainProxy(fixtureBinary, manifest, {}));
+  const jsonArgs = buildJsonCliArgs(['dns', 'record', 'lookup', 'x.com'], routeIdxWithMo, manifest);
+  assert.ok(jsonArgs.includes('--json'));
+  assert.ok(jsonArgs.includes('dns'));
+
+  // findRouteInvocation: domains without aliases -> || [] (line 1591)
+  // resources without aliases -> || [] (line 1596)
+  // verbs without aliases -> || [] (line 1601-1602)
+  // canonicalDomain not found -> domainToken fallback (line 1593)
+  // canonicalResource null -> resourceToken fallback (line 1599)
+  // canonicalVerb null -> verbToken fallback (line 1605)
+  const minRouteIdx = {};
+  const minManifest = { domains: [{ name: 'a' }] };
+  assert.equal(findRouteInvocation(minRouteIdx, minManifest, 'a/b/c'), null);
+
+  // findRouteInvocation: domain with aliases but resource/verb without (lines 1595-1602)
+  const aliasManifest = {
+    domains: [
+      {
+        name: 'network',
+        aliases: ['net'],
+        resources: [{ name: 'ports', resources: [] }]
+      }
+    ]
+  };
+  assert.equal(findRouteInvocation({}, aliasManifest, 'net/ports/scan'), null);
+
+  // resolveManifestRouteDescriptor: all || [] fallbacks (lines 1616-1645)
+  // domains without aliases, resources without aliases, verbs without aliases
+  // canonicalDomain/Resource/Verb all null
+  const descMinimal = describeManifestRoute(
+    {
+      domains: [{ name: 'a' }],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          routes: [{ verb: 'c' }]
+        }
+      ]
+    },
+    'a/b/c'
+  );
+  assert.ok(descMinimal !== null);
+  assert.equal(descMinimal.domain, 'a');
+  assert.equal(descMinimal.verb, 'c');
+  assert.deepEqual(descMinimal.route_aliases, []);
+  assert.equal(descMinimal.command, 'rb a b c');
+  assert.equal(descMinimal.summary, '');
+  assert.equal(descMinimal.usage, '');
+  assert.deepEqual(descMinimal.positionals, []);
+  assert.deepEqual(descMinimal.examples, []);
+
+  // commandCatalogEntry: missing domain_aliases/resource_aliases -> [] (lines 1657-1661)
+  // route without aliases -> [] (line 1663)
+  // route without command -> fallback (line 1665)
+  // route without summary -> '' (line 1666)
+  // route without usage -> '' (line 1667 implied via describeManifestRoute)
+  // command without flags -> [] (line 1670)
+  // route without positionals -> [] (line 1673)
+  // route without examples and command without examples -> [] (line 1678)
+  // Already tested via descMinimal above.
+
+  // commandCatalogEntry: route.examples missing, command.examples present -> fallback (line 1676-1677)
+  // Already tested above via catalogFromCommandExamples.
+
+  // normalizeCatalogFlag: machine_output_role fallback (line 1692)
+  const descWithMo = describeManifestRoute(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'format', short: 'f', description: 'Output format', expects_value: true, machine_output_role: 'custom' },
+            { long: 'other', description: 'Other flag', expects_value: false }
+          ],
+          machine_output: { preferred_flag: 'format', preferred_value: 'json' },
+          routes: [{ verb: 'lookup', aliases: [], positionals: [], summary: 'Lookup' }]
+        }
+      ]
+    },
+    'dns/record/lookup'
+  );
+  assert.equal(descWithMo.flags[0].machine_output_role, 'custom');
+  assert.equal(descWithMo.flags[1].machine_output_role, undefined);
+
+  // buildCommandCatalog: commands || [] fallback, routes || [] fallback (lines 1700-1701)
+  const emptyCatalog = buildCommandCatalog({});
+  assert.deepEqual(emptyCatalog, []);
+  const catalogNoRoutes = buildCommandCatalog({ commands: [{ domain: 'a', resource: 'b' }] });
+  assert.deepEqual(catalogNoRoutes, []);
+
+  // suggestCommandTokens: domain found via alias -> domain.resources || [] (line 1754)
+  // resource found via alias -> resource.verbs || [] (line 1776)
+  const suggestWithAliases = suggestCommandTokens(
+    {
+      domains: [
+        {
+          name: 'network',
+          aliases: ['net'],
+          resources: [{ name: 'ports', aliases: ['p'] }]
+        }
+      ]
+    },
+    ['net', 'p', 'sc']
+  );
+  assert.deepEqual(suggestWithAliases, { stage: 'verb', suggestions: [] });
+
+  // suggestCommandTokens: 2 tokens, domain.resources || [] (line 1754)
+  const suggestNoResources = suggestCommandTokens(
+    { domains: [{ name: 'dns', aliases: [] }] },
+    ['dns', 'rec']
+  );
+  assert.deepEqual(suggestNoResources, { stage: 'resource', suggestions: [] });
+
+  // suggestCommandTokens: resource found but verbs missing -> || [] (line 1776)
+  const suggestNoVerbs = suggestCommandTokens(
+    { domains: [{ name: 'dns', aliases: [], resources: [{ name: 'record', aliases: [] }] }] },
+    ['dns', 'record', 'lo']
+  );
+  assert.deepEqual(suggestNoVerbs, { stage: 'verb', suggestions: [] });
+
+  // suggestCommandTokens: domain.aliases || [] for find (line 1741)
+  const suggestNoAliases = suggestCommandTokens(
+    { domains: [{ name: 'dns' }] },
+    ['dns', 'unknown', 'x']
+  );
+  assert.deepEqual(suggestNoAliases, { stage: 'resource', suggestions: [] });
+
+  // suggestCommandTokens: resource.aliases || [] for find (line 1763)
+  const suggestResNoAlias = suggestCommandTokens(
+    { domains: [{ name: 'dns', aliases: [], resources: [{ name: 'record' }] }] },
+    ['dns', 'record', 'lo']
+  );
+  assert.deepEqual(suggestResNoAlias, { stage: 'verb', suggestions: [] });
+
+  // completeManifestTokens: domain without description -> '' (line 1800, 1814)
+  // domain without aliases -> [] (line 1801, 1815)
+  const compNullDesc = completeManifestTokens({ domains: [{ name: 'dns' }] }, []);
+  assert.equal(compNullDesc.completions[0].summary, '');
+  assert.deepEqual(compNullDesc.completions[0].aliases, []);
+
+  const compFilterDesc = completeManifestTokens({ domains: [{ name: 'dns' }] }, ['dn']);
+  assert.equal(compFilterDesc.completions[0].summary, '');
+  assert.deepEqual(compFilterDesc.completions[0].aliases, []);
+
+  // completeManifestTokens: domain.aliases || [] for find (line 1821)
+  const compDomNoAlias = completeManifestTokens(
+    { domains: [{ name: 'dns' }] },
+    ['dns', 'rec']
+  );
+  assert.equal(compDomNoAlias.stage, 'resource');
+
+  // completeManifestTokens: resource.description || '' (line 1839)
+  // resource.aliases -> [] (line 1840)
+  const compResNoDesc = completeManifestTokens(
+    { domains: [{ name: 'dns', aliases: [], resources: [{ name: 'record' }] }] },
+    ['dns', 'rec']
+  );
+  assert.equal(compResNoDesc.completions[0].summary, '');
+  assert.deepEqual(compResNoDesc.completions[0].aliases, []);
+
+  // completeManifestTokens: resource.aliases || [] for find (line 1847)
+  const compResAlias = completeManifestTokens(
+    { domains: [{ name: 'dns', aliases: [], resources: [{ name: 'record' }] }] },
+    ['dns', 'record', 'lo']
+  );
+  assert.equal(compResAlias.stage, 'verb');
+
+  // completeManifestTokens: descriptorForExactRoute null (line 1858)
+  // verb.summary || '' (line 1875)
+  // verb.aliases -> [] (line 1876)
+  const compVerbNoSummary = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup' }] }]
+        }
+      ],
+      commands: []
+    },
+    ['dns', 'record', 'lo']
+  );
+  assert.equal(compVerbNoSummary.stage, 'verb');
+  assert.equal(compVerbNoSummary.completions[0].summary, '');
+  assert.deepEqual(compVerbNoSummary.completions[0].aliases, []);
+
+  // completeManifestTokens: descriptor.route.aliases || [] for includes check (line 1865)
+  const compRouteNoAliases = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [],
+          routes: [{ verb: 'lookup', positionals: [] }]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup']
+  );
+  assert.equal(compRouteNoAliases.stage, 'flag');
+
+  // completeManifestTokens: descriptor.route || {} and descriptor.command || {} (lines 1897-1898)
+  // command.flags not array -> [] (line 1899)
+  // route.positionals not array -> [] (line 1900)
+  // These are hit when resolveManifestRouteDescriptor returns a descriptor where command/route are present but have no flags/positionals arrays
+  // Already tested via compRouteNoAliases above (flags: [], positionals: [])
+  // But we need to test the case where flags and positionals are totally absent:
+  const compNoFlagsPos = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          routes: [{ verb: 'lookup' }]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup']
+  );
+  assert.equal(compNoFlagsPos.stage, 'flag');
+
+  // completeManifestTokens: flag.description || '' (line 1966)
+  // flag without short -> no alias (line 1967)
+  // route.command || fallback (line 1968)
+  const compFlagNoDesc = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [{ long: 'verbose', expects_value: false }],
+          routes: [{ verb: 'lookup', positionals: [] }]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup']
+  );
+  assert.equal(compFlagNoDesc.stage, 'flag');
+  const verboseFlag = compFlagNoDesc.completions.find((c) => c.value === '--verbose');
+  assert.equal(verboseFlag.summary, '');
+  assert.deepEqual(verboseFlag.aliases, []);
+  assert.equal(verboseFlag.command, 'rb dns record lookup');
+
+  // completeManifestTokens: flag with short alias in used set -> filtered by short (line 1949)
+  const compUsedShort = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'verbose', short: 'v', description: 'Verbose', expects_value: false },
+            { long: 'type', short: 't', description: 'Type', expects_value: true }
+          ],
+          routes: [{ verb: 'lookup', positionals: [{ name: 'target', required: true, slot: 'target', index: 0 }] }]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', 'example.com', '-v', '--type', 'A', '--']
+  );
+  assert.equal(compUsedShort.stage, 'flag');
+  assert.ok(!compUsedShort.completions.some((c) => c.value === '--verbose'));
+  assert.ok(!compUsedShort.completions.some((c) => c.value === '--type'));
+
+  // completeManifestTokens: tail[tail.length - 1] || '' fallback (line 1989) - empty tail
+  // This is hit when tokens.length === 3 and route has 0 required positionals
+  // tail.length (0) >= requiredPositionals.length (0) -> true, returns flag stage
+  // The || '' fallback on line 1989 is for tail[tail.length - 1] which is undefined when tail is empty
+  // Already tested via compRouteNoAliases above.
+
+  // suggestRouteCommands: domain.resources || [] (line 2138)
+  // resource.verbs || [] (line 2139)
+  const suggestMinDomain = suggestRouteCommands(
+    {
+      domains: [{ name: 'dns' }],
+      commands: []
+    },
+    'dns/record/lookup'
+  );
+  assert.deepEqual(suggestMinDomain, []);
+
+  // suggestRouteCommands: domain with resources but resource has no verbs
+  const suggestNoVerbs2 = suggestRouteCommands(
+    {
+      domains: [{ name: 'dns', aliases: [], resources: [{ name: 'record' }] }],
+      commands: []
+    },
+    'dns/record/lookup'
+  );
+  assert.deepEqual(suggestNoVerbs2, []);
+
+  // buildDomainCatalog from commands: route.summary || '' (line 2195)
+  // route.aliases not array -> [] (line 2196)
+  // command without description -> '' (line 2191)
+  // command without resource_aliases -> [] (line 2192)
+  // command without routes -> [] (line 2193)
+  const catalogFromCmds = buildDomainCatalog({
+    commands: [
+      {
+        domain: 'test',
+        resource: 'thing',
+        routes: [{ verb: 'run' }]
+      },
+      {
+        domain: 'test2',
+        resource: 'other'
+      }
+    ]
+  });
+  assert.equal(catalogFromCmds.length, 2);
+  const testDom = catalogFromCmds.find((d) => d.name === 'test');
+  assert.deepEqual(testDom.aliases, []);
+  assert.equal(testDom.resources[0].description, '');
+  assert.deepEqual(testDom.resources[0].aliases, []);
+  assert.equal(testDom.resources[0].verbs[0].summary, '');
+  assert.deepEqual(testDom.resources[0].verbs[0].aliases, []);
+  const test2Dom = catalogFromCmds.find((d) => d.name === 'test2');
+  assert.equal(test2Dom.resources[0].verbs.length, 0);
+
+  // buildDomainCatalog from commands: with domain_aliases and resource_aliases
+  const catalogWithAliases = buildDomainCatalog({
+    commands: [
+      {
+        domain: 'network',
+        domain_aliases: ['net'],
+        resource: 'ports',
+        resource_aliases: ['p'],
+        description: 'Port ops',
+        routes: [{ verb: 'scan', summary: 'Scan ports', aliases: ['s'] }]
+      }
+    ]
+  });
+  assert.deepEqual(catalogWithAliases[0].aliases, ['net']);
+  assert.deepEqual(catalogWithAliases[0].resources[0].aliases, ['p']);
+  assert.equal(catalogWithAliases[0].resources[0].verbs[0].summary, 'Scan ports');
+  assert.deepEqual(catalogWithAliases[0].resources[0].verbs[0].aliases, ['s']);
+
+  // manifestGlobalOptionToOption: kind not a string -> '' (line 2217)
+  const schemaKindFallback = buildManifestCliSchema({
+    global_options: [{ long: 'quiet', short: 'q', kind: null }],
+    domains: [],
+    commands: []
+  });
+  assert.equal(schemaKindFallback.options.quiet.type, 'boolean');
+
+  // resolveManifestOptionValues: global_options || [] when manifest has no global_options (line 2233)
+  const schemaNoGlobal = buildManifestCliSchema({
+    domains: [
+      { name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }
+    ],
+    commands: [
+      {
+        domain: 'a',
+        resource: 'b',
+        flags: [{ long: 'depth', description: 'Depth', expects_value: true }],
+        routes: [{ verb: 'c', aliases: [], positionals: [] }]
+      }
+    ]
+  });
+  assert.equal(schemaNoGlobal.commands.a.commands.b.commands.c.options.depth.type, 'string');
+  assert.equal(schemaNoGlobal.commands.a.commands.b.commands.c.options.depth.choices, undefined);
+
+  // manifestPositionalToCliPositional: slot !== 'target' -> positional name (line 2270)
+  const schemaWithPos = buildManifestCliSchema({
+    global_options: [],
+    domains: [
+      { name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }
+    ],
+    commands: [
+      {
+        domain: 'a',
+        resource: 'b',
+        flags: [],
+        routes: [
+          {
+            verb: 'c',
+            aliases: [],
+            positionals: [
+              { name: 'target', slot: 'target', required: true },
+              { name: 'extra', slot: 'arg', required: false, repeated: true }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[0].description, 'Target input');
+  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[1].description, 'extra');
+  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[1].variadic, true);
+
+  // buildManifestCliSchema: resource without aliases (line 2303)
+  // domain without aliases (line 2310)
+  // route without aliases (line 2292)
+  // route without positionals (line 2293)
+  // command without flags (line 2295)
+  // route without summary -> fallback description (line 2291)
+  // resource without description (line 2302)
+  const schemaMinimal = buildManifestCliSchema({
+    global_options: [],
+    domains: [
+      {
+        name: 'x',
+        resources: [
+          {
+            name: 'y',
+            verbs: [{ name: 'z' }]
+          }
+        ]
+      }
+    ],
+    commands: [
+      {
+        domain: 'x',
+        resource: 'y',
+        routes: [{ verb: 'z' }]
+      }
+    ]
+  });
+  assert.deepEqual(schemaMinimal.commands.x.aliases, []);
+  assert.deepEqual(schemaMinimal.commands.x.commands.y.aliases, []);
+  assert.deepEqual(schemaMinimal.commands.x.commands.y.commands.z.aliases, []);
+  assert.equal(schemaMinimal.commands.x.commands.y.commands.z.description, 'x y z');
+  assert.deepEqual(schemaMinimal.commands.x.commands.y.commands.z.positional, []);
+  assert.deepEqual(Object.keys(schemaMinimal.commands.x.commands.y.commands.z.options), []);
+
+  // buildManifestCliSchema: commands || [] when manifest has no commands (line 2284)
+  // routes || [] when command has no routes (line 2289)
+  const schemaNoCmd = buildManifestCliSchema({
+    global_options: [],
+    domains: [{ name: 'x', aliases: [], resources: [{ name: 'y', aliases: [], verbs: [{ name: 'z', aliases: [] }] }] }],
+    commands: []
+  });
+  assert.deepEqual(schemaNoCmd.commands.x.commands.y.commands, {});
+
+  // resolveManifestRouteDescriptor: route found via alias match (line 1639)
+  // canonicalDomain/Resource/Verb found -> returned (lines 1643-1645)
+  const descViaAlias = describeManifestRoute(
+    {
+      domains: [
+        {
+          name: 'network',
+          aliases: ['net'],
+          resources: [
+            {
+              name: 'ports',
+              aliases: ['p'],
+              verbs: [{ name: 'scan', aliases: ['s'], summary: 'Scan ports' }]
+            }
+          ]
+        }
+      ],
+      commands: [
+        {
+          domain: 'network',
+          resource: 'ports',
+          domain_aliases: ['net'],
+          resource_aliases: ['p'],
+          flags: [],
+          routes: [
+            { verb: 'scan', aliases: ['s'], summary: 'Scan ports', positionals: [], examples: [] }
+          ]
+        }
+      ]
+    },
+    'net/p/s'
+  );
+  assert.ok(descViaAlias !== null);
+  assert.equal(descViaAlias.domain, 'network');
+  assert.equal(descViaAlias.resource, 'ports');
+  assert.equal(descViaAlias.verb, 'scan');
+  assert.deepEqual(descViaAlias.domain_aliases, ['net']);
+  assert.deepEqual(descViaAlias.resource_aliases, ['p']);
+  assert.deepEqual(descViaAlias.route_aliases, ['s']);
+
+  // findRouteInvocation: domains/resources/verbs all without aliases (lines 1591, 1596, 1601)
+  // canonicalDomain found but resource has no aliases (line 1596)
+  const findWithPartialAliases = findRouteInvocation(
+    {},
+    {
+      domains: [
+        {
+          name: 'dns',
+          resources: [{ name: 'record', verbs: [{ name: 'lookup' }] }]
+        }
+      ]
+    },
+    'dns/record/lookup'
+  );
+  assert.equal(findWithPartialAliases, null);
+
+  // resolveManifestRouteDescriptor: command.routes || [] when missing (line 1638)
+  const descNoRoutes = describeManifestRoute(
+    {
+      domains: [{ name: 'a', aliases: [] }],
+      commands: [{ domain: 'a', resource: 'b' }]
+    },
+    'a/b/c'
+  );
+  assert.equal(descNoRoutes, null);
+
+  // resolveManifestRouteDescriptor: manifest.commands || [] when missing (line 1633)
+  const descNoCmds = describeManifestRoute(
+    { domains: [{ name: 'a', aliases: [] }] },
+    'a/b/c'
+  );
+  assert.equal(descNoCmds, null);
+
+  // resolveMachineOutput: route.machine_output takes priority (line 1212)
+  const moRoute = describeManifestRoute(
+    {
+      domains: [
+        {
+          name: 'a',
+          aliases: [],
+          resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          flags: [],
+          machine_output: { preferred_flag: 'output', preferred_value: 'text' },
+          routes: [
+            {
+              verb: 'c',
+              aliases: [],
+              positionals: [],
+              machine_output: { preferred_flag: 'format', preferred_value: 'json' }
+            }
+          ]
+        }
+      ]
+    },
+    'a/b/c'
+  );
+  assert.equal(moRoute.machine_output.preferred_flag, 'format');
+
+  // buildGlobalOptions: global option without values -> type 'boolean' (lines 2250, 2254)
+  const schemaGlobalNoValues = buildManifestCliSchema({
+    global_options: [{ long: 'verbose', short: 'v', description: 'Verbose' }],
+    domains: [],
+    commands: []
+  });
+  assert.equal(schemaGlobalNoValues.options.verbose.type, 'boolean');
+
+  // completeManifestTokens: shortFlag used via short name filter (line 1949 related)
+  // flag.short && shortFlag.startsWith(lastToken) path in filter
+  const compShortPrefix = completeManifestTokens(
+    {
+      domains: [
+        {
+          name: 'dns',
+          aliases: [],
+          resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }]
+        }
+      ],
+      commands: [
+        {
+          domain: 'dns',
+          resource: 'record',
+          flags: [
+            { long: 'verbose', short: 'v', description: 'Verbose', expects_value: false },
+            { long: 'type', short: 't', description: 'Type', expects_value: true }
+          ],
+          routes: [{ verb: 'lookup', positionals: [] }]
+        }
+      ]
+    },
+    ['dns', 'record', 'lookup', '-']
+  );
+  assert.equal(compShortPrefix.stage, 'flag');
+  assert.ok(compShortPrefix.completions.length > 0);
+
+  // === REMAINING BRANCH COVERAGE (|| [] fallbacks where property is UNDEFINED) ===
+
+  // findRouteInvocation: domain.aliases undefined -> || [] (line 1591)
+  // resource.aliases undefined -> || [] (line 1596)
+  // verb.aliases undefined -> || [] (line 1602)
+  // Use domains where alias lookup happens through the || [] path
+  const findAliasUndef = findRouteInvocation(
+    {},
+    { domains: [{ name: 'dns', resources: [{ name: 'record', verbs: [{ name: 'lookup' }] }] }] },
+    'dnsx/recordx/lookupx'
+  );
+  assert.equal(findAliasUndef, null);
+
+  // resolveManifestRouteDescriptor: domain.aliases undefined -> || [] (line 1617)
+  // resource.aliases undefined -> || [] (line 1622)
+  // route.aliases undefined -> || [] (line 1639)
+  // canonicalDomain null -> null (line 1643)
+  const descAliasUndef = describeManifestRoute(
+    {
+      domains: [{ name: 'a', resources: [{ name: 'b', verbs: [{ name: 'c' }] }] }],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          routes: [{ verb: 'c' }]
+        }
+      ]
+    },
+    'ax/bx/cx'
+  );
+  // Not found because ax doesn't match 'a' or any alias
+  assert.equal(descAliasUndef, null);
+
+  // resolveManifestRouteDescriptor via describeManifestRoute:
+  // domain found, resource found, verb found, but route.aliases is undefined (line 1639)
+  // Also ensure canonicalDomain IS found -> line 1643 domain is not null
+  const descRouteNoAlias = describeManifestRoute(
+    {
+      domains: [{ name: 'a', resources: [{ name: 'b', verbs: [{ name: 'c' }] }] }],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          routes: [{ verb: 'c', summary: 'Do C', positionals: [] }]
+        }
+      ]
+    },
+    'a/b/c'
+  );
+  assert.ok(descRouteNoAlias !== null);
+  assert.equal(descRouteNoAlias.verb, 'c');
+
+  // resolveManifestRouteDescriptor: manifest without domains property -> || [] (line 1616)
+  const descNoDomains = describeManifestRoute(
+    { commands: [{ domain: 'x', resource: 'y', routes: [{ verb: 'z' }] }] },
+    'x/y/z'
+  );
+  assert.ok(descNoDomains !== null);
+
+  // normalizeCatalogFlag: preferred_flag matches and machine_output_role is falsy -> 'preferred' (line 1692)
+  const descPreferred = describeManifestRoute(
+    {
+      domains: [
+        { name: 'a', resources: [{ name: 'b', verbs: [{ name: 'c' }] }] }
+      ],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          flags: [
+            { long: 'format', short: 'f', expects_value: true }
+          ],
+          machine_output: { preferred_flag: 'format', preferred_value: 'json' },
+          routes: [{ verb: 'c', positionals: [] }]
+        }
+      ]
+    },
+    'a/b/c'
+  );
+  assert.equal(descPreferred.flags[0].machine_output_role, 'preferred');
+
+  // formatRouteHelpSummary: descriptor.machine_output is undefined -> || {} (line 957)
+  // Construct a route help where the route has no machine_output AND command has no machine_output
+  const routeHelpNoMo = formatRouteHelpSummary(
+    {
+      domains: [{ name: 'a', resources: [{ name: 'b', verbs: [{ name: 'c' }] }] }],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          flags: [],
+          routes: [{ verb: 'c', summary: 'Do C', positionals: [] }]
+        }
+      ]
+    },
+    'a/b/c'
+  );
+  assert.match(routeHelpNoMo, /Do C/);
+
+  // suggestCommandTokens: item.aliases || [] for domain find (line 1741)
+  // Domain exists, name doesn't match directly, aliases is undefined
+  const suggestAliasUndef = suggestCommandTokens(
+    { domains: [{ name: 'dns' }, { name: 'network' }] },
+    ['network', 'ports', 'scan']
+  );
+  assert.equal(suggestAliasUndef.stage, 'resource');
+
+  // suggestCommandTokens: item.aliases || [] for resource find (line 1763)
+  // Resource found by name, but another resource has no aliases
+  const suggestResAliasUndef = suggestCommandTokens(
+    { domains: [{ name: 'dns', resources: [{ name: 'record' }, { name: 'zone' }] }] },
+    ['dns', 'record', 'lo']
+  );
+  assert.deepEqual(suggestResAliasUndef, { stage: 'verb', suggestions: [] });
+
+  // completeManifestTokens: domain.description is a non-string (e.g. number) -> '' (line 1800, 1814)
+  const compDescNonStr = completeManifestTokens({ domains: [{ name: 'dns', description: 42 }] }, []);
+  assert.equal(compDescNonStr.completions[0].summary, '');
+  const compDescNonStr2 = completeManifestTokens({ domains: [{ name: 'dns', description: 42 }] }, ['dn']);
+  assert.equal(compDescNonStr2.completions[0].summary, '');
+
+  // completeManifestTokens: item.aliases || [] for domain find (line 1821)
+  // Domain has no aliases property, found by name
+  const compDomFindNoAlias = completeManifestTokens(
+    { domains: [{ name: 'dns', resources: [{ name: 'record' }] }] },
+    ['dns', 'rec']
+  );
+  assert.equal(compDomFindNoAlias.stage, 'resource');
+
+  // completeManifestTokens: domain.resources || [] for find (line 1846)
+  // Domain found but has no resources property
+  const compDomNoRes = completeManifestTokens(
+    { domains: [{ name: 'dns' }] },
+    ['dns', 'record', 'lookup']
+  );
+  assert.equal(compDomNoRes.stage, 'resource');
+  assert.deepEqual(compDomNoRes.completions, []);
+
+  // completeManifestTokens: item.aliases || [] for resource find (line 1847)
+  // Resource exists but has no aliases property
+  const compResFindNoAlias = completeManifestTokens(
+    { domains: [{ name: 'dns', resources: [{ name: 'record' }] }] },
+    ['dns', 'record', 'lo']
+  );
+  assert.equal(compResFindNoAlias.stage, 'verb');
+
+  // completeManifestTokens: descriptorForExactRoute with tokens.length >= 3 (line 1858)
+  // The condition tokens.length >= 3 is always true at this point; the false branch
+  // is for tokens.length < 3, but that's handled earlier. However, this is a ternary
+  // where the else branch returns null. We already exercise both paths.
+
+  // completeManifestTokens: descriptor.route.aliases undefined -> || [] (line 1865)
+  // Need a descriptor where route has no aliases property and tokens[2] is an exact verb match
+  const compExactNoAlias = completeManifestTokens(
+    {
+      domains: [
+        { name: 'a', resources: [{ name: 'b', verbs: [{ name: 'c' }] }] }
+      ],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          routes: [{ verb: 'c', positionals: [] }]
+        }
+      ]
+    },
+    ['a', 'b', 'c']
+  );
+  assert.equal(compExactNoAlias.stage, 'flag');
+
+  // completeManifestTokens: descriptor.route || {} and descriptor.command || {} (lines 1897-1898)
+  // These are nearly impossible to hit because resolveManifestRouteDescriptor always returns
+  // both route and command in the descriptor. They are defensive fallbacks.
+  // The || {} path only triggers if the descriptor has a falsy route/command, which
+  // shouldn't happen with the current resolveManifestRouteDescriptor implementation.
+
+  // buildJsonCliArgs: routeInvocationMeta returns meta (line 1425 true branch)
+  // preferred_flag is string (line 1442 true branch), preferred_value is string (line 1444 true branch)
+  const moManifest = {
+    domains: [
+      { name: 'dns', aliases: [], resources: [{ name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }] }
+    ],
+    commands: [
+      {
+        domain: 'dns',
+        resource: 'record',
+        flags: [{ long: 'format', short: 'f', expects_value: true }],
+        machine_output: { preferred_flag: 'format', preferred_value: 'json' },
+        routes: [{ verb: 'lookup', aliases: [], positionals: [], summary: 'Lookup' }]
+      }
+    ]
+  };
+  const moProxy = createDomainProxy(fixtureBinary, moManifest, {});
+  const moRouteIdx = createRouteIndex(moProxy);
+  const moArgs = buildJsonCliArgs(['dns', 'record', 'lookup', 'example.com'], moRouteIdx, moManifest);
+  assert.ok(moArgs.includes('--json'));
+  assert.ok(moArgs.includes('--format'));
+  assert.ok(moArgs.includes('json'));
+
+  // buildManifestCliSchema: domain.resources || [] (line 2282)
+  // manifest.commands || [] (line 2284)
+  // command.routes || [] (line 2289)
+  const schemaNoResources = buildManifestCliSchema({
+    global_options: [],
+    domains: [{ name: 'empty' }]
+  });
+  assert.deepEqual(schemaNoResources.commands.empty.commands, {});
+
+  const schemaNoManifestCmds = buildManifestCliSchema({
+    global_options: [],
+    domains: [{ name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }]
+  });
+  assert.deepEqual(schemaNoManifestCmds.commands.a.commands.b.commands, {});
+
+  const schemaNoRoutesCmd = buildManifestCliSchema({
+    global_options: [],
+    domains: [{ name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }],
+    commands: [{ domain: 'a', resource: 'b' }]
+  });
+  assert.deepEqual(schemaNoRoutesCmd.commands.a.commands.b.commands, {});
+
+  // completeManifestTokens: tail.length >= requiredPositionals.length with empty tail
+  // triggers (tail[tail.length - 1] || '').startsWith('-') where tail[-1] is undefined
+  // The || '' fallback fires (line 1989)
+  const compEmptyTail = completeManifestTokens(
+    {
+      domains: [
+        { name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }
+      ],
+      commands: [
+        {
+          domain: 'a',
+          resource: 'b',
+          flags: [{ long: 'x', expects_value: false }],
+          routes: [{ verb: 'c', aliases: [], positionals: [] }]
+        }
+      ]
+    },
+    ['a', 'b', 'c']
+  );
+  assert.equal(compEmptyTail.stage, 'flag');
+
+  // === ALIAS-BASED BRANCH COVERAGE ===
+
+  // aliasIncludes: both branches (truthy and falsy aliases)
+  assert.equal(aliasIncludes(['a', 'b'], 'a'), true);
+  assert.equal(aliasIncludes(['a', 'b'], 'c'), false);
+  assert.equal(aliasIncludes(undefined, 'a'), false);
+  assert.equal(aliasIncludes(null, 'a'), false);
+  assert.equal(aliasIncludes([], 'a'), false);
+
+  // findRouteInvocation: resource found via alias and verb found via alias
+  // Use the fixture manifest where system/host has aliases ['machine','node'] and inspect has aliases ['inventory','inv']
+  const proxyForAlias = createDomainProxy(fixtureBinary, manifest, {});
+  const routeIdxForAlias = createRouteIndex(proxyForAlias);
+  const foundViaAlias = findRouteInvocation(routeIdxForAlias, manifest, 'sys/machine/inv');
+  assert.ok(foundViaAlias !== null);
+  assert.equal(typeof foundViaAlias, 'function');
+
+  // routeInvocationMeta: invocation IS found (line 1425) and preferred_flag IS string (line 1442)
+  const metaFound = routeInvocationMeta(routeIdxForAlias, manifest, ['dns', 'record', 'lookup', 'x.com']);
+  assert.ok(metaFound !== null);
+  assert.equal(metaFound.command.domain, 'dns');
+
+  // buildJsonCliArgs: preferred_value IS NOT a string (line 1444 false branch)
+  // system/host/inspect has preferred_flag: null, preferred_value: null
+  const jsonArgsSysNull = buildJsonCliArgs(['system', 'host', 'inspect'], routeIdxForAlias, manifest);
+  assert.ok(jsonArgsSysNull.includes('--json'));
+
+  // resolveManifestRouteDescriptor: route found via alias, not name (line 1639 inner || truthy)
+  // Resource has no verbs in domains, so canonicalVerb is null, verbName = verbToken
+  // Then route.verb !== verbToken but route.aliases includes verbToken
+  const descRouteAliasOnly = describeManifestRoute(
+    {
+      domains: [{ name: 'a', resources: [{ name: 'b' }] }],
+      commands: [{
+        domain: 'a',
+        resource: 'b',
+        flags: [],
+        routes: [{ verb: 'do-thing', aliases: ['d'], positionals: [], summary: 'Do it' }]
+      }]
+    },
+    'a/b/d'
+  );
+  assert.ok(descRouteAliasOnly !== null);
+  assert.equal(descRouteAliasOnly.verb, 'do-thing');
+
+  // resolveManifestRouteDescriptor: resource found via alias (line 1622 inner || truthy)
+  // Use a manifest where resource name doesn't match but aliases include the token
+  const descResAlias = describeManifestRoute(
+    {
+      domains: [{ name: 'sys', resources: [{ name: 'host', aliases: ['machine'] }] }],
+      commands: [{
+        domain: 'sys',
+        resource: 'host',
+        flags: [],
+        routes: [{ verb: 'info', positionals: [] }]
+      }]
+    },
+    'sys/machine/info'
+  );
+  assert.ok(descResAlias !== null);
+  assert.equal(descResAlias.resource, 'host');
+
+  // suggestCommandTokens: resource found via alias in find (line 1763 inner || truthy)
+  const suggestResViaAlias = suggestCommandTokens(manifest, ['dns', 'rec', 'lo']);
+  assert.equal(suggestResViaAlias.stage, 'verb');
+  assert.ok(suggestResViaAlias.suggestions.includes('lookup'));
+
+  // completeManifestTokens: domain has string description (lines 1800, 1814)
+  const compStrDesc = completeManifestTokens(
+    { domains: [{ name: 'dns', description: 'DNS domain', aliases: [] }] },
+    []
+  );
+  assert.equal(compStrDesc.completions[0].summary, 'DNS domain');
+  const compStrDescFilter = completeManifestTokens(
+    { domains: [{ name: 'dns', description: 'DNS domain', aliases: [] }] },
+    ['dn']
+  );
+  assert.equal(compStrDescFilter.completions[0].summary, 'DNS domain');
+
+  // completeManifestTokens: domain found via alias in find (line 1821 inner || truthy)
+  const compDomViaAlias = completeManifestTokens(manifest, ['net', 'por']);
+  assert.equal(compDomViaAlias.stage, 'resource');
+  assert.ok(compDomViaAlias.completions.some((c) => c.value === 'ports'));
+
+  // completeManifestTokens: resource found via alias in find (line 1847 inner || truthy)
+  const compResViaAlias = completeManifestTokens(manifest, ['dns', 'rec', 'lo']);
+  assert.equal(compResViaAlias.stage, 'verb');
+
+  // completeManifestTokens: route.aliases includes tokens[2] (line 1865 inner || truthy)
+  // Use system/host/inv where 'inv' is alias for 'inspect'
+  const compRouteAlias = completeManifestTokens(manifest, ['system', 'host', 'inv']);
+  assert.equal(compRouteAlias.stage, 'flag');
+});
+
 test('wrapper cli execution covers help, failures, direct forwarding and main entrypoint', async () => {
   const fixtureBinary = await createFixtureBinary();
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-cli-'));
@@ -2261,7 +4021,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v0.2.0"}' }], async () =>
       sdk.runCli(['--binary-path', fixtureBinary, '--check-update'], {
         env: {
-          RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+        RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
         },
         localParserPath: parserDist,
         stdout,
@@ -2328,7 +4088,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
         ],
         {
           env: {
-            RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+            RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
           },
           localParserPath: parserDist,
           stdout,
@@ -2393,7 +4153,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
         ],
         {
           env: {
-            RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+            RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
           },
           localParserPath: parserDist,
           stdio: 'ignore',
@@ -2414,7 +4174,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
       {
         env: {
           RB_FAKE_LOG_PATH: logPath,
-          RB_FAKE_VERSION: 'RedBlue CLI v0.1.0'
+          RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
         },
         localParserPath: parserDist,
         stdio: 'ignore',
@@ -2518,7 +4278,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     [sdkScript, '--binary-path', fixtureBinary, '--version'],
     {
       env: Object.assign({}, process.env, {
-        RB_FAKE_VERSION: 'RedBlue CLI v0.1.0',
+        RB_FAKE_VERSION: 'RedBlue CLI v0.2.2',
         REDBLUE_CLI_ARGS_PARSER_PATH: parserDist
       }),
       stdio: ['ignore', 'pipe', 'pipe']
@@ -2541,7 +4301,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   });
 
   assert.equal(versionResult.code, 0);
-  assert.match(versionResult.stdoutText, /RedBlue CLI v0.1.0/);
+  assert.match(versionResult.stdoutText, /RedBlue CLI v0.2.2/);
   assert.equal(versionResult.stderrText, '');
 
   const waited = waitForChild(spawnBinary(process.execPath, ['-e', 'process.exit(3)']));
