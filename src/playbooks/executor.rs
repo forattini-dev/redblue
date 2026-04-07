@@ -1,10 +1,12 @@
 use crate::crypto::uuid::Uuid;
+use crate::json;
 use crate::playbooks::template::TemplateEngine;
 use crate::playbooks::{
   Assertion, AssertionOperator, AssertionResult, EvidenceType, Playbook, PlaybookContext,
   PlaybookExecutionResult, PlaybookStep, StepCondition, StepExecutionResult, StepFailureAction,
 };
 use crate::scripts::{builtin, ScriptContext, ScriptRunner};
+use crate::serde_json;
 use crate::storage::segments::actions::{
   ActionOutcome, ActionRecord, ActionSource, ActionType, RecordPayload, Target,
 };
@@ -542,7 +544,7 @@ impl PlaybookExecutor {
       source,
       target,
       action_type,
-      RecordPayload::Custom(Vec::new()), // Steps don't have structured payloads yet
+      RecordPayload::Custom(step_action_payload(step, context, duration_ms)),
       outcome,
     );
 
@@ -1079,6 +1081,31 @@ impl PlaybookExecutor {
   }
 }
 
+fn step_action_payload(
+  step: &PlaybookStep,
+  context: &PlaybookContext,
+  duration_ms: u64,
+) -> Vec<u8> {
+  let payload = json!({
+    "step_number": step.number,
+    "step_name": step.name,
+    "phase": step.phase.as_str(),
+    "description": step.description,
+    "commands": step.commands,
+    "command_count": step.commands.len(),
+    "mitre_technique": step.mitre_technique,
+    "parallel_group": step.parallel_group,
+    "target": context.target,
+    "additional_targets": context.additional_targets,
+    "dry_run": context.dry_run,
+    "allow_intrusive": context.allow_intrusive,
+    "duration_ms": duration_ms,
+    "session_id": context.session_id,
+  });
+
+  serde_json::to_vec(&payload).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -1176,6 +1203,17 @@ mod tests {
       if let ActionSource::Playbook { id, .. } = &action.source {
         assert_eq!(*id, run_id);
       }
+    }
+
+    match &executor.actions()[0].payload {
+      RecordPayload::Custom(data) => {
+        let payload: crate::serde_json::Value =
+          crate::serde_json::from_slice(data).expect("step action payload should be valid json");
+        assert_eq!(payload["step_name"], json!("Scan Step"));
+        assert_eq!(payload["phase"], json!("discovery"));
+        assert_eq!(payload["dry_run"], json!(true));
+      }
+      other => panic!("expected custom payload, got {:?}", other),
     }
   }
 
