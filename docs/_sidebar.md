@@ -65,6 +65,7 @@
   - [Reverse Shells](/domains/exploit/02-shells.md)
   - [Lateral Movement](/domains/exploit/03-lateral.md)
   - [Persistence](/domains/exploit/04-persist.md)
+  - [Phishing & Harvesting](/domains/exploit/06-phishing.md)
 
 - **access**
   - [Overview](/domains/access/00-overview.md)
@@ -131,6 +132,7 @@
   - [JavaScript SDK](/guides/javascript-sdk.md)
   - [Netcat Ultimate](/guides/netcat-ultimate.md)
   - [Passive Fingerprinting](/guides/passive-fingerprinting.md)
+  - [Phishing & Credential Harvesting](/guides/phishing-credential-harvesting.md)
   - [UI Graphs](/guides/ui-graphs-integration.md)
   - [Troubleshooting](/guides/troubleshooting.md)
   - [vs Traditional Tools](/guides/vs-traditional-tools.md)
