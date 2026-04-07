@@ -33,24 +33,35 @@ impl Harvester {
     }
   }
 
-  /// Harvest OSINT data for a domain
+  /// Harvest OSINT data for a domain (parallel source queries).
+  ///
+  /// crt.sh lookup and public source search run concurrently since they hit
+  /// different external APIs.  Email pattern generation is CPU-only and runs
+  /// inline.
   pub fn harvest(&self, domain: &str) -> Result<HarvestResult, String> {
     let mut emails = HashSet::new();
     let mut subdomains = HashSet::new();
     let ips = HashSet::new();
     let mut urls = HashSet::new();
 
-    // 1. Search crt.sh for subdomains and emails
-    if let Ok((subs, addrs)) = self.search_crtsh(domain) {
+    // Run network-bound sources in parallel
+    let (crtsh_result, public_result) = std::thread::scope(|s| {
+      let crtsh = s.spawn(|| self.search_crtsh(domain));
+      let public = s.spawn(|| self.search_public_sources(domain));
+      (crtsh.join().unwrap(), public.join().unwrap())
+    });
+
+    // 1. crt.sh results
+    if let Ok((subs, addrs)) = crtsh_result {
       subdomains.extend(subs);
       emails.extend(addrs);
     }
 
-    // 2. Check common email patterns
+    // 2. Common email patterns (CPU-only, instant)
     emails.extend(self.generate_common_emails(domain));
 
-    // 3. Extract from public sources
-    if let Ok((found_emails, found_urls)) = self.search_public_sources(domain) {
+    // 3. Public source results
+    if let Ok((found_emails, found_urls)) = public_result {
       emails.extend(found_emails);
       urls.extend(found_urls);
     }

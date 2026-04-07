@@ -130,14 +130,20 @@ impl TlsScanner {
     Self { timeout }
   }
 
-  /// Scan all TLS protocols and ciphers
+  /// Scan all TLS protocols and ciphers (parallel protocol probes).
+  ///
+  /// Each protocol version (SSLv3, TLS 1.0-1.3) is probed concurrently since
+  /// they require separate TCP handshakes.  Capped at 3 concurrent to avoid
+  /// triggering IDS alerts for rapid TLS scanning.
   pub fn scan_all(&self, host: &str, port: u16) -> Result<Vec<ProtocolScanResult>, String> {
-    let mut results = Vec::new();
+    use crate::modules::common::parallel;
 
-    for version in TlsVersion::all_versions() {
-      let result = self.scan_protocol(host, port, version)?;
-      results.push(result);
-    }
+    let versions = TlsVersion::all_versions();
+    let results: Vec<ProtocolScanResult> = parallel::map(3, &versions, |version| {
+      self.scan_protocol(host, port, *version)
+    })
+    .into_iter()
+    .collect::<Result<Vec<_>, _>>()?;
 
     // Emit synergy events for findings
     let target = format!("{}:{}", host, port);

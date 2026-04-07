@@ -864,39 +864,55 @@ impl NetworkDiscovery {
     self
   }
 
-  /// Discover hosts on local network using multiple methods
+  /// Discover hosts on local network using multiple methods (parallel).
+  ///
+  /// NetBIOS scan, ping sweep, and mDNS discovery run concurrently since
+  /// they use different protocols and don't interfere with each other.
   pub fn discover_subnet(&self, network: Ipv4Addr, mask_bits: u8) -> Vec<DiscoveredHost> {
-    let mut hosts: HashMap<Ipv4Addr, DiscoveredHost> = HashMap::new();
+    let hosts: Mutex<HashMap<Ipv4Addr, DiscoveredHost>> = Mutex::new(HashMap::new());
+    let timeout = self.timeout;
 
-    // 1. NetBIOS scan
-    let netbios = NetBiosScanner::new().with_timeout(self.timeout);
-    for (ip, name) in netbios.scan_subnet(network, mask_bits) {
-      let host = hosts.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
-      host.netbios_name = Some(name.clone());
-      host.hostname = Some(name);
-    }
-
-    // 2. ICMP ping sweep (TCP fallback)
-    let ping_hosts = self.ping_sweep(network, mask_bits);
-    for ip in ping_hosts {
-      hosts.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
-    }
-
-    // 3. mDNS discovery (for local services)
-    let mdns = MdnsScanner::new().with_timeout(self.timeout);
-    let services = mdns.discover_all();
-    for service in services {
-      // Extract IP from service name if possible
-      if let Some(ip_str) = service.name.split('@').nth(1) {
-        if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
-          let host = hosts.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
-          host.services.push(service);
+    std::thread::scope(|s| {
+      // 1. NetBIOS scan
+      let hosts_ref = &hosts;
+      s.spawn(move || {
+        let netbios = NetBiosScanner::new().with_timeout(timeout);
+        for (ip, name) in netbios.scan_subnet(network, mask_bits) {
+          let mut h = hosts_ref.lock().unwrap();
+          let host = h.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
+          host.netbios_name = Some(name.clone());
+          host.hostname = Some(name);
         }
-      }
-    }
+      });
 
-    // Sort by IP
-    let mut result: Vec<_> = hosts.into_values().collect();
+      // 2. ICMP/TCP ping sweep (already threaded internally)
+      let hosts_ref = &hosts;
+      s.spawn(move || {
+        let ping_hosts = self.ping_sweep(network, mask_bits);
+        let mut h = hosts_ref.lock().unwrap();
+        for ip in ping_hosts {
+          h.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
+        }
+      });
+
+      // 3. mDNS discovery
+      let hosts_ref = &hosts;
+      s.spawn(move || {
+        let mdns = MdnsScanner::new().with_timeout(timeout);
+        let services = mdns.discover_all();
+        let mut h = hosts_ref.lock().unwrap();
+        for service in services {
+          if let Some(ip_str) = service.name.split('@').nth(1) {
+            if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
+              let host = h.entry(ip).or_insert_with(|| DiscoveredHost::new(ip));
+              host.services.push(service);
+            }
+          }
+        }
+      });
+    });
+
+    let mut result: Vec<_> = hosts.into_inner().unwrap().into_values().collect();
     result.sort_by_key(|h| h.ip);
     result
   }

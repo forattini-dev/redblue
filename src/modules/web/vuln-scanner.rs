@@ -65,41 +65,43 @@ impl WebScanner {
     }
   }
 
-  /// Run vulnerability scan
+  /// Run vulnerability scan (passive checks run in parallel).
+  ///
+  /// The 5 passive check categories (sensitive files, security headers,
+  /// directory listings, admin panels, info disclosure) are independent
+  /// HTTP probes that can run concurrently.  Concurrency capped at 3 to
+  /// avoid triggering WAF rate-limits on a single target.
   pub fn scan(&self, url: &str) -> Result<ScanResult, String> {
     let start = std::time::Instant::now();
-    let mut findings = Vec::new();
 
-    // Normalize URL (remove trailing slash)
     let base_url = if url.ends_with('/') {
       url.trim_end_matches('/').to_string()
     } else {
       url.to_string()
     };
 
-    // 1. Check for sensitive files
-    findings.extend(self.check_sensitive_files(&base_url));
+    // Run all 5 passive checks in parallel (max 3 concurrent)
+    type CheckFn<'a> = Box<dyn Fn() -> Vec<Finding> + Send + Sync + 'a>;
+    let checks: Vec<CheckFn> = vec![
+      Box::new(|| self.check_sensitive_files(&base_url)),
+      Box::new(|| self.check_security_headers(&base_url)),
+      Box::new(|| self.check_directory_listings(&base_url)),
+      Box::new(|| self.check_admin_panels(&base_url)),
+      Box::new(|| self.check_info_disclosure(&base_url)),
+    ];
 
-    // 2. Check for security headers
-    findings.extend(self.check_security_headers(&base_url));
+    let mut findings: Vec<Finding> = {
+      use crate::modules::common::parallel;
+      parallel::map(3, &checks, |check| check())
+        .into_iter()
+        .flatten()
+        .collect()
+    };
 
-    // 3. Check for directory listings
-    findings.extend(self.check_directory_listings(&base_url));
-
-    // 4. Check for common admin panels
-    findings.extend(self.check_admin_panels(&base_url));
-
-    // 5. Check for information disclosure
-    findings.extend(self.check_info_disclosure(&base_url));
-
-    // Sort findings by severity
     findings.sort_by(|a, b| {
-      let order_a = Self::severity_order(&a.severity);
-      let order_b = Self::severity_order(&b.severity);
-      order_a.cmp(&order_b)
+      Self::severity_order(&a.severity).cmp(&Self::severity_order(&b.severity))
     });
 
-    // Emit events for each finding (synergy integration)
     Self::emit_finding_events(&base_url, &findings);
 
     Ok(ScanResult {

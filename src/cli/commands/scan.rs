@@ -856,8 +856,36 @@ impl ScanCommand {
       .parse::<u64>()
       .map_err(|_| "Invalid timeout value")?;
 
-    // Scan each alive host
-    for (idx, host_ip) in alive_hosts.iter().enumerate() {
+    // Scan alive hosts in parallel (max 4 hosts concurrently).
+    // Each host's port scan is already internally threaded, so we add a
+    // second level of parallelism across hosts with a staggered start
+    // to avoid a thundering herd of SYN probes.
+    use crate::modules::common::parallel;
+    use std::sync::Mutex;
+
+    let host_results: Mutex<Vec<(usize, Ipv4Addr, Vec<PortScanResult>)>> =
+      Mutex::new(Vec::new());
+
+    parallel::run_with_jitter(4, 2000, &alive_hosts, |host_ip| {
+      let scanner = PortScanner::new(IpAddr::V4(**host_ip))
+        .with_threads(threads)
+        .with_timeout(timeout);
+
+      let results = match preset {
+        "common" => scanner.scan_common(),
+        "web" => scanner.scan_ports(&[80, 443, 8080, 8443, 3000, 5000]),
+        "full" => scanner.scan_range(1, 65535),
+        _ => return,
+      };
+
+      let idx = alive_hosts.iter().position(|h| h == *host_ip).unwrap_or(0);
+      host_results.lock().unwrap().push((idx, **host_ip, results));
+    });
+
+    let mut all_host_results = host_results.into_inner().unwrap();
+    all_host_results.sort_by_key(|(idx, _, _)| *idx);
+
+    for (idx, host_ip, results) in &all_host_results {
       println!();
       println!(
         "[{}/{}] Scanning {}...",
@@ -866,16 +894,7 @@ impl ScanCommand {
         host_ip
       );
 
-      let scanner = PortScanner::new(IpAddr::V4(*host_ip))
-        .with_threads(threads)
-        .with_timeout(timeout);
-
-      let results = match preset {
-        "common" => scanner.scan_common(),
-        "web" => scanner.scan_ports(&[80, 443, 8080, 8443, 3000, 5000]),
-        "full" => scanner.scan_range(1, 65535),
-        _ => return Err(format!("Unknown preset: {}", preset)),
-      };
+      let results = results;
 
       let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
 
