@@ -35,7 +35,7 @@ redblue://category/resource[/parameter]
 **Response:**
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.2",
   "build": "release",
   "capabilities": ["network", "web", "recon", "intel"],
   "tools_count": 100,
