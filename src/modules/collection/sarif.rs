@@ -61,7 +61,7 @@ impl SarifFormatter {
             ("name".to_string(), JsonValue::String("redblue".to_string())),
             (
               "version".to_string(),
-              JsonValue::String("0.1.0".to_string()),
+              JsonValue::String(crate::version::current_version().to_string()),
             ),
           ]),
         )]),
