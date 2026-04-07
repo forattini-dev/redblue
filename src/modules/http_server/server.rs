@@ -365,13 +365,14 @@ fn handle_connection(
   stats.requests_total.fetch_add(1, Ordering::Relaxed);
 
   // Parse request
-  let request = match parse_request(&mut stream) {
+  let mut request = match parse_request(&mut stream) {
     Ok(req) => req,
     Err(e) => {
       // If we can't even parse headers, likely garbage or SSL handshake attempt on plain HTTP
       return Err(e);
     }
   };
+  request.peer_addr = Some(addr);
 
   if config.log_requests {
     eprintln!(
@@ -536,6 +537,7 @@ pub struct HttpRequest {
   pub version: String,
   pub headers: HashMap<String, String>,
   pub body: Vec<u8>,
+  pub peer_addr: Option<SocketAddr>,
 }
 
 /// HTTP response
@@ -612,6 +614,7 @@ fn parse_request(stream: &mut TcpStream) -> io::Result<HttpRequest> {
     version,
     headers,
     body,
+    peer_addr: None,
   })
 }
 
