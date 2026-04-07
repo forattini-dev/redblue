@@ -28,6 +28,7 @@
 //! - `data-exfiltration` - Data extraction methods
 
 mod active_directory;
+mod binary_exploitation;
 mod chains;
 mod collection;
 mod ctf;
@@ -42,6 +43,7 @@ use super::types::*;
 
 // Re-export submodule functions
 pub use active_directory::{ad_enumeration, ad_persistence, kerberos_attacks, pkinit_exploitation};
+pub use binary_exploitation::{got_hijacking, ret2dlresolve};
 pub use chains::{
   ad_compromise_chain, all_chains, full_assessment_chain, get_chain, web_exploitation_chain,
 };
@@ -111,6 +113,9 @@ pub fn all_playbooks() -> Vec<Playbook> {
     // CTF (NEW)
     ctf_web_challenge(),
     ctf_crypto_challenge(),
+    // Binary Exploitation
+    got_hijacking(),
+    ret2dlresolve(),
   ]
 }
 
