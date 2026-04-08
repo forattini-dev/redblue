@@ -595,7 +595,6 @@ fn preview_payload(build: &PentestReportBuild, target: &str) -> Value {
   let recommendations: Vec<_> = preview
     .top_recommendations
     .iter()
-    .cloned()
     .map(|rec| {
       json!({
         "title": rec.title.clone(),

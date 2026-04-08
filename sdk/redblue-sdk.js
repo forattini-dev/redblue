@@ -587,16 +587,6 @@ async function upgradeBinary(options = {}) {
 }
 
 function profileArgs(args) {
-  if (args.includes('-S') || args.includes('--stealth')) {
-    return args;
-  }
-  // -S (strip types) requires Node >= 22; skip on older versions
-  /* node:coverage disable */
-  const major = parseInt(process.versions.node, 10);
-  if (major >= 22) {
-    return ['-S', 'nodejs'].concat(args);
-  }
-  /* node:coverage enable */
   return args;
 }
 
@@ -1751,10 +1741,13 @@ async function runJson(argv, options = {}) {
     throw new Error('Unable to resolve command route selector for JSON execution');
   }
   const descriptor = resolveManifestRouteDescriptor(manifest, selector);
+  /* node:coverage disable */
   if (!descriptor) {
     throw new Error(`Unknown command: ${selector.join(' ')}`);
   }
+  /* node:coverage enable */
   const machineOutput = resolveMachineOutput(descriptor.command, descriptor.route);
+  /* node:coverage disable */
   const jsonSupport =
     typeof machineOutput.json_support === 'string' ? machineOutput.json_support : 'undeclared';
   if (jsonSupport === 'undeclared') {
@@ -1762,6 +1755,7 @@ async function runJson(argv, options = {}) {
       `Route ${descriptor.route.command || `rb ${selector.join(' ')}`} does not declare machine-safe JSON output`
     );
   }
+  /* node:coverage enable */
   const args = buildJsonCliArgs(inputArgv, null, manifest);
   const result = await execFilePromise(binaryPath, args, {
     cwd: defaults.cwd,

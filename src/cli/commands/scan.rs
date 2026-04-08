@@ -896,8 +896,6 @@ impl ScanCommand {
         host_ip
       );
 
-      let results = results;
-
       let open_ports: Vec<_> = results.iter().filter(|r| r.is_open).collect();
 
       if open_ports.is_empty() {
