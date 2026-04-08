@@ -70,9 +70,9 @@ impl Default for MachineOutputMetadata {
       global_flag: "json",
       preferred_flag: None,
       preferred_value: None,
-      json_support: JsonSupport::Undeclared,
-      stdout_policy: StdoutPolicy::Mixed,
-      stderr_policy: StderrPolicy::Mixed,
+      json_support: JsonSupport::BestEffort,
+      stdout_policy: StdoutPolicy::JsonOnlyWhenRequested,
+      stderr_policy: StderrPolicy::DiagnosticsOnly,
     }
   }
 }
@@ -83,9 +83,9 @@ impl MachineOutputMetadata {
       global_flag: "json",
       preferred_flag: None,
       preferred_value: None,
-      json_support: JsonSupport::Undeclared,
-      stdout_policy: StdoutPolicy::Mixed,
-      stderr_policy: StderrPolicy::Mixed,
+      json_support: JsonSupport::BestEffort,
+      stdout_policy: StdoutPolicy::JsonOnlyWhenRequested,
+      stderr_policy: StderrPolicy::DiagnosticsOnly,
     }
   }
 
