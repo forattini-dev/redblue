@@ -1,4 +1,5 @@
 pub mod aliases;
+pub mod args;
 pub mod commands;
 pub mod format;
 pub mod output;
