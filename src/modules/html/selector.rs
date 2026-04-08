@@ -169,7 +169,11 @@ impl<'a> Parser<'a> {
       let ch = self.peek().unwrap();
       if ch == b',' || ch == b')' {
         // End of this chain (group separator or end of :not())
-        self.pos = if had_ws { before + self.leading_ws_from(before) } else { before };
+        self.pos = if had_ws {
+          before + self.leading_ws_from(before)
+        } else {
+          before
+        };
         // Restore position to before whitespace we consumed
         self.pos = before;
         self.skip_ws();
@@ -652,11 +656,7 @@ fn collect_matches(
   }
 }
 
-fn find_first_match(
-  doc: &HtmlDocument,
-  node_id: usize,
-  selector: &Selector,
-) -> Option<usize> {
+fn find_first_match(doc: &HtmlDocument, node_id: usize, selector: &Selector) -> Option<usize> {
   if node_id != doc.root && matches(doc, node_id, selector) {
     return Some(node_id);
   }
@@ -692,9 +692,7 @@ fn match_attribute(doc: &HtmlDocument, node_id: usize, attr: &AttrSelector) -> b
         AttrOp::StartsWith => actual.starts_with(expected.as_str()),
         AttrOp::EndsWith => actual.ends_with(expected.as_str()),
         AttrOp::Substring => actual.contains(expected.as_str()),
-        AttrOp::DashMatch => {
-          actual == expected || actual.starts_with(&format!("{}-", expected))
-        }
+        AttrOp::DashMatch => actual == expected || actual.starts_with(&format!("{}-", expected)),
       }
     }
     _ => false,
@@ -754,13 +752,11 @@ fn match_pseudo(doc: &HtmlDocument, node_id: usize, pseudo: &PseudoSelector) -> 
       doc.children(node_id).iter().all(|&child_id| {
         match doc.node_type(child_id) {
           NodeType::Element => false,
-          NodeType::Text => {
-            doc
-              .arena
-              .get(child_id)
-              .map(|n| n.text_content.trim().is_empty())
-              .unwrap_or(true)
-          }
+          NodeType::Text => doc
+            .arena
+            .get(child_id)
+            .map(|n| n.text_content.trim().is_empty())
+            .unwrap_or(true),
           NodeType::Comment => true, // comments are ignored for :empty
         }
       })
@@ -1132,10 +1128,7 @@ mod tests {
   #[test]
   fn test_parse_pseudo_empty() {
     let sel = parse_selector(":empty").unwrap();
-    assert!(core::matches!(
-      sel,
-      Selector::Pseudo(PseudoSelector::Empty)
-    ));
+    assert!(core::matches!(sel, Selector::Pseudo(PseudoSelector::Empty)));
   }
 
   #[test]
@@ -1535,8 +1528,7 @@ mod tests {
 
   #[test]
   fn test_deeply_nested_descendant() {
-    let doc =
-      HtmlDocument::parse("<div><section><article><p>deep</p></article></section></div>");
+    let doc = HtmlDocument::parse("<div><section><article><p>deep</p></article></section></div>");
     let ids = doc.select("div p");
     assert_eq!(ids.len(), 1);
     assert_eq!(doc.text_content(ids[0]), "deep");

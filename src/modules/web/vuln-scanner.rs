@@ -89,19 +89,43 @@ impl WebScanner {
       let url = &base_url;
 
       std::thread::scope(|s| {
-        s.spawn(|| collected.lock().unwrap().push(self.check_sensitive_files(url)));
-        s.spawn(|| collected.lock().unwrap().push(self.check_security_headers(url)));
-        s.spawn(|| collected.lock().unwrap().push(self.check_directory_listings(url)));
+        s.spawn(|| {
+          collected
+            .lock()
+            .unwrap()
+            .push(self.check_sensitive_files(url))
+        });
+        s.spawn(|| {
+          collected
+            .lock()
+            .unwrap()
+            .push(self.check_security_headers(url))
+        });
+        s.spawn(|| {
+          collected
+            .lock()
+            .unwrap()
+            .push(self.check_directory_listings(url))
+        });
         s.spawn(|| collected.lock().unwrap().push(self.check_admin_panels(url)));
-        s.spawn(|| collected.lock().unwrap().push(self.check_info_disclosure(url)));
+        s.spawn(|| {
+          collected
+            .lock()
+            .unwrap()
+            .push(self.check_info_disclosure(url))
+        });
       });
 
-      collected.into_inner().unwrap().into_iter().flatten().collect()
+      collected
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .flatten()
+        .collect()
     };
 
-    findings.sort_by(|a, b| {
-      Self::severity_order(&a.severity).cmp(&Self::severity_order(&b.severity))
-    });
+    findings
+      .sort_by(|a, b| Self::severity_order(&a.severity).cmp(&Self::severity_order(&b.severity)));
 
     Self::emit_finding_events(&base_url, &findings);
 

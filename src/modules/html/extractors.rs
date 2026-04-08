@@ -243,10 +243,7 @@ pub fn extract_meta(doc: &HtmlDocument) -> ExtractedMeta {
     // name/content pairs
     if let Some(name) = doc.get_attribute(id, "name") {
       let name_lower = name.to_ascii_lowercase();
-      let content = doc
-        .get_attribute(id, "content")
-        .unwrap_or("")
-        .to_string();
+      let content = doc.get_attribute(id, "content").unwrap_or("").to_string();
 
       match name_lower.as_str() {
         "description" => meta.description = Some(content),
@@ -325,7 +322,6 @@ pub fn extract_forms(doc: &HtmlDocument) -> Vec<ExtractedForm> {
   let mut result = Vec::new();
 
   for id in doc.select("form") {
-
     let mut form = ExtractedForm {
       action: doc.get_attribute(id, "action").map(|s| s.to_string()),
       method: doc.get_attribute(id, "method").map(|s| s.to_string()),
@@ -360,7 +356,9 @@ fn collect_form_fields(doc: &HtmlDocument, parent: usize, fields: &mut Vec<FormF
           name: doc.get_attribute(child, "name").map(|s| s.to_string()),
           field_type: ft,
           value: doc.get_attribute(child, "value").map(|s| s.to_string()),
-          placeholder: doc.get_attribute(child, "placeholder").map(|s| s.to_string()),
+          placeholder: doc
+            .get_attribute(child, "placeholder")
+            .map(|s| s.to_string()),
           required: doc.get_attribute(child, "required").is_some(),
           options: Vec::new(),
         });
@@ -372,7 +370,9 @@ fn collect_form_fields(doc: &HtmlDocument, parent: usize, fields: &mut Vec<FormF
           name: doc.get_attribute(child, "name").map(|s| s.to_string()),
           field_type: "textarea".to_string(),
           value: if text.is_empty() { None } else { Some(text) },
-          placeholder: doc.get_attribute(child, "placeholder").map(|s| s.to_string()),
+          placeholder: doc
+            .get_attribute(child, "placeholder")
+            .map(|s| s.to_string()),
           required: doc.get_attribute(child, "required").is_some(),
           options: Vec::new(),
         });
@@ -404,7 +404,11 @@ fn collect_form_fields(doc: &HtmlDocument, parent: usize, fields: &mut Vec<FormF
               .map(|s| s.to_string())
               .or_else(|| {
                 let t = doc.text_content(child);
-                if t.is_empty() { None } else { Some(t) }
+                if t.is_empty() {
+                  None
+                } else {
+                  Some(t)
+                }
               }),
             placeholder: None,
             required: false,
@@ -429,10 +433,7 @@ fn collect_select_options(doc: &HtmlDocument, select_id: usize) -> Vec<SelectOpt
     }
 
     if doc.tag_name(child) == "option" {
-      let value = doc
-        .get_attribute(child, "value")
-        .unwrap_or("")
-        .to_string();
+      let value = doc.get_attribute(child, "value").unwrap_or("").to_string();
       let text = doc.text_content(child);
       let selected = doc.get_attribute(child, "selected").is_some();
       options.push(SelectOption {
@@ -482,7 +483,6 @@ pub fn extract_tables(doc: &HtmlDocument) -> Vec<ExtractedTable> {
   let mut result = Vec::new();
 
   for id in doc.select("table") {
-
     let mut table = ExtractedTable {
       headers: Vec::new(),
       rows: Vec::new(),
@@ -584,11 +584,14 @@ pub fn extract_scripts(doc: &HtmlDocument) -> Vec<ExtractedScript> {
   let mut result = Vec::new();
 
   for id in doc.select("script") {
-
     let src = doc.get_attribute(id, "src").map(|s| s.to_string());
     let inline = if src.is_none() {
       let text = doc.text_content(id);
-      if text.is_empty() { None } else { Some(text) }
+      if text.is_empty() {
+        None
+      } else {
+        Some(text)
+      }
     } else {
       None
     };
@@ -686,7 +689,11 @@ pub fn resolve_url(href: &str, base_url: &str) -> String {
 
   // Protocol-relative
   if href.starts_with("//") {
-    let scheme_prefix = if scheme.is_empty() { "https://" } else { &scheme[..scheme.len() - 3] };
+    let scheme_prefix = if scheme.is_empty() {
+      "https://"
+    } else {
+      &scheme[..scheme.len() - 3]
+    };
     return format!("{}:{}", scheme_prefix, href);
   }
 
@@ -892,8 +899,17 @@ mod tests {
 
     assert_eq!(meta.og.len(), 3);
     assert_eq!(meta.og[0], ("og:title".to_string(), "OG Title".to_string()));
-    assert_eq!(meta.og[1], ("og:description".to_string(), "OG Desc".to_string()));
-    assert_eq!(meta.og[2], ("og:image".to_string(), "https://example.com/og.png".to_string()));
+    assert_eq!(
+      meta.og[1],
+      ("og:description".to_string(), "OG Desc".to_string())
+    );
+    assert_eq!(
+      meta.og[2],
+      (
+        "og:image".to_string(),
+        "https://example.com/og.png".to_string()
+      )
+    );
   }
 
   #[test]
@@ -1084,7 +1100,11 @@ mod tests {
     assert!(scripts[1].is_async);
 
     assert!(scripts[2].src.is_none());
-    assert!(scripts[2].inline_content.as_deref().unwrap().contains("inline"));
+    assert!(scripts[2]
+      .inline_content
+      .as_deref()
+      .unwrap()
+      .contains("inline"));
   }
 
   // ---- Style tests ----
@@ -1104,7 +1124,11 @@ mod tests {
     assert!(styles[0].inline_content.is_none());
 
     assert!(styles[1].href.is_none());
-    assert!(styles[1].inline_content.as_deref().unwrap().contains("margin"));
+    assert!(styles[1]
+      .inline_content
+      .as_deref()
+      .unwrap()
+      .contains("margin"));
   }
 
   // ---- URL resolution tests ----
@@ -1144,7 +1168,10 @@ mod tests {
       "https://example.com/blog/img/photo.jpg"
     );
     assert_eq!(
-      resolve_url("../assets/style.css", "https://example.com/dir/sub/page.html"),
+      resolve_url(
+        "../assets/style.css",
+        "https://example.com/dir/sub/page.html"
+      ),
       "https://example.com/dir/assets/style.css"
     );
   }

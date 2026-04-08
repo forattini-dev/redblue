@@ -433,39 +433,41 @@ impl CmsDetector {
         })
         .collect();
 
-      let io_results: Vec<(CmsType, u8, &str, bool)> =
-        parallel::map(3, &io_sigs, |sig| {
-          parallel::jitter_sleep(100, 400);
-          let matched = match sig.method {
-            DetectionMethod::PathExists => {
-              let check_url = format!("{}{}", url.trim_end_matches('/'), sig.pattern);
-              self.check_path_exists(&check_url, config)
+      let io_results: Vec<(CmsType, u8, &str, bool)> = parallel::map(3, &io_sigs, |sig| {
+        parallel::jitter_sleep(100, 400);
+        let matched = match sig.method {
+          DetectionMethod::PathExists => {
+            let check_url = format!("{}{}", url.trim_end_matches('/'), sig.pattern);
+            self.check_path_exists(&check_url, config)
+          }
+          DetectionMethod::RobotsTxt => {
+            let robots_url = format!("{}/robots.txt", url.trim_end_matches('/'));
+            if let Some(robots) = self.fetch(&robots_url, config) {
+              robots.contains(sig.pattern)
+            } else {
+              false
             }
-            DetectionMethod::RobotsTxt => {
-              let robots_url = format!("{}/robots.txt", url.trim_end_matches('/'));
-              if let Some(robots) = self.fetch(&robots_url, config) {
-                robots.contains(sig.pattern)
-              } else {
-                false
-              }
+          }
+          DetectionMethod::FileContent(path) => {
+            let file_url = format!("{}{}", url.trim_end_matches('/'), path);
+            if let Some(content) = self.fetch(&file_url, config) {
+              content.contains(sig.pattern)
+            } else {
+              false
             }
-            DetectionMethod::FileContent(path) => {
-              let file_url = format!("{}{}", url.trim_end_matches('/'), path);
-              if let Some(content) = self.fetch(&file_url, config) {
-                content.contains(sig.pattern)
-              } else {
-                false
-              }
-            }
-            _ => false,
-          };
-          (sig.cms, sig.confidence, sig.description, matched)
-        });
+          }
+          _ => false,
+        };
+        (sig.cms, sig.confidence, sig.description, matched)
+      });
 
       for (cms, confidence, description, matched) in io_results {
         if matched {
           *scores.entry(cms).or_insert(0) += confidence as u16;
-          methods.entry(cms).or_default().push(description.to_string());
+          methods
+            .entry(cms)
+            .or_default()
+            .push(description.to_string());
         }
       }
     }

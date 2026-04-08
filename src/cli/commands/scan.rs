@@ -865,8 +865,7 @@ impl ScanCommand {
     use crate::modules::common::parallel;
     use std::sync::Mutex;
 
-    let host_results: Mutex<Vec<(usize, Ipv4Addr, Vec<PortScanResult>)>> =
-      Mutex::new(Vec::new());
+    let host_results: Mutex<Vec<(usize, Ipv4Addr, Vec<PortScanResult>)>> = Mutex::new(Vec::new());
 
     parallel::run_with_jitter(4, 2000, &alive_hosts, |host_ip| {
       let ip = *host_ip;

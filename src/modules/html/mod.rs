@@ -31,12 +31,12 @@ pub mod parser;
 pub mod selector;
 
 // Re-export primary types for convenient access
+pub use extractors::{
+  ExtractedForm, ExtractedImage, ExtractedLink, ExtractedMeta, ExtractedScript, ExtractedStyle,
+  ExtractedTable, FormField, LinkType, SelectOption,
+};
 pub use parser::{Arena, HtmlDocument, Node, NodeType};
 pub use selector::{
-  parse_selector, select_all, select_first, matches, AttrOp, AttrSelector, CombinatorOp,
-  NthExpr, PseudoSelector, Selector,
-};
-pub use extractors::{
-  ExtractedForm, ExtractedImage, ExtractedLink, ExtractedMeta, ExtractedScript,
-  ExtractedStyle, ExtractedTable, FormField, LinkType, SelectOption,
+  matches, parse_selector, select_all, select_first, AttrOp, AttrSelector, CombinatorOp, NthExpr,
+  PseudoSelector, Selector,
 };

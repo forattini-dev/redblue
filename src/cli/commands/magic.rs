@@ -162,14 +162,25 @@ impl MagicScan {
     println!("  ℹ  100% OSINT - no direct contact with target\n");
 
     // Define enabled tasks: (label, session_key, task_fn)
-    let mut tasks: Vec<(&str, &str, Box<dyn Fn() -> Result<PhaseResult, String> + Send + Sync>)> =
-      Vec::new();
+    let mut tasks: Vec<(
+      &str,
+      &str,
+      Box<dyn Fn() -> Result<PhaseResult, String> + Send + Sync>,
+    )> = Vec::new();
 
     if self.preset.has_module(&Module::DnsPassive) {
-      tasks.push(("DNS Records", "dns", Box::new(|| self.collect_dns_records())));
+      tasks.push((
+        "DNS Records",
+        "dns",
+        Box::new(|| self.collect_dns_records()),
+      ));
     }
     if self.preset.has_module(&Module::WhoisLookup) {
-      tasks.push(("WHOIS Lookup", "whois", Box::new(|| self.perform_whois_lookup())));
+      tasks.push((
+        "WHOIS Lookup",
+        "whois",
+        Box::new(|| self.perform_whois_lookup()),
+      ));
     }
     if self.preset.has_module(&Module::CertTransparency) {
       tasks.push((
@@ -186,7 +197,11 @@ impl MagicScan {
       ));
     }
     if self.preset.has_module(&Module::ArchiveOrg) {
-      tasks.push(("Wayback Machine", "archive", Box::new(|| self.query_archive_org())));
+      tasks.push((
+        "Wayback Machine",
+        "archive",
+        Box::new(|| self.query_archive_org()),
+      ));
     }
 
     // Run all tasks in parallel, collect results in order
@@ -581,8 +596,7 @@ impl MagicScan {
     {
       use crate::modules::common::parallel;
 
-      let results: std::sync::Mutex<Vec<(String, Vec<String>)>> =
-        std::sync::Mutex::new(Vec::new());
+      let results: std::sync::Mutex<Vec<(String, Vec<String>)>> = std::sync::Mutex::new(Vec::new());
 
       parallel::run(5, DNS_ENUM_WORDS, |prefix| {
         let subdomain = format!("{}.{}", prefix, host);

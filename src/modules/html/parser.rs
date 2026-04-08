@@ -1547,7 +1547,10 @@ mod tests {
     let email = d.get_element_by_id("email").unwrap();
     assert_eq!(d.get_attribute(email, "type"), Some("email"));
     assert!(d.has_attribute(email, "required"));
-    assert_eq!(d.get_attribute(email, "placeholder"), Some("you@example.com"));
+    assert_eq!(
+      d.get_attribute(email, "placeholder"),
+      Some("you@example.com")
+    );
 
     // Auto-closed <li> tags
     let lis = d.get_elements_by_tag_name("li");

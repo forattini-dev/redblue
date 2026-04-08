@@ -993,8 +993,8 @@ impl Document {
   /// This bridges the existing web/dom Document to the html/ selector engine
   /// by building a temporary HtmlDocument for the query.
   pub fn css_select(&self, selector: &str) -> Selection<'_> {
-    use crate::modules::html::HtmlDocument;
     use crate::modules::html::selector;
+    use crate::modules::html::HtmlDocument;
 
     // Rebuild HTML from our elements for the selector engine to parse
     // This is not ideal perf-wise but avoids a full rewrite of Document.
