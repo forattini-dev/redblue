@@ -31,6 +31,7 @@ scan_results/
 *.json
 !package.json
 !sdk/generated-routes.json
+!src/modules/web/fingerprint-rules.json
 *.csv
 *.xml
 
