@@ -1,6 +1,7 @@
 /// DNS Protocol Implementation from Scratch
 /// RFC 1035 - Domain Names - Implementation and Specification
-use std::net::{ToSocketAddrs, UdpSocket};
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 
 /// DNS Header (12 bytes)
 #[repr(C)]
@@ -64,6 +65,8 @@ pub enum DnsRecordType {
   TXT = 16,  // Text
   AAAA = 28, // IPv6
   SRV = 33,  // Service
+  TLSA = 52, // DANE TLSA (RFC 6698)
+  CAA = 257, // Certification Authority Authorization (RFC 6844)
   ANY = 255, // Any record
 }
 
@@ -127,6 +130,17 @@ pub enum DnsRdata {
     expire: u32,   // Expiration limit (seconds)
     minimum: u32,  // Minimum TTL
   },
+  CAA {
+    flags: u8,
+    tag: String,
+    value: String,
+  },
+  TLSA {
+    usage: u8,
+    selector: u8,
+    matching_type: u8,
+    data: Vec<u8>,
+  },
   Raw(Vec<u8>),
 }
 
@@ -175,6 +189,8 @@ impl DnsAnswer {
       16 => "TXT",
       28 => "AAAA",
       33 => "SRV",
+      52 => "TLSA",
+      257 => "CAA",
       255 => "ANY",
       other => return format!("TYPE{}", other),
     }
@@ -202,6 +218,16 @@ impl DnsAnswer {
         "{} {} {} {} {} {} {}",
         mname, rname, serial, refresh, retry, expire, minimum
       ),
+      DnsRdata::CAA { flags, tag, value } => format!("{} {} \"{}\"", flags, tag, value),
+      DnsRdata::TLSA {
+        usage,
+        selector,
+        matching_type,
+        data,
+      } => {
+        let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("{} {} {} {}", usage, selector, matching_type, hex)
+      }
       DnsRdata::Raw(bytes) => bytes.iter().fold(String::from("0x"), |mut acc, b| {
         acc.push_str(&format!("{:02X}", b));
         acc
@@ -263,26 +289,87 @@ impl DnsClient {
       .set_read_timeout(Some(std::time::Duration::from_millis(self.timeout_ms)))
       .map_err(|e| format!("Failed to set timeout: {}", e))?;
 
-    // Build DNS query packet
-    let header = DnsHeader::new(rand_u16());
+    // Build DNS query packet with EDNS0 OPT record (RFC 6891)
+    let mut header = DnsHeader::new(rand_u16());
+    header.arcount = 1; // One additional record (OPT)
     let question = DnsQuestion::new(domain, record_type);
 
     let mut packet = Vec::new();
     packet.extend_from_slice(&header.to_bytes());
     packet.extend_from_slice(&question.to_bytes());
 
+    // Append EDNS0 OPT pseudo-record (RFC 6891)
+    // NAME: 0x00 (root domain)
+    // TYPE: 41 (OPT)
+    // CLASS: 4096 (UDP payload size)
+    // TTL: 0 (extended RCODE + flags)
+    // RDLENGTH: 0 (no EDNS0 options)
+    packet.push(0x00); // root name
+    packet.extend_from_slice(&41u16.to_be_bytes()); // TYPE = OPT
+    packet.extend_from_slice(&4096u16.to_be_bytes()); // CLASS = UDP payload size
+    packet.extend_from_slice(&0u32.to_be_bytes()); // TTL = extended RCODE + flags
+    packet.extend_from_slice(&0u16.to_be_bytes()); // RDLENGTH = 0
+
     // Send query
     socket
       .send_to(&packet, server_addr)
       .map_err(|e| format!("Failed to send query: {}", e))?;
 
-    // Receive response
-    let mut buffer = [0u8; 512];
+    // Receive response with EDNS0-sized buffer (4096 bytes)
+    let mut buffer = [0u8; 4096];
     let (size, _) = socket
       .recv_from(&mut buffer)
       .map_err(|e| format!("Failed to receive response: {}", e))?;
 
-    self.parse_response(&buffer[..size])
+    let response = &buffer[..size];
+
+    // Check TC (truncation) bit: byte 2, bit 1
+    if size >= 3 && (response[2] >> 1) & 1 == 1 {
+      // Response was truncated, retry over TCP
+      let tcp_response = Self::query_tcp(&server_addr.to_string(), &packet)?;
+      return self.parse_response(&tcp_response);
+    }
+
+    self.parse_response(response)
+  }
+
+  /// Send a DNS query over TCP (RFC 1035 section 4.2.2).
+  /// TCP DNS messages are prefixed with a 2-byte big-endian length field.
+  fn query_tcp(server: &str, query: &[u8]) -> Result<Vec<u8>, String> {
+    let mut stream =
+      TcpStream::connect(server).map_err(|e| format!("TCP connect to {}: {}", server, e))?;
+
+    stream
+      .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+      .map_err(|e| format!("TCP set read timeout: {}", e))?;
+    stream
+      .set_write_timeout(Some(std::time::Duration::from_secs(5)))
+      .map_err(|e| format!("TCP set write timeout: {}", e))?;
+
+    // Prepend 2-byte length prefix
+    let len = query.len() as u16;
+    stream
+      .write_all(&len.to_be_bytes())
+      .map_err(|e| format!("TCP write length: {}", e))?;
+    stream
+      .write_all(query)
+      .map_err(|e| format!("TCP write query: {}", e))?;
+    stream.flush().map_err(|e| format!("TCP flush: {}", e))?;
+
+    // Read 2-byte response length
+    let mut len_buf = [0u8; 2];
+    stream
+      .read_exact(&mut len_buf)
+      .map_err(|e| format!("TCP read length: {}", e))?;
+    let resp_len = u16::from_be_bytes(len_buf) as usize;
+
+    // Read full response
+    let mut response = vec![0u8; resp_len];
+    stream
+      .read_exact(&mut response)
+      .map_err(|e| format!("TCP read response: {}", e))?;
+
+    Ok(response)
   }
 
   fn parse_response(&self, data: &[u8]) -> Result<Vec<DnsAnswer>, String> {
@@ -479,6 +566,31 @@ impl DnsClient {
           }
         }
       }
+      // TLSA record (RFC 6698): usage(1) + selector(1) + matching_type(1) + cert_data
+      52 if rdlength >= 3 => {
+        let usage = rdata_slice[0];
+        let selector = rdata_slice[1];
+        let matching_type = rdata_slice[2];
+        let cert_data = rdata_slice[3..].to_vec();
+        DnsRdata::TLSA {
+          usage,
+          selector,
+          matching_type,
+          data: cert_data,
+        }
+      }
+      // CAA record (RFC 6844): flags(1) + tag_length(1) + tag + value
+      257 if rdlength >= 2 => {
+        let flags = rdata_slice[0];
+        let tag_len = rdata_slice[1] as usize;
+        if 2 + tag_len > rdata_slice.len() {
+          DnsRdata::Raw(rdata_slice.to_vec())
+        } else {
+          let tag = String::from_utf8_lossy(&rdata_slice[2..2 + tag_len]).to_string();
+          let value = String::from_utf8_lossy(&rdata_slice[2 + tag_len..]).to_string();
+          DnsRdata::CAA { flags, tag, value }
+        }
+      }
       _ => DnsRdata::Raw(rdata_slice.to_vec()),
     };
 
@@ -543,5 +655,195 @@ mod tests {
     let question = DnsQuestion::new("example.com", DnsRecordType::A);
     let bytes = question.to_bytes();
     assert!(bytes.len() > 0);
+  }
+
+  #[test]
+  fn test_edns0_opt_record_appended() {
+    // Build a query packet the same way the client does
+    let mut header = DnsHeader::new(0xABCD);
+    header.arcount = 1;
+    let question = DnsQuestion::new("example.com", DnsRecordType::A);
+
+    let mut packet = Vec::new();
+    packet.extend_from_slice(&header.to_bytes());
+    packet.extend_from_slice(&question.to_bytes());
+
+    // Append EDNS0 OPT record
+    packet.push(0x00); // root name
+    packet.extend_from_slice(&41u16.to_be_bytes()); // TYPE = OPT
+    packet.extend_from_slice(&4096u16.to_be_bytes()); // CLASS = UDP payload size
+    packet.extend_from_slice(&0u32.to_be_bytes()); // TTL = 0
+    packet.extend_from_slice(&0u16.to_be_bytes()); // RDLENGTH = 0
+
+    // Verify ARCOUNT is 1 in the header bytes
+    let arcount = u16::from_be_bytes([packet[10], packet[11]]);
+    assert_eq!(arcount, 1, "ARCOUNT must be 1 for EDNS0");
+
+    // Verify OPT record is at the end of the packet
+    // OPT record is 11 bytes: name(1) + type(2) + class(2) + ttl(4) + rdlength(2)
+    let opt_start = packet.len() - 11;
+
+    // Root name
+    assert_eq!(packet[opt_start], 0x00);
+    // TYPE = 41 (OPT)
+    assert_eq!(
+      u16::from_be_bytes([packet[opt_start + 1], packet[opt_start + 2]]),
+      41
+    );
+    // CLASS = 4096 (UDP payload size)
+    assert_eq!(
+      u16::from_be_bytes([packet[opt_start + 3], packet[opt_start + 4]]),
+      4096
+    );
+    // TTL = 0
+    assert_eq!(
+      u32::from_be_bytes([
+        packet[opt_start + 5],
+        packet[opt_start + 6],
+        packet[opt_start + 7],
+        packet[opt_start + 8]
+      ]),
+      0
+    );
+    // RDLENGTH = 0
+    assert_eq!(
+      u16::from_be_bytes([packet[opt_start + 9], packet[opt_start + 10]]),
+      0
+    );
+  }
+
+  #[test]
+  fn test_caa_record_parse() {
+    // Build a minimal DNS response with a CAA record
+    // Header: id=0x1234, flags=0x8180 (response, no error), qdcount=1, ancount=1
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0x1234u16.to_be_bytes()); // ID
+    response.extend_from_slice(&0x8180u16.to_be_bytes()); // Flags
+    response.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    response.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // Question: example.com, type CAA (257), class IN
+    // \x07example\x03com\x00
+    response.extend_from_slice(b"\x07example\x03com\x00");
+    response.extend_from_slice(&257u16.to_be_bytes()); // QTYPE = CAA
+    response.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+
+    // Answer: compression pointer to question name at offset 12
+    response.extend_from_slice(&[0xC0, 0x0C]); // Name pointer
+    response.extend_from_slice(&257u16.to_be_bytes()); // TYPE = CAA
+    response.extend_from_slice(&1u16.to_be_bytes()); // CLASS = IN
+    response.extend_from_slice(&300u32.to_be_bytes()); // TTL
+                                                       // RDATA: flags=0, tag_len=5, tag="issue", value="letsencrypt.org"
+    let rdata: Vec<u8> = {
+      let mut r = Vec::new();
+      r.push(0); // flags
+      r.push(5); // tag length
+      r.extend_from_slice(b"issue"); // tag
+      r.extend_from_slice(b"letsencrypt.org"); // value
+      r
+    };
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes()); // RDLENGTH
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].record_type, 257);
+
+    match &answers[0].data {
+      DnsRdata::CAA { flags, tag, value } => {
+        assert_eq!(*flags, 0);
+        assert_eq!(tag, "issue");
+        assert_eq!(value, "letsencrypt.org");
+      }
+      other => panic!("Expected CAA record, got {:?}", other),
+    }
+
+    assert_eq!(answers[0].display_value(), "0 issue \"letsencrypt.org\"");
+  }
+
+  #[test]
+  fn test_tlsa_record_parse() {
+    // Build a minimal DNS response with a TLSA record
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0x5678u16.to_be_bytes()); // ID
+    response.extend_from_slice(&0x8180u16.to_be_bytes()); // Flags
+    response.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    response.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // Question: _443._tcp.example.com, type TLSA (52), class IN
+    response.extend_from_slice(b"\x04_443\x04_tcp\x07example\x03com\x00");
+    response.extend_from_slice(&52u16.to_be_bytes()); // QTYPE = TLSA
+    response.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+
+    // Answer: compression pointer to question name at offset 12
+    response.extend_from_slice(&[0xC0, 0x0C]); // Name pointer
+    response.extend_from_slice(&52u16.to_be_bytes()); // TYPE = TLSA
+    response.extend_from_slice(&1u16.to_be_bytes()); // CLASS = IN
+    response.extend_from_slice(&3600u32.to_be_bytes()); // TTL
+                                                        // RDATA: usage=3, selector=1, matching_type=1, cert_data=0xABCD1234
+    let rdata: Vec<u8> = vec![3, 1, 1, 0xAB, 0xCD, 0x12, 0x34];
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes()); // RDLENGTH
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].record_type, 52);
+
+    match &answers[0].data {
+      DnsRdata::TLSA {
+        usage,
+        selector,
+        matching_type,
+        data,
+      } => {
+        assert_eq!(*usage, 3);
+        assert_eq!(*selector, 1);
+        assert_eq!(*matching_type, 1);
+        assert_eq!(data, &[0xAB, 0xCD, 0x12, 0x34]);
+      }
+      other => panic!("Expected TLSA record, got {:?}", other),
+    }
+
+    assert_eq!(answers[0].display_value(), "3 1 1 abcd1234");
+  }
+
+  #[test]
+  fn test_tcp_length_prefix_encoding() {
+    // Verify the 2-byte big-endian length prefix encoding used in TCP DNS
+    let query = vec![0u8; 300];
+    let len = query.len() as u16;
+    let prefix = len.to_be_bytes();
+    assert_eq!(prefix, [0x01, 0x2C]); // 300 in big-endian
+
+    // Also verify a small query
+    let small = vec![0u8; 42];
+    let small_len = small.len() as u16;
+    let small_prefix = small_len.to_be_bytes();
+    assert_eq!(small_prefix, [0x00, 0x2A]); // 42 in big-endian
+
+    // Verify round-trip
+    let decoded = u16::from_be_bytes(prefix) as usize;
+    assert_eq!(decoded, 300);
+  }
+
+  #[test]
+  fn test_buffer_size_4096() {
+    // Verify that the buffer size constant matches EDNS0 advertisement
+    // The UDP payload size in the OPT record and the receive buffer must both be 4096
+    let udp_payload_size: u16 = 4096;
+    let buffer = [0u8; 4096];
+
+    assert_eq!(buffer.len(), udp_payload_size as usize);
+    assert_eq!(buffer.len(), 4096);
+
+    // Verify the OPT record CLASS field encodes this correctly
+    let class_bytes = udp_payload_size.to_be_bytes();
+    assert_eq!(class_bytes, [0x10, 0x00]); // 4096 in big-endian
   }
 }

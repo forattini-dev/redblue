@@ -15,7 +15,10 @@
 ///
 /// All implementations are from scratch with ZERO external dependencies.
 pub mod cms; // Advanced CMS security testing (wpscan, droopescan replacement)
+pub mod cookies; // Cookie security analyzer (Secure, HttpOnly, SameSite)
+pub mod cors; // CORS misconfiguration scanner
 pub mod crawler;
+pub mod csp; // Content-Security-Policy parser and analyzer
 pub mod dom; // HTML DOM parser with CSS selectors
 pub mod extractors; // Built-in extractors for common web data
 pub mod fingerprinter; // HTTP fingerprinting, tech & WAF detection

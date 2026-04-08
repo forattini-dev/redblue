@@ -76,6 +76,11 @@ fn tool_dns_lookup(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
     "TXT" => DnsRecordType::TXT,
     "CNAME" => DnsRecordType::CNAME,
     "SOA" => DnsRecordType::SOA,
+    "PTR" => DnsRecordType::PTR,
+    "SRV" => DnsRecordType::SRV,
+    "TLSA" => DnsRecordType::TLSA,
+    "CAA" => DnsRecordType::CAA,
+    "ANY" => DnsRecordType::ANY,
     _ => return Err(format!("Unsupported record type: {}", record_type)),
   };
 
@@ -101,6 +106,16 @@ fn tool_dns_lookup(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
           serial,
           ..
         } => format!("{} {} {}", mname, rname, serial),
+        DnsRdata::CAA { flags, tag, value } => format!("{} {} \"{}\"", flags, tag, value),
+        DnsRdata::TLSA {
+          usage,
+          selector,
+          matching_type,
+          data,
+        } => {
+          let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect();
+          format!("{} {} {} {}", usage, selector, matching_type, hex)
+        }
         DnsRdata::Raw(bytes) => format!("(raw {} bytes)", bytes.len()),
       };
       JsonValue::object(vec![

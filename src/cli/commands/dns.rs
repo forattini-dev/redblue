@@ -1406,9 +1406,12 @@ impl DnsCommand {
       "CNAME" => Ok(DnsRecordType::CNAME),
       "SOA" => Ok(DnsRecordType::SOA),
       "PTR" => Ok(DnsRecordType::PTR),
+      "SRV" => Ok(DnsRecordType::SRV),
+      "TLSA" => Ok(DnsRecordType::TLSA),
+      "CAA" => Ok(DnsRecordType::CAA),
       "ANY" => Ok(DnsRecordType::ANY),
       _ => Err(format!(
-        "Invalid record type: {}\nSupported types: A, AAAA, MX, NS, TXT, CNAME, SOA, PTR, ANY",
+        "Invalid record type: {}\nSupported types: A, AAAA, MX, NS, TXT, CNAME, SOA, PTR, SRV, TLSA, CAA, ANY",
         s
       )),
     }
@@ -1425,6 +1428,8 @@ impl DnsCommand {
       DnsRecordType::SOA => "SOA",
       DnsRecordType::PTR => "PTR",
       DnsRecordType::SRV => "SRV",
+      DnsRecordType::TLSA => "TLSA",
+      DnsRecordType::CAA => "CAA",
       DnsRecordType::ANY => "ANY",
     }
   }

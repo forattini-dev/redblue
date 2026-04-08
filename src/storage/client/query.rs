@@ -615,6 +615,12 @@ fn parse_dns_record_type(record_type: &str) -> Option<DnsRecordType> {
     "NS" => Some(DnsRecordType::NS),
     "TXT" => Some(DnsRecordType::TXT),
     "CNAME" => Some(DnsRecordType::CNAME),
+    "SOA" => Some(DnsRecordType::SOA),
+    "PTR" => Some(DnsRecordType::PTR),
+    "SRV" => Some(DnsRecordType::SRV),
+    "TLSA" => Some(DnsRecordType::TLSA),
+    "CAA" => Some(DnsRecordType::CAA),
+    "ANY" => Some(DnsRecordType::ANY),
     _ => None,
   }
 }

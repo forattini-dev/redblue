@@ -53,6 +53,12 @@ pub fn dns_type_label(record_type: DnsRecordType) -> &'static str {
     DnsRecordType::NS => "NS",
     DnsRecordType::TXT => "TXT",
     DnsRecordType::CNAME => "CNAME",
+    DnsRecordType::SOA => "SOA",
+    DnsRecordType::PTR => "PTR",
+    DnsRecordType::SRV => "SRV",
+    DnsRecordType::TLSA => "TLSA",
+    DnsRecordType::CAA => "CAA",
+    DnsRecordType::ANY => "ANY",
   }
 }
 
