@@ -277,9 +277,12 @@ fn find_command_by_path(path: &CommandPath) -> Result<&'static dyn Command, Pars
 /// Convert an existing `Flag` (from `Command::flags()`) into a `FlagSchema`
 /// that the schema parser understands.
 fn flag_to_schema(flag: &Flag) -> FlagSchema {
-  // If the flag has an `arg` field, it expects a value (string).
+  // A flag expects a value (string) if it has:
+  // - an explicit `arg` field (e.g. .with_arg("TYPE")), OR
+  // - a default value (e.g. .with_default("A") implies it takes a value)
   // Otherwise it is a boolean toggle.
-  let mut schema = if flag.arg.is_some() {
+  let expects_value = flag.arg.is_some() || flag.default.is_some();
+  let mut schema = if expects_value {
     FlagSchema::new(&flag.long)
   } else {
     FlagSchema::boolean(&flag.long)
