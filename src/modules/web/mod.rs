@@ -27,6 +27,10 @@ pub mod git_exposed; // Exposed .git directory scanner (git-scanner style)
 pub mod headers;
 pub mod linkfinder;
 pub mod nosqli; // NoSQL injection testing (MongoDB, Redis, Elasticsearch)
+#[path = "param-enumerator.rs"]
+pub mod param_enumerator; // Hidden GET/POST parameter discovery
+#[path = "path-enumerator.rs"]
+pub mod path_enumerator; // Path/directory enumeration (dirsearch, dirb, gobuster replacement)
 pub mod recursive; // Recursive content discovery (link extraction, queue, scanner)
 #[path = "rule-engine.rs"]
 pub mod rule_engine; // Data-driven technology fingerprinting rules
@@ -35,6 +39,8 @@ pub mod scanner_strategy;
 pub mod scraper; // Rule-based web scraping
 pub mod sqli; // SQL injection testing (sqlmap-style)
 pub mod strategies;
+#[path = "vhost-enumerator.rs"]
+pub mod vhost_enumerator; // Virtual host discovery via Host header manipulation
 #[path = "vuln-scanner.rs"]
 pub mod vuln_scanner;
 
