@@ -80,7 +80,11 @@ fn main() {
       }
       std::process::exit(1);
     }
-    Err(args::ParseError::MissingVerb { domain, resource, available }) => {
+    Err(args::ParseError::MissingVerb {
+      domain,
+      resource,
+      available,
+    }) => {
       Output::error(&format!("Missing verb for '{} {}'", domain, resource));
       if !available.is_empty() {
         println!("\nAvailable verbs:\n  {}", available.join("\n  "));
@@ -108,7 +112,6 @@ fn main() {
       }
     }
   }
-
 }
 
 fn handle_help_flag(ctx: &cli::CliContext) {

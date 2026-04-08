@@ -139,10 +139,7 @@ pub fn parse_and_route(args: &[String]) -> Result<(CliContext, &'static dyn Comm
         .into_iter()
         .map(|s| s.to_string())
         .collect();
-      Err(ParseError::MissingResource {
-        domain,
-        available,
-      })
+      Err(ParseError::MissingResource { domain, available })
     }
 
     RouteResolution::PartialResource {
@@ -257,12 +254,13 @@ fn build_route_tree_from_registry() -> RouteTree {
 /// Uses the registry's `command_for(domain, resource)` lookup which is
 /// indexed by domain+resource.
 fn find_command_by_path(path: &CommandPath) -> Result<&'static dyn Command, ParseError> {
-  let resource = path.resource.as_deref().ok_or_else(|| {
-    ParseError::MissingResource {
+  let resource = path
+    .resource
+    .as_deref()
+    .ok_or_else(|| ParseError::MissingResource {
       domain: path.domain.clone(),
       available: vec![],
-    }
-  })?;
+    })?;
 
   command_for(&path.domain, resource).ok_or_else(|| ParseError::UnknownCommand {
     tokens: vec![path.domain.clone(), resource.to_string()],

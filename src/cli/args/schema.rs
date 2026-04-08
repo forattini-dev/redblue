@@ -3,7 +3,6 @@
 /// Given a list of `FlagSchema` descriptors and a token stream from the
 /// lexer, validates flags, coerces values to the declared types, applies
 /// defaults, and collects all errors so they can be reported at once.
-
 use super::error::{suggest, ParseError};
 use super::token::Token;
 use super::types::{FlagSchema, FlagValue, ValueType};
@@ -96,8 +95,12 @@ impl SchemaParser {
           match short_map.get(name) {
             None => {
               // Build suggestions from short flags that exist.
-              let all_shorts: Vec<&str> =
-                self.flags.iter().filter_map(|f| f.short.as_ref()).map(|_| "").collect();
+              let all_shorts: Vec<&str> = self
+                .flags
+                .iter()
+                .filter_map(|f| f.short.as_ref())
+                .map(|_| "")
+                .collect();
               let _ = all_shorts; // short flags are single chars, suggestion not very useful
               errors.push(ParseError::UnknownFlag {
                 flag: format!("-{}", name),
@@ -340,7 +343,10 @@ fn store_flag(flags: &mut HashMap<String, FlagValue>, schema: &FlagSchema, value
         None
       }
     });
-    flags.insert(schema.long.clone(), FlagValue::Count(current.unwrap_or(0) + 1));
+    flags.insert(
+      schema.long.clone(),
+      FlagValue::Count(current.unwrap_or(0) + 1),
+    );
   } else {
     // Last value wins for all other types.
     flags.insert(schema.long.clone(), value);
@@ -493,7 +499,11 @@ mod tests {
     let result = parser.parse(&tokens);
 
     assert_eq!(result.errors.len(), 1);
-    if let ParseError::UnknownFlag { ref flag, ref suggestions } = result.errors[0] {
+    if let ParseError::UnknownFlag {
+      ref flag,
+      ref suggestions,
+    } = result.errors[0]
+    {
       assert_eq!(flag, "--verbos");
       assert!(suggestions.contains(&"--verbose".to_string()));
     } else {
@@ -534,7 +544,7 @@ mod tests {
   #[test]
   fn test_parse_invalid_choice() {
     let parser = make_parser(vec![
-      FlagSchema::new("output").with_choices(&["text", "json", "yaml"]),
+      FlagSchema::new("output").with_choices(&["text", "json", "yaml"])
     ]);
     let tokens = tokenize(&args(&["--output=xml"]));
     let result = parser.parse(&tokens);
@@ -610,7 +620,9 @@ mod tests {
         s
       },
       FlagSchema::boolean("verbose").with_short('v'),
-      FlagSchema::new("output").with_short('o').with_choices(&["text", "json", "yaml"]),
+      FlagSchema::new("output")
+        .with_short('o')
+        .with_choices(&["text", "json", "yaml"]),
       FlagSchema::boolean("no-color"),
     ]);
     let tokens = tokenize(&args(&[

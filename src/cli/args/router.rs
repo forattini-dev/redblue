@@ -3,7 +3,6 @@
 /// Builds a RouteTree from registry data and resolves a token stream into
 /// one of several outcomes: fully resolved command, global command, magic
 /// scan target, partial match, or unknown with suggestions.
-
 use std::collections::{HashMap, HashSet};
 
 use super::error::suggest;
@@ -88,18 +87,22 @@ impl RouteTree {
       for alias in aliases {
         tree_aliases.insert(alias.clone(), name.clone());
       }
-      tree_domains.entry(name.clone()).or_insert_with(|| DomainEntry {
-        resources: HashMap::new(),
-        aliases: HashMap::new(),
-      });
+      tree_domains
+        .entry(name.clone())
+        .or_insert_with(|| DomainEntry {
+          resources: HashMap::new(),
+          aliases: HashMap::new(),
+        });
     }
 
     // Register resources and their aliases within their domain.
     for (domain, resource, aliases) in resources {
-      let domain_entry = tree_domains.entry(domain.clone()).or_insert_with(|| DomainEntry {
-        resources: HashMap::new(),
-        aliases: HashMap::new(),
-      });
+      let domain_entry = tree_domains
+        .entry(domain.clone())
+        .or_insert_with(|| DomainEntry {
+          resources: HashMap::new(),
+          aliases: HashMap::new(),
+        });
       for alias in aliases {
         domain_entry.aliases.insert(alias.clone(), resource.clone());
       }
@@ -114,21 +117,24 @@ impl RouteTree {
 
     // Register verbs and their aliases within their domain/resource.
     for (domain, resource, verb, aliases) in verbs {
-      let domain_entry = tree_domains.entry(domain.clone()).or_insert_with(|| DomainEntry {
-        resources: HashMap::new(),
-        aliases: HashMap::new(),
-      });
-      let resource_entry =
-        domain_entry
-          .resources
-          .entry(resource.clone())
-          .or_insert_with(|| ResourceEntry {
-            verbs: HashSet::new(),
-            verb_aliases: HashMap::new(),
-          });
+      let domain_entry = tree_domains
+        .entry(domain.clone())
+        .or_insert_with(|| DomainEntry {
+          resources: HashMap::new(),
+          aliases: HashMap::new(),
+        });
+      let resource_entry = domain_entry
+        .resources
+        .entry(resource.clone())
+        .or_insert_with(|| ResourceEntry {
+          verbs: HashSet::new(),
+          verb_aliases: HashMap::new(),
+        });
       resource_entry.verbs.insert(verb.clone());
       for alias in aliases {
-        resource_entry.verb_aliases.insert(alias.clone(), verb.clone());
+        resource_entry
+          .verb_aliases
+          .insert(alias.clone(), verb.clone());
       }
     }
 
@@ -235,9 +241,13 @@ impl RouteTree {
     } else {
       // Before giving up, check compat translation (legacy: domain verb resource).
       if positionals.len() >= 3 {
-        if let Some(resolution) =
-          self.try_compat_swap(&domain, domain_entry, positionals[1], positionals[2], &build_remaining(3))
-        {
+        if let Some(resolution) = self.try_compat_swap(
+          &domain,
+          domain_entry,
+          positionals[1],
+          positionals[2],
+          &build_remaining(3),
+        ) {
           return resolution;
         }
       }
@@ -287,9 +297,13 @@ impl RouteTree {
     }
 
     // 10. Compat translation: try swapping positional[1] and positional[2].
-    if let Some(resolution) =
-      self.try_compat_swap(&domain, domain_entry, positionals[1], positionals[2], &build_remaining(3))
-    {
+    if let Some(resolution) = self.try_compat_swap(
+      &domain,
+      domain_entry,
+      positionals[1],
+      positionals[2],
+      &build_remaining(3),
+    ) {
       return resolution;
     }
 
@@ -481,7 +495,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("dns"), pos("record"), pos("lookup")];
     match tree.resolve(&tokens) {
-      RouteResolution::Resolved { path, remaining_tokens } => {
+      RouteResolution::Resolved {
+        path,
+        remaining_tokens,
+      } => {
         assert_eq!(path.domain, "dns");
         assert_eq!(path.resource.as_deref(), Some("record"));
         assert_eq!(path.verb.as_deref(), Some("lookup"));
@@ -499,7 +516,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("n"), pos("ports"), pos("s")];
     match tree.resolve(&tokens) {
-      RouteResolution::Resolved { path, remaining_tokens } => {
+      RouteResolution::Resolved {
+        path,
+        remaining_tokens,
+      } => {
         assert_eq!(path.domain, "network");
         assert_eq!(path.resource.as_deref(), Some("ports"));
         assert_eq!(path.verb.as_deref(), Some("scan"));
@@ -517,7 +537,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("help")];
     match tree.resolve(&tokens) {
-      RouteResolution::GlobalCommand { name, remaining_tokens } => {
+      RouteResolution::GlobalCommand {
+        name,
+        remaining_tokens,
+      } => {
         assert_eq!(name, "help");
         assert!(remaining_tokens.is_empty());
       }
@@ -533,7 +556,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("version")];
     match tree.resolve(&tokens) {
-      RouteResolution::GlobalCommand { name, remaining_tokens } => {
+      RouteResolution::GlobalCommand {
+        name,
+        remaining_tokens,
+      } => {
         assert_eq!(name, "version");
         assert!(remaining_tokens.is_empty());
       }
@@ -549,7 +575,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("https://example.com"), long_flag("verbose")];
     match tree.resolve(&tokens) {
-      RouteResolution::MagicScan { target, remaining_tokens } => {
+      RouteResolution::MagicScan {
+        target,
+        remaining_tokens,
+      } => {
         assert_eq!(target, "https://example.com");
         assert_eq!(remaining_tokens.len(), 1);
       }
@@ -580,7 +609,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("dns")];
     match tree.resolve(&tokens) {
-      RouteResolution::PartialDomain { domain, remaining_tokens } => {
+      RouteResolution::PartialDomain {
+        domain,
+        remaining_tokens,
+      } => {
         assert_eq!(domain, "dns");
         assert!(remaining_tokens.is_empty());
       }
@@ -596,7 +628,11 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("dns"), pos("record")];
     match tree.resolve(&tokens) {
-      RouteResolution::PartialResource { domain, resource, remaining_tokens } => {
+      RouteResolution::PartialResource {
+        domain,
+        resource,
+        remaining_tokens,
+      } => {
         assert_eq!(domain, "dns");
         assert_eq!(resource, "record");
         assert!(remaining_tokens.is_empty());
@@ -613,7 +649,10 @@ mod tests {
     let tree = test_tree();
     let tokens = vec![pos("dsn"), pos("record"), pos("lookup")];
     match tree.resolve(&tokens) {
-      RouteResolution::Unknown { tokens: toks, suggestions } => {
+      RouteResolution::Unknown {
+        tokens: toks,
+        suggestions,
+      } => {
         assert_eq!(toks, vec!["dsn", "record", "lookup"]);
         assert!(suggestions.contains(&"dns".to_string()));
       }
@@ -654,7 +693,10 @@ mod tests {
       pos("common"),
     ];
     match tree.resolve(&tokens) {
-      RouteResolution::Resolved { path, remaining_tokens } => {
+      RouteResolution::Resolved {
+        path,
+        remaining_tokens,
+      } => {
         assert_eq!(path.domain, "network");
         assert_eq!(path.resource.as_deref(), Some("ports"));
         assert_eq!(path.verb.as_deref(), Some("scan"));
