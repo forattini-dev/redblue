@@ -16,12 +16,10 @@ const {
   attachRoute,
   buildDomainCatalog,
   buildCommandCatalog,
-  buildManifestCliSchema,
   buildJsonCliArgs,
   buildInvocation,
   checkForUpdates,
   completeManifestTokens,
-  createManifestCLI,
   createDomainProxy,
   createRouteIndex,
   defaultInstallDir,
@@ -44,7 +42,6 @@ const {
   globalOptionExpectsValue,
   findCommandStartIndex,
   getBinaryInfo,
-  getParserCandidatePaths,
   getDefaultBinaryName,
   getInstalledVersion,
   getReleaseTag,
@@ -54,7 +51,6 @@ const {
   isExecutable,
   kebabToCamel,
   legacyInstallDir,
-  loadCliArgsParser,
   looksLikeCanonicalCommandArgs,
   normalizeCliArgv,
   normalizeReleaseTag,
@@ -75,7 +71,6 @@ const {
   runJson,
   suggestCommandTokens,
   suggestRouteCommands,
-  validateManifestCommandArgs,
   resolveFromPath,
   resolveBinaryWithInfo,
   resolveLegacyBinaryPath,
@@ -84,7 +79,6 @@ const {
   splitWrapperArgs,
   sha256File,
   spawnBinary,
-  toImportSpecifier,
   upgradeBinary,
   waitForChild,
   writeLine,
@@ -93,7 +87,6 @@ const {
 
 const fixtureScript = path.join(__dirname, 'fixtures', 'fake-rb.js');
 const sdkScript = path.join(__dirname, '..', 'redblue-sdk.js');
-const parserDist = '/home/cyber/Work/tetis/libs/cli-args-parser/dist/index.js';
 
 async function createFixtureBinary() {
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-fixture-'));
@@ -1071,24 +1064,6 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
   assert.equal(manifestInfo.manifest.schema_version, 1);
   assert.equal(Array.isArray(manifestInfo.manifest.domains), true);
   assert.equal(manifestInfo.manifest.commands.length, 4);
-  const cliSchema = buildManifestCliSchema(manifestInfo.manifest);
-  assert.equal(cliSchema.name, 'rb');
-  assert.equal(cliSchema.commands.dns.commands.record.commands.lookup.description, 'Lookup DNS records');
-  assert.equal(cliSchema.options.json.type, 'boolean');
-  assert.equal(cliSchema.options.json.short, 'j');
-  assert.equal(cliSchema.options.output.type, 'string');
-  assert.equal(cliSchema.options.output.short, 'o');
-  assert.deepEqual(cliSchema.options.output.choices, ['human', 'json', 'yaml']);
-  assert.equal(cliSchema.options.format.type, 'string');
-  assert.deepEqual(cliSchema.options.format.choices, ['human', 'json', 'yaml']);
-  assert.deepEqual(
-    cliSchema.commands.dns.commands.record.commands.lookup.options.type.choices,
-    undefined
-  );
-  assert.deepEqual(
-    cliSchema.commands.dns.commands.record.commands.lookup.options.format.choices,
-    ['human', 'json', 'yaml']
-  );
 
   await assert.rejects(
     sdk.getManifest({
@@ -1145,47 +1120,6 @@ test('invoke helpers and manifest parsing cover json, raw, empty and invalid res
   );
 
   await assert.rejects(() => runJson('dns'), /CLI argv must be an array of strings/);
-
-  const manifestCli = await createManifestCLI(
-    {
-      binaryPath: fixtureBinary
-    },
-    {
-      localParserPath: parserDist
-    }
-  );
-  const parsedCli = manifestCli.parse(['dns', 'record', 'lookup', 'example.com', '--type', 'MX']);
-  assert.deepEqual(parsedCli.command, ['dns', 'record', 'lookup']);
-  assert.equal(parsedCli.positional.target, 'example.com');
-  assert.equal(parsedCli.options.type, 'MX');
-  const parsedGlobal = manifestCli.parse(['dns', 'record', 'lookup', 'example.com', '--json']);
-  assert.equal(parsedGlobal.options.json, true);
-  assert.equal(
-    (await validateManifestCommandArgs(
-      ['dns', 'record', 'lookup', 'example.com'],
-      { binaryPath: fixtureBinary },
-      { localParserPath: parserDist }
-    )).command.join('/'),
-    'dns/record/lookup'
-  );
-  assert.equal(
-    (
-      await validateManifestCommandArgs(
-        ['--output', 'json', 'dns', 'record', 'lookup', 'example.com'],
-        { binaryPath: fixtureBinary },
-        { localParserPath: parserDist }
-      )
-    ).command.join('/'),
-    'dns/record/lookup'
-  );
-  await assert.rejects(
-    validateManifestCommandArgs(
-      ['dns', 'record', 'missing'],
-      { binaryPath: fixtureBinary },
-      { localParserPath: parserDist }
-    ),
-    /Unknown command: dns record missing[\s\S]*rb dns record lookup/
-  );
 });
 
 test('createDomainProxy, attachRoute and createClient execute dns, tls, ports and system namespaces with forced json', async () => {
@@ -1472,7 +1406,6 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls, ports an
   assert.equal(typeof client.$routes['system/host/inspect'], 'function');
   assert.equal(Array.isArray(client.$domains), true);
   assert.equal(Array.isArray(client.$commands), true);
-  assert.equal(client.$cliSchema.name, 'rb');
   assert.equal(client.$domains[0].name, 'dns');
   assert.equal(client.$domains[0].resources[0].name, 'record');
   assert.equal(client.$domains[0].resources[0].verbs[0].name, 'lookup');
@@ -1578,12 +1511,6 @@ test('createDomainProxy, attachRoute and createClient execute dns, tls, ports an
       }
     ]
   });
-  const clientCli = await client.$createCLI({ localParserPath: parserDist });
-  assert.deepEqual(clientCli.parse(['tls', 'security', 'audit', 'example.com']).command, [
-    'tls',
-    'security',
-    'audit'
-  ]);
   assert.equal((await runJson(['dns', 'record', 'lookup', 'example.com'], {
     binaryPath: fixtureBinary,
     env: {
@@ -1855,12 +1782,7 @@ test('fallback branches for raw, spawn and proxy construction stay stable', asyn
   assert.match(spawnedOutput, /"ok":true/);
 });
 
-test('wrapper parser helpers cover candidate resolution, prefix splitting and parse normalization', async () => {
-  const fakeParserPath = path.join(os.tmpdir(), 'cli-args-parser-fixture.mjs');
-  const importCalls = [];
-
-  await fsp.writeFile(fakeParserPath, 'export const createParser = () => ({ parse: () => ({ errors: [], options: {} }) });\n');
-
+test('wrapper parser helpers cover prefix splitting and parse normalization', async () => {
   assert.deepEqual(splitWrapperArgs(['dns', 'record', 'lookup']), {
     wrapperArgs: [],
     passthroughArgs: ['dns', 'record', 'lookup'],
@@ -1920,76 +1842,36 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
     usedDoubleDash: false
   });
 
-  const candidates = getParserCandidatePaths({
-    env: {
-      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
-    },
-    localParserPath: fakeParserPath
-  });
-  assert.deepEqual(candidates, [toImportSpecifier(fakeParserPath), 'cli-args-parser']);
-
-  const loadedFromOverride = await loadCliArgsParser({
-    env: {
-      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
-    },
-    localParserPath: null
-  });
-  assert.equal(typeof loadedFromOverride.createParser, 'function');
-
-  const loadedViaImportHook = await loadCliArgsParser({
-    localParserPath: null,
-    importModule: async (specifier) => {
-      importCalls.push(specifier);
-      if (specifier === 'cli-args-parser') {
-        throw new Error('missing package');
-      }
-      return import(specifier);
-    },
-    env: {
-      REDBLUE_CLI_ARGS_PARSER_PATH: fakeParserPath
-    }
-  });
-  assert.equal(typeof loadedViaImportHook.createParser, 'function');
-  assert.equal(importCalls[0], toImportSpecifier(fakeParserPath));
-
-  const parserModule = { createParser() {} };
-  assert.equal(await loadCliArgsParser({ parserModule }), parserModule);
-
-  const parsed = await parseWrapperArgs(
-    [
-      '--binary-path',
-      '/tmp/rb',
-      '--target-dir',
-      '/tmp/bin',
-      '--download',
-      '--install',
-      '--upgrade',
-      '--check-update',
-      '--print-binary-path',
-      '--channel',
-      'next',
-      '--force',
-      '--version',
-      '1.2.3',
-      '--repo',
-      'forattini-dev/redblue',
-      '--asset-name',
-      'rb-linux-x86_64',
-      '--github-token',
-      'ghs_secret',
-      '--static-build',
-      '--no-verify',
-      'dns',
-      'record',
-      'lookup',
-      'example.com',
-      '--type',
-      'MX'
-    ],
-    {
-      localParserPath: parserDist
-    }
-  );
+  const parsed = await parseWrapperArgs([
+    '--binary-path',
+    '/tmp/rb',
+    '--target-dir',
+    '/tmp/bin',
+    '--download',
+    '--install',
+    '--upgrade',
+    '--check-update',
+    '--print-binary-path',
+    '--channel',
+    'next',
+    '--force',
+    '--version',
+    '1.2.3',
+    '--repo',
+    'forattini-dev/redblue',
+    '--asset-name',
+    'rb-linux-x86_64',
+    '--github-token',
+    'ghs_secret',
+    '--static-build',
+    '--no-verify',
+    'dns',
+    'record',
+    'lookup',
+    'example.com',
+    '--type',
+    'MX'
+  ]);
 
   assert.deepEqual(parsed.passthroughArgs, [
     'dns',
@@ -2000,103 +1882,65 @@ test('wrapper parser helpers cover candidate resolution, prefix splitting and pa
     'MX'
   ]);
   assert.deepEqual(parsed.resolveOptions, {
-    assetName: 'rb-linux-x86_64',
-    autoDownload: true,
     binaryPath: '/tmp/rb',
-    channel: 'next',
-    force: true,
-    githubToken: 'ghs_secret',
-    repo: 'forattini-dev/redblue',
-    releaseVersion: '1.2.3',
-    staticBuild: true,
     targetDir: '/tmp/bin',
+    autoDownload: true,
+    repo: 'forattini-dev/redblue',
+    channel: 'next',
+    releaseVersion: '1.2.3',
+    assetName: 'rb-linux-x86_64',
+    githubToken: 'ghs_secret',
     verify: false,
+    staticBuild: true,
+    force: true,
     version: '1.2.3'
   });
   assert.deepEqual(parsed.wrapperOptions, {
-    checkUpdate: true,
-    install: true,
-    printBinaryPath: true,
     sdkHelp: false,
-    upgrade: true
+    checkUpdate: true,
+    upgrade: true,
+    install: true,
+    printBinaryPath: true
   });
 
-  const parsedHelp = await parseWrapperArgs(['--sdk-help'], {
-    localParserPath: parserDist
-  });
+  const parsedHelp = await parseWrapperArgs(['--sdk-help']);
   assert.deepEqual(parsedHelp.wrapperOptions, {
-    checkUpdate: false,
-    install: false,
-    printBinaryPath: false,
     sdkHelp: true,
-    upgrade: false
+    checkUpdate: false,
+    upgrade: false,
+    install: false,
+    printBinaryPath: false
   });
   assert.deepEqual(parsedHelp.passthroughArgs, []);
 
-  const parsedFromStub = await parseWrapperArgs(null, {
-    parserModule: {
-      createParser() {
-        return {
-          parse() {
-            return {
-              errors: []
-            };
-          }
-        };
-      }
-    }
-  });
-  assert.deepEqual(parsedFromStub.passthroughArgs, []);
-  assert.deepEqual(parsedFromStub.resolveOptions, {
-    assetName: undefined,
-    autoDownload: false,
+  const parsedEmpty = await parseWrapperArgs(null);
+  assert.deepEqual(parsedEmpty.passthroughArgs, []);
+  assert.deepEqual(parsedEmpty.resolveOptions, {
     binaryPath: undefined,
-    channel: undefined,
-    force: false,
-    githubToken: undefined,
-    repo: undefined,
-    releaseVersion: undefined,
-    staticBuild: false,
     targetDir: undefined,
+    autoDownload: false,
+    repo: undefined,
+    channel: undefined,
+    releaseVersion: undefined,
+    assetName: undefined,
+    githubToken: undefined,
     verify: true,
+    staticBuild: false,
+    force: false,
     version: undefined
   });
-  assert.deepEqual(parsedFromStub.wrapperOptions, {
-    checkUpdate: false,
-    install: false,
-    printBinaryPath: false,
+  assert.deepEqual(parsedEmpty.wrapperOptions, {
     sdkHelp: false,
-    upgrade: false
+    checkUpdate: false,
+    upgrade: false,
+    install: false,
+    printBinaryPath: false
   });
 
-  await assert.rejects(
-    parseWrapperArgs(['--binary-path'], { localParserPath: parserDist }),
-    /requires a value/
-  );
-
-  await assert.rejects(
-    parseWrapperArgs(['--sdk-help'], {
-      parserModule: {}
-    }),
-    /does not export createParser/
-  );
-
-  await assert.rejects(
-    loadCliArgsParser({
-      localParserPath: path.join(os.tmpdir(), 'missing-cli-parser.mjs'),
-      importModule: async () => {
-        throw new Error('boom');
-      }
-    }),
-    /Unable to load cli-args-parser/
-  );
-
-  await assert.rejects(
-    loadCliArgsParser({
-      parserCandidates: []
-    }),
-    /no candidates available/
-  );
+  // --binary-path without a value is consumed by splitWrapperArgs but
+  // the manual parser simply skips it (no more value available)
+  const parsedNoValue = await parseWrapperArgs(['--binary-path']);
+  assert.equal(parsedNoValue.resolveOptions.binaryPath, undefined);
 
   assert.match(formatWrapperHelp(), /npx redblue-cli/);
   assert.match(formatWrapperHelp(), /npm exec --package redblue-cli rb/);
@@ -2319,27 +2163,11 @@ test('branch-only helper paths stay covered', async () => {
     usedDoubleDash: false
   });
 
-  const parsedFromAliasOnly = await parseWrapperArgs(['--version', '9.9.9'], {
-    parserModule: {
-      createParser() {
-        return {
-          parse() {
-            return {
-              errors: [],
-              options: {
-                version: '9.9.9',
-                download: true
-              }
-            };
-          }
-        };
-      }
-    }
-  });
+  // parseWrapperArgs: --version alias resolves to releaseVersion
+  const parsedFromAliasOnly = await parseWrapperArgs(['--version', '9.9.9']);
 
   assert.equal(parsedFromAliasOnly.resolveOptions.releaseVersion, '9.9.9');
   assert.equal(parsedFromAliasOnly.resolveOptions.version, '9.9.9');
-  assert.equal(parsedFromAliasOnly.resolveOptions.autoDownload, true);
 });
 
 test('edge-case branches for manifest formatting, completion, validation and route helpers', async () => {
@@ -2415,19 +2243,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
   );
   assert.match(routeHelp, /--valid/);
   assert.match(routeHelp, /Run test/);
-
-  // validateManifestCommandArgs: non-canonical args return null (lines 1057-1058)
-  assert.equal(
-    await validateManifestCommandArgs(
-      ['-e', 'console.log(1)'],
-      { binaryPath: fixtureBinary },
-      { localParserPath: parserDist }
-    ),
-    null
-  );
-
-  // validateManifestCommandArgs: parse errors throw (lines 1074-1075)
-  // This is triggered when the parser returns errors for valid-looking args
 
   // buildInvocation: null meta early return (lines 1437-1438)
   const noMetaCommand = {
@@ -2674,74 +2489,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
   // matchesNodeToken: non-array aliases returns false (lines 2166-2167)
   // These are tested indirectly through suggestCommandTokens with empty manifests
 
-  // resolveManifestOptionValues: flag.values present (lines 2230-2231)
-  // resolveManifestOptionValues: global option match (lines 2235-2236)
-  const cliSchema = buildManifestCliSchema({
-    global_options: [
-      { long: 'output', short: 'o', kind: 'output-format', values: ['human', 'json'] },
-      null,
-      { long: '' }
-    ],
-    domains: [
-      {
-        name: 'dns',
-        aliases: [],
-        resources: [
-          {
-            name: 'record',
-            aliases: [],
-            verbs: [{ name: 'lookup', summary: 'Lookup', aliases: [] }]
-          }
-        ]
-      }
-    ],
-    commands: [
-      {
-        domain: 'dns',
-        resource: 'record',
-        flags: [
-          { long: 'output', short: 'o', description: 'Output', expects_value: true }
-        ],
-        routes: [
-          {
-            verb: 'lookup',
-            summary: 'Lookup',
-            aliases: [],
-            positionals: []
-          }
-        ]
-      }
-    ]
-  });
-  assert.deepEqual(cliSchema.options.output.choices, ['human', 'json']);
-  assert.equal(cliSchema.options.output.type, 'string');
-  assert.deepEqual(cliSchema.commands.dns.commands.record.commands.lookup.options.output.choices, ['human', 'json']);
-
-  // buildGlobalOptions: empty global_options results in json fallback (lines 2252-2253, 2258-2262)
-  const emptyGlobalSchema = buildManifestCliSchema({
-    global_options: [],
-    domains: [],
-    commands: []
-  });
-  assert.equal(emptyGlobalSchema.options.json.type, 'boolean');
-
-  // buildGlobalOptions: skip invalid options (lines 2252-2253)
-  const skipBadGlobalSchema = buildManifestCliSchema({
-    global_options: [null, { long: '' }, { description: 'no long' }],
-    domains: [],
-    commands: []
-  });
-  assert.equal(skipBadGlobalSchema.options.json.type, 'boolean');
-
-  // createManifestCLI: parser without createCLI throws (lines 2331-2332)
-  await assert.rejects(
-    createManifestCLI(
-      { binaryPath: fixtureBinary },
-      { parserModule: { createParser() {} } }
-    ),
-    /does not export createCLI/
-  );
-
   // commandCatalogEntry: fallback examples from command when route has none (line 1677)
   const catalogFromCommandExamples = describeManifestRoute(
     {
@@ -2784,16 +2531,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
 
   // resolveManifestRouteDescriptor: no matching command falls through (line 1649)
   assert.equal(describeManifestRoute(manifest, 'missing/route/here'), null);
-
-  // globalOption with single value string (line 2116-2117)
-  const globalValSchema = buildManifestCliSchema({
-    global_options: [
-      { long: 'json', short: 'j', kind: 'machine-output', value: 'json' }
-    ],
-    domains: [],
-    commands: []
-  });
-  assert.equal(globalValSchema.options.json.type, 'boolean');
 
   // completeManifestTokens: tail has long flag without =, bool flag consumed (lines 1921-1929 related)
   const boolFlagComplete = completeManifestTokens(
@@ -2846,19 +2583,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
 
   // routeInvocationMeta: invocation null with 3+ args (line 1427-1429)
   assert.equal(routeInvocationMeta(routeIndexFromProxy, manifest, ['zzz', 'yyy', 'xxx']), null);
-
-  // validateManifestCommandArgs: parse errors (lines 1074-1075)
-  // Trigger parser errors by providing a flag that expects a value without one
-  // This requires the parser to actually return errors
-  // We use --type without a value at the end
-  await assert.rejects(
-    validateManifestCommandArgs(
-      ['dns', 'record', 'lookup', '--type'],
-      { binaryPath: fixtureBinary },
-      { localParserPath: parserDist }
-    ),
-    /./
-  );
 
   // completeManifestTokens: descriptor alias includes check (line 1865)
   // Use an alias that resolves but isn't the canonical verb name
@@ -3001,43 +2725,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
     suggestions: []
   });
 
-  // resolveManifestOptionValues: flag with values (lines 2230-2231) and global match (lines 2235-2236)
-  // These are exercised through buildManifestCliSchema
-  const schemaWithFlagValues = buildManifestCliSchema({
-    global_options: [
-      null,
-      { description: 'no long field' },
-      { long: 'output', short: 'o', kind: 'output-format', values: ['a', 'b'] }
-    ],
-    domains: [
-      {
-        name: 'dns',
-        aliases: [],
-        resources: [
-          { name: 'record', aliases: [], verbs: [{ name: 'lookup', aliases: [] }] }
-        ]
-      }
-    ],
-    commands: [
-      {
-        domain: 'dns',
-        resource: 'record',
-        flags: [
-          { long: 'output', short: 'o', description: 'Output', expects_value: true, values: ['x', 'y'] },
-          { long: 'debug', description: 'Debug', expects_value: false }
-        ],
-        routes: [{ verb: 'lookup', aliases: [], positionals: [] }]
-      }
-    ]
-  });
-  // flag.values takes priority since non-empty
-  assert.deepEqual(schemaWithFlagValues.commands.dns.commands.record.commands.lookup.options.output.choices, ['x', 'y']);
-
-  // buildGlobalOptions: skip invalid + fallback json (lines 2252-2253, 2258-2262)
-  // already tested above via emptyGlobalSchema and skipBadGlobalSchema
-
-  // === NEW BRANCH COVERAGE ASSERTIONS ===
-
   // formatManifestOptionFlag: option with long but NO short -> else branch (line 832)
   const helpWithLongOnly = formatManifestHelpSummary({
     global_options: [{ long: 'verbose', description: 'Enable verbose output' }],
@@ -3137,16 +2824,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
   assert.match(routeHelpMinimal, /json_support: full/);
   assert.match(routeHelpMinimal, /preferred_flag: --output/);
   assert.ok(!routeHelpMinimal.includes('='));
-
-  // validateManifestCommandArgs: unknown command with no close suggestions -> empty string (line 1067)
-  await assert.rejects(
-    validateManifestCommandArgs(
-      ['zzzzz', 'yyyyy', 'xxxxx'],
-      { binaryPath: fixtureBinary },
-      { localParserPath: parserDist }
-    ),
-    /Unknown command: zzzzz yyyyy xxxxx/
-  );
 
   // buildJsonCliArgs: route IS found -> invocation.meta returned (line 1425)
   // preferred_flag IS a string -> preferredFlag set (line 1442)
@@ -3528,103 +3205,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
   assert.equal(catalogWithAliases[0].resources[0].verbs[0].summary, 'Scan ports');
   assert.deepEqual(catalogWithAliases[0].resources[0].verbs[0].aliases, ['s']);
 
-  // manifestGlobalOptionToOption: kind not a string -> '' (line 2217)
-  const schemaKindFallback = buildManifestCliSchema({
-    global_options: [{ long: 'quiet', short: 'q', kind: null }],
-    domains: [],
-    commands: []
-  });
-  assert.equal(schemaKindFallback.options.quiet.type, 'boolean');
-
-  // resolveManifestOptionValues: global_options || [] when manifest has no global_options (line 2233)
-  const schemaNoGlobal = buildManifestCliSchema({
-    domains: [
-      { name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }
-    ],
-    commands: [
-      {
-        domain: 'a',
-        resource: 'b',
-        flags: [{ long: 'depth', description: 'Depth', expects_value: true }],
-        routes: [{ verb: 'c', aliases: [], positionals: [] }]
-      }
-    ]
-  });
-  assert.equal(schemaNoGlobal.commands.a.commands.b.commands.c.options.depth.type, 'string');
-  assert.equal(schemaNoGlobal.commands.a.commands.b.commands.c.options.depth.choices, undefined);
-
-  // manifestPositionalToCliPositional: slot !== 'target' -> positional name (line 2270)
-  const schemaWithPos = buildManifestCliSchema({
-    global_options: [],
-    domains: [
-      { name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }
-    ],
-    commands: [
-      {
-        domain: 'a',
-        resource: 'b',
-        flags: [],
-        routes: [
-          {
-            verb: 'c',
-            aliases: [],
-            positionals: [
-              { name: 'target', slot: 'target', required: true },
-              { name: 'extra', slot: 'arg', required: false, repeated: true }
-            ]
-          }
-        ]
-      }
-    ]
-  });
-  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[0].description, 'Target input');
-  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[1].description, 'extra');
-  assert.equal(schemaWithPos.commands.a.commands.b.commands.c.positional[1].variadic, true);
-
-  // buildManifestCliSchema: resource without aliases (line 2303)
-  // domain without aliases (line 2310)
-  // route without aliases (line 2292)
-  // route without positionals (line 2293)
-  // command without flags (line 2295)
-  // route without summary -> fallback description (line 2291)
-  // resource without description (line 2302)
-  const schemaMinimal = buildManifestCliSchema({
-    global_options: [],
-    domains: [
-      {
-        name: 'x',
-        resources: [
-          {
-            name: 'y',
-            verbs: [{ name: 'z' }]
-          }
-        ]
-      }
-    ],
-    commands: [
-      {
-        domain: 'x',
-        resource: 'y',
-        routes: [{ verb: 'z' }]
-      }
-    ]
-  });
-  assert.deepEqual(schemaMinimal.commands.x.aliases, []);
-  assert.deepEqual(schemaMinimal.commands.x.commands.y.aliases, []);
-  assert.deepEqual(schemaMinimal.commands.x.commands.y.commands.z.aliases, []);
-  assert.equal(schemaMinimal.commands.x.commands.y.commands.z.description, 'x y z');
-  assert.deepEqual(schemaMinimal.commands.x.commands.y.commands.z.positional, []);
-  assert.deepEqual(Object.keys(schemaMinimal.commands.x.commands.y.commands.z.options), []);
-
-  // buildManifestCliSchema: commands || [] when manifest has no commands (line 2284)
-  // routes || [] when command has no routes (line 2289)
-  const schemaNoCmd = buildManifestCliSchema({
-    global_options: [],
-    domains: [{ name: 'x', aliases: [], resources: [{ name: 'y', aliases: [], verbs: [{ name: 'z', aliases: [] }] }] }],
-    commands: []
-  });
-  assert.deepEqual(schemaNoCmd.commands.x.commands.y.commands, {});
-
   // resolveManifestRouteDescriptor: route found via alias match (line 1639)
   // canonicalDomain/Resource/Verb found -> returned (lines 1643-1645)
   const descViaAlias = describeManifestRoute(
@@ -3728,14 +3308,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
     'a/b/c'
   );
   assert.equal(moRoute.machine_output.preferred_flag, 'format');
-
-  // buildGlobalOptions: global option without values -> type 'boolean' (lines 2250, 2254)
-  const schemaGlobalNoValues = buildManifestCliSchema({
-    global_options: [{ long: 'verbose', short: 'v', description: 'Verbose' }],
-    domains: [],
-    commands: []
-  });
-  assert.equal(schemaGlobalNoValues.options.verbose.type, 'boolean');
 
   // completeManifestTokens: shortFlag used via short name filter (line 1949 related)
   // flag.short && shortFlag.startsWith(lastToken) path in filter
@@ -3963,28 +3535,6 @@ test('edge-case branches for manifest formatting, completion, validation and rou
   assert.ok(moArgs.includes('--json'));
   assert.ok(moArgs.includes('--format'));
   assert.ok(moArgs.includes('json'));
-
-  // buildManifestCliSchema: domain.resources || [] (line 2282)
-  // manifest.commands || [] (line 2284)
-  // command.routes || [] (line 2289)
-  const schemaNoResources = buildManifestCliSchema({
-    global_options: [],
-    domains: [{ name: 'empty' }]
-  });
-  assert.deepEqual(schemaNoResources.commands.empty.commands, {});
-
-  const schemaNoManifestCmds = buildManifestCliSchema({
-    global_options: [],
-    domains: [{ name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }]
-  });
-  assert.deepEqual(schemaNoManifestCmds.commands.a.commands.b.commands, {});
-
-  const schemaNoRoutesCmd = buildManifestCliSchema({
-    global_options: [],
-    domains: [{ name: 'a', aliases: [], resources: [{ name: 'b', aliases: [], verbs: [{ name: 'c', aliases: [] }] }] }],
-    commands: [{ domain: 'a', resource: 'b' }]
-  });
-  assert.deepEqual(schemaNoRoutesCmd.commands.a.commands.b.commands, {});
 
   // completeManifestTokens: tail.length >= requiredPositionals.length with empty tail
   // triggers (tail[tail.length - 1] || '').startsWith('-') where tail[-1] is undefined
@@ -4214,30 +3764,11 @@ test('edge-case branches for manifest formatting, completion, validation and rou
 
   // runJson: throws when descriptor is null (lines 1745-1746)
   // Use --json prefix so args aren't canonical, then unknown command tokens
-  // validateManifestCommandArgs returns null for non-canonical, so runJson
-  // proceeds to resolveManifestRouteDescriptor which returns null → throws
+  // runJson proceeds to resolveManifestRouteDescriptor which returns null -> throws
   await assert.rejects(
     runJson(['--json', 'zzz', 'yyy', 'xxx'], { binaryPath: fixtureBinary }),
     /Unknown command/
   );
-
-  // validateManifestCommandArgs: IIFE fallback path (lines 1329-1330)
-  // When args start with flags and findCommandStartIndex returns null,
-  // the IIFE falls back to returning args unchanged.
-  // selector comes from extractRouteSelectorFromArgv which CAN return 3 tokens
-  // even when all args are flags (if it parses them differently).
-  // Simplest: use --json --output json dns record lookup — starts with flag,
-  // findCommandStartIndex returns 2, which IS valid. To get the fallback we
-  // need commandStart === 0 or null.
-  // Actually the fallback is nearly unreachable since findCommandStartIndex
-  // returns 0 for unknown flags (which is <= 0, triggering fallback).
-  // Use: unknown-flag dns record lookup
-  const parsedFallback = await validateManifestCommandArgs(
-    ['--unknown-flag', 'dns', 'record', 'lookup'],
-    { binaryPath: fixtureBinary },
-    { localParserPath: parserDist }
-  );
-  assert.ok(parsedFallback !== null);
 });
 
 test('wrapper cli execution covers help, failures, direct forwarding and main entrypoint', async () => {
@@ -4276,7 +3807,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--sdk-help'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
@@ -4288,7 +3819,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'record', 'lookup'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
@@ -4300,7 +3831,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'rec'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
@@ -4313,7 +3844,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary, '--sdk-help', 'dns', 'record', 'loookup'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
@@ -4326,13 +3857,15 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
     1
   );
-  assert.match(stderrChunks.join(''), /requires a value/);
+  // With manual parsing, --binary-path without a value leaves binaryPath undefined,
+  // causing resolveBinary to fail (no binary found)
+  assert.equal(stderrChunks.join('').length > 0, true);
 
   resetOutput();
   assert.equal(
@@ -4341,7 +3874,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
         env: {
         RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
         },
-        localParserPath: parserDist,
+  
         stdout,
         stderr
       })
@@ -4354,7 +3887,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   resetOutput();
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary, '--print-binary-path'], {
-      localParserPath: parserDist,
+
       stdout,
       stderr
     }),
@@ -4377,7 +3910,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
           '--no-verify'
         ],
         {
-          localParserPath: parserDist,
+    
           stdout,
           stderr
         }
@@ -4408,7 +3941,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
           env: {
             RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
           },
-          localParserPath: parserDist,
+    
           stdout,
           stderr
         }
@@ -4438,7 +3971,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
           'example.com'
         ],
         {
-          localParserPath: parserDist,
+    
           stdio: 'ignore',
           stdout,
           stderr
@@ -4473,7 +4006,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
           env: {
             RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
           },
-          localParserPath: parserDist,
+    
           stdio: 'ignore',
           stdout,
           stderr
@@ -4494,7 +4027,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
           RB_FAKE_LOG_PATH: logPath,
           RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
         },
-        localParserPath: parserDist,
+  
         stdio: 'ignore',
         stdout,
         stderr
@@ -4511,7 +4044,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
       env: {
         RB_FAKE_LOG_PATH: logPath
       },
-      localParserPath: parserDist,
+
       stdio: 'ignore'
     }
   );
@@ -4526,7 +4059,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
   assert.equal(
     await sdk.runCli(['--binary-path', fixtureBinary], {
       cwd: tmpDir,
-      localParserPath: parserDist,
+
       stdio: 'ignore'
     }),
     0
@@ -4534,9 +4067,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
 
   resetOutput();
   assert.equal(
-    await sdk.runCli(['--binary-path', process.execPath, '-e', 'process.exit(0)'], {
-      localParserPath: parserDist
-    }),
+    await sdk.runCli(['--binary-path', process.execPath, '-e', 'process.exit(0)'], {}),
     0
   );
 
@@ -4555,8 +4086,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     ],
     {
       env: Object.assign({}, process.env, {
-        RB_FAKE_LOG_PATH: logPath,
-        REDBLUE_CLI_ARGS_PARSER_PATH: parserDist
+        RB_FAKE_LOG_PATH: logPath
       }),
       stdio: ['ignore', 'pipe', 'pipe']
     }
@@ -4596,8 +4126,7 @@ test('wrapper cli execution covers help, failures, direct forwarding and main en
     [sdkScript, '--binary-path', fixtureBinary, '--version'],
     {
       env: Object.assign({}, process.env, {
-        RB_FAKE_VERSION: 'RedBlue CLI v0.2.2',
-        REDBLUE_CLI_ARGS_PARSER_PATH: parserDist
+        RB_FAKE_VERSION: 'RedBlue CLI v0.2.2'
       }),
       stdio: ['ignore', 'pipe', 'pipe']
     }

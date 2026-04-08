@@ -7,15 +7,10 @@ const fsp = fs.promises;
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { pathToFileURL } = require('url');
 const { execFile, spawn } = require('child_process');
 
 const SDK_VERSION = require(path.join(__dirname, '..', 'package.json')).version;
 const DEFAULT_REPO = 'forattini-dev/redblue';
-const LOCAL_CLI_ARGS_PARSER_PATH = path.resolve(
-  __dirname,
-  '../../../tetis/libs/cli-args-parser/dist/index.js'
-);
 const WRAPPER_OPTION_TYPES = Object.freeze({
   'asset-name': 'string',
   'auto-download': 'boolean',
@@ -36,60 +31,6 @@ const WRAPPER_OPTION_TYPES = Object.freeze({
   upgrade: 'boolean',
   version: 'string',
   verify: 'boolean'
-});
-const WRAPPER_OPTION_SCHEMA = Object.freeze({
-  options: {
-    'asset-name': {
-      type: 'string'
-    },
-    'auto-download': {
-      type: 'boolean',
-      aliases: ['download']
-    },
-    'binary-path': {
-      type: 'string'
-    },
-    channel: {
-      type: 'string'
-    },
-    'check-update': {
-      type: 'boolean'
-    },
-    'github-token': {
-      type: 'string'
-    },
-    force: {
-      type: 'boolean'
-    },
-    install: {
-      type: 'boolean'
-    },
-    repo: {
-      type: 'string'
-    },
-    'print-binary-path': {
-      type: 'boolean'
-    },
-    'release-version': {
-      type: 'string',
-      aliases: ['version']
-    },
-    'sdk-help': {
-      type: 'boolean'
-    },
-    'static-build': {
-      type: 'boolean'
-    },
-    'target-dir': {
-      type: 'string'
-    },
-    upgrade: {
-      type: 'boolean'
-    },
-    verify: {
-      type: 'boolean'
-    }
-  }
 });
 
 function getDefaultBinaryName(platform = process.platform) {
@@ -629,67 +570,6 @@ function spawnBinary(binaryPath, args, options = {}) {
   });
 }
 
-function toImportSpecifier(filePath) {
-  return pathToFileURL(path.resolve(filePath)).href;
-}
-
-function getParserCandidatePaths(runtime = {}) {
-  const env = runtime.env || process.env;
-  const localParserPath = runtime.localParserPath || LOCAL_CLI_ARGS_PARSER_PATH;
-  const candidates = [];
-  const seen = new Set();
-
-  function pushCandidate(specifier) {
-    if (!specifier || seen.has(specifier)) {
-      return;
-    }
-    seen.add(specifier);
-    candidates.push(specifier);
-  }
-
-  if (env.REDBLUE_CLI_ARGS_PARSER_PATH) {
-    pushCandidate(toImportSpecifier(env.REDBLUE_CLI_ARGS_PARSER_PATH));
-  }
-
-  pushCandidate('cli-args-parser');
-
-  if (localParserPath && exists(localParserPath)) {
-    pushCandidate(toImportSpecifier(localParserPath));
-  }
-
-  return candidates;
-}
-
-async function loadCliArgsParser(runtime = {}) {
-  if (runtime.parserModule) {
-    return runtime.parserModule;
-  }
-
-  const importModule =
-    runtime.importModule ||
-    (async function defaultImport(specifier) {
-      return import(specifier);
-    });
-
-  const candidates = Array.isArray(runtime.parserCandidates)
-    ? runtime.parserCandidates.slice()
-    : getParserCandidatePaths(runtime);
-  const failures = [];
-
-  for (const specifier of candidates) {
-    try {
-      return await importModule(specifier);
-    } catch (error) {
-      failures.push(`${specifier}: ${error.message}`);
-    }
-  }
-
-  /* node:coverage disable */
-  const failureSummary = failures.length > 0 ? failures.join('; ') : 'no candidates available';
-  /* node:coverage enable */
-  throw new Error(`Unable to load cli-args-parser. Tried: ${failureSummary}`);
-}
-
 function splitWrapperArgs(argv) {
   const rawArgs = Array.isArray(argv) ? argv.slice() : [];
   const wrapperArgs = [];
@@ -747,49 +627,59 @@ function splitWrapperArgs(argv) {
 }
 
 async function parseWrapperArgs(argv, runtime = {}) {
-  const rawArgs = Array.isArray(argv) ? argv.slice() : [];
-  const parserModule = await loadCliArgsParser(runtime);
-  const { createParser } = parserModule;
+  const split = splitWrapperArgs(argv);
 
-  if (typeof createParser !== 'function') {
-    throw new Error('cli-args-parser does not export createParser');
+  // Parse wrapper args manually (simple --key value pairs)
+  const options = {};
+  const wrapperArgs = split.wrapperArgs;
+
+  for (let i = 0; i < wrapperArgs.length; i++) {
+    const token = wrapperArgs[i];
+    if (!token.startsWith('--')) continue;
+
+    const eqIndex = token.indexOf('=');
+    const name = eqIndex !== -1 ? token.slice(2, eqIndex) : token.slice(2);
+    const type = WRAPPER_OPTION_TYPES[name];
+
+    if (!type) continue;
+
+    if (type === 'boolean') {
+      options[name] = true;
+    } else if (eqIndex !== -1) {
+      options[name] = token.slice(eqIndex + 1);
+    } else if (i + 1 < wrapperArgs.length) {
+      i++;
+      options[name] = wrapperArgs[i];
+    }
   }
 
-  const split = splitWrapperArgs(rawArgs);
-  const parser = createParser(WRAPPER_OPTION_SCHEMA);
-  const parsed = parser.parse(split.wrapperArgs);
+  const releaseVersion = options['release-version'] || options['version'];
 
-  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-    throw new Error(parsed.errors.join('; '));
-  }
-
-  const options = parsed.options || {};
-  const releaseVersion = options['release-version'] || options.version;
-
+  // Build the same result structure as before
   return {
     passthroughArgs: split.passthroughArgs,
-    rawArgs,
+    rawArgs: Array.isArray(argv) ? argv.slice() : [],
+    usedDoubleDash: split.usedDoubleDash,
     resolveOptions: {
-      assetName: options['asset-name'],
-      autoDownload: options['auto-download'] === true || options.download === true,
       binaryPath: options['binary-path'],
-      channel: options.channel,
-      force: options.force === true,
-      githubToken: options['github-token'],
-      repo: options.repo,
-      releaseVersion,
-      staticBuild: options['static-build'] === true,
       targetDir: options['target-dir'],
-      verify: options.verify !== false,
+      autoDownload: options['auto-download'] || options['download'] || false,
+      repo: options['repo'],
+      channel: options['channel'],
+      releaseVersion,
+      assetName: options['asset-name'],
+      githubToken: options['github-token'],
+      verify: options['verify'] !== false && !options['no-verify'],
+      staticBuild: options['static-build'] || false,
+      force: options['force'] || false,
       version: releaseVersion
     },
-    usedDoubleDash: split.usedDoubleDash,
     wrapperOptions: {
-      checkUpdate: options['check-update'] === true,
-      install: options.install === true,
-      printBinaryPath: options['print-binary-path'] === true,
-      sdkHelp: options['sdk-help'] === true,
-      upgrade: options.upgrade === true
+      sdkHelp: options['sdk-help'] || false,
+      checkUpdate: options['check-update'] || false,
+      upgrade: options['upgrade'] || false,
+      install: options['install'] || false,
+      printBinaryPath: options['print-binary-path'] || false,
     }
   };
 }
@@ -1301,42 +1191,6 @@ function findCommandStartIndex(argv, manifest = {}) {
   return null;
 }
 
-async function validateManifestCommandArgs(argv, options = {}, runtime = {}) {
-  const args = normalizeCliArgv(argv);
-  const defaults = ensureObject(options, 'validateManifestCommandArgs options');
-  const { manifest } = await getManifest(defaults);
-  const selector = looksLikeCanonicalCommandArgs(args)
-    ? args.slice(0, 3)
-    : extractRouteSelectorFromArgv(args, manifest);
-  if (!selector) {
-    return null;
-  }
-
-  if (!resolveManifestRouteDescriptor(manifest, selector)) {
-    const suggestions = suggestRouteCommands(manifest, selector, 3);
-    const suggestionText =
-      suggestions.length > 0 ? `\nDid you mean:\n  ${suggestions.join('\n  ')}` : '';
-    throw new Error(`Unknown command: ${selector.join(' ')}${suggestionText}`);
-  }
-
-  const cli = await createManifestCLI(defaults, runtime);
-  const parseArgs =
-    looksLikeCanonicalCommandArgs(args) || selector.length < 3
-      ? args
-      : (() => {
-          const commandStart = findCommandStartIndex(args, manifest);
-          if (typeof commandStart !== 'number' || commandStart <= 0 || commandStart >= args.length) {
-            return args;
-          }
-          return args.slice(commandStart);
-        })();
-  const parsed = cli.parse(parseArgs);
-  if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-    throw new Error(parsed.errors.join('; '));
-  }
-  return parsed;
-}
-
 async function runCli(argv = process.argv.slice(2), runtime = {}) {
   const stdout = runtime.stdout || process.stdout;
   const stderr = runtime.stderr || process.stderr;
@@ -1733,7 +1587,7 @@ async function runJson(argv, options = {}) {
   const defaults = ensureObject(options, 'runJson options');
   const inputArgv = normalizeCliArgv(argv);
   const { binaryPath, manifest } = await getManifest(defaults);
-  await validateManifestCommandArgs(inputArgv, defaults, {});
+  // Rust binary handles all validation — no JS-side validation needed
   const selector = looksLikeCanonicalCommandArgs(inputArgv)
     ? inputArgv.slice(0, 3)
     : extractRouteSelectorFromArgv(inputArgv, manifest);
@@ -2496,138 +2350,6 @@ function buildDomainCatalog(manifest = {}) {
   return Array.from(domains.values());
 }
 
-function manifestFlagToOption(flag, manifest = {}) {
-  const values = resolveManifestOptionValues(manifest, flag);
-  return {
-    type: flag.expects_value ? 'string' : 'boolean',
-    choices: values,
-    short: flag.short || undefined,
-    description: flag.description
-  };
-}
-
-function manifestGlobalOptionToOption(option) {
-  const kind = typeof option.kind === 'string' ? option.kind : '';
-  const values = Array.isArray(option.values) ? option.values.slice() : undefined;
-
-  return {
-    type: kind === 'output-format' || values ? 'string' : 'boolean',
-    choices: values,
-    short: option.short || undefined,
-    description: option.description || ''
-  };
-}
-
-function resolveManifestOptionValues(manifest = {}, flag = {}) {
-  if (Array.isArray(flag.values) && flag.values.length > 0) {
-    return flag.values.slice();
-  }
-
-  const globalOption = (manifest.global_options || []).find((option) => {
-    if (!option || typeof option.long !== 'string') {
-      return false;
-    }
-    return option.long === flag.long || (flag.short && option.short === flag.short);
-  });
-
-  if (globalOption && Array.isArray(globalOption.values) && globalOption.values.length > 0) {
-    return globalOption.values.slice();
-  }
-
-  return undefined;
-}
-
-function buildGlobalOptions(manifest = {}) {
-  const globalOptions = ensureObject({}, 'global options');
-
-  for (const option of manifest.global_options || []) {
-    if (!option || typeof option.long !== 'string' || option.long.length === 0) {
-      continue;
-    }
-    globalOptions[option.long] = manifestGlobalOptionToOption(option);
-  }
-
-  if (Object.keys(globalOptions).length === 0) {
-    globalOptions.json = {
-      type: 'boolean',
-      description: 'Request machine-readable JSON output'
-    };
-  }
-
-  return globalOptions;
-}
-
-function manifestPositionalToCliPositional(positional) {
-  return {
-    name: positional.name,
-    description: positional.slot === 'target' ? 'Target input' : positional.name,
-    required: positional.required === true,
-    variadic: positional.repeated === true
-  };
-}
-
-function buildManifestCliSchema(manifest = {}) {
-  const commands = {};
-
-  for (const domain of buildDomainCatalog(manifest)) {
-    const resourceCommands = {};
-
-    for (const resource of domain.resources || []) {
-      const verbCommands = {};
-      const relatedCommands = (manifest.commands || []).filter((command) => {
-        return command.domain === domain.name && command.resource === resource.name;
-      });
-
-      for (const command of relatedCommands) {
-        for (const route of command.routes || []) {
-          verbCommands[route.verb] = {
-            description: route.summary || `${domain.name} ${resource.name} ${route.verb}`,
-            aliases: Array.isArray(route.aliases) ? route.aliases.slice() : [],
-            positional: (route.positionals || []).map(manifestPositionalToCliPositional),
-            options: Object.fromEntries(
-              (command.flags || []).map((flag) => [flag.long, manifestFlagToOption(flag, manifest)])
-            )
-          };
-        }
-      }
-
-      resourceCommands[resource.name] = {
-        description: resource.description,
-        aliases: Array.isArray(resource.aliases) ? resource.aliases.slice() : [],
-        commands: verbCommands
-      };
-    }
-
-    commands[domain.name] = {
-      description: `${domain.name} command group`,
-      aliases: Array.isArray(domain.aliases) ? domain.aliases.slice() : [],
-      commands: resourceCommands
-    };
-  }
-
-  return {
-    name: 'rb',
-    version: manifest.version,
-    description: 'redblue manifest-driven CLI schema',
-    help: {
-      includeGlobalOptionsInCommands: true
-    },
-    options: buildGlobalOptions(manifest),
-    commands
-  };
-}
-
-async function createManifestCLI(options = {}, runtime = {}) {
-  const defaults = ensureObject(options, 'createManifestCLI options');
-  const parserModule = await loadCliArgsParser(runtime);
-  if (typeof parserModule.createCLI !== 'function') {
-    throw new Error('cli-args-parser does not export createCLI');
-  }
-
-  const { manifest } = await getManifest(defaults);
-  return parserModule.createCLI(buildManifestCliSchema(manifest));
-}
-
 function createDomainProxy(binaryPath, manifest, defaults) {
   const client = {};
 
@@ -2674,7 +2396,6 @@ async function createClient(options = {}) {
   const routeIndex = createRouteIndex(api);
   const domainCatalog = buildDomainCatalog(manifest);
   const commandCatalog = buildCommandCatalog(manifest);
-  const cliSchema = buildManifestCliSchema(manifest);
 
   Object.defineProperties(api, {
     $binaryPath: {
@@ -2695,16 +2416,6 @@ async function createClient(options = {}) {
     },
     $commands: {
       value: commandCatalog,
-      enumerable: false
-    },
-    $cliSchema: {
-      value: cliSchema,
-      enumerable: false
-    },
-    $createCLI: {
-      value(runtime = {}) {
-        return createManifestCLI(defaults, runtime);
-      },
       enumerable: false
     },
     $findRoute: {
@@ -2771,7 +2482,6 @@ async function createClient(options = {}) {
 module.exports = {
   version: SDK_VERSION,
   checkForUpdates,
-  createManifestCLI,
   createClient,
   downloadBinary,
   ensureInstalled,
@@ -2789,10 +2499,8 @@ module.exports._internal = {
   attachRoute,
   buildDomainCatalog,
   buildCommandCatalog,
-  buildManifestCliSchema,
   buildInvocation,
   checkForUpdates,
-  createManifestCLI,
   createDomainProxy,
   createRouteIndex,
   defaultInstallDir,
@@ -2810,7 +2518,6 @@ module.exports._internal = {
   formatWrapperHelp,
   findFlag,
   getBinaryInfo,
-  getParserCandidatePaths,
   getDefaultBinaryName,
   getInstalledVersion,
   getReleaseTag,
@@ -2821,7 +2528,6 @@ module.exports._internal = {
   isExecutable,
   kebabToCamel,
   legacyInstallDir,
-  loadCliArgsParser,
   normalizeReleaseTag,
   normalizeCliArgv,
   normalizeSdkHelpSelector,
@@ -2858,9 +2564,7 @@ module.exports._internal = {
   splitWrapperArgs,
   spawnBinary,
   profileArgs,
-  toImportSpecifier,
   upgradeBinary,
-  validateManifestCommandArgs,
   waitForChild,
   writeLine,
   verifyChecksum

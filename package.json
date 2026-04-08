@@ -49,9 +49,7 @@
     "ports"
   ],
   "license": "MIT",
-  "dependencies": {
-    "cli-args-parser": "^1.0.6"
-  },
+  "dependencies": {},
   "scripts": {
     "version:sync": "node scripts/sync-version.js",
     "sdk:generate": "node scripts/generate-sdk-surface.js",
