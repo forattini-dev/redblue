@@ -10,9 +10,13 @@
 //! - **complete**: Shell completion generation (TODO)
 
 pub mod error;
+pub mod router;
+pub mod schema;
 pub mod token;
 pub mod types;
 
 pub use error::{suggest, ParseError};
+pub use router::{RouteResolution, RouteTree};
+pub use schema::{SchemaParser, SchemaResult};
 pub use token::{tokenize, Token};
 pub use types::{CommandPath, FlagSchema, FlagValue, ParsedCommand, ValueType};
