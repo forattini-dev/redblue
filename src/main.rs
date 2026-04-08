@@ -1,6 +1,6 @@
 use redblue::{cli, config, utils::logger};
 
-use cli::{commands, output::Output, parser};
+use cli::{args, commands, output::Output, parser};
 use std::env;
 
 fn main() {
@@ -22,66 +22,93 @@ fn main() {
     return;
   }
 
-  let ctx = match parser::parse_args(&args) {
-    Ok(ctx) => ctx,
-    Err(e) => {
-      Output::error(&e);
+  // Try the new schema-driven parser first.
+  // It returns (CliContext, &Command) on success, or ParseError for
+  // special commands (help/version/shell) and validation failures.
+  match args::parse_and_route(&args) {
+    Ok((ctx, command)) => {
+      Output::set_machine_mode(ctx.get_output_format() != cli::format::OutputFormat::Human);
+      if ctx.has_flag("verbose") || ctx.has_flag("v") {
+        logger::enable_verbose();
+      }
+
+      if let Err(e) = command.execute(&ctx) {
+        Output::error(&e);
+        std::process::exit(1);
+      }
+
+      // Post-dispatch stealth rehash
+      if stealth_profile.is_some() {
+        if let Err(e) = redblue::modules::evasion::rehash::rehash() {
+          eprintln!("warning: stealth rehash failed: {}", e);
+        }
+      }
+
+      let _ = maybe_create_rbdb(&ctx);
+    }
+    Err(args::ParseError::HelpRequested { .. }) => {
+      // Re-parse with old parser for help context (help handlers need CliContext)
+      let ctx = parser::parse_args(&args).unwrap_or_default();
+      if ctx.domain.is_some() {
+        handle_help_flag(&ctx);
+      } else {
+        commands::print_global_help();
+      }
+    }
+    Err(args::ParseError::VersionRequested { .. }) => {
+      print_version();
+    }
+    Err(args::ParseError::Other(ref msg)) if msg == "shell" => {
+      let ctx = parser::parse_args(&args).unwrap_or_default();
+      handle_shell_command(&ctx);
+    }
+    Err(args::ParseError::Other(ref msg)) if msg == "commands" => {
+      commands::print_all_commands();
+    }
+    Err(args::ParseError::Other(ref msg)) if msg == "magic_scan" => {
+      // Fallback to old dispatch for magic scan (auto-detect target type)
+      let ctx = parser::parse_args(&args).unwrap_or_default();
+      if let Err(e) = commands::dispatch(&ctx) {
+        Output::error(&e);
+        std::process::exit(1);
+      }
+    }
+    Err(args::ParseError::MissingResource { domain, available }) => {
+      Output::error(&format!("Missing resource for domain '{}'", domain));
+      if !available.is_empty() {
+        println!("\nAvailable resources:\n  {}", available.join("\n  "));
+      }
       std::process::exit(1);
     }
-  };
-
-  Output::set_machine_mode(ctx.get_output_format() != cli::format::OutputFormat::Human);
-
-  // Enable verbose logging if --verbose flag is present
-  if ctx.has_flag("verbose") || ctx.has_flag("v") {
-    logger::enable_verbose();
-  }
-
-  if ctx.has_flag("version") {
-    print_version();
-    return;
-  }
-
-  if ctx.has_flag("h") || ctx.has_flag("help") {
-    handle_help_flag(&ctx);
-    return;
-  }
-
-  if let Some(domain) = ctx.domain_only() {
-    match domain {
-      "help" => {
-        handle_help_command(&ctx);
-        return;
+    Err(args::ParseError::MissingVerb { domain, resource, available }) => {
+      Output::error(&format!("Missing verb for '{} {}'", domain, resource));
+      if !available.is_empty() {
+        println!("\nAvailable verbs:\n  {}", available.join("\n  "));
       }
-      "version" => {
-        print_version();
-        return;
+      std::process::exit(1);
+    }
+    Err(e) => {
+      // Fallback: try old parser + dispatch for anything the new parser can't handle yet
+      match parser::parse_args(&args) {
+        Ok(ctx) => {
+          Output::set_machine_mode(ctx.get_output_format() != cli::format::OutputFormat::Human);
+          if ctx.has_flag("verbose") || ctx.has_flag("v") {
+            logger::enable_verbose();
+          }
+          if let Err(dispatch_err) = commands::dispatch(&ctx) {
+            // Both parsers failed — show the new parser's error (better messages)
+            Output::error(&e.to_string());
+            std::process::exit(1);
+          }
+        }
+        Err(_) => {
+          Output::error(&e.to_string());
+          std::process::exit(1);
+        }
       }
-      "shell" => {
-        handle_shell_command(&ctx);
-        return;
-      }
-      "commands" | "list" => {
-        commands::print_all_commands();
-        return;
-      }
-      _ => {}
     }
   }
 
-  if let Err(e) = commands::dispatch(&ctx) {
-    Output::error(&e);
-    std::process::exit(1);
-  }
-
-  // --stealth: rehash the binary after command execution
-  if stealth_profile.is_some() {
-    if let Err(e) = redblue::modules::evasion::rehash::rehash() {
-      eprintln!("warning: stealth rehash failed: {}", e);
-    }
-  }
-
-  let _ = maybe_create_rbdb(&ctx);
 }
 
 fn handle_help_flag(ctx: &cli::CliContext) {
