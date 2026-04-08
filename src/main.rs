@@ -105,8 +105,10 @@ fn main() {
 /// Build a minimal CliContext by extracting positional args and flags from argv.
 /// This replaces the old parser::parse_args for help/shell/magic_scan contexts.
 fn build_ctx_from_args(args: &[String]) -> cli::CliContext {
-  let mut ctx = cli::CliContext::default();
-  ctx.raw = args.to_vec();
+  let mut ctx = cli::CliContext {
+    raw: args.to_vec(),
+    ..Default::default()
+  };
 
   let mut positionals = Vec::new();
   let mut i = 0;
@@ -116,11 +118,11 @@ fn build_ctx_from_args(args: &[String]) -> cli::CliContext {
       positionals.extend_from_slice(&args[i + 1..]);
       break;
     }
-    if arg.starts_with("--") {
-      if let Some((key, val)) = arg[2..].split_once('=') {
+    if let Some(stripped) = arg.strip_prefix("--") {
+      if let Some((key, val)) = stripped.split_once('=') {
         ctx.flags.insert(key.to_string(), val.to_string());
       } else {
-        let key = arg[2..].to_string();
+        let key = stripped.to_string();
         if i + 1 < args.len() && !args[i + 1].starts_with('-') {
           ctx.flags.insert(key, args[i + 1].clone());
           i += 1;
