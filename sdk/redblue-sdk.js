@@ -591,11 +591,13 @@ function profileArgs(args) {
     return args;
   }
   // -S (strip types) requires Node >= 22; skip on older versions
+  /* node:coverage disable */
   const major = parseInt(process.versions.node, 10);
-  if (major < 22) {
-    return args;
+  if (major >= 22) {
+    return ['-S', 'nodejs'].concat(args);
   }
-  return ['-S', 'nodejs'].concat(args);
+  /* node:coverage enable */
+  return args;
 }
 
 function execFilePromise(binaryPath, args, options = {}) {
