@@ -166,20 +166,15 @@ Done when:
 - [x] Step 3 complete
 - [x] Step 4 complete
 - [x] Step 5 complete
-- [ ] Step 6 complete
+- [x] Step 6 complete
 - [x] Step 7 complete
 
-## Current Status (2026-04-07)
+## Current Status (2026-04-08)
 
 - Step 1: completed (`health`/`fuzz` migrated off ad hoc command-local JSON emission).
 - Step 2: completed (legacy order translation narrowed to avoid swapping when resource token is already canonical).
 - Step 3: completed (all `impl Command for ...` now provide explicit `metadata` and `route_metadata` coverage).
 - Step 4: completed (wrapper machine JSON execution hard-gated by route metadata contract).
 - Step 5: completed (SDK generation pipeline added via `scripts/generate-sdk-surface.js` with generated artifacts and drift check).
-- Step 6: pending by request (final verification gate deferred; remaining closeout is running the full gate suite when build/test is resumed).
+- Step 6: completed (CLI parser ported to Rust: tokenizer, schema parser, command router, help, completion. SDK simplified to zero-dependency passthrough. cli-args-parser removed. All verification gates pass).
 - Step 7: completed (macOS/Windows collector baseline added for `system host`, with explicit unavailable collector reasons in payload and updated docs/tests).
-
-Remaining to close Step 6 when build/test is resumed:
-
-- run targeted Rust tests for migrated parser/output paths
-- run `node --test sdk/test/redblue-sdk.test.js`
