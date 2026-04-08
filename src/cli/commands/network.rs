@@ -992,10 +992,16 @@ mod tests {
 
     assert_eq!(payload["host"].as_str(), Some("example.com"));
     assert_eq!(payload["ip"].as_str(), Some("192.0.2.10"));
-    assert_eq!(payload["open_ports"][0].as_u64(), Some(22));
-    assert_eq!(payload["services"][0]["service"].as_str(), Some("ssh"));
     assert_eq!(
-      payload["services"][0]["banner"].as_str(),
+      payload["open_ports"].as_array().unwrap()[0].as_i64(),
+      Some(22)
+    );
+    assert_eq!(
+      payload["services"].as_array().unwrap()[0]["service"].as_str(),
+      Some("ssh")
+    );
+    assert_eq!(
+      payload["services"].as_array().unwrap()[0]["banner"].as_str(),
       Some("SSH-2.0-OpenSSH_9.0 ")
     );
   }
@@ -1034,16 +1040,19 @@ mod tests {
     );
 
     assert_eq!(
-      payload["ipv4_bogons"][0]["cidr"].as_str(),
+      payload["ipv4_bogons"].as_array().unwrap()[0]["cidr"].as_str(),
       Some("10.0.0.0/8")
     );
     assert_eq!(
-      payload["ipv4_bogons"][0]["description"].as_str(),
+      payload["ipv4_bogons"].as_array().unwrap()[0]["description"].as_str(),
       Some("Private-Use (RFC 1918)")
     );
-    assert_eq!(payload["ipv6_bogons"][0]["cidr"].as_str(), Some("fc00::/7"));
     assert_eq!(
-      payload["ipv6_bogons"][0]["description"].as_str(),
+      payload["ipv6_bogons"].as_array().unwrap()[0]["cidr"].as_str(),
+      Some("fc00::/7")
+    );
+    assert_eq!(
+      payload["ipv6_bogons"].as_array().unwrap()[0]["description"].as_str(),
       Some("Unique-Local (RFC 4193)")
     );
   }

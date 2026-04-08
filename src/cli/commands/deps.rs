@@ -287,6 +287,7 @@ mod tests {
     let result = DependencyScanResult {
       total_dependencies: 42,
       vulnerable_dependencies: 1,
+      dependencies: vec![],
       files_scanned: vec!["package.json".to_string()],
       vulnerabilities: vec![Vulnerability {
         package_name: "left-pad".to_string(),
@@ -294,6 +295,7 @@ mod tests {
         severity: VulnSeverity::High,
         cve_id: Some("CVE-2099-0001".to_string()),
         title: "Example vulnerability".to_string(),
+        description: String::new(),
         fixed_version: Some("1.3.0".to_string()),
       }],
     };

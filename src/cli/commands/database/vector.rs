@@ -314,15 +314,15 @@ mod tests {
   #[test]
   fn vector_index_payload_reports_dimensions() {
     let payload = vector_index_payload("ivf", "assets", 12, 24, &[384, 768]);
-    assert_eq!(payload["status"], "ready");
+    assert_eq!(payload["status"], json!("ready"));
     assert_eq!(payload["dimensions"].as_array().unwrap().len(), 2);
   }
 
   #[test]
   fn vector_info_payload_reports_collection() {
     let payload = vector_info_payload("docs", 100, 55, 80, &[1536]);
-    assert_eq!(payload["collection"], "docs");
-    assert_eq!(payload["vector_entities"], 55);
-    assert_eq!(payload["distance_metric"], "cosine");
+    assert_eq!(payload["collection"], json!("docs"));
+    assert_eq!(payload["vector_entities"], json!(55));
+    assert_eq!(payload["distance_metric"], json!("cosine"));
   }
 }

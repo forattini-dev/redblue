@@ -1849,8 +1849,11 @@ mod tests {
       "common",
       &[&result],
     );
-    assert_eq!(payload["open_count"], 1);
-    assert_eq!(payload["ports"][0]["service"], "https");
+    assert_eq!(payload["open_count"], json!(1));
+    assert_eq!(
+      payload["ports"].as_array().unwrap()[0]["service"],
+      json!("https")
+    );
   }
 
   #[test]
@@ -1862,6 +1865,7 @@ mod tests {
       rtt_ms: Some(12.5),
       ttl: Some(64),
       banner: None,
+      scan_type: ScanType::Syn,
     };
     let payload = advanced_scan_payload(
       ScanType::Syn,
@@ -1872,8 +1876,8 @@ mod tests {
       1000,
       &[&result],
     );
-    assert_eq!(payload["scan_type"], "syn");
-    assert_eq!(payload["interesting_count"], 1);
-    assert_eq!(payload["ports"][0]["port"], 22);
+    assert_eq!(payload["scan_type"], json!("syn"));
+    assert_eq!(payload["interesting_count"], json!(1));
+    assert_eq!(payload["ports"].as_array().unwrap()[0]["port"], json!(22));
   }
 }

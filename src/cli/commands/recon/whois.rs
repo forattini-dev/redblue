@@ -497,14 +497,17 @@ mod tests {
         status: vec!["active".to_string()],
         nameservers: vec!["ns1.example.com".to_string()],
         events: vec![],
-        entities: vec![],
         registrant: None,
+        links: vec![],
         raw_json: "{}".to_string(),
       },
     );
 
     assert_eq!(payload["domain"].as_str(), Some("example.com"));
     assert_eq!(payload["registrar"].as_str(), Some("Example Registrar"));
-    assert_eq!(payload["nameservers"][0].as_str(), Some("ns1.example.com"));
+    assert_eq!(
+      payload["nameservers"].as_array().unwrap()[0].as_str(),
+      Some("ns1.example.com")
+    );
   }
 }

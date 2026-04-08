@@ -330,9 +330,12 @@ mod tests {
       frameworks: vec![],
     });
 
-    assert_eq!(payload["technologies"][0]["name"].as_str(), Some("Nginx"));
     assert_eq!(
-      payload["technologies"][0]["confidence"].as_str(),
+      payload["technologies"].as_array().unwrap()[0]["name"].as_str(),
+      Some("Nginx")
+    );
+    assert_eq!(
+      payload["technologies"].as_array().unwrap()[0]["confidence"].as_str(),
       Some("HIGH")
     );
   }
@@ -377,13 +380,13 @@ mod tests {
       }],
     );
 
-    assert_eq!(payload["vulnerability_count"].as_u64(), Some(1));
+    assert_eq!(payload["vulnerability_count"].as_i64(), Some(1));
     assert_eq!(
-      payload["vulnerabilities"][0]["id"].as_str(),
+      payload["vulnerabilities"].as_array().unwrap()[0]["id"].as_str(),
       Some("CVE-2026-0001")
     );
     assert_eq!(
-      payload["vulnerabilities"][0]["severity"].as_str(),
+      payload["vulnerabilities"].as_array().unwrap()[0]["severity"].as_str(),
       Some("critical")
     );
   }

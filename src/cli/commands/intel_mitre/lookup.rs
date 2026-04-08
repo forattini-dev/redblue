@@ -302,7 +302,10 @@ mod tests {
     assert_eq!(payload["found"].as_bool(), Some(true));
     assert_eq!(payload["group_id"].as_str(), Some("G0001"));
     assert_eq!(payload["name"].as_str(), Some("Example Group"));
-    assert_eq!(payload["associated_techniques"][0].as_str(), Some("T1059"));
+    assert_eq!(
+      payload["associated_techniques"].as_array().unwrap()[0].as_str(),
+      Some("T1059")
+    );
   }
 
   #[test]
@@ -334,13 +337,16 @@ mod tests {
     let payload = search_payload("exec", 1, &[&technique], &[&group]);
 
     assert_eq!(payload["query"].as_str(), Some("exec"));
-    assert_eq!(payload["limit"].as_u64(), Some(1));
-    assert_eq!(payload["total_results"].as_u64(), Some(2));
+    assert_eq!(payload["limit"].as_i64(), Some(1));
+    assert_eq!(payload["total_results"].as_i64(), Some(2));
     assert_eq!(
-      payload["techniques"][0]["technique_id"].as_str(),
+      payload["techniques"].as_array().unwrap()[0]["technique_id"].as_str(),
       Some("T1059")
     );
-    assert_eq!(payload["groups"][0]["group_id"].as_str(), Some("G0001"));
+    assert_eq!(
+      payload["groups"].as_array().unwrap()[0]["group_id"].as_str(),
+      Some("G0001")
+    );
   }
 
   #[test]

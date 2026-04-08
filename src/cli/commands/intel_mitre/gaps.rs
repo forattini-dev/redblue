@@ -242,11 +242,13 @@ mod tests {
       total_techniques: 100,
       covered_count: 42,
       tactic_coverage: vec![TacticCoverage {
+        tactic_id: "TA0002".to_string(),
         tactic_name: "Execution".to_string(),
         total: 10,
         covered: 4,
         percentage: 40.0,
       }],
+      platform_coverage: std::collections::HashMap::new(),
       gaps: vec![CoverageGap {
         technique_id: "T1059".to_string(),
         technique_name: "Command and Scripting Interpreter".to_string(),
@@ -254,13 +256,14 @@ mod tests {
         platforms: vec!["Linux".to_string()],
         priority: GapPriority::High,
         required_data_sources: vec![],
-        current_data_sources: vec![],
       }],
+      data_source_coverage: vec![],
       recommendations: vec![CoverageRecommendation {
         title: "Add process creation telemetry".to_string(),
         description: "Improve visibility.".to_string(),
+        priority: GapPriority::High,
+        techniques_covered: vec![],
         impact: 10.0,
-        data_sources: vec![],
       }],
     };
     let gaps: Vec<_> = report.gaps.iter().collect();
@@ -268,12 +271,18 @@ mod tests {
     let payload = gaps_payload(&report, &gaps);
 
     assert_eq!(payload["overall_coverage"].as_f64(), Some(42.5));
-    assert_eq!(payload["gap_count"].as_u64(), Some(1));
+    assert_eq!(payload["gap_count"].as_i64(), Some(1));
     assert_eq!(
-      payload["tactic_coverage"][0]["tactic"].as_str(),
+      payload["tactic_coverage"].as_array().unwrap()[0]["tactic"].as_str(),
       Some("Execution")
     );
-    assert_eq!(payload["gaps"][0]["technique_id"].as_str(), Some("T1059"));
-    assert_eq!(payload["gaps"][0]["priority"].as_str(), Some("high"));
+    assert_eq!(
+      payload["gaps"].as_array().unwrap()[0]["technique_id"].as_str(),
+      Some("T1059")
+    );
+    assert_eq!(
+      payload["gaps"].as_array().unwrap()[0]["priority"].as_str(),
+      Some("high")
+    );
   }
 }

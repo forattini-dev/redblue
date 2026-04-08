@@ -1448,8 +1448,14 @@ mod tests {
         "Too many islands".to_string(),
       )],
     );
-    assert_eq!(payload["insights"][0]["severity"], json!("HIGH"));
-    assert_eq!(payload["insights"][0]["message"], json!("Too many islands"));
+    assert_eq!(
+      payload["insights"].as_array().unwrap()[0]["severity"],
+      json!("HIGH")
+    );
+    assert_eq!(
+      payload["insights"].as_array().unwrap()[0]["message"],
+      json!("Too many islands")
+    );
   }
 
   #[test]

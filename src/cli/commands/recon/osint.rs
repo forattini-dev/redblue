@@ -250,7 +250,10 @@ mod tests {
     });
 
     assert_eq!(payload["email"].as_str(), Some("user@example.com"));
-    assert_eq!(payload["services"][0].as_str(), Some("github"));
+    assert_eq!(
+      payload["services"].as_array().unwrap()[0].as_str(),
+      Some("github")
+    );
   }
 
   #[test]
@@ -280,6 +283,9 @@ mod tests {
     );
 
     assert_eq!(payload["query"].as_str(), Some("8.8.8.8"));
-    assert_eq!(payload["results"][0]["asn"].as_u64(), Some(15169));
+    assert_eq!(
+      payload["results"].as_array().unwrap()[0]["asn"].as_i64(),
+      Some(15169)
+    );
   }
 }

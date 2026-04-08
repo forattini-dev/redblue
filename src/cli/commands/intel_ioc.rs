@@ -1773,8 +1773,11 @@ mod tests {
     let payload = ioc_extract_payload("example.com", &collection);
 
     assert_eq!(payload["target"].as_str(), Some("example.com"));
-    assert_eq!(payload["total"].as_u64(), Some(1));
-    assert_eq!(payload["iocs"][0]["value"].as_str(), Some("example.com"));
+    assert_eq!(payload["total"].as_i64(), Some(1));
+    assert_eq!(
+      payload["iocs"].as_array().unwrap()[0]["value"].as_str(),
+      Some("example.com")
+    );
   }
 
   #[test]
@@ -1793,7 +1796,7 @@ mod tests {
     assert_eq!(payload["exported"].as_bool(), Some(true));
     assert_eq!(payload["format"].as_str(), Some("json"));
     assert_eq!(payload["file"].as_str(), Some("iocs.json"));
-    assert_eq!(payload["size_bytes"].as_u64(), Some(128));
+    assert_eq!(payload["size_bytes"].as_i64(), Some(128));
   }
 
   #[test]
@@ -1805,6 +1808,6 @@ mod tests {
     assert_eq!(payload["type_filter"].as_str(), Some("ipv4"));
     assert_eq!(payload["tag_filter"].as_str(), Some("scan"));
     assert_eq!(payload["confidence_filter"].as_str(), Some("high"));
-    assert_eq!(payload["total"].as_u64(), Some(1));
+    assert_eq!(payload["total"].as_i64(), Some(1));
   }
 }

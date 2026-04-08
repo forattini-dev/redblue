@@ -812,15 +812,15 @@ mod tests {
   #[test]
   fn query_summary_payload_reports_counts() {
     let payload = query_summary_payload(Path::new("/tmp/sample.rdb"), 128, 10, 20, 30);
-    assert_eq!(payload["size_kb"], 128);
-    assert_eq!(payload["ports"], 10);
-    assert_eq!(payload["subdomains"], 30);
+    assert_eq!(payload["size_kb"], json!(128));
+    assert_eq!(payload["ports"], json!(10));
+    assert_eq!(payload["subdomains"], json!(30));
   }
 
   #[test]
   fn query_host_missing_payload_marks_not_found() {
     let payload = query_host_missing_payload("192.0.2.10");
-    assert_eq!(payload["ip"], "192.0.2.10");
-    assert_eq!(payload["found"], false);
+    assert_eq!(payload["ip"], json!("192.0.2.10"));
+    assert_eq!(payload["found"], json!(false));
   }
 }

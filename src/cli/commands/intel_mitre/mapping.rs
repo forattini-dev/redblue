@@ -543,14 +543,20 @@ mod tests {
 
     let payload = map_findings_payload(&findings, &result);
 
-    assert_eq!(payload["input"]["ports"][0].as_u64(), Some(22));
-    assert_eq!(payload["input"]["cves"][0].as_str(), Some("CVE-2021-44228"));
     assert_eq!(
-      payload["techniques"][0]["technique_id"].as_str(),
+      payload["input"]["ports"].as_array().unwrap()[0].as_i64(),
+      Some(22)
+    );
+    assert_eq!(
+      payload["input"]["cves"].as_array().unwrap()[0].as_str(),
+      Some("CVE-2021-44228")
+    );
+    assert_eq!(
+      payload["techniques"].as_array().unwrap()[0]["technique_id"].as_str(),
       Some("T1021.004")
     );
     assert_eq!(
-      payload["techniques"][0]["source_type"].as_str(),
+      payload["techniques"].as_array().unwrap()[0]["source_type"].as_str(),
       Some("port")
     );
   }
@@ -569,11 +575,14 @@ mod tests {
 
     let payload = all_ports_payload(&[80], &["nginx"], &by_tactic);
 
-    assert_eq!(payload["total_ports"].as_u64(), Some(1));
-    assert_eq!(payload["ports"][0].as_u64(), Some(80));
-    assert_eq!(payload["technologies"][0].as_str(), Some("nginx"));
+    assert_eq!(payload["total_ports"].as_i64(), Some(1));
+    assert_eq!(payload["ports"].as_array().unwrap()[0].as_i64(), Some(80));
     assert_eq!(
-      payload["by_tactic"]["Execution"][0]["technique_id"].as_str(),
+      payload["technologies"].as_array().unwrap()[0].as_str(),
+      Some("nginx")
+    );
+    assert_eq!(
+      payload["by_tactic"]["Execution"].as_array().unwrap()[0]["technique_id"].as_str(),
       Some("T1190")
     );
   }
@@ -594,8 +603,14 @@ mod tests {
 
     let payload = correlation_payload("Detected mimikatz.exe execution", &result);
 
-    assert_eq!(payload["match_count"].as_u64(), Some(1));
-    assert_eq!(payload["matches"][0]["match_type"].as_str(), Some("tool"));
-    assert_eq!(payload["matches"][0]["confidence"].as_u64(), Some(95));
+    assert_eq!(payload["match_count"].as_i64(), Some(1));
+    assert_eq!(
+      payload["matches"].as_array().unwrap()[0]["match_type"].as_str(),
+      Some("tool")
+    );
+    assert_eq!(
+      payload["matches"].as_array().unwrap()[0]["confidence"].as_i64(),
+      Some(95)
+    );
   }
 }

@@ -1661,7 +1661,7 @@ mod tests {
 
         let payload = correlation_report_payload(&report);
         assert_eq!(payload["summary"]["techs_scanned"], json!(2));
-        assert_eq!(payload["source_stats"][0]["source"], json!("nvd"));
-        assert_eq!(payload["top_risks"][0]["id"], json!("CVE-2024-0001"));
+        assert_eq!(payload["source_stats"].as_array().unwrap()[0]["source"], json!("nvd"));
+        assert_eq!(payload["top_risks"].as_array().unwrap()[0]["id"], json!("CVE-2024-0001"));
     }
 }

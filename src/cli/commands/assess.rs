@@ -406,8 +406,24 @@ mod tests {
 
     match &payload {
       Value::Object(map) => {
-        assert_eq!(map.get("target").and_then(|v| if let Value::String(s) = v { Some(s.as_str()) } else { None }), Some("example.com"));
-        assert_eq!(map.get("risk_score").and_then(|v| if let Value::Number(n) = v { Some(*n) } else { None }), Some(42));
+        assert_eq!(
+          map.get("target").and_then(|v| if let Value::String(s) = v {
+            Some(s.as_str())
+          } else {
+            None
+          }),
+          Some("example.com")
+        );
+        assert_eq!(
+          map
+            .get("risk_score")
+            .and_then(|v| if let Value::Number(n) = v {
+              Some(*n)
+            } else {
+              None
+            }),
+          Some(42.0)
+        );
       }
       _ => panic!("expected object"),
     }

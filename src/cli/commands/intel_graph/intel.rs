@@ -1120,9 +1120,15 @@ mod tests {
     let hosts =
       std::collections::HashSet::from(["b.example.com".to_string(), "a.example.com".to_string()]);
     let payload = user_payload("alice", &[], &hosts);
-    assert_eq!(payload["hosts_count"], 2);
-    assert_eq!(payload["hosts"][0], "a.example.com");
-    assert_eq!(payload["hosts"][1], "b.example.com");
+    assert_eq!(payload["hosts_count"], json!(2));
+    assert_eq!(
+      payload["hosts"].as_array().unwrap()[0],
+      json!("a.example.com")
+    );
+    assert_eq!(
+      payload["hosts"].as_array().unwrap()[1],
+      json!("b.example.com")
+    );
   }
 
   #[test]
@@ -1131,22 +1137,33 @@ mod tests {
       id: "domain:example.com".to_string(),
       label: "example.com".to_string(),
       node_type: GraphNodeType::Domain,
-      properties: std::collections::HashMap::new(),
-      created_at: 0,
-      updated_at: 0,
+      flags: 0,
+      out_edge_count: 0,
+      in_edge_count: 0,
+      page_id: 0,
+      slot: 0,
+      table_ref: None,
+      vector_ref: None,
     };
     let host = crate::storage::engine::StoredNode {
       id: "host:app.example.com".to_string(),
       label: "app.example.com".to_string(),
       node_type: GraphNodeType::Host,
-      properties: std::collections::HashMap::new(),
-      created_at: 0,
-      updated_at: 0,
+      flags: 0,
+      out_edge_count: 0,
+      in_edge_count: 0,
+      page_id: 0,
+      slot: 0,
+      table_ref: None,
+      vector_ref: None,
     };
 
     let payload = domain_payload("example.com", &[domain], &[host]);
-    assert_eq!(payload["records"], 1);
-    assert_eq!(payload["subdomains"], 1);
-    assert_eq!(payload["related_hosts"][0]["label"], "app.example.com");
+    assert_eq!(payload["records"], json!(1));
+    assert_eq!(payload["subdomains"], json!(1));
+    assert_eq!(
+      payload["related_hosts"].as_array().unwrap()[0]["label"],
+      json!("app.example.com")
+    );
   }
 }

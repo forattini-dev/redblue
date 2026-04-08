@@ -314,16 +314,16 @@ mod tests {
   #[test]
   fn engine_open_payload_reports_mode() {
     let payload = engine_open_payload("scan.rdb", 32, 4096, true);
-    assert_eq!(payload["status"], "opened");
-    assert_eq!(payload["read_only"], true);
-    assert_eq!(payload["page_count"], 32);
+    assert_eq!(payload["status"], json!("opened"));
+    assert_eq!(payload["read_only"], json!(true));
+    assert_eq!(payload["page_count"], json!(32));
   }
 
   #[test]
   fn engine_stats_payload_nests_cache_data() {
     let payload = engine_stats_payload(10, 5, 2, 66.6, 99);
-    assert_eq!(payload["cache"]["hits"], 10);
-    assert_eq!(payload["cache"]["evictions"], 2);
-    assert_eq!(payload["pages"], 99);
+    assert_eq!(payload["cache"]["hits"], json!(10));
+    assert_eq!(payload["cache"]["evictions"], json!(2));
+    assert_eq!(payload["pages"], json!(99));
   }
 }

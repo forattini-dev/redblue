@@ -798,8 +798,11 @@ mod tests {
     let payload =
       ReconIdentityCommand::username_check_payload("johndoe", &["github"], &[&profile], 1);
 
-    assert_eq!(payload["found_count"].as_u64(), Some(1));
-    assert_eq!(payload["profiles"][0]["status"].as_str(), Some("found"));
+    assert_eq!(payload["found_count"].as_i64(), Some(1));
+    assert_eq!(
+      payload["profiles"].as_array().unwrap()[0]["status"].as_str(),
+      Some("found")
+    );
   }
 
   #[test]
@@ -847,8 +850,14 @@ mod tests {
       },
     );
 
-    assert_eq!(payload["services"][0].as_str(), Some("github"));
-    assert_eq!(payload["breaches"][0]["name"].as_str(), Some("Example"));
+    assert_eq!(
+      payload["services"].as_array().unwrap()[0].as_str(),
+      Some("github")
+    );
+    assert_eq!(
+      payload["breaches"].as_array().unwrap()[0]["name"].as_str(),
+      Some("Example")
+    );
   }
 
   #[test]
@@ -859,6 +868,6 @@ mod tests {
     });
 
     assert_eq!(payload["type"].as_str(), Some("password"));
-    assert_eq!(payload["count"].as_u64(), Some(123));
+    assert_eq!(payload["count"].as_i64(), Some(123));
   }
 }

@@ -1170,25 +1170,31 @@ mod tests {
       vm_rss_kb: 2048,
     }];
     let payload = process_list_payload(&processes, 1000, true, Some("test".to_string()), 1);
-    assert_eq!(payload["total"], 1);
-    assert_eq!(payload["attachable"], 1);
-    assert_eq!(payload["processes"][0]["name"], "test");
+    assert_eq!(payload["total"], json!(1));
+    assert_eq!(payload["attachable"], json!(1));
+    assert_eq!(
+      payload["processes"].as_array().unwrap()[0]["name"],
+      json!("test")
+    );
   }
 
   #[test]
   fn memory_read_payload_serializes_ascii_and_chunks() {
     let payload = memory_read_payload(1234, 0x1000, b"AB\x00CD");
-    assert_eq!(payload["pid"], 1234);
-    assert_eq!(payload["address"], "0x1000");
-    assert_eq!(payload["ascii"], "AB.CD");
-    assert_eq!(payload["bytes"][0]["offset"], "0x00001000");
+    assert_eq!(payload["pid"], json!(1234));
+    assert_eq!(payload["address"], json!("0x1000"));
+    assert_eq!(payload["ascii"], json!("AB.CD"));
+    assert_eq!(
+      payload["bytes"].as_array().unwrap()[0]["offset"],
+      json!("0x00001000")
+    );
   }
 
   #[test]
   fn memory_dump_payload_reports_output_file() {
     let payload = memory_dump_payload(77, 0x4000, 256, 256, "dump.bin");
-    assert_eq!(payload["pid"], 77);
-    assert_eq!(payload["output_file"], "dump.bin");
-    assert_eq!(payload["success"], true);
+    assert_eq!(payload["pid"], json!(77));
+    assert_eq!(payload["output_file"], json!("dump.bin"));
+    assert_eq!(payload["success"], json!(true));
   }
 }

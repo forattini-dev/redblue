@@ -543,9 +543,9 @@ mod tests {
       5,
       &[vec!["a".to_string(), "b".to_string(), "c".to_string()]],
     );
-    assert_eq!(payload["from"], "a");
-    assert_eq!(payload["to"], "c");
-    assert_eq!(payload["path_count"], 1);
-    assert_eq!(payload["paths"][0]["hops"], 2);
+    assert_eq!(payload["from"], json!("a"));
+    assert_eq!(payload["to"], json!("c"));
+    assert_eq!(payload["path_count"], json!(1));
+    assert_eq!(payload["paths"].as_array().unwrap()[0]["hops"], json!(2));
   }
 }

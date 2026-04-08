@@ -695,8 +695,8 @@ mod tests {
   #[test]
   fn stats_payload_serializes_counts() {
     let payload = stats_payload(123, 9);
-    assert_eq!(payload["techniques"].as_u64(), Some(123));
-    assert_eq!(payload["groups"].as_u64(), Some(9));
+    assert_eq!(payload["techniques"].as_i64(), Some(123));
+    assert_eq!(payload["groups"].as_i64(), Some(9));
     assert_eq!(
       payload["data_source"].as_str(),
       Some("Embedded Enterprise ATT&CK Data")
@@ -733,11 +733,20 @@ mod tests {
       2,
     );
 
-    assert_eq!(payload["summary"]["total_techniques"].as_u64(), Some(10));
-    assert_eq!(payload["summary"]["threat_groups"].as_u64(), Some(2));
-    assert_eq!(payload["tactics"][0]["id"].as_str(), Some("TA0002"));
-    assert_eq!(payload["tactics"][0]["technique_count"].as_u64(), Some(1));
-    assert_eq!(payload["tactics"][0]["parent_count"].as_u64(), Some(1));
+    assert_eq!(payload["summary"]["total_techniques"].as_i64(), Some(10));
+    assert_eq!(payload["summary"]["threat_groups"].as_i64(), Some(2));
+    assert_eq!(
+      payload["tactics"].as_array().unwrap()[0]["id"].as_str(),
+      Some("TA0002")
+    );
+    assert_eq!(
+      payload["tactics"].as_array().unwrap()[0]["technique_count"].as_i64(),
+      Some(1)
+    );
+    assert_eq!(
+      payload["tactics"].as_array().unwrap()[0]["parent_count"].as_i64(),
+      Some(1)
+    );
   }
 
   #[test]
@@ -767,11 +776,14 @@ mod tests {
 
     let payload = coverage_payload(&findings, &result, 14, 1, 7.14);
 
-    assert_eq!(payload["input"]["ports"][0].as_u64(), Some(22));
-    assert_eq!(payload["techniques_mapped"].as_u64(), Some(1));
-    assert_eq!(payload["tactics_covered"].as_u64(), Some(1));
     assert_eq!(
-      payload["techniques"][0]["technique_id"].as_str(),
+      payload["input"]["ports"].as_array().unwrap()[0].as_i64(),
+      Some(22)
+    );
+    assert_eq!(payload["techniques_mapped"].as_i64(), Some(1));
+    assert_eq!(payload["tactics_covered"].as_i64(), Some(1));
+    assert_eq!(
+      payload["techniques"].as_array().unwrap()[0]["technique_id"].as_str(),
       Some("T1021.004")
     );
   }

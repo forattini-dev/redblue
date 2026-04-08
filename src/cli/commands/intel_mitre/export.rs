@@ -391,7 +391,7 @@ mod tests {
     assert_eq!(payload["exported"].as_bool(), Some(true));
     assert_eq!(payload["output_file"].as_str(), Some("attack-layer.json"));
     assert_eq!(payload["layer_name"].as_str(), Some("Layer"));
-    assert_eq!(payload["techniques_mapped"].as_u64(), Some(1));
-    assert_eq!(payload["layer"]["techniques"].as_u64(), Some(1));
+    assert_eq!(payload["techniques_mapped"].as_i64(), Some(1));
+    assert_eq!(payload["layer"]["techniques"].as_i64(), Some(1));
   }
 }

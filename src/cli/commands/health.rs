@@ -604,20 +604,27 @@ fn chrono_lite_timestamp() -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::storage::records::PortStateChange;
 
   #[test]
   fn check_payload_counts_open_and_closed_ports() {
     let results = vec![
       PortCheckResult {
+        host: "example.com".to_string(),
+        ip: None,
         port: 22,
         is_open: true,
         response_time_ms: 12,
+        change: PortStateChange::New,
         service: Some("ssh".to_string()),
       },
       PortCheckResult {
+        host: "example.com".to_string(),
+        ip: None,
         port: 80,
         is_open: false,
         response_time_ms: 0,
+        change: PortStateChange::New,
         service: None,
       },
     ];

@@ -284,9 +284,12 @@ mod tests {
       },
     });
 
-    assert_eq!(payload["summary"]["total_results"].as_u64(), Some(1));
+    assert_eq!(payload["summary"]["total_results"].as_i64(), Some(1));
     assert_eq!(
-      payload["categories"]["github"][0]["urls"][0].as_str(),
+      payload["categories"]["github"].as_array().unwrap()[0]["urls"]
+        .as_array()
+        .unwrap()[0]
+        .as_str(),
       Some("https://github.com/example")
     );
   }
@@ -317,7 +320,10 @@ mod tests {
       total_checked: 10,
     });
 
-    assert_eq!(payload["found_count"].as_u64(), Some(1));
-    assert_eq!(payload["profiles"][0]["platform"].as_str(), Some("twitter"));
+    assert_eq!(payload["found_count"].as_i64(), Some(1));
+    assert_eq!(
+      payload["profiles"].as_array().unwrap()[0]["platform"].as_str(),
+      Some("twitter")
+    );
   }
 }

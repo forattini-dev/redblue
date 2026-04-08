@@ -989,24 +989,24 @@ mod tests {
   #[test]
   fn hex_view_payload_reports_layout_and_lines() {
     let payload = hex_view_payload("sample.bin", 0x20, 512, 4, &[0x41, 0x42, 0x43, 0x44, 0, 1]);
-    assert_eq!(payload["file"], "sample.bin");
-    assert_eq!(payload["offset"], "0x20");
-    assert_eq!(payload["bytes_per_line"], 4);
+    assert_eq!(payload["file"], json!("sample.bin"));
+    assert_eq!(payload["offset"], json!("0x20"));
+    assert_eq!(payload["bytes_per_line"], json!(4));
     assert_eq!(payload["lines"].as_array().unwrap().len(), 2);
   }
 
   #[test]
   fn hex_search_payload_includes_search_flags() {
     let payload = hex_search_payload("blob.bin", "4D 5A", false, false, true, 50, &[0x10, 0x20]);
-    assert_eq!(payload["find_all"], true);
-    assert_eq!(payload["max_results"], 50);
-    assert_eq!(payload["total_matches"], 2);
+    assert_eq!(payload["find_all"], json!(true));
+    assert_eq!(payload["max_results"], json!(50));
+    assert_eq!(payload["total_matches"], json!(2));
   }
 
   #[test]
   fn hex_compare_payload_marks_identical_when_sizes_and_diffs_match() {
     let payload = hex_compare_payload("a.bin", 10, "b.bin", 10, 10, 100, &[]);
-    assert_eq!(payload["identical"], true);
-    assert_eq!(payload["differences_found"], 0);
+    assert_eq!(payload["identical"], json!(true));
+    assert_eq!(payload["differences_found"], json!(0));
   }
 }

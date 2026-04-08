@@ -405,10 +405,10 @@ mod tests {
       message: "Dangling CNAME".to_string(),
     });
 
-    assert_eq!(payload["domain"], "sub.example.com");
-    assert_eq!(payload["vulnerable"], true);
-    assert_eq!(payload["confidence"], "high");
-    assert_eq!(payload["service"], "github pages");
+    assert_eq!(payload["domain"], json!("sub.example.com"));
+    assert_eq!(payload["vulnerable"], json!(true));
+    assert_eq!(payload["confidence"], json!("high"));
+    assert_eq!(payload["service"], json!("github pages"));
   }
 
   #[test]
@@ -440,8 +440,11 @@ mod tests {
       &ctx,
     );
 
-    assert_eq!(payload["min_confidence_filter"], "high");
+    assert_eq!(payload["min_confidence_filter"], json!("high"));
     assert_eq!(payload["results"].as_array().unwrap().len(), 1);
-    assert_eq!(payload["results"][0]["domain"], "high.example.com");
+    assert_eq!(
+      payload["results"].as_array().unwrap()[0]["domain"],
+      json!("high.example.com")
+    );
   }
 }

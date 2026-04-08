@@ -666,10 +666,16 @@ mod tests {
       secret_type: "token".to_string(),
     }]);
 
-    assert_eq!(payload["total"], 1);
-    assert_eq!(payload["findings"][0]["file"], "src/main.rs");
-    assert_eq!(payload["findings"][0]["severity"], "high");
-    assert!(payload["findings"][0]["secret"]
+    assert_eq!(payload["total"], json!(1));
+    assert_eq!(
+      payload["findings"].as_array().unwrap()[0]["file"],
+      json!("src/main.rs")
+    );
+    assert_eq!(
+      payload["findings"].as_array().unwrap()[0]["severity"],
+      json!("high")
+    );
+    assert!(payload["findings"].as_array().unwrap()[0]["secret"]
       .as_str()
       .unwrap()
       .contains("..."));
@@ -688,9 +694,9 @@ mod tests {
       response_time_ms: 87,
     });
 
-    assert_eq!(payload["provider"], "github");
-    assert_eq!(payload["is_valid"], true);
-    assert_eq!(payload["status"], "VALID");
-    assert_eq!(payload["response_time_ms"], 87);
+    assert_eq!(payload["provider"], json!("github"));
+    assert_eq!(payload["is_valid"], json!(true));
+    assert_eq!(payload["status"], json!("VALID"));
+    assert_eq!(payload["response_time_ms"], json!(87));
   }
 }

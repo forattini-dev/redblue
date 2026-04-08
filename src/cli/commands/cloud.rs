@@ -404,10 +404,10 @@ mod tests {
       message: "Bucket is publicly accessible (LIST)".to_string(),
     });
 
-    assert_eq!(payload["bucket"], "acme-assets");
-    assert_eq!(payload["exists"], true);
-    assert_eq!(payload["public_list"], true);
-    assert_eq!(payload["region"], "us-east-1");
+    assert_eq!(payload["bucket"], json!("acme-assets"));
+    assert_eq!(payload["exists"], json!(true));
+    assert_eq!(payload["public_list"], json!(true));
+    assert_eq!(payload["region"], json!("us-east-1"));
   }
 
   #[test]
@@ -447,9 +447,9 @@ mod tests {
       total_public: 1,
     });
 
-    assert_eq!(payload["total_scanned"], 3);
-    assert_eq!(payload["total_exists"], 2);
-    assert_eq!(payload["total_public"], 1);
+    assert_eq!(payload["total_scanned"], json!(3));
+    assert_eq!(payload["total_exists"], json!(2));
+    assert_eq!(payload["total_public"], json!(1));
     assert_eq!(payload["buckets"].as_array().unwrap().len(), 2);
     assert_eq!(payload["public_buckets"].as_array().unwrap().len(), 1);
   }

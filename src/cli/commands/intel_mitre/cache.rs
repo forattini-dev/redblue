@@ -106,8 +106,8 @@ mod tests {
 
     assert_eq!(payload["path"].as_str(), Some("/tmp/attack-cache.json"));
     assert_eq!(payload["exists"].as_bool(), Some(true));
-    assert_eq!(payload["size_bytes"].as_u64(), Some(4096));
-    assert_eq!(payload["age_secs"].as_u64(), Some(120));
+    assert_eq!(payload["size_bytes"].as_i64(), Some(4096));
+    assert_eq!(payload["age_secs"].as_i64(), Some(120));
     assert_eq!(payload["expired"].as_bool(), Some(false));
   }
 }

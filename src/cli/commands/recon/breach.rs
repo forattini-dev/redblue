@@ -267,7 +267,7 @@ mod tests {
     });
 
     assert_eq!(payload["type"].as_str(), Some("password"));
-    assert_eq!(payload["count"].as_u64(), Some(99));
+    assert_eq!(payload["count"].as_i64(), Some(99));
   }
 
   #[test]
@@ -286,7 +286,10 @@ mod tests {
     });
 
     assert_eq!(payload["email"].as_str(), Some("user@example.com"));
-    assert_eq!(payload["breaches"][0]["name"].as_str(), Some("Example"));
+    assert_eq!(
+      payload["breaches"].as_array().unwrap()[0]["name"].as_str(),
+      Some("Example")
+    );
   }
 
   #[test]
@@ -304,7 +307,10 @@ mod tests {
       }],
     );
 
-    assert_eq!(payload["total"].as_u64(), Some(1));
-    assert_eq!(payload["secrets"][0]["severity"].as_str(), Some("high"));
+    assert_eq!(payload["total"].as_i64(), Some(1));
+    assert_eq!(
+      payload["secrets"].as_array().unwrap()[0]["severity"].as_str(),
+      Some("high")
+    );
   }
 }

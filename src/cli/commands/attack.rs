@@ -1900,18 +1900,26 @@ mod tests {
         .with_command("rb exploit payload privesc")
         .with_success("Root shell obtained"),
       )
-      .add_assertion(crate::playbooks::Assertion::new("Root privileges confirmed", "steps_completed").critical());
+      .add_assertion(
+        crate::playbooks::Assertion::new("Root privileges confirmed", "steps_completed").critical(),
+      );
 
     let preview = playbook_execution_preview(&playbook);
     let payload = playbook_dry_run_payload(&playbook, "example.com", false, &preview);
 
     assert_eq!(payload["summary"]["total_steps"], json!(2));
     assert_eq!(payload["summary"]["manual_steps"], json!(1));
-    assert_eq!(payload["phase_summary"][0]["phase"], json!("Discovery"));
     assert_eq!(
-      payload["execution_narrative"][1],
+      payload["phase_summary"].as_array().unwrap()[0]["phase"],
+      json!("Discovery")
+    );
+    assert_eq!(
+      payload["execution_narrative"].as_array().unwrap()[1],
       json!("Privilege Escalation is planned with 1 step(s) and 1 command hint(s).")
     );
-    assert_eq!(payload["assertions"][0]["critical"], json!(true));
+    assert_eq!(
+      payload["assertions"].as_array().unwrap()[0]["critical"],
+      json!(true)
+    );
   }
 }
