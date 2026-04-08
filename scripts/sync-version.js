@@ -67,10 +67,18 @@ try {
     validateVersion(version);
   }
 
-  syncCargoToml(version);
-  syncPackageJson(version);
-
-  process.stdout.write(`Synced version ${version}\n`);
+  // If package.json already has a prerelease version (e.g. 0.2.2-next.48,
+  // set by the CI release workflow), don't overwrite it with the base version.
+  // This prevents "npm publish" from trying to republish an existing stable version.
+  const currentPkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  if (currentPkg.version && currentPkg.version.includes('-') && !version.includes('-')) {
+    process.stdout.write(`Synced version ${version} (kept package.json at ${currentPkg.version})\n`);
+    syncCargoToml(version);
+  } else {
+    syncCargoToml(version);
+    syncPackageJson(version);
+    process.stdout.write(`Synced version ${version}\n`);
+  }
 } catch (error) {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
