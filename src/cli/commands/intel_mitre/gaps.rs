@@ -231,7 +231,9 @@ fn gaps_payload(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::modules::recon::mitre::{CoverageGap, CoverageReport, Recommendation, TacticCoverage};
+  use crate::modules::recon::mitre::{
+    CoverageGap, CoverageRecommendation, CoverageReport, TacticCoverage,
+  };
 
   #[test]
   fn gaps_payload_serializes_summary_and_entries() {
@@ -254,7 +256,7 @@ mod tests {
         required_data_sources: vec![],
         current_data_sources: vec![],
       }],
-      recommendations: vec![Recommendation {
+      recommendations: vec![CoverageRecommendation {
         title: "Add process creation telemetry".to_string(),
         description: "Improve visibility.".to_string(),
         impact: 10.0,

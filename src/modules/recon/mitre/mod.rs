@@ -47,8 +47,11 @@ pub mod navigator;
 pub mod types;
 
 pub use client::MitreClient;
-pub use correlation::{CorrelationEngine, CorrelationResult, FindingMatch};
-pub use coverage::{CoverageAnalyzer, CoverageReport, GapPriority, TacticCoverage};
+pub use correlation::{CorrelationEngine, CorrelationResult, FindingMatch, MatchType};
+pub use coverage::{
+  CoverageAnalyzer, CoverageGap, CoverageRecommendation, CoverageReport, GapPriority,
+  TacticCoverage,
+};
 pub use navigator::{
   layer_from_group, layer_from_groups, layer_from_tactic, layer_from_techniques, LayerBuilder,
   NavigatorLayer, TechniqueAnnotation,
