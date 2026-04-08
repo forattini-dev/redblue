@@ -56,18 +56,23 @@ impl DnsHeader {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DnsRecordType {
-  A = 1,     // IPv4
-  NS = 2,    // Name Server
-  CNAME = 5, // Canonical Name
-  SOA = 6,   // Start of Authority
-  PTR = 12,  // Pointer
-  MX = 15,   // Mail Exchange
-  TXT = 16,  // Text
-  AAAA = 28, // IPv6
-  SRV = 33,  // Service
-  TLSA = 52, // DANE TLSA (RFC 6698)
-  CAA = 257, // Certification Authority Authorization (RFC 6844)
-  ANY = 255, // Any record
+  A = 1,       // IPv4
+  NS = 2,      // Name Server
+  CNAME = 5,   // Canonical Name
+  SOA = 6,     // Start of Authority
+  PTR = 12,    // Pointer
+  MX = 15,     // Mail Exchange
+  TXT = 16,    // Text
+  AAAA = 28,   // IPv6
+  SRV = 33,    // Service
+  DS = 43,     // Delegation Signer (RFC 4034)
+  RRSIG = 46,  // Resource Record Signature (RFC 4034)
+  NSEC = 47,   // Next Secure (RFC 4034)
+  DNSKEY = 48, // DNS Public Key (RFC 4034)
+  NSEC3 = 50,  // Next Secure v3 (RFC 5155)
+  TLSA = 52,   // DANE TLSA (RFC 6698)
+  CAA = 257,   // Certification Authority Authorization (RFC 6844)
+  ANY = 255,   // Any record
 }
 
 impl DnsRecordType {
@@ -141,6 +146,29 @@ pub enum DnsRdata {
     matching_type: u8,
     data: Vec<u8>,
   },
+  DNSKEY {
+    flags: u16,    // 256=ZSK, 257=KSK
+    protocol: u8,  // always 3
+    algorithm: u8, // 8=RSA-SHA256, 13=ECDSA-P256-SHA256, 15=Ed25519
+    public_key: Vec<u8>,
+  },
+  RRSIG {
+    type_covered: u16,
+    algorithm: u8,
+    labels: u8,
+    original_ttl: u32,
+    expiration: u32, // Unix timestamp
+    inception: u32,  // Unix timestamp
+    key_tag: u16,
+    signer_name: String,
+    signature: Vec<u8>,
+  },
+  DS {
+    key_tag: u16,
+    algorithm: u8,
+    digest_type: u8, // 1=SHA-1, 2=SHA-256
+    digest: Vec<u8>,
+  },
   Raw(Vec<u8>),
 }
 
@@ -189,6 +217,11 @@ impl DnsAnswer {
       16 => "TXT",
       28 => "AAAA",
       33 => "SRV",
+      43 => "DS",
+      46 => "RRSIG",
+      47 => "NSEC",
+      48 => "DNSKEY",
+      50 => "NSEC3",
       52 => "TLSA",
       257 => "CAA",
       255 => "ANY",
@@ -228,6 +261,47 @@ impl DnsAnswer {
         let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{} {} {} {}", usage, selector, matching_type, hex)
       }
+      DnsRdata::DNSKEY {
+        flags,
+        protocol,
+        algorithm,
+        public_key,
+      } => {
+        let key_hex: String = public_key.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("{} {} {} {}", flags, protocol, algorithm, key_hex)
+      }
+      DnsRdata::RRSIG {
+        type_covered,
+        algorithm,
+        labels,
+        original_ttl,
+        expiration,
+        inception,
+        key_tag,
+        signer_name,
+        ..
+      } => {
+        format!(
+          "{} {} {} {} {} {} {} {}",
+          type_covered,
+          algorithm,
+          labels,
+          original_ttl,
+          expiration,
+          inception,
+          key_tag,
+          signer_name
+        )
+      }
+      DnsRdata::DS {
+        key_tag,
+        algorithm,
+        digest_type,
+        digest,
+      } => {
+        let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+        format!("{} {} {} {}", key_tag, algorithm, digest_type, hex)
+      }
       DnsRdata::Raw(bytes) => bytes.iter().fold(String::from("0x"), |mut acc, b| {
         acc.push_str(&format!("{:02X}", b));
         acc
@@ -255,6 +329,25 @@ impl DnsClient {
   }
 
   pub fn query(&self, domain: &str, record_type: DnsRecordType) -> Result<Vec<DnsAnswer>, String> {
+    self.query_internal(domain, record_type, false)
+  }
+
+  /// Query with DNSSEC OK (DO) bit set in the EDNS0 OPT record.
+  /// This requests the server to return DNSSEC-related records (RRSIG, DNSKEY, DS, etc.)
+  pub fn query_dnssec(
+    &self,
+    domain: &str,
+    record_type: DnsRecordType,
+  ) -> Result<Vec<DnsAnswer>, String> {
+    self.query_internal(domain, record_type, true)
+  }
+
+  fn query_internal(
+    &self,
+    domain: &str,
+    record_type: DnsRecordType,
+    dnssec_ok: bool,
+  ) -> Result<Vec<DnsAnswer>, String> {
     let server_target = if self.server.contains(':') {
       // Try to interpret as host:port first
       if self.server.contains(']') {
@@ -302,12 +395,16 @@ impl DnsClient {
     // NAME: 0x00 (root domain)
     // TYPE: 41 (OPT)
     // CLASS: 4096 (UDP payload size)
-    // TTL: 0 (extended RCODE + flags)
+    // TTL: extended RCODE(1) + version(1) + flags(2)
+    //   The DO (DNSSEC OK) bit is bit 15 of the flags field (byte offset 2 in TTL).
+    //   When DO=1, TTL = 0x00008000.
     // RDLENGTH: 0 (no EDNS0 options)
+    let edns_flags: u32 = if dnssec_ok { 0x00008000 } else { 0x00000000 };
+
     packet.push(0x00); // root name
     packet.extend_from_slice(&41u16.to_be_bytes()); // TYPE = OPT
     packet.extend_from_slice(&4096u16.to_be_bytes()); // CLASS = UDP payload size
-    packet.extend_from_slice(&0u32.to_be_bytes()); // TTL = extended RCODE + flags
+    packet.extend_from_slice(&edns_flags.to_be_bytes()); // TTL = extended RCODE + DO flag
     packet.extend_from_slice(&0u16.to_be_bytes()); // RDLENGTH = 0
 
     // Send query
@@ -579,6 +676,72 @@ impl DnsClient {
           data: cert_data,
         }
       }
+      // DNSKEY record (RFC 4034): flags(2) + protocol(1) + algorithm(1) + public_key
+      48 if rdlength >= 4 => {
+        let flags = u16::from_be_bytes([rdata_slice[0], rdata_slice[1]]);
+        let protocol = rdata_slice[2];
+        let algorithm = rdata_slice[3];
+        let public_key = rdata_slice[4..].to_vec();
+        DnsRdata::DNSKEY {
+          flags,
+          protocol,
+          algorithm,
+          public_key,
+        }
+      }
+      // RRSIG record (RFC 4034): type_covered(2) + algorithm(1) + labels(1) +
+      //   original_ttl(4) + expiration(4) + inception(4) + key_tag(2) + signer_name + signature
+      46 if rdlength >= 18 => {
+        let type_covered = u16::from_be_bytes([rdata_slice[0], rdata_slice[1]]);
+        let algorithm = rdata_slice[2];
+        let labels = rdata_slice[3];
+        let original_ttl = u32::from_be_bytes([
+          rdata_slice[4],
+          rdata_slice[5],
+          rdata_slice[6],
+          rdata_slice[7],
+        ]);
+        let expiration = u32::from_be_bytes([
+          rdata_slice[8],
+          rdata_slice[9],
+          rdata_slice[10],
+          rdata_slice[11],
+        ]);
+        let inception = u32::from_be_bytes([
+          rdata_slice[12],
+          rdata_slice[13],
+          rdata_slice[14],
+          rdata_slice[15],
+        ]);
+        let key_tag = u16::from_be_bytes([rdata_slice[16], rdata_slice[17]]);
+        // Signer name starts at offset 18 within rdata, but uses absolute offsets for compression
+        let (signer_name, signer_end) = self.read_name(data, rdata_start + 18)?;
+        let signature = data[signer_end..rdata_end].to_vec();
+        DnsRdata::RRSIG {
+          type_covered,
+          algorithm,
+          labels,
+          original_ttl,
+          expiration,
+          inception,
+          key_tag,
+          signer_name,
+          signature,
+        }
+      }
+      // DS record (RFC 4034): key_tag(2) + algorithm(1) + digest_type(1) + digest
+      43 if rdlength >= 4 => {
+        let key_tag = u16::from_be_bytes([rdata_slice[0], rdata_slice[1]]);
+        let algorithm = rdata_slice[2];
+        let digest_type = rdata_slice[3];
+        let digest = rdata_slice[4..].to_vec();
+        DnsRdata::DS {
+          key_tag,
+          algorithm,
+          digest_type,
+          digest,
+        }
+      }
       // CAA record (RFC 6844): flags(1) + tag_length(1) + tag + value
       257 if rdlength >= 2 => {
         let flags = rdata_slice[0];
@@ -845,5 +1008,262 @@ mod tests {
     // Verify the OPT record CLASS field encodes this correctly
     let class_bytes = udp_payload_size.to_be_bytes();
     assert_eq!(class_bytes, [0x10, 0x00]); // 4096 in big-endian
+  }
+
+  #[test]
+  fn test_do_bit_in_edns0_opt() {
+    // Verify the DO (DNSSEC OK) bit is correctly encoded in the OPT TTL field.
+    // The TTL field of OPT is: extended-rcode(8) | version(8) | DO(1) | Z(15)
+    // DO=1 means byte 2 of TTL has bit 7 set: 0x00_00_80_00
+
+    // Without DO bit
+    let flags_no_do: u32 = 0x00000000;
+    let bytes_no_do = flags_no_do.to_be_bytes();
+    assert_eq!(bytes_no_do, [0x00, 0x00, 0x00, 0x00]);
+    assert_eq!(bytes_no_do[2] & 0x80, 0, "DO bit must be unset");
+
+    // With DO bit
+    let flags_do: u32 = 0x00008000;
+    let bytes_do = flags_do.to_be_bytes();
+    assert_eq!(bytes_do, [0x00, 0x00, 0x80, 0x00]);
+    assert_eq!(bytes_do[2] & 0x80, 0x80, "DO bit must be set");
+  }
+
+  #[test]
+  fn test_dnskey_record_parse() {
+    // Build a DNS response with a DNSKEY record (type 48)
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0xAAAAu16.to_be_bytes()); // ID
+    response.extend_from_slice(&0x8180u16.to_be_bytes()); // Flags (response, no error)
+    response.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    response.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // Question: example.com, type DNSKEY (48), class IN
+    response.extend_from_slice(b"\x07example\x03com\x00");
+    response.extend_from_slice(&48u16.to_be_bytes()); // QTYPE = DNSKEY
+    response.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+
+    // Answer: compression pointer to name at offset 12
+    response.extend_from_slice(&[0xC0, 0x0C]); // Name pointer
+    response.extend_from_slice(&48u16.to_be_bytes()); // TYPE = DNSKEY
+    response.extend_from_slice(&1u16.to_be_bytes()); // CLASS = IN
+    response.extend_from_slice(&3600u32.to_be_bytes()); // TTL
+
+    // RDATA: flags=257 (KSK), protocol=3, algorithm=13 (ECDSA-P256), key=8 bytes
+    let mut rdata: Vec<u8> = Vec::new();
+    rdata.extend_from_slice(&257u16.to_be_bytes()); // flags (KSK)
+    rdata.push(3); // protocol
+    rdata.push(13); // algorithm (ECDSA-P256-SHA256)
+    rdata.extend_from_slice(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]); // public key
+
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].record_type, 48);
+
+    match &answers[0].data {
+      DnsRdata::DNSKEY {
+        flags,
+        protocol,
+        algorithm,
+        public_key,
+      } => {
+        assert_eq!(*flags, 257, "KSK flag should be 257");
+        assert_eq!(*protocol, 3);
+        assert_eq!(*algorithm, 13);
+        assert_eq!(
+          public_key,
+          &[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+        );
+      }
+      other => panic!("Expected DNSKEY record, got {:?}", other),
+    }
+
+    assert_eq!(answers[0].type_string(), "DNSKEY");
+  }
+
+  #[test]
+  fn test_ds_record_parse() {
+    // Build a DNS response with a DS record (type 43)
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0xBBBBu16.to_be_bytes()); // ID
+    response.extend_from_slice(&0x8180u16.to_be_bytes()); // Flags
+    response.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    response.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // Question: example.com, type DS (43), class IN
+    response.extend_from_slice(b"\x07example\x03com\x00");
+    response.extend_from_slice(&43u16.to_be_bytes()); // QTYPE = DS
+    response.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+
+    // Answer
+    response.extend_from_slice(&[0xC0, 0x0C]); // Name pointer
+    response.extend_from_slice(&43u16.to_be_bytes()); // TYPE = DS
+    response.extend_from_slice(&1u16.to_be_bytes()); // CLASS = IN
+    response.extend_from_slice(&86400u32.to_be_bytes()); // TTL
+
+    // RDATA: key_tag=12345, algorithm=8 (RSA-SHA256), digest_type=2 (SHA-256), digest
+    let mut rdata: Vec<u8> = Vec::new();
+    rdata.extend_from_slice(&12345u16.to_be_bytes()); // key_tag
+    rdata.push(8); // algorithm
+    rdata.push(2); // digest_type (SHA-256)
+    rdata.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]); // digest
+
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].record_type, 43);
+
+    match &answers[0].data {
+      DnsRdata::DS {
+        key_tag,
+        algorithm,
+        digest_type,
+        digest,
+      } => {
+        assert_eq!(*key_tag, 12345);
+        assert_eq!(*algorithm, 8);
+        assert_eq!(*digest_type, 2);
+        assert_eq!(digest, &[0xDE, 0xAD, 0xBE, 0xEF]);
+      }
+      other => panic!("Expected DS record, got {:?}", other),
+    }
+
+    assert_eq!(answers[0].type_string(), "DS");
+    assert_eq!(answers[0].display_value(), "12345 8 2 deadbeef");
+  }
+
+  #[test]
+  fn test_rrsig_record_parse() {
+    // Build a DNS response with an RRSIG record (type 46)
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0xCCCCu16.to_be_bytes()); // ID
+    response.extend_from_slice(&0x8180u16.to_be_bytes()); // Flags
+    response.extend_from_slice(&1u16.to_be_bytes()); // QDCOUNT
+    response.extend_from_slice(&1u16.to_be_bytes()); // ANCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // NSCOUNT
+    response.extend_from_slice(&0u16.to_be_bytes()); // ARCOUNT
+
+    // Question: example.com, type A (1), class IN
+    response.extend_from_slice(b"\x07example\x03com\x00");
+    response.extend_from_slice(&1u16.to_be_bytes()); // QTYPE = A
+    response.extend_from_slice(&1u16.to_be_bytes()); // QCLASS = IN
+
+    // Answer: RRSIG covering type A
+    response.extend_from_slice(&[0xC0, 0x0C]); // Name pointer
+    response.extend_from_slice(&46u16.to_be_bytes()); // TYPE = RRSIG
+    response.extend_from_slice(&1u16.to_be_bytes()); // CLASS = IN
+    response.extend_from_slice(&3600u32.to_be_bytes()); // TTL
+
+    // RRSIG RDATA: type_covered(2) + algorithm(1) + labels(1) + original_ttl(4) +
+    //   expiration(4) + inception(4) + key_tag(2) + signer_name + signature
+    let mut rdata: Vec<u8> = Vec::new();
+    rdata.extend_from_slice(&1u16.to_be_bytes()); // type_covered = A
+    rdata.push(13); // algorithm (ECDSA-P256-SHA256)
+    rdata.push(2); // labels
+    rdata.extend_from_slice(&300u32.to_be_bytes()); // original_ttl
+    rdata.extend_from_slice(&1700000000u32.to_be_bytes()); // expiration (Unix timestamp)
+    rdata.extend_from_slice(&1699900000u32.to_be_bytes()); // inception (Unix timestamp)
+    rdata.extend_from_slice(&54321u16.to_be_bytes()); // key_tag
+                                                      // signer_name: "example.com" (uncompressed, since this is within RDATA)
+    rdata.extend_from_slice(b"\x07example\x03com\x00");
+    // signature: 4 bytes for testing
+    rdata.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].record_type, 46);
+
+    match &answers[0].data {
+      DnsRdata::RRSIG {
+        type_covered,
+        algorithm,
+        labels,
+        original_ttl,
+        expiration,
+        inception,
+        key_tag,
+        signer_name,
+        signature,
+      } => {
+        assert_eq!(*type_covered, 1); // A record
+        assert_eq!(*algorithm, 13);
+        assert_eq!(*labels, 2);
+        assert_eq!(*original_ttl, 300);
+        assert_eq!(*expiration, 1700000000);
+        assert_eq!(*inception, 1699900000);
+        assert_eq!(*key_tag, 54321);
+        assert_eq!(signer_name, "example.com");
+        assert_eq!(signature, &[0xAA, 0xBB, 0xCC, 0xDD]);
+      }
+      other => panic!("Expected RRSIG record, got {:?}", other),
+    }
+
+    assert_eq!(answers[0].type_string(), "RRSIG");
+  }
+
+  #[test]
+  fn test_dnskey_zsk_flags() {
+    // Verify ZSK (flag 256) is parsed correctly and distinguished from KSK (257)
+    let mut response: Vec<u8> = Vec::new();
+    response.extend_from_slice(&0xDDDDu16.to_be_bytes());
+    response.extend_from_slice(&0x8180u16.to_be_bytes());
+    response.extend_from_slice(&1u16.to_be_bytes());
+    response.extend_from_slice(&1u16.to_be_bytes());
+    response.extend_from_slice(&0u16.to_be_bytes());
+    response.extend_from_slice(&0u16.to_be_bytes());
+
+    response.extend_from_slice(b"\x07example\x03com\x00");
+    response.extend_from_slice(&48u16.to_be_bytes());
+    response.extend_from_slice(&1u16.to_be_bytes());
+
+    response.extend_from_slice(&[0xC0, 0x0C]);
+    response.extend_from_slice(&48u16.to_be_bytes());
+    response.extend_from_slice(&1u16.to_be_bytes());
+    response.extend_from_slice(&3600u32.to_be_bytes());
+
+    // ZSK: flags=256
+    let mut rdata: Vec<u8> = Vec::new();
+    rdata.extend_from_slice(&256u16.to_be_bytes()); // flags (ZSK)
+    rdata.push(3);
+    rdata.push(8); // RSA-SHA256
+    rdata.extend_from_slice(&[0xFF; 16]); // public key
+
+    response.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+    response.extend_from_slice(&rdata);
+
+    let client = DnsClient::new("127.0.0.1");
+    let answers = client.parse_response(&response).unwrap();
+
+    match &answers[0].data {
+      DnsRdata::DNSKEY { flags, .. } => {
+        assert_eq!(*flags, 256, "ZSK flag should be 256");
+        assert_eq!(*flags & 0x0001, 0, "SEP bit should be unset for ZSK");
+      }
+      other => panic!("Expected DNSKEY, got {:?}", other),
+    }
+  }
+
+  #[test]
+  fn test_dnssec_record_type_values() {
+    assert_eq!(DnsRecordType::DS.to_u16(), 43);
+    assert_eq!(DnsRecordType::RRSIG.to_u16(), 46);
+    assert_eq!(DnsRecordType::NSEC.to_u16(), 47);
+    assert_eq!(DnsRecordType::DNSKEY.to_u16(), 48);
+    assert_eq!(DnsRecordType::NSEC3.to_u16(), 50);
   }
 }
