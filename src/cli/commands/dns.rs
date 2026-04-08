@@ -1444,6 +1444,11 @@ impl DnsCommand {
       DnsRecordType::SRV => "SRV",
       DnsRecordType::TLSA => "TLSA",
       DnsRecordType::CAA => "CAA",
+      DnsRecordType::DS => "DS",
+      DnsRecordType::RRSIG => "RRSIG",
+      DnsRecordType::NSEC => "NSEC",
+      DnsRecordType::DNSKEY => "DNSKEY",
+      DnsRecordType::NSEC3 => "NSEC3",
       DnsRecordType::ANY => "ANY",
     }
   }

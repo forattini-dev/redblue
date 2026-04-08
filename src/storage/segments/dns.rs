@@ -539,6 +539,12 @@ fn encode_type(record_type: DnsRecordType) -> u8 {
     DnsRecordType::NS => 4,
     DnsRecordType::TXT => 5,
     DnsRecordType::CNAME => 6,
+    DnsRecordType::SOA => 7,
+    DnsRecordType::PTR => 8,
+    DnsRecordType::SRV => 9,
+    DnsRecordType::TLSA => 10,
+    DnsRecordType::CAA => 11,
+    DnsRecordType::ANY => 12,
   }
 }
 
@@ -550,6 +556,12 @@ fn decode_type(byte: u8) -> Result<DnsRecordType, DecodeError> {
     4 => Ok(DnsRecordType::NS),
     5 => Ok(DnsRecordType::TXT),
     6 => Ok(DnsRecordType::CNAME),
+    7 => Ok(DnsRecordType::SOA),
+    8 => Ok(DnsRecordType::PTR),
+    9 => Ok(DnsRecordType::SRV),
+    10 => Ok(DnsRecordType::TLSA),
+    11 => Ok(DnsRecordType::CAA),
+    12 => Ok(DnsRecordType::ANY),
     _ => Err(DecodeError("invalid dns record type")),
   }
 }

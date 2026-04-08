@@ -1,6 +1,6 @@
 use redblue::{cli, config, utils::logger};
 
-use cli::{args, commands, output::Output, parser};
+use cli::{args, commands, output::Output};
 use std::env;
 
 fn main() {
@@ -47,8 +47,8 @@ fn main() {
       let _ = maybe_create_rbdb(&ctx);
     }
     Err(args::ParseError::HelpRequested { .. }) => {
-      // Re-parse with old parser for help context (help handlers need CliContext)
-      let ctx = parser::parse_args(&args).unwrap_or_default();
+      // Build a minimal CliContext from positional args for help routing
+      let ctx = build_ctx_from_args(&args);
       if ctx.domain.is_some() {
         handle_help_flag(&ctx);
       } else {
@@ -59,15 +59,19 @@ fn main() {
       print_version();
     }
     Err(args::ParseError::Other(ref msg)) if msg == "shell" => {
-      let ctx = parser::parse_args(&args).unwrap_or_default();
+      let ctx = build_ctx_from_args(&args);
       handle_shell_command(&ctx);
     }
     Err(args::ParseError::Other(ref msg)) if msg == "commands" => {
       commands::print_all_commands();
     }
     Err(args::ParseError::Other(ref msg)) if msg == "magic_scan" => {
-      // Fallback to old dispatch for magic scan (auto-detect target type)
-      let ctx = parser::parse_args(&args).unwrap_or_default();
+      // Magic scan: build context and dispatch to the scan/magic handler
+      let mut ctx = build_ctx_from_args(&args);
+      // The target is the first non-flag arg (URL, IP, or domain)
+      if ctx.target.is_none() {
+        ctx.target = ctx.domain.take();
+      }
       if let Err(e) = commands::dispatch(&ctx) {
         Output::error(&e);
         std::process::exit(1);
@@ -92,26 +96,65 @@ fn main() {
       std::process::exit(1);
     }
     Err(e) => {
-      // Fallback: try old parser + dispatch for anything the new parser can't handle yet
-      match parser::parse_args(&args) {
-        Ok(ctx) => {
-          Output::set_machine_mode(ctx.get_output_format() != cli::format::OutputFormat::Human);
-          if ctx.has_flag("verbose") || ctx.has_flag("v") {
-            logger::enable_verbose();
-          }
-          if let Err(_dispatch_err) = commands::dispatch(&ctx) {
-            // Both parsers failed — show the new parser's error (better messages)
-            Output::error(&e.to_string());
-            std::process::exit(1);
-          }
-        }
-        Err(_) => {
-          Output::error(&e.to_string());
-          std::process::exit(1);
-        }
-      }
+      Output::error(&e.to_string());
+      std::process::exit(1);
     }
   }
+}
+
+/// Build a minimal CliContext by extracting positional args and flags from argv.
+/// This replaces the old parser::parse_args for help/shell/magic_scan contexts.
+fn build_ctx_from_args(args: &[String]) -> cli::CliContext {
+  let mut ctx = cli::CliContext::default();
+  ctx.raw = args.to_vec();
+
+  let mut positionals = Vec::new();
+  let mut i = 0;
+  while i < args.len() {
+    let arg = &args[i];
+    if arg == "--" {
+      positionals.extend_from_slice(&args[i + 1..]);
+      break;
+    }
+    if arg.starts_with("--") {
+      if let Some((key, val)) = arg[2..].split_once('=') {
+        ctx.flags.insert(key.to_string(), val.to_string());
+      } else {
+        let key = arg[2..].to_string();
+        if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+          ctx.flags.insert(key, args[i + 1].clone());
+          i += 1;
+        } else {
+          ctx.flags.insert(key, "true".to_string());
+        }
+      }
+    } else if arg.starts_with('-') && arg.len() == 2 {
+      let key = arg[1..].to_string();
+      ctx.flags.insert(key, "true".to_string());
+    } else {
+      positionals.push(arg.clone());
+    }
+    i += 1;
+  }
+
+  // Map positionals to domain/resource/verb/target/args
+  if let Some(d) = positionals.first() {
+    ctx.domain = Some(d.clone());
+  }
+  if let Some(r) = positionals.get(1) {
+    ctx.resource = Some(r.clone());
+  }
+  if let Some(v) = positionals.get(2) {
+    ctx.verb = Some(v.clone());
+  }
+  if let Some(t) = positionals.get(3) {
+    ctx.target = Some(t.clone());
+  }
+  if positionals.len() > 4 {
+    ctx.args = positionals[4..].to_vec();
+  }
+
+  ctx
 }
 
 fn handle_help_flag(ctx: &cli::CliContext) {

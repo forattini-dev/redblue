@@ -53,7 +53,7 @@ pub fn csp(ctx: &CliContext) -> Result<(), String> {
   let Some(csp_value) = csp_header else {
     let payload = json!({
       "url": url,
-      "csp": null,
+      "csp": "",
       "grade": "F",
       "message": "No Content-Security-Policy header found"
     });

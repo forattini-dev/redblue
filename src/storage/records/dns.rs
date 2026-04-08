@@ -19,4 +19,10 @@ pub enum DnsRecordType {
   NS = 4,
   TXT = 5,
   CNAME = 6,
+  SOA = 7,
+  PTR = 8,
+  SRV = 9,
+  TLSA = 10,
+  CAA = 11,
+  ANY = 255,
 }

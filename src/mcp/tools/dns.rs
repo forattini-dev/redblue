@@ -116,6 +116,28 @@ fn tool_dns_lookup(_server: &mut McpServer, args: &JsonValue) -> Result<ToolResu
           let hex: String = data.iter().map(|b| format!("{:02x}", b)).collect();
           format!("{} {} {} {}", usage, selector, matching_type, hex)
         }
+        DnsRdata::DNSKEY {
+          flags, algorithm, ..
+        } => format!("DNSKEY flags={} alg={}", flags, algorithm),
+        DnsRdata::RRSIG {
+          type_covered,
+          algorithm,
+          signer_name,
+          key_tag,
+          ..
+        } => format!(
+          "RRSIG type={} alg={} signer={} tag={}",
+          type_covered, algorithm, signer_name, key_tag
+        ),
+        DnsRdata::DS {
+          key_tag,
+          algorithm,
+          digest_type,
+          ..
+        } => format!(
+          "DS tag={} alg={} digest_type={}",
+          key_tag, algorithm, digest_type
+        ),
         DnsRdata::Raw(bytes) => format!("(raw {} bytes)", bytes.len()),
       };
       JsonValue::object(vec![
