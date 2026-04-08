@@ -6,6 +6,7 @@ use crate::cli::{output::Output, render, validator::Validator, CliContext};
 use crate::config;
 use crate::intelligence::banner_analysis::analyze_dns_version;
 use crate::json;
+use crate::modules::dns::dnssec::DnssecStatus;
 use crate::protocols::dns::{DnsClient, DnsRecordType};
 use crate::protocols::doh::{DohClient, PropagationStatus, DOH_PROVIDERS};
 use crate::storage::client::ActionRecorder;
@@ -46,14 +47,16 @@ impl Command for DnsCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "lookup" | "all" | "propagation" | "email" => crate::cli::schema::RouteMetadata::new()
-        .with_aliases(aliases)
-        .with_machine_output(
-          crate::cli::schema::MachineOutputMetadata::new()
-            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
-            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
-            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
-        ),
+      "lookup" | "all" | "propagation" | "email" | "dnssec" => {
+        crate::cli::schema::RouteMetadata::new()
+          .with_aliases(aliases)
+          .with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+              .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+              .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+              .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+          )
+      }
       _ => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(self.metadata().machine_output),
@@ -97,6 +100,11 @@ impl Command for DnsCommand {
         verb: "email",
         summary: "Check email security records (SPF, DKIM, DMARC)",
         usage: "rb dns record email <domain>",
+      },
+      Route {
+        verb: "dnssec",
+        summary: "Check DNSSEC validation status",
+        usage: "rb dns record dnssec <domain>",
       },
       // RESTful verbs - query stored data
       Route {
@@ -184,6 +192,10 @@ impl Command for DnsCommand {
         "rb dns record propagation example.com --type A",
       ),
       ("Check email security", "rb dns record email example.com"),
+      (
+        "Check DNSSEC validation status",
+        "rb dns record dnssec example.com",
+      ),
       // RESTful examples
       (
         "List all saved DNS records",
@@ -212,6 +224,7 @@ impl Command for DnsCommand {
       "bruteforce" => self.bruteforce(ctx),
       "propagation" => self.propagation(ctx),
       "email" => self.email_security(ctx),
+      "dnssec" => self.dnssec(ctx),
       // RESTful verbs
       "list" => self.list_records(ctx),
       "get" => self.get_record(ctx),
@@ -230,6 +243,7 @@ impl Command for DnsCommand {
               "bruteforce",
               "propagation",
               "email",
+              "dnssec",
               "list",
               "get",
               "describe"
@@ -1646,6 +1660,177 @@ impl DnsCommand {
         record.value,
         record.ttl
       );
+    }
+
+    Ok(())
+  }
+
+  fn dnssec(&self, ctx: &CliContext) -> Result<(), String> {
+    let domain = ctx.target.as_ref().ok_or(
+      "Missing domain.\nUsage: rb dns record dnssec <DOMAIN>\nExample: rb dns record dnssec example.com",
+    )?;
+
+    Validator::validate_domain(domain)?;
+
+    let cfg = config::get();
+    let server = ctx
+      .get_flag("server")
+      .unwrap_or_else(|| cfg.network.dns_resolver.clone());
+
+    Output::spinner_start(&format!("Checking DNSSEC for {}", domain));
+    let assessment = crate::modules::dns::dnssec::assess_dnssec(domain, &server);
+    Output::spinner_done();
+
+    // Build JSON payload for machine output
+    let status_str = match &assessment.status {
+      DnssecStatus::Secure { .. } => "secure",
+      DnssecStatus::Bogus { .. } => "bogus",
+      DnssecStatus::Insecure => "insecure",
+      DnssecStatus::Indeterminate { .. } => "indeterminate",
+    };
+
+    let dnskeys_json: Vec<_> = assessment
+      .dnskeys
+      .iter()
+      .map(|k| {
+        json!({
+          "role": if k.is_ksk { "KSK" } else { "ZSK" },
+          "algorithm": k.algorithm,
+          "key_tag": k.key_tag,
+          "key_size_bits": k.key_size_bits,
+          "flags": k.flags
+        })
+      })
+      .collect();
+
+    let ds_json: Vec<_> = assessment
+      .ds_records
+      .iter()
+      .map(|ds| {
+        json!({
+          "key_tag": ds.key_tag,
+          "algorithm": ds.algorithm,
+          "digest_type": ds.digest_type,
+          "digest": ds.digest_hex
+        })
+      })
+      .collect();
+
+    let sigs_json: Vec<_> = assessment
+      .signatures
+      .iter()
+      .map(|sig| {
+        json!({
+          "type_covered": sig.type_covered,
+          "algorithm": sig.algorithm,
+          "signer": sig.signer,
+          "key_tag": sig.key_tag,
+          "valid": sig.valid,
+          "expiration": sig.expiration,
+          "inception": sig.inception
+        })
+      })
+      .collect();
+
+    let payload = json!({
+      "domain": domain,
+      "server": server,
+      "status": status_str,
+      "dnskeys": dnskeys_json,
+      "ds_records": ds_json,
+      "signatures": sigs_json
+    });
+
+    if render::render_machine_output_with_yaml(ctx, "rb dns record dnssec", &payload, || {
+      println!("domain: {}", domain);
+      println!("server: {}", server);
+      println!("status: {}", status_str);
+      println!("dnskeys:");
+      for k in &assessment.dnskeys {
+        let role = if k.is_ksk { "KSK" } else { "ZSK" };
+        println!("  - role: {}", role);
+        println!("    algorithm: {}", k.algorithm);
+        println!("    key_tag: {}", k.key_tag);
+        println!("    key_size_bits: {}", k.key_size_bits);
+      }
+      println!("ds_records:");
+      for ds in &assessment.ds_records {
+        println!("  - key_tag: {}", ds.key_tag);
+        println!("    algorithm: {}", ds.algorithm);
+        println!("    digest_type: {}", ds.digest_type);
+      }
+      println!("signatures:");
+      for sig in &assessment.signatures {
+        println!("  - type_covered: {}", sig.type_covered);
+        println!("    signer: {}", sig.signer);
+        println!("    key_tag: {}", sig.key_tag);
+        println!("    valid: {}", sig.valid);
+      }
+      Ok(())
+    })? {
+      return Ok(());
+    }
+
+    // Human-readable output
+    Output::header(&format!("DNSSEC: {}", domain));
+
+    match &assessment.status {
+      DnssecStatus::Secure {
+        algorithms,
+        key_count,
+        has_ksk,
+        has_zsk,
+      } => {
+        Output::success("DNSSEC: Secure (signed and validated)");
+        println!("  Keys: {} (KSK: {}, ZSK: {})", key_count, has_ksk, has_zsk);
+        println!("  Algorithms: {}", algorithms.join(", "));
+      }
+      DnssecStatus::Bogus { reason } => {
+        Output::error(&format!("DNSSEC: Bogus - {}", reason));
+      }
+      DnssecStatus::Insecure => {
+        Output::warning("DNSSEC: Insecure (not signed)");
+        println!("  This domain does not use DNSSEC.");
+        println!("  DNS responses could be spoofed.");
+      }
+      DnssecStatus::Indeterminate { reason } => {
+        Output::warning(&format!("DNSSEC: Indeterminate - {}", reason));
+      }
+    }
+
+    if !assessment.dnskeys.is_empty() {
+      println!();
+      println!("  DNSKEY records:");
+      for key in &assessment.dnskeys {
+        let role = if key.is_ksk { "KSK" } else { "ZSK" };
+        println!(
+          "    {} ({}) - {} bits, tag {}",
+          role, key.algorithm, key.key_size_bits, key.key_tag
+        );
+      }
+    }
+
+    if !assessment.ds_records.is_empty() {
+      println!();
+      println!("  DS records:");
+      for ds in &assessment.ds_records {
+        println!(
+          "    tag {} - {} ({})",
+          ds.key_tag, ds.algorithm, ds.digest_type
+        );
+      }
+    }
+
+    if !assessment.signatures.is_empty() {
+      println!();
+      println!("  Signatures:");
+      for sig in &assessment.signatures {
+        let status = if sig.valid { "valid" } else { "EXPIRED" };
+        println!(
+          "    {} signed by {} (tag {}) - {}",
+          sig.type_covered, sig.signer, sig.key_tag, status
+        );
+      }
     }
 
     Ok(())

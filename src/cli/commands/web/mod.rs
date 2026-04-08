@@ -7,8 +7,10 @@
 use crate::cli::commands::{print_help, Command, Flag, Route};
 use crate::cli::{output::Output, validator::Validator, CliContext};
 
+mod analysis;
 mod cms;
 mod db;
+mod enumerators;
 mod fingerprint;
 mod har;
 mod http;
@@ -47,16 +49,15 @@ impl Command for WebCommand {
   fn route_metadata(&self, verb: &str) -> crate::cli::schema::RouteMetadata {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
-      "get" | "http2" | "headers" | "security" | "grade" => {
-        crate::cli::schema::RouteMetadata::new()
-          .with_aliases(aliases)
-          .with_machine_output(
-            crate::cli::schema::MachineOutputMetadata::new()
-              .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
-              .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
-              .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
-          )
-      }
+      "get" | "http2" | "headers" | "security" | "grade" | "csp" | "cors" | "cookies" | "tech"
+      | "paths" | "params" => crate::cli::schema::RouteMetadata::new()
+        .with_aliases(aliases)
+        .with_machine_output(
+          crate::cli::schema::MachineOutputMetadata::new()
+            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+        ),
       _ => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(self.metadata().machine_output),
@@ -212,6 +213,38 @@ impl Command for WebCommand {
                 summary: "Get detailed HTTP summary from database",
                 usage: "rb web asset describe <host> [--db <file>]",
             },
+            // Security analysis verbs
+            Route {
+                verb: "csp",
+                summary: "Analyze Content-Security-Policy header",
+                usage: "rb web asset csp <url>",
+            },
+            Route {
+                verb: "cors",
+                summary: "Scan for CORS misconfigurations",
+                usage: "rb web asset cors <url>",
+            },
+            Route {
+                verb: "cookies",
+                summary: "Analyze cookie security flags",
+                usage: "rb web asset cookies <url>",
+            },
+            Route {
+                verb: "tech",
+                summary: "Detect technologies using rule engine",
+                usage: "rb web asset tech <url>",
+            },
+            // Enumeration verbs
+            Route {
+                verb: "paths",
+                summary: "Discover paths and directories",
+                usage: "rb web asset paths <url> [--brute]",
+            },
+            Route {
+                verb: "params",
+                summary: "Discover hidden parameters",
+                usage: "rb web asset params <url> [--brute]",
+            },
         ]
   }
 
@@ -287,6 +320,12 @@ impl Command for WebCommand {
       Flag::new("aggressive", "Enable aggressive scanning mode"),
       Flag::new("waf-evasion", "Enable WAF evasion techniques"),
       Flag::new("enumerate", "What to enumerate (plugins,themes,users)"),
+      // Enumeration flags
+      Flag::new(
+        "brute",
+        "Enable active brute force (required for path/param enumeration)",
+      ),
+      Flag::new("extensions", "File extensions to try (comma-separated)").with_arg("EXTS"),
     ]
   }
 
@@ -323,6 +362,31 @@ impl Command for WebCommand {
       (
         "Crawl and export HAR",
         "rb web asset har-export http://example.com --output site.har",
+      ),
+      ("Analyze CSP header", "rb web asset csp https://example.com"),
+      (
+        "Scan for CORS misconfiguration",
+        "rb web asset cors https://example.com",
+      ),
+      (
+        "Analyze cookie security",
+        "rb web asset cookies https://example.com",
+      ),
+      (
+        "Detect technologies (rule engine)",
+        "rb web asset tech https://example.com",
+      ),
+      (
+        "Discover paths (passive)",
+        "rb web asset paths https://example.com",
+      ),
+      (
+        "Discover paths (active brute-force)",
+        "rb web asset paths https://example.com --brute",
+      ),
+      (
+        "Discover hidden parameters",
+        "rb web asset params https://example.com/page --brute",
       ),
     ]
   }
@@ -378,6 +442,16 @@ impl Command for WebCommand {
       "list" => db::list_http(ctx),
       "describe" => db::describe_http(ctx),
 
+      // Security analysis
+      "csp" => analysis::csp(ctx),
+      "cors" => analysis::cors(ctx),
+      "cookies" => analysis::cookies(ctx),
+      "tech" => analysis::fingerprint_rules(ctx),
+
+      // Enumeration
+      "paths" => enumerators::paths(ctx),
+      "params" => enumerators::params(ctx),
+
       // Fuzzing redirect
       "fuzz" => Err("Use 'rb web fuzz' command instead (dedicated fuzzing module)".to_string()),
 
@@ -416,7 +490,13 @@ impl Command for WebCommand {
               "har-replay",
               "har-to-curl",
               "list",
-              "describe"
+              "describe",
+              "csp",
+              "cors",
+              "cookies",
+              "tech",
+              "paths",
+              "params"
             ]
           )
         );

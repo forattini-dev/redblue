@@ -6,6 +6,7 @@ mod osint;
 mod query;
 mod social;
 mod subdomains;
+mod vhost;
 mod vuln;
 mod whois;
 mod workflow;
@@ -45,14 +46,16 @@ impl Command for ReconCommand {
     let aliases = crate::cli::aliases::verb_aliases_for(verb);
     match verb {
       "subdomains" | "whois" | "rdap" | "harvest" | "urls" | "email" | "asn" | "breach"
-      | "secrets" | "dorks" | "social" | "vuln" => crate::cli::schema::RouteMetadata::new()
-        .with_aliases(aliases)
-        .with_machine_output(
-          crate::cli::schema::MachineOutputMetadata::new()
-            .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
-            .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
-            .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
-        ),
+      | "secrets" | "dorks" | "social" | "vuln" | "vhosts" => {
+        crate::cli::schema::RouteMetadata::new()
+          .with_aliases(aliases)
+          .with_machine_output(
+            crate::cli::schema::MachineOutputMetadata::new()
+              .with_json_support(crate::cli::schema::JsonSupport::Guaranteed)
+              .with_stdout_policy(crate::cli::schema::StdoutPolicy::JsonOnlyWhenRequested)
+              .with_stderr_policy(crate::cli::schema::StderrPolicy::DiagnosticsOnly),
+          )
+      }
       _ => crate::cli::schema::RouteMetadata::new()
         .with_aliases(aliases)
         .with_machine_output(self.metadata().machine_output),
@@ -149,6 +152,11 @@ impl Command for ReconCommand {
         summary: "High-performance DNS bruteforce subdomain enumeration",
         usage: "rb recon domain massdns <domain> [--wordlist <file>] [--threads N]",
       },
+      Route {
+        verb: "vhosts",
+        summary: "Discover virtual hosts via Host header",
+        usage: "rb recon domain vhosts <domain> [--brute] [--wordlist <file>] [--threads N]",
+      },
       // RESTful verbs - query stored data
       Route {
         verb: "list",
@@ -228,6 +236,12 @@ impl Command for ReconCommand {
       ),
       Flag::new("depth", "Maximum tree depth for graph command").with_default("5"),
       Flag::new("no-color", "Disable colored output in graph"),
+      // VHost discovery flags
+      Flag::new(
+        "brute",
+        "Enable brute-force vhost enumeration with built-in wordlist",
+      )
+      .with_short('b'),
     ]
   }
 
@@ -319,6 +333,14 @@ impl Command for ReconCommand {
         "rb recon domain massdns example.com --resolvers 8.8.8.8,1.1.1.1",
       ),
       (
+        "Discover virtual hosts with built-in wordlist",
+        "rb recon domain vhosts example.com --brute",
+      ),
+      (
+        "Discover virtual hosts with custom wordlist",
+        "rb recon domain vhosts example.com --wordlist vhosts.txt",
+      ),
+      (
         "List all saved subdomains",
         "rb recon domain list example.com",
       ),
@@ -359,6 +381,7 @@ impl Command for ReconCommand {
       "vuln" => vuln::vuln(ctx),
       "dnsdumpster" => subdomains::dnsdumpster(ctx),
       "massdns" => subdomains::massdns(ctx),
+      "vhosts" => vhost::vhosts(ctx),
       // RESTful verbs
       "list" => query::list_subdomains(ctx),
       "get" => query::get_subdomain(ctx),
@@ -388,6 +411,7 @@ impl Command for ReconCommand {
               "vuln",
               "dnsdumpster",
               "massdns",
+              "vhosts",
               "list",
               "get",
               "describe",
