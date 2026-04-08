@@ -857,7 +857,7 @@ impl<'a> InternalParser<'a> {
     if !peers.is_empty() {
       // Search from the top of the stack for a peer to close.
       // Only look at the immediate top (do not cross block boundaries).
-      if let Some(i) = (1..self.stack.len()).rev().next() {
+      if let Some(i) = (1..self.stack.len()).next_back() {
         if let Some(node) = self.arena.get(self.stack[i]) {
           if peers.contains(&node.tag_name.as_str()) {
             self.stack.truncate(i);

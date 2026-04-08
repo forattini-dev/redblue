@@ -137,8 +137,8 @@ pub fn format_route_help(domain: &str, resource: &str, route: &Route, flags: &[F
   ));
   for flag in flags {
     if let Some(ref arg_name) = flag.arg {
-      let token = if flag.short.is_some() {
-        format!("-{}", flag.short.unwrap())
+      let token = if let Some(ch) = flag.short {
+        format!("-{}", ch)
       } else {
         format!("--{}", flag.long)
       };
