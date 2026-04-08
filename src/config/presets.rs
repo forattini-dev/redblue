@@ -26,16 +26,23 @@ pub enum Module {
   ArchiveOrg,       // Wayback machine
 
   // Stealth (minimal contact, looks normal)
-  TlsCert,        // TLS certificate check
-  HttpHeaders,    // HTTP headers (1 request)
-  DnsEnumeration, // Subdomain bruteforce (slow)
-  PortScanCommon, // Only common ports (80, 443, 22, etc)
+  TlsCert,         // TLS certificate check
+  HttpHeaders,     // HTTP headers (1 request)
+  DnsEnumeration,  // Subdomain bruteforce (slow)
+  PortScanCommon,  // Only common ports (80, 443, 22, etc)
+  CspAnalysis,     // Content-Security-Policy header analysis
+  CorsCheck,       // CORS misconfiguration probing
+  CookieAnalysis,  // Set-Cookie security analysis
+  TechFingerprint, // Technology fingerprinting (rule engine, 221 techs)
+  DnssecCheck,     // DNSSEC validation check
+  EmailSecurity,   // SPF/DKIM/DMARC email security check
 
   // Aggressive (all-out scanning)
-  PortScanFull, // All 65535 ports
-  DirFuzzing,   // Directory fuzzing
-  VulnScanning, // Nikto-style vuln scan
-  WebCrawling,  // Full site crawl
+  PortScanFull,  // All 65535 ports
+  DirFuzzing,    // Directory fuzzing
+  VulnScanning,  // Nikto-style vuln scan
+  WebCrawling,   // Full site crawl
+  PathDiscovery, // Path enumeration (robots.txt, sitemap, brute force)
 }
 
 /// Rate limiting strategy
@@ -107,6 +114,13 @@ impl ScanPreset {
         Module::HttpHeaders,
         Module::DnsEnumeration,
         Module::PortScanCommon,
+        // Security analysis (stealth — single request or DNS only)
+        Module::CspAnalysis,
+        Module::CorsCheck,
+        Module::CookieAnalysis,
+        Module::TechFingerprint,
+        Module::DnssecCheck,
+        Module::EmailSecurity,
       ],
       rate_limit: RateLimit {
         requests_per_second: 10,
@@ -144,6 +158,15 @@ impl ScanPreset {
         Module::DirFuzzing,
         Module::VulnScanning,
         Module::WebCrawling,
+        // Security analysis
+        Module::CspAnalysis,
+        Module::CorsCheck,
+        Module::CookieAnalysis,
+        Module::TechFingerprint,
+        Module::DnssecCheck,
+        Module::EmailSecurity,
+        // Aggressive-only modules
+        Module::PathDiscovery,
       ],
       rate_limit: RateLimit {
         requests_per_second: 100,

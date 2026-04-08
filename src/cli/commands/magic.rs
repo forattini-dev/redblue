@@ -5,10 +5,16 @@ use crate::cli::{output::Output, CliContext};
 use crate::config;
 use crate::config::presets::{Module, ScanPreset};
 use crate::config::YamlConfig;
+use crate::modules::dns::dnssec::{self, DnssecStatus};
 use crate::modules::network::scanner::{PortScanResult, PortScanner};
 use crate::modules::recon::harvester::Harvester;
 use crate::modules::tls::ct_logs::CTLogsClient;
-use crate::protocols::dns::{DnsClient, DnsRecordType};
+use crate::modules::web::cookies;
+use crate::modules::web::cors;
+use crate::modules::web::csp;
+use crate::modules::web::path_enumerator::{PathEnumConfig, PathEnumerator};
+use crate::modules::web::rule_engine;
+use crate::protocols::dns::{DnsClient, DnsRdata, DnsRecordType};
 use crate::protocols::http::HttpClient;
 use crate::protocols::whois::WhoisClient;
 #[cfg(not(target_os = "windows"))]
@@ -140,6 +146,12 @@ impl MagicScan {
       || self.preset.has_module(&Module::HttpHeaders)
       || self.preset.has_module(&Module::DnsEnumeration)
       || self.preset.has_module(&Module::PortScanCommon)
+      || self.preset.has_module(&Module::CspAnalysis)
+      || self.preset.has_module(&Module::CorsCheck)
+      || self.preset.has_module(&Module::CookieAnalysis)
+      || self.preset.has_module(&Module::TechFingerprint)
+      || self.preset.has_module(&Module::DnssecCheck)
+      || self.preset.has_module(&Module::EmailSecurity)
   }
 
   fn has_aggressive_modules(&self) -> bool {
@@ -147,6 +159,7 @@ impl MagicScan {
       || self.preset.has_module(&Module::DirFuzzing)
       || self.preset.has_module(&Module::VulnScanning)
       || self.preset.has_module(&Module::WebCrawling)
+      || self.preset.has_module(&Module::PathDiscovery)
   }
 
   /// Phase 1: Passive reconnaissance (zero contact with target).
@@ -877,6 +890,322 @@ impl MagicScan {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Phase 2 helpers: security analysis checks
+  // -------------------------------------------------------------------------
+
+  /// Build a target URL, preferring HTTPS then falling back to HTTP.
+  fn target_url(&self) -> String {
+    let trimmed = self.target.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+      trimmed.to_string()
+    } else {
+      format!("https://{}", trimmed)
+    }
+  }
+
+  /// Analyse the Content-Security-Policy header on the main page.
+  fn check_csp(&self) -> Result<PhaseResult, String> {
+    let client = HttpClient::new();
+    let url = self.target_url();
+    let response = client
+      .get(&url)
+      .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    let csp_value = response
+      .headers
+      .iter()
+      .find(|(k, _)| k.eq_ignore_ascii_case("content-security-policy"))
+      .map(|(_, v)| v.as_str());
+
+    let Some(csp_raw) = csp_value else {
+      return Ok(PhaseResult::new(
+        "No CSP header found (Grade: F)".to_string(),
+        vec!["Missing Content-Security-Policy header".to_string()],
+      ));
+    };
+
+    let analysis = csp::analyze_csp(csp_raw);
+    let summary = format!(
+      "CSP Grade: {} ({} directives, {} issues)",
+      analysis.grade,
+      analysis.directives.len(),
+      analysis.issues.len()
+    );
+    let details = analysis
+      .issues
+      .iter()
+      .map(|i| format!("[{:?}] {}: {}", i.severity, i.directive, i.description))
+      .collect();
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
+  /// Probe for CORS misconfigurations by sending requests with an evil Origin.
+  fn check_cors(&self) -> Result<PhaseResult, String> {
+    let url = self.target_url();
+    let analysis = cors::scan_cors(&url)?;
+
+    let policy_str = format!("{:?}", analysis.origin_policy);
+    let creds = if analysis.allows_credentials {
+      " + credentials"
+    } else {
+      ""
+    };
+
+    let summary = if analysis.issues.is_empty() {
+      format!("CORS: {} (no issues){}", policy_str, creds)
+    } else {
+      format!(
+        "CORS: {} ({} issue(s), risk: {:?}){}",
+        policy_str,
+        analysis.issues.len(),
+        analysis.risk_level,
+        creds
+      )
+    };
+
+    let details = analysis
+      .issues
+      .iter()
+      .map(|i| format!("[{:?}] {}", i.severity, i.description))
+      .collect();
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
+  /// Analyse Set-Cookie headers for security best-practices.
+  fn check_cookies(&self) -> Result<PhaseResult, String> {
+    let client = HttpClient::new();
+    let url = self.target_url();
+    let response = client
+      .get(&url)
+      .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    let is_https = url.starts_with("https://");
+    let header_pairs: Vec<(String, String)> = response
+      .headers
+      .iter()
+      .map(|(k, v)| (k.clone(), v.clone()))
+      .collect();
+
+    let analyses = cookies::analyze_cookies(&header_pairs, is_https);
+
+    if analyses.is_empty() {
+      return Ok(PhaseResult::new(
+        "No cookies set on main page".to_string(),
+        Vec::new(),
+      ));
+    }
+
+    let total_issues: usize = analyses.iter().map(|a| a.issues.len()).sum();
+    let summary = format!("{} cookie(s), {} issue(s)", analyses.len(), total_issues);
+
+    let mut details = Vec::new();
+    for ca in &analyses {
+      let flags = format!(
+        "Secure={} HttpOnly={} SameSite={:?}",
+        ca.flags.secure, ca.flags.http_only, ca.flags.same_site
+      );
+      details.push(format!("{}: {}", ca.name, flags));
+      for issue in &ca.issues {
+        details.push(format!("  [{:?}] {}", issue.severity, issue.description));
+      }
+    }
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
+  /// Run the rule-engine technology fingerprinter against the main page.
+  fn check_technologies(&self) -> Result<PhaseResult, String> {
+    let client = HttpClient::new();
+    let url = self.target_url();
+    let response = client
+      .get(&url)
+      .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    let rules = rule_engine::load_rules();
+    let body = String::from_utf8_lossy(&response.body).to_string();
+
+    let cookie_values: Vec<String> = response
+      .headers
+      .iter()
+      .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
+      .map(|(_, v)| v.clone())
+      .collect();
+
+    let matches = rule_engine::match_rules(&rules, &response.headers, &body, &cookie_values);
+
+    let summary = format!("{} technologies detected", matches.len());
+    let details = matches
+      .iter()
+      .map(|m| {
+        let ver = m.version.as_deref().unwrap_or("");
+        let ver_part = if ver.is_empty() {
+          String::new()
+        } else {
+          format!(" {}", ver)
+        };
+        format!("{}{} ({}% confidence)", m.name, ver_part, m.confidence)
+      })
+      .collect();
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
+  /// Check DNSSEC deployment status for the target domain.
+  fn check_dnssec(&self) -> Result<PhaseResult, String> {
+    if !self.is_probable_domain() {
+      return Err("Target does not look like a domain name".to_string());
+    }
+
+    let host = self.target_hostname();
+    let assessment = dnssec::assess_dnssec(&host, "8.8.8.8");
+
+    match &assessment.status {
+      DnssecStatus::Secure { algorithms, .. } => Ok(PhaseResult::new(
+        format!("DNSSEC: Secure ({})", algorithms.join(", ")),
+        Vec::new(),
+      )),
+      DnssecStatus::Insecure => Ok(PhaseResult::new(
+        "DNSSEC: Not signed (vulnerable to spoofing)".to_string(),
+        vec!["Domain does not use DNSSEC".to_string()],
+      )),
+      DnssecStatus::Bogus { reason } => Ok(PhaseResult::new(
+        format!("DNSSEC: Bogus -- {}", reason),
+        Vec::new(),
+      )),
+      DnssecStatus::Indeterminate { reason } => Ok(PhaseResult::new(
+        format!("DNSSEC: Unknown -- {}", reason),
+        Vec::new(),
+      )),
+    }
+  }
+
+  /// Assess email security posture via SPF, DKIM, and DMARC DNS records.
+  fn check_email_security(&self) -> Result<PhaseResult, String> {
+    if !self.is_probable_domain() {
+      return Err("Target does not look like a domain name".to_string());
+    }
+
+    let host = self.target_hostname();
+    let client = self.build_dns_client();
+    let mut details = Vec::new();
+    let mut issues = 0usize;
+
+    // SPF — look for "v=spf1" in TXT records of the base domain
+    if let Ok(txt_records) = client.query(&host, DnsRecordType::TXT) {
+      let spf = txt_records.iter().find_map(|r| match &r.data {
+        DnsRdata::TXT(chunks) => {
+          let joined = chunks.join("");
+          if joined.starts_with("v=spf1") {
+            Some(joined)
+          } else {
+            None
+          }
+        }
+        _ => None,
+      });
+
+      if let Some(spf_record) = spf {
+        details.push(format!("SPF: {}", spf_record));
+        if spf_record.contains("+all") {
+          details.push("  [!] SPF allows all senders (+all)".to_string());
+          issues += 1;
+        }
+      } else {
+        details.push("SPF: Not configured".to_string());
+        issues += 1;
+      }
+    } else {
+      details.push("SPF: DNS query failed".to_string());
+      issues += 1;
+    }
+
+    // DMARC — look for "v=DMARC1" in TXT records of _dmarc.<domain>
+    let dmarc_domain = format!("_dmarc.{}", host);
+    if let Ok(txt_records) = client.query(&dmarc_domain, DnsRecordType::TXT) {
+      let dmarc = txt_records.iter().find_map(|r| match &r.data {
+        DnsRdata::TXT(chunks) => {
+          let joined = chunks.join("");
+          if joined.starts_with("v=DMARC1") {
+            Some(joined)
+          } else {
+            None
+          }
+        }
+        _ => None,
+      });
+
+      if let Some(dmarc_record) = dmarc {
+        details.push(format!("DMARC: {}", dmarc_record));
+        if dmarc_record.contains("p=none") {
+          details.push("  [!] DMARC policy is 'none' (no enforcement)".to_string());
+          issues += 1;
+        }
+      } else {
+        details.push("DMARC: Not configured".to_string());
+        issues += 1;
+      }
+    } else {
+      details.push("DMARC: DNS query failed".to_string());
+      issues += 1;
+    }
+
+    // DKIM — check common selectors for a "v=DKIM1" TXT record
+    let dkim_selectors = ["default", "google", "selector1", "selector2", "k1", "mail"];
+    let mut dkim_found = false;
+    for selector in &dkim_selectors {
+      let dkim_domain = format!("{}._domainkey.{}", selector, host);
+      if let Ok(txt_records) = client.query(&dkim_domain, DnsRecordType::TXT) {
+        let has_dkim = txt_records.iter().any(|r| match &r.data {
+          DnsRdata::TXT(chunks) => chunks.join("").contains("v=DKIM1"),
+          _ => false,
+        });
+        if has_dkim {
+          details.push(format!("DKIM: Found (selector: {})", selector));
+          dkim_found = true;
+          break;
+        }
+      }
+    }
+    if !dkim_found {
+      details.push("DKIM: Not found (checked 6 common selectors)".to_string());
+      issues += 1;
+    }
+
+    let summary = if issues == 0 {
+      "Email security: All configured (SPF + DKIM + DMARC)".to_string()
+    } else {
+      format!("Email security: {} issue(s) found", issues)
+    };
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 3 helpers: aggressive scanning
+  // -------------------------------------------------------------------------
+
+  /// Discover paths via robots.txt, sitemap.xml, and active brute force.
+  fn discover_paths(&self) -> Result<PhaseResult, String> {
+    let url = self.target_url();
+    let config = PathEnumConfig {
+      brute: true, // Phase 3 is aggressive — enable brute force
+      ..Default::default()
+    };
+    let enumerator = PathEnumerator::new(config);
+    let results = enumerator.enumerate(&url);
+
+    let summary = format!("{} paths discovered", results.len());
+    let details = results
+      .iter()
+      .map(|p| format!("[{}] {} ({}B, {:?})", p.status, p.path, p.size, p.source))
+      .collect();
+
+    Ok(PhaseResult::new(summary, details))
+  }
+
   fn print_details(details: &[String]) {
     for detail in details.iter().take(8) {
       Output::item("", detail);
@@ -887,91 +1216,121 @@ impl MagicScan {
   }
 
   /// Phase 2: Stealth active scanning (minimal contact)
+  ///
+  /// All enabled tasks run in parallel — each is independent and makes at most
+  /// a few requests that look like normal browser traffic.
   fn run_stealth_phase(&self) -> Result<(), String> {
     self.session.append_section("Phase 2: Stealth Scanning")?;
     Output::phase("Phase 2: Stealth Scanning");
     println!("  ℹ  Minimal contact - looks like normal traffic\n");
 
-    // TLS Certificate
+    // Build the task list: (label, session_key, task_fn)
+    let mut tasks: Vec<(
+      &str,
+      &str,
+      Box<dyn Fn() -> Result<PhaseResult, String> + Send + Sync>,
+    )> = Vec::new();
+
     if self.preset.has_module(&Module::TlsCert) {
-      Output::task_start("TLS Certificate Check");
-      match self.inspect_tls_certificate() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("stealth", "tls_cert", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("stealth", "tls_cert", "error", &err)?;
-        }
-      }
+      tasks.push((
+        "TLS Certificate Check",
+        "tls_cert",
+        Box::new(|| self.inspect_tls_certificate()),
+      ));
     }
-
-    // HTTP Headers
     if self.preset.has_module(&Module::HttpHeaders) {
-      Output::task_start("HTTP Headers Analysis");
-      match self.analyze_http_headers() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("stealth", "http_headers", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("stealth", "http_headers", "error", &err)?;
-        }
-      }
+      tasks.push((
+        "HTTP Headers Analysis",
+        "http_headers",
+        Box::new(|| self.analyze_http_headers()),
+      ));
     }
-
-    // DNS Enumeration
     if self.preset.has_module(&Module::DnsEnumeration) {
-      Output::task_start("Subdomain Enumeration (stealth)");
-      match self.enumerate_subdomains() {
-        Ok(outcome) => {
-          Output::task_done(&outcome.summary);
-          Self::print_details(&outcome.details);
-          self
-            .session
-            .append_result("stealth", "dns_enum", "success", &outcome.summary)?;
-        }
-        Err(err) => {
-          Output::task_done("failed");
-          Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("stealth", "dns_enum", "error", &err)?;
-        }
-      }
+      tasks.push((
+        "Subdomain Enumeration (stealth)",
+        "dns_enum",
+        Box::new(|| self.enumerate_subdomains()),
+      ));
+    }
+    if self.preset.has_module(&Module::PortScanCommon) {
+      tasks.push((
+        "Port Scan (common ports only)",
+        "port_scan",
+        Box::new(|| self.port_scan_common()),
+      ));
+    }
+    if self.preset.has_module(&Module::CspAnalysis) {
+      tasks.push((
+        "Content-Security-Policy",
+        "csp",
+        Box::new(|| self.check_csp()),
+      ));
+    }
+    if self.preset.has_module(&Module::CorsCheck) {
+      tasks.push(("CORS Configuration", "cors", Box::new(|| self.check_cors())));
+    }
+    if self.preset.has_module(&Module::CookieAnalysis) {
+      tasks.push((
+        "Cookie Security",
+        "cookies",
+        Box::new(|| self.check_cookies()),
+      ));
+    }
+    if self.preset.has_module(&Module::TechFingerprint) {
+      tasks.push((
+        "Technology Fingerprint",
+        "tech_fingerprint",
+        Box::new(|| self.check_technologies()),
+      ));
+    }
+    if self.preset.has_module(&Module::DnssecCheck) {
+      tasks.push((
+        "DNSSEC Validation",
+        "dnssec",
+        Box::new(|| self.check_dnssec()),
+      ));
+    }
+    if self.preset.has_module(&Module::EmailSecurity) {
+      tasks.push((
+        "Email Security (SPF/DKIM/DMARC)",
+        "email_security",
+        Box::new(|| self.check_email_security()),
+      ));
     }
 
-    // Common ports
-    if self.preset.has_module(&Module::PortScanCommon) {
-      Output::task_start("Port Scan (common ports only)");
-      match self.port_scan_common() {
+    // Run all tasks in parallel, collect results in order
+    let results: std::sync::Mutex<Vec<(usize, Result<PhaseResult, String>)>> =
+      std::sync::Mutex::new(Vec::new());
+
+    std::thread::scope(|s| {
+      for (idx, (_label, _key, task_fn)) in tasks.iter().enumerate() {
+        let results = &results;
+        s.spawn(move || {
+          let result = task_fn();
+          results.lock().unwrap().push((idx, result));
+        });
+      }
+    });
+
+    let mut collected = results.into_inner().unwrap();
+    collected.sort_by_key(|(idx, _)| *idx);
+
+    // Print results sequentially (preserves output order)
+    for (idx, result) in collected {
+      let (label, key, _) = &tasks[idx];
+      Output::task_start(label);
+      match result {
         Ok(outcome) => {
           Output::task_done(&outcome.summary);
           Self::print_details(&outcome.details);
-          self
+          let _ = self
             .session
-            .append_result("stealth", "port_scan", "success", &outcome.summary)?;
+            .append_result("stealth", key, "success", &outcome.summary);
         }
         Err(err) => {
           Output::task_done("failed");
           Output::warning(&format!("    {}", err));
-          self
-            .session
-            .append_result("stealth", "port_scan", "error", &err)?;
+          let _ = self.session.append_result("stealth", key, "error", &err);
         }
       }
     }
@@ -1043,6 +1402,30 @@ impl MagicScan {
       self
         .session
         .append_result("aggressive", "web_crawl", "skipped", &message)?;
+    }
+
+    // Path Discovery (passive + active brute force)
+    if self.preset.has_module(&Module::PathDiscovery) {
+      Output::task_start("Path Discovery (brute force)");
+      match self.discover_paths() {
+        Ok(outcome) => {
+          Output::task_done(&outcome.summary);
+          Self::print_details(&outcome.details);
+          self.session.append_result(
+            "aggressive",
+            "path_discovery",
+            "success",
+            &outcome.summary,
+          )?;
+        }
+        Err(err) => {
+          Output::task_done("failed");
+          Output::warning(&format!("    {}", err));
+          self
+            .session
+            .append_result("aggressive", "path_discovery", "error", &err)?;
+        }
+      }
     }
 
     println!();
