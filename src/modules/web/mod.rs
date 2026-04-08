@@ -28,6 +28,8 @@ pub mod headers;
 pub mod linkfinder;
 pub mod nosqli; // NoSQL injection testing (MongoDB, Redis, Elasticsearch)
 pub mod recursive; // Recursive content discovery (link extraction, queue, scanner)
+#[path = "rule-engine.rs"]
+pub mod rule_engine; // Data-driven technology fingerprinting rules
 #[path = "scanner-strategy.rs"]
 pub mod scanner_strategy;
 pub mod scraper; // Rule-based web scraping
@@ -41,6 +43,7 @@ pub use cms::{CmsDetector, CmsScanConfig, CmsScanResult, CmsScanner, CmsType};
 pub use crawler::{CrawlResult, CrawledPage, CrawlerConfig, WebCrawler};
 pub use fingerprinter::WebFingerprinter;
 pub use fuzzer::{FuzzResult, FuzzTarget, FuzzerConfig, HttpMethod, WebFuzzer, WordlistManager};
+pub use rule_engine::{load_rules, match_rules, RuleMatch, TechRule};
 pub use scanner_strategy::{ScanStrategy, UnifiedScanResult, UnifiedWebScanner};
 pub use scraper::{ExtractType, ExtractedValue, ScrapeConfig, ScrapeResult, ScrapeRule, Scraper};
 pub use strategies::{
