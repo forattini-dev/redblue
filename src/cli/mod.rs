@@ -5,7 +5,6 @@ pub mod format;
 pub mod output;
 /// Modern CLI inspired by kubectl and Docker
 /// Focus on Developer Experience (DevX)
-pub mod parser;
 pub mod render;
 pub mod schema;
 pub mod terminal;
