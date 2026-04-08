@@ -1943,7 +1943,7 @@ test('wrapper parser helpers cover prefix splitting and parse normalization', as
   assert.equal(parsedNoValue.resolveOptions.binaryPath, undefined);
 
   assert.match(formatWrapperHelp(), /npx redblue-cli/);
-  assert.match(formatWrapperHelp(), /npm exec --package redblue-cli rb/);
+  assert.match(formatWrapperHelp(), /pnpm dlx redblue-cli/);
   assert.match(formatWrapperHelp(), /--install/);
   assert.match(formatWrapperHelp(), /--release-version/);
 

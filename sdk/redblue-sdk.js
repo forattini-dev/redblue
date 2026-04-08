@@ -897,7 +897,7 @@ function formatWrapperHelp(manifest = null) {
     'Usage:',
     '  rb [wrapper options] [redblue args]',
     '  npx redblue-cli [redblue args]',
-    '  npm exec --package redblue-cli rb -- [redblue args]',
+    '  pnpm dlx redblue-cli -- [redblue args]',
     ''
   ];
 
@@ -930,7 +930,7 @@ function formatWrapperHelp(manifest = null) {
     'Notes:',
     '  Wrapper options must come before the redblue command.',
     '  Managed installs default to ~/.local/bin and still detect legacy ~/.redblue/bin installs.',
-    '  When installed from npm, the package postinstall step stores the managed binary in package-local .redblue/bin and the wrapper can use it automatically.',
+    '  When installed from pnpm/npm, the package postinstall step stores the managed binary in package-local .redblue/bin and the wrapper can use it automatically.',
     '  Use "rb --version" to query the real redblue binary version after installation.',
     '  The exact command "npx rb" only works when a package named "rb" exists or when this package is already installed and exposes the rb bin.',
     ''

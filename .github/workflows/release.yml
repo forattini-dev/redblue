@@ -487,6 +487,9 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Install pnpm
+        run: corepack enable && corepack prepare pnpm@9 --activate
+
       - name: Set package version
         run: |
           VERSION="${{ needs.plan.outputs.package_version }}"
@@ -499,13 +502,13 @@ jobs:
 
       - name: Validate package
         run: |
-          npm install --no-package-lock
-          npm run build
-          npm run coverage
-          npm run pack-check
+          pnpm install --no-frozen-lockfile
+          pnpm run build
+          pnpm run coverage
+          pnpm run pack-check
 
       - name: Publish package
-        run: npm publish --tag "${{ needs.plan.outputs.npm_tag }}" --provenance
+        run: pnpm publish --tag "${{ needs.plan.outputs.npm_tag }}" --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -518,7 +521,7 @@ jobs:
           echo "NPM publish finished: redblue-cli@${EXPECTED_VERSION_CANONICAL} (tag: ${NPM_TAG})"
           # Keep CI moving immediately after publish to avoid registry propagation blocking.
           # Best-effort smoke call: this is intentionally non-blocking and does not fail the job.
-          REDBLUE_SKIP_POSTINSTALL=1 npm exec --yes --package redblue-cli@${EXPECTED_VERSION_CANONICAL} -- redblue-cli --sdk-help >/tmp/redblue-sdk-help.txt 2>/tmp/redblue-sdk-help.err || true
+          REDBLUE_SKIP_POSTINSTALL=1 pnpm dlx redblue-cli@${EXPECTED_VERSION_CANONICAL} --sdk-help >/tmp/redblue-sdk-help.txt 2>/tmp/redblue-sdk-help.err || true
           if grep -q "redblue-cli wrapper" /tmp/redblue-sdk-help.txt 2>/dev/null; then
             echo "Smoke help check succeeded."
           else
