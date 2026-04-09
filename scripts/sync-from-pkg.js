@@ -45,7 +45,15 @@ if (updated !== cargoToml) {
   fs.writeFileSync(cargoTomlPath, updated, 'utf8');
 }
 
+// Regenerate Cargo.lock to match the new Cargo.toml version
+// (CI uses --locked which requires Cargo.lock in sync)
+try {
+  execSync('cargo check --quiet', { cwd: rootDir, stdio: 'inherit', timeout: 120000 });
+} catch (_) {
+  // cargo check may fail for other reasons; Cargo.lock is still updated
+}
+
 // Stage the files so they're included in pnpm's version commit
-execSync('git add VERSION Cargo.toml', { cwd: rootDir, stdio: 'inherit' });
+execSync('git add VERSION Cargo.toml Cargo.lock', { cwd: rootDir, stdio: 'inherit' });
 
 console.log(`Synced VERSION + Cargo.toml to ${cargoVersion}`);
