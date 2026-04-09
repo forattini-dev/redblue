@@ -51,6 +51,7 @@
   "license": "MIT",
   "dependencies": {},
   "scripts": {
+    "version": "node scripts/sync-from-pkg.js",
     "version:sync": "node scripts/sync-version.js",
     "sdk:generate": "node scripts/generate-sdk-surface.js",
     "sdk:check": "node scripts/generate-sdk-surface.js --check",

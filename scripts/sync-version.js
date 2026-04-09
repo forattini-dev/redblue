@@ -67,26 +67,20 @@ try {
     validateVersion(version);
   }
 
-  // If the CI release workflow already set a different version in package.json
-  // (prerelease like 0.2.2-next.48 or a newer stable like 0.2.6), don't
-  // overwrite it with the VERSION file's base version. This prevents:
-  // - Republishing an already-published stable version
-  // - Downgrading a version that the release workflow intentionally set
+  // Sync Cargo.toml to match VERSION file.
+  // package.json is the source of truth (set by pnpm version or CI workflow)
+  // — never overwrite it here. The "version" hook in package.json handles
+  // syncing package.json → VERSION + Cargo.toml at bump time.
+  syncCargoToml(version);
+
+  // Only sync package.json if it has a LOWER version (prevents downgrade)
   const currentPkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   const pkgVersion = currentPkg.version || '';
-  const shouldKeepPkg = pkgVersion !== version && pkgVersion.length > 0 && (
-    pkgVersion.includes('-') ||  // prerelease: 0.2.2-next.48
-    pkgVersion > version         // newer stable: 0.2.6 > 0.2.2
-  );
-
-  if (shouldKeepPkg) {
-    process.stdout.write(`Synced version ${version} (kept package.json at ${pkgVersion})\n`);
-    syncCargoToml(version);
-  } else {
-    syncCargoToml(version);
+  if (!pkgVersion || (!pkgVersion.includes('-') && pkgVersion < version)) {
     syncPackageJson(version);
-    process.stdout.write(`Synced version ${version}\n`);
   }
+
+  process.stdout.write(`Synced version ${version} (pkg: ${pkgVersion})\n`);
 } catch (error) {
   process.stderr.write(`${error.message}\n`);
   process.exit(1);
