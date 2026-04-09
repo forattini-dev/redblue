@@ -67,12 +67,20 @@ try {
     validateVersion(version);
   }
 
-  // If package.json already has a prerelease version (e.g. 0.2.2-next.48,
-  // set by the CI release workflow), don't overwrite it with the base version.
-  // This prevents "npm publish" from trying to republish an existing stable version.
+  // If the CI release workflow already set a different version in package.json
+  // (prerelease like 0.2.2-next.48 or a newer stable like 0.2.6), don't
+  // overwrite it with the VERSION file's base version. This prevents:
+  // - Republishing an already-published stable version
+  // - Downgrading a version that the release workflow intentionally set
   const currentPkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-  if (currentPkg.version && currentPkg.version.includes('-') && !version.includes('-')) {
-    process.stdout.write(`Synced version ${version} (kept package.json at ${currentPkg.version})\n`);
+  const pkgVersion = currentPkg.version || '';
+  const shouldKeepPkg = pkgVersion !== version && pkgVersion.length > 0 && (
+    pkgVersion.includes('-') ||  // prerelease: 0.2.2-next.48
+    pkgVersion > version         // newer stable: 0.2.6 > 0.2.2
+  );
+
+  if (shouldKeepPkg) {
+    process.stdout.write(`Synced version ${version} (kept package.json at ${pkgVersion})\n`);
     syncCargoToml(version);
   } else {
     syncCargoToml(version);
