@@ -56,6 +56,7 @@ pub mod search; // ✅ Global search across all stored data
 pub mod service; // ✅ Service manager - systemd, launchd, Windows Tasks
 pub mod sqli; // ✅ SQL injection testing - sqlmap-style
 pub mod system; // ✅ Local host inventory and environment inference
+pub mod system_stress; // ✅ Resource stress testing (cpu, mem, io)
 pub mod takeover;
 pub mod tls; // TLS security testing - audit, ciphers, vuln
 pub mod tls_intel; // ✅ TLS intelligence gathering
@@ -149,6 +150,7 @@ impl CommandRegistry {
       Box::new(http_server::HttpServerCommand), // ✅ HTTP server for file serving
       Box::new(service::ServiceCommand),       // ✅ Service manager - persistence
       Box::new(system::SystemCommand),         // ✅ Local host inventory
+      Box::new(system_stress::SystemStressCommand), // ✅ Resource stress (cpu/mem/io)
       Box::new(evasion::EvasionSandboxCommand), // ✅ Sandbox/VM detection
       Box::new(evasion::EvasionObfuscateCommand), // ✅ String obfuscation
       Box::new(evasion::EvasionNetworkCommand), // ✅ Network evasion (jitter)

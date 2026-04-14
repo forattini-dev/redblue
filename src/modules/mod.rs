@@ -141,3 +141,6 @@ pub mod ctf;
 
 // HTML Parsing and CSS Selector Engine (arena-based DOM)
 pub mod html;
+
+// Resource stress testing (CPU, memory, I/O load generation)
+pub mod stress;
