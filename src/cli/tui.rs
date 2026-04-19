@@ -1451,7 +1451,7 @@ impl TuiApp {
     println!("{:<20} {:<12} {:<60}", "NAME↑", "STATUS", "RESULT");
     println!("{}", ansi::RESET);
 
-    let mut row = start_row + 1;
+    let row = start_row + 1;
 
     if rows.is_empty() {
       println!("{}{}No results found", ansi::move_to(row + 1, 4), ansi::DIM);
@@ -1518,7 +1518,9 @@ impl TuiApp {
     // Render visible rows
     let end_idx = (self.scroll_offset + available_rows - 2).min(rows.len());
 
-    for (idx, table_row) in rows[self.scroll_offset..end_idx].iter().enumerate() {
+    for (row, (idx, table_row)) in
+      (start_row + 1..).zip(rows[self.scroll_offset..end_idx].iter().enumerate())
+    {
       let global_idx = self.scroll_offset + idx;
       let is_selected = global_idx == self.selected_row;
 
@@ -1558,7 +1560,6 @@ impl TuiApp {
       }
 
       println!();
-      row += 1;
     }
 
     Ok(())

@@ -50,13 +50,16 @@ jobs:
 
       - name: Decide release target
         id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
 
-          EVENT_NAME="${{ github.event_name }}"
           REF="${GITHUB_REF}"
-          INPUT_CHANNEL="${{ github.event.inputs.channel || 'stable' }}"
-          INPUT_VERSION="${{ github.event.inputs.version || '' }}"
 
           SHOULD_SKIP=false
           RELEASE_CHANNEL=""
@@ -73,7 +76,7 @@ jobs:
 
           next_version() {
             local base_version="$1"
-            local run_number="${{ github.run_number }}"
+            local run_number="${RUN_NUMBER}"
             echo "${base_version}-next.${run_number}"
           }
 
@@ -84,7 +87,6 @@ jobs:
             NPM_TAG="latest"
             IS_PRERELEASE=false
           elif [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
             if [[ "$COMMIT_MSG" =~ ^chore:\ release ]] || [[ "$COMMIT_MSG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               SHOULD_SKIP=true
               SKIP_REASON="Version bump/release commit; skipping next."

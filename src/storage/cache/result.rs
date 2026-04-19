@@ -211,11 +211,9 @@ impl CacheEntry {
 
     // Score: frequency * priority / recency
     // Higher = keep longer
-    if recency == 0 {
-      frequency * priority * 1000
-    } else {
-      frequency * priority / recency
-    }
+    (frequency * priority)
+      .checked_div(recency)
+      .unwrap_or(frequency * priority * 1000)
   }
 }
 

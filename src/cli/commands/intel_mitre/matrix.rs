@@ -107,11 +107,7 @@ pub fn show_matrix(ctx: &CliContext) -> Result<(), String> {
     let count = techs.len();
     let parent_count = techs.iter().filter(|t| !t.is_subtechnique).count();
 
-    let bar_len = if max_count > 0 {
-      (count * bar_width) / max_count
-    } else {
-      0
-    };
+    let bar_len = (count * bar_width).checked_div(max_count).unwrap_or(0);
 
     let bar: String = "█".repeat(bar_len.min(bar_width));
 
