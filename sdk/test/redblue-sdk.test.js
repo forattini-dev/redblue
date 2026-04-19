@@ -2090,6 +2090,27 @@ test('wrapper parser helpers cover prefix splitting and parse normalization', as
   assert.match(formatPartialRouteHelp(routeManifest, ['dns', 'rec']), /Expected next token: resource/);
   assert.match(formatUnknownRouteHelp(routeManifest, ['dns', 'record', 'loookup']), /Unknown route:/);
   assert.match(formatUnknownRouteHelp(routeManifest, ['dns', 'record', 'loookup']), /Closest canonical routes:/);
+
+  // formatSdkHelpOutput branches: null/non-object manifest falls back
+  // to the wrapper help; a 3-token unknown route goes through
+  // formatUnknownRouteHelp; a <3-token selector goes through
+  // formatPartialRouteHelp. Each of these was previously unreached.
+  assert.match(formatSdkHelpOutput(null, ['anything']), /npx redblue-cli/);
+  assert.match(formatSdkHelpOutput('not-an-object', ['anything']), /npx redblue-cli/);
+  assert.match(
+    formatSdkHelpOutput(routeManifest, ['dns', 'record', 'loookup']),
+    /Unknown route:/
+  );
+  assert.match(formatSdkHelpOutput(routeManifest, ['dns', 'rec']), /Partial route:/);
+
+  // parseWrapperArgs with `--flag=value` form covers the eqIndex slice
+  // branch (line 649 in redblue-sdk.js).
+  const parsedEq = await parseWrapperArgs([
+    '--repo=forattini-dev/redblue',
+    '--release-version=3.2.1'
+  ]);
+  assert.equal(parsedEq.resolveOptions.repo, 'forattini-dev/redblue');
+  assert.equal(parsedEq.resolveOptions.releaseVersion, '3.2.1');
 });
 
 test('branch-only helper paths stay covered', async () => {
