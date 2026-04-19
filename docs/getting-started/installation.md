@@ -35,10 +35,6 @@ npx redblue-cli dns record lookup example.com --type MX
 # One-shot execution with the rb bin exposed by the package
 npm exec --package redblue-cli rb -- tls security audit github.com
 
-# Let the wrapper install and update the release binary for you
-npx redblue-cli --install --print-binary-path
-npx redblue-cli --check-update
-
 # Use the globally installed rb directly
 rb dns record lookup example.com --type MX
 ```

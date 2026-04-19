@@ -100,8 +100,8 @@ function isExecutable(filePath) {
   }
 }
 
-function resolveFromPath(binaryName) {
-  const pathValue = process.env.PATH || '';
+function resolveFromPath(binaryName, env = process.env) {
+  const pathValue = (env && env.PATH) || '';
   for (const directory of pathValue.split(path.delimiter)) {
     if (!directory) {
       continue;
@@ -114,8 +114,8 @@ function resolveFromPath(binaryName) {
   return null;
 }
 
-function defaultInstallDir() {
-  return process.env.REDBLUE_INSTALL_DIR || process.env.INSTALL_DIR || path.join(os.homedir(), '.local', 'bin');
+function defaultInstallDir(env = process.env) {
+  return (env && (env.REDBLUE_INSTALL_DIR || env.INSTALL_DIR)) || path.join(os.homedir(), '.local', 'bin');
 }
 
 function legacyInstallDir() {
@@ -127,7 +127,7 @@ function resolveManagedBinaryPath(options = {}) {
     return path.resolve(options.binaryPath);
   }
 
-  const installDir = options.targetDir || defaultInstallDir();
+  const installDir = options.targetDir || defaultInstallDir(options.env);
   const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
   return path.resolve(installDir, binaryName);
 }
@@ -361,7 +361,7 @@ async function resolveBinaryWithInfo(options = {}) {
     };
   }
 
-  const pathCandidate = resolveFromPath(binaryName);
+  const pathCandidate = resolveFromPath(binaryName, options.env);
   if (pathCandidate) {
     return {
       binaryPath: pathCandidate,
@@ -1192,82 +1192,15 @@ function findCommandStartIndex(argv, manifest = {}) {
 }
 
 async function runCli(argv = process.argv.slice(2), runtime = {}) {
-  const stdout = runtime.stdout || process.stdout;
   const stderr = runtime.stderr || process.stderr;
 
   try {
-    const parsed = await parseWrapperArgs(argv, runtime);
-    const cliOptions = Object.assign({}, parsed.resolveOptions, {
+    const rawArgs = Array.isArray(argv) ? argv.slice() : [];
+    const cliOptions = {
       cwd: runtime.cwd || process.cwd(),
       env: Object.assign({}, process.env, runtime.env || {})
-    });
-
-    if (parsed.wrapperOptions.sdkHelp) {
-      let manifest = null;
-      try {
-        manifest = (await getManifest(cliOptions)).manifest;
-      } catch (_) {
-        manifest = null;
-      }
-      writeLine(stdout, formatSdkHelpOutput(manifest, parsed.passthroughArgs));
-      return 0;
-    }
-
-    let resolvedInfo = null;
-
-    if (parsed.wrapperOptions.checkUpdate) {
-      const updateStatus = await checkForUpdates(cliOptions);
-      const updateMessage = formatWrapperBinaryStatus(updateStatus);
-
-      if (parsed.passthroughArgs.length === 0) {
-        writeLine(stdout, updateMessage);
-        return 0;
-      }
-
-      writeLine(stderr, updateMessage);
-    }
-
-    if (parsed.wrapperOptions.upgrade) {
-      const upgradeResult = await upgradeBinary(cliOptions);
-      resolvedInfo = {
-        binaryPath: upgradeResult.binaryPath,
-        source: upgradeResult.source
-      };
-
-      if (parsed.passthroughArgs.length === 0 && !parsed.wrapperOptions.printBinaryPath) {
-        writeLine(stdout, formatWrapperBinaryStatus(upgradeResult));
-        return 0;
-      }
-
-      writeLine(stderr, formatWrapperBinaryStatus(upgradeResult));
-    } else if (parsed.wrapperOptions.install) {
-      const installResult = await ensureInstalled(cliOptions);
-      resolvedInfo = {
-        binaryPath: installResult.binaryPath,
-        source: installResult.source
-      };
-
-      if (parsed.passthroughArgs.length === 0 && !parsed.wrapperOptions.printBinaryPath) {
-        writeLine(stdout, formatWrapperBinaryStatus(installResult));
-        return 0;
-      }
-
-      writeLine(stderr, formatWrapperBinaryStatus(installResult));
-    }
-
-    if (!resolvedInfo) {
-      resolvedInfo = await resolveBinaryWithInfo(cliOptions);
-    }
-
-    if (parsed.wrapperOptions.printBinaryPath) {
-      if (parsed.passthroughArgs.length === 0) {
-        writeLine(stdout, resolvedInfo.binaryPath);
-        return 0;
-      }
-      writeLine(stderr, `redblue binary: ${resolvedInfo.binaryPath}`);
-    }
-
-    const binaryPath = resolvedInfo.binaryPath;
+    };
+    const binaryPath = await resolveBinary(cliOptions);
     /* node:coverage disable */
     const spawnOptions = {
       cwd: runtime.cwd || process.cwd(),
@@ -1275,7 +1208,7 @@ async function runCli(argv = process.argv.slice(2), runtime = {}) {
       stdio: runtime.stdio || 'inherit'
     };
     /* node:coverage enable */
-    const child = spawnBinary(binaryPath, parsed.passthroughArgs, spawnOptions);
+    const child = spawnBinary(binaryPath, rawArgs, spawnOptions);
 
     return waitForChild(child);
   } catch (error) {

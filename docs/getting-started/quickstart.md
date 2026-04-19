@@ -16,7 +16,6 @@ If you are using the npm wrapper:
 ```bash
 npx redblue-cli dns record lookup example.com --type MX
 npm exec --package redblue-cli rb -- network ports scan 192.168.1.1 --preset common
-npx redblue-cli --install --print-binary-path
 ```
 
 ```js

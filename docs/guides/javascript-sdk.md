@@ -30,8 +30,6 @@ npm i -g redblue-cli
 ```bash
 npx redblue-cli dns record lookup example.com --type MX
 npm exec --package redblue-cli rb -- tls security audit github.com
-npx redblue-cli --install --print-binary-path
-npx redblue-cli --check-update
 ```
 
 ### After local install
@@ -125,7 +123,7 @@ The wrapper resolves the binary in this order:
 
 Managed wrapper installs default to `~/.local/bin`.
 
-When installed from npm, postinstall runs `--install --target-dir <package>/.redblue/bin` to keep a local managed binary available (unless `REDBLUE_SKIP_POSTINSTALL=1` is set). In this normal flow, `autoDownload` is usually unnecessary for SDK calls.
+When installed from npm, postinstall provisions a package-local binary in `<package>/.redblue/bin` (unless `REDBLUE_SKIP_POSTINSTALL=1` is set). In this normal flow, `autoDownload` is usually unnecessary for SDK calls.
 
 Example with explicit binary:
 
@@ -157,36 +155,21 @@ const { createClient } = require('redblue-cli');
 })();
 ```
 
-## Wrapper Flags
+## Programmatic Binary Management
 
-The npm CLI wrapper understands a small set of wrapper-only flags before the redblue command:
+The CLI entrypoint forwards its argv directly to the native `rb` binary. If you need to provision or update the binary from JavaScript, use the SDK helpers instead of CLI wrapper flags.
 
-- `--binary-path <path>`
-- `--target-dir <dir>`
-- `--auto-download`
-- `--install`
-- `--upgrade`
-- `--check-update`
-- `--print-binary-path`
-- `--channel <stable|latest|next>`
-- `--release-version <tag>`
-- `--version <tag>` as an alias for `--release-version`
-- `--asset-name <name>`
-- `--repo <owner/name>`
-- `--github-token <token>`
-- `--static-build`
-- `--force`
-- `--no-verify`
-- `--sdk-help`
+```js
+const { ensureInstalled, checkForUpdates, upgradeBinary } = require('redblue-cli');
 
-Example:
-
-```bash
-npx redblue-cli --auto-download --target-dir .redblue/bin dns record lookup example.com --type TXT
-npx redblue-cli --upgrade --release-version v0.1.2
+(async () => {
+  await ensureInstalled({ targetDir: '.redblue/bin' });
+  const status = await checkForUpdates({ targetDir: '.redblue/bin' });
+  if (status.hasUpdate) {
+    await upgradeBinary({ targetDir: '.redblue/bin' });
+  }
+})();
 ```
-
-Use bare `rb --version` after installation when you want the real binary version instead of the wrapper release selector.
 
 ## When to Use It
 
