@@ -417,6 +417,11 @@ async function resolveBinaryWithInfo(options = {}) {
   const managedCandidate = resolveManagedBinaryPath(options);
   const packageCandidate = resolvePackageLocalBinaryPath(options);
 
+  // When `targetDir` or `strictTargetDir` is set the caller is asking to
+  // install/use a specific location (postinstall does this). Do not leak
+  // resolution up to system PATH in that case — fall straight to download.
+  const strictTargetDir = options.strictTargetDir === true || !!options.targetDir;
+
   const ordered = preferSystem
     ? [
         { path: managedCandidate, source: 'managed' },
@@ -433,20 +438,22 @@ async function resolveBinaryWithInfo(options = {}) {
     }
   }
 
-  const legacyCandidate = resolveLegacyBinaryPath(options);
-  if (legacyCandidate && exists(legacyCandidate)) {
-    return {
-      binaryPath: legacyCandidate,
-      source: 'legacy'
-    };
-  }
+  if (!strictTargetDir) {
+    const legacyCandidate = resolveLegacyBinaryPath(options);
+    if (legacyCandidate && exists(legacyCandidate)) {
+      return {
+        binaryPath: legacyCandidate,
+        source: 'legacy'
+      };
+    }
 
-  const pathCandidate = resolveFromPath(binaryName, options.env);
-  if (pathCandidate) {
-    return {
-      binaryPath: pathCandidate,
-      source: 'path'
-    };
+    const pathCandidate = resolveFromPath(binaryName, options.env);
+    if (pathCandidate) {
+      return {
+        binaryPath: pathCandidate,
+        source: 'path'
+      };
+    }
   }
 
   if (options.autoDownload) {

@@ -12,6 +12,9 @@ const channel = process.env.REDBLUE_POSTINSTALL_CHANNEL;
 const version = process.env.REDBLUE_POSTINSTALL_VERSION;
 const options = {
   targetDir,
+  strictTargetDir: true,
+  skipIfFresh: false,
+  autoDownload: true,
   verify
 };
 
@@ -53,6 +56,15 @@ ensureInstalled(options)
     }
   })
   .catch((error) => {
-    process.stderr.write(`redblue-cli: postinstall skipped because binary download failed (${error.message})\n`);
-    process.exit(0);
+    const allowFailure = process.env.REDBLUE_POSTINSTALL_ALLOW_FAILURE === SKIP_TOKEN;
+    process.stderr.write(
+      `redblue-cli: postinstall failed to download binary into ${targetDir}\n` +
+        `           cause: ${error.message}\n` +
+        `           the package will not work until a binary is available.\n` +
+        `           Workarounds:\n` +
+        `             • rerun \`pnpm install --force redblue-cli\` after network recovers\n` +
+        `             • set REDBLUE_FORCE_BINARY=/absolute/path/to/rb in your env\n` +
+        `             • set REDBLUE_POSTINSTALL_ALLOW_FAILURE=1 to continue without a binary\n`
+    );
+    process.exit(allowFailure ? 0 : 1);
   });
