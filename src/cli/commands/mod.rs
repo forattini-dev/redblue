@@ -13,6 +13,7 @@ pub mod config; // ✅ Configuration management - database passwords, settings
 pub mod crypto; // ✅ File encryption vault - AES-256-GCM
 pub mod database; // ✅ Database operations - engine, vector search
 pub mod deps;
+pub mod describe_mode; // 0.2.13: shared resolver for live/persist/from-db/from-json modes
 pub mod dns; // ✅ DNS with RESTful verbs (list, get, describe)
 pub mod dns_server; // ✅ DNS server with hijacking for MITM
 pub mod docs; // ✅ Documentation search and indexing

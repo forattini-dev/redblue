@@ -1,5 +1,8 @@
 //! Database query commands for recon data
 
+use crate::cli::commands::describe_mode::{
+  read_from_json_source, resolve_describe_mode, DescribeMode,
+};
 use crate::cli::output::Output;
 use crate::cli::CliContext;
 use crate::storage::records::SubdomainSource;
@@ -117,18 +120,58 @@ pub fn get_subdomain(ctx: &CliContext) -> Result<(), String> {
   Ok(())
 }
 
-/// Describe domain with summary statistics
+/// `rb recon domain describe <domain>` — consolidated recon snapshot.
+///
+/// Default (0.2.13+) runs a live collection: WHOIS + live DNS lookup +
+/// quick subdomain probe summary. `--from-db` reverts to the legacy
+/// DB-only path. `--persist` collects live and writes the DB.
+/// `--from-json` ingests a pre-collected payload.
 pub fn describe_domain(ctx: &CliContext) -> Result<(), String> {
   let domain = ctx.target.as_ref().ok_or(
-        "Missing domain.\nUsage: rb recon domain describe <DOMAIN> [--db <file>]\nExample: rb recon domain describe example.com",
+        "Missing domain.\nUsage: rb recon domain describe <DOMAIN> [--from-db | --persist | --from-json -]\nExample: rb recon domain describe example.com",
     )?;
 
-  let db_path = StorageService::db_path(domain);
-  let mut store = StorageService::global()
-    .open_query_manager(&db_path)
-    .map_err(|e| format!("Failed to open database: {}", e))?;
+  match resolve_describe_mode(ctx)? {
+    DescribeMode::FromJson(source) => {
+      let bytes = read_from_json_source(&source)?;
+      Output::header(&format!("Describe Domain: {} (from {})", domain, source));
+      let preview: String = String::from_utf8_lossy(&bytes).chars().take(1000).collect();
+      println!("{}", preview);
+      if bytes.len() > preview.len() {
+        println!("... ({} bytes total)", bytes.len());
+      }
+      Ok(())
+    }
+    DescribeMode::FromDb => describe_domain_from_db(ctx, domain),
+    mode @ (DescribeMode::Live | DescribeMode::LivePersist) => {
+      describe_domain_live(ctx, domain, &mode)
+    }
+  }
+}
 
-  Output::header(&format!("Describing Domain: {}", domain));
+fn describe_domain_from_db(_ctx: &CliContext, domain: &str) -> Result<(), String> {
+  let db_path = StorageService::db_path(domain);
+  let mut store = match StorageService::global().open_query_manager(&db_path) {
+    Ok(s) => s,
+    Err(e) => {
+      let msg = e.to_string();
+      if crate::storage::is_incompatible_db_error(&msg) {
+        Output::warning(&format!(
+          "Skipping incompatible DB at {}: {}",
+          db_path.display(),
+          msg
+        ));
+        Output::info(&format!(
+          "Run `rb recon domain describe {}` without --from-db to collect live.",
+          domain
+        ));
+        return Err(msg);
+      }
+      return Err(format!("Failed to open database: {}", msg));
+    }
+  };
+
+  Output::header(&format!("Describe Domain: {} (from DB)", domain));
   Output::item("Database", &db_path.to_string_lossy());
   println!();
 
@@ -142,7 +185,6 @@ pub fn describe_domain(ctx: &CliContext) -> Result<(), String> {
   println!("\x1b[1mSubdomains:\x1b[0m {}", subdomains.len());
   println!("\x1b[1mVulnerabilities:\x1b[0m {}", vulns.len());
 
-  // Print top 5 subdomains
   if !subdomains.is_empty() {
     println!();
     println!("  Top 5 Subdomains:");
@@ -154,7 +196,6 @@ pub fn describe_domain(ctx: &CliContext) -> Result<(), String> {
     }
   }
 
-  // Print top 5 vulnerabilities
   if !vulns.is_empty() {
     println!();
     println!("  Top 5 Vulnerabilities:");
@@ -172,6 +213,50 @@ pub fn describe_domain(ctx: &CliContext) -> Result<(), String> {
     }
     if sorted_vulns.len() > 5 {
       println!("    ... and {} more", sorted_vulns.len() - 5);
+    }
+  }
+
+  Ok(())
+}
+
+fn describe_domain_live(ctx: &CliContext, domain: &str, mode: &DescribeMode) -> Result<(), String> {
+  use crate::cli::commands::dns::DnsCommand;
+  use crate::cli::commands::recon::whois;
+  use crate::cli::commands::Command;
+
+  let persist_hint = matches!(mode, DescribeMode::LivePersist);
+
+  Output::header(&format!(
+    "Describe Domain (live{}): {}",
+    if persist_hint { " + persist" } else { "" },
+    domain
+  ));
+
+  let mut sub_ctx = ctx.clone();
+  if !persist_hint {
+    sub_ctx.flags.remove("persist");
+    sub_ctx.flags.remove("save");
+  }
+
+  println!();
+  println!("─── WHOIS ───");
+  if let Err(e) = whois::whois(&sub_ctx) {
+    Output::warning(&format!("whois: {}", e));
+  }
+
+  println!();
+  println!("─── DNS (A / AAAA / MX / NS / TXT) ───");
+  let dns_cmd = DnsCommand;
+  for record_type in ["A", "AAAA", "MX", "NS", "TXT"] {
+    let mut dns_ctx = sub_ctx.clone();
+    dns_ctx.verb = Some("lookup".to_string());
+    dns_ctx.domain = Some("dns".to_string());
+    dns_ctx.resource = Some("record".to_string());
+    dns_ctx
+      .flags
+      .insert("type".to_string(), record_type.to_string());
+    if let Err(e) = dns_cmd.execute(&dns_ctx) {
+      Output::warning(&format!("{}: {}", record_type, e));
     }
   }
 

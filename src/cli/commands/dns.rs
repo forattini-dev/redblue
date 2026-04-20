@@ -137,6 +137,16 @@ impl Command for DnsCommand {
       Flag::new("threads", "Number of threads").with_default("50"),
       Flag::new("save", "Force save to database (overrides config)"),
       Flag::new("no-save", "Disable auto-save for this command"),
+      Flag::new("persist", "Alias for --save"),
+      Flag::new(
+        "from-db",
+        "describe/get: read from an existing DB instead of collecting live",
+      ),
+      Flag::new("cache-only", "Alias for --from-db"),
+      Flag::new(
+        "from-json",
+        "describe/get: ingest a pre-collected payload (path or '-' for stdin)",
+      ),
       Flag::new(
         "db-password",
         "Database encryption password (overrides keyring)",

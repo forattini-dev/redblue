@@ -288,6 +288,15 @@ impl Command for WebCommand {
       Flag::new("persist", "Save results to binary database (.rdb file)"),
       Flag::new("no-persist", "Don't save results (overrides config)"),
       Flag::new(
+        "from-db",
+        "describe/get: read from an existing DB instead of collecting live",
+      ),
+      Flag::new("cache-only", "Alias for --from-db"),
+      Flag::new(
+        "from-json",
+        "describe/get: ingest a pre-collected payload (path or '-' for stdin)",
+      ),
+      Flag::new(
         "db",
         "Database file path for RESTful queries (default: auto-detect)",
       )
