@@ -1,11 +1,19 @@
-//! Embeddings loader for MCP semantic search.
+//! Docs index loader for the MCP `rb.search-docs` tool.
 //!
-//! This module handles loading pre-computed document embeddings from:
-//! 1. Local cache (~/.cache/rb/embeddings-{version}.json)
-//! 2. GitHub Release download (fallback)
+//! This module loads a precomputed index of redblue Markdown
+//! documentation (title, section, keywords, excerpt). Despite the
+//! historical module name, it does **not** contain or use vector
+//! embeddings — ranking in `src/mcp/search.rs` is purely Jaccard over
+//! keyword tokens. The module keeps the `embeddings` name and the
+//! `EmbeddedDocument` / `EmbeddingsData` types only to preserve the
+//! JSON schema consumed by external MCP clients.
 //!
-//! The embeddings are generated at CI build time using the BGE-small model
-//! and attached to GitHub releases.
+//! Load order:
+//!   1. Local cache (`~/.cache/rb/docs-index-{version}.json` or the
+//!      legacy `embeddings-{version}.json`).
+//!   2. Bundled file (`src/mcp/data/docs-index.json`, legacy
+//!      `embeddings.json`).
+//!   3. GitHub release download of `docs-index.json`.
 
 use crate::protocols::http::HttpClient;
 use crate::utils::json::parse_json;
@@ -13,7 +21,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-/// Represents a document with its embedding vector
+/// A single indexed documentation chunk.
 #[derive(Debug, Clone)]
 pub struct EmbeddedDocument {
   pub id: String,
@@ -23,20 +31,16 @@ pub struct EmbeddedDocument {
   pub category: String,
   pub keywords: Vec<String>,
   pub content: String,
-  pub vector: Option<Vec<f32>>,
 }
 
-/// Embeddings data loaded from JSON
+/// Docs index loaded from JSON.
 #[derive(Debug)]
 pub struct EmbeddingsData {
   pub version: String,
-  pub model: Option<String>,
-  pub dimensions: Option<usize>,
-  pub has_vectors: bool,
   pub documents: Vec<EmbeddedDocument>,
 }
 
-/// Configuration for embeddings loader
+/// Configuration for the docs index loader.
 pub struct EmbeddingsLoaderConfig {
   /// Force download even if cache exists
   pub force_download: bool,
@@ -59,9 +63,7 @@ impl Default for EmbeddingsLoaderConfig {
   }
 }
 
-/// Get the cache directory path
 fn cache_dir() -> Option<PathBuf> {
-  // Try XDG_CACHE_HOME first, then fallback to ~/.cache
   if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
     return Some(PathBuf::from(xdg).join("rb"));
   }
@@ -78,24 +80,33 @@ fn cache_dir() -> Option<PathBuf> {
   None
 }
 
-/// Get the path to cached embeddings file
-fn cache_path(version: &str) -> Option<PathBuf> {
-  cache_dir().map(|dir| dir.join(format!("embeddings-{}.json", version)))
+fn cache_candidates(version: &str) -> Vec<PathBuf> {
+  let Some(dir) = cache_dir() else {
+    return Vec::new();
+  };
+  vec![
+    dir.join(format!("docs-index-{}.json", version)),
+    dir.join(format!("embeddings-{}.json", version)),
+  ]
 }
 
-/// Load embeddings from local cache
+fn primary_cache_path(version: &str) -> Option<PathBuf> {
+  cache_dir().map(|dir| dir.join(format!("docs-index-{}.json", version)))
+}
+
 fn load_from_cache(version: &str) -> Option<String> {
-  let path = cache_path(version)?;
-  if path.exists() {
-    fs::read_to_string(&path).ok()
-  } else {
-    None
+  for path in cache_candidates(version) {
+    if path.exists() {
+      if let Ok(content) = fs::read_to_string(&path) {
+        return Some(content);
+      }
+    }
   }
+  None
 }
 
-/// Save embeddings to local cache
 fn save_to_cache(version: &str, content: &str) -> Result<(), String> {
-  let path = cache_path(version).ok_or("Could not determine cache path")?;
+  let path = primary_cache_path(version).ok_or("Could not determine cache path")?;
 
   if let Some(parent) = path.parent() {
     fs::create_dir_all(parent).map_err(|e| format!("Failed to create cache directory: {}", e))?;
@@ -111,10 +122,10 @@ fn save_to_cache(version: &str, content: &str) -> Result<(), String> {
   Ok(())
 }
 
-/// Try to load bundled embeddings from src/mcp/data/
 fn load_bundled() -> Option<String> {
-  // Try relative to current directory (development)
   let paths = [
+    PathBuf::from("src/mcp/data/docs-index.json"),
+    PathBuf::from("./src/mcp/data/docs-index.json"),
     PathBuf::from("src/mcp/data/embeddings.json"),
     PathBuf::from("./src/mcp/data/embeddings.json"),
   ];
@@ -130,47 +141,31 @@ fn load_bundled() -> Option<String> {
   None
 }
 
-/// Download embeddings from GitHub Release
 fn download_from_github(repository: &str, version: &str) -> Result<String, String> {
-  let url = format!(
-    "https://github.com/{}/releases/download/v{}/embeddings.json",
-    repository, version
-  );
-
   let client = HttpClient::new();
-  let response = client
-    .get(&url)
-    .map_err(|e| format!("Failed to download embeddings: {}", e))?;
 
-  if response.status_code != 200 {
-    // Try without 'v' prefix
-    let url_no_v = format!(
-      "https://github.com/{}/releases/download/{}/embeddings.json",
-      repository, version
-    );
+  for asset in ["docs-index.json", "embeddings.json"] {
+    for prefix in ["v", ""] {
+      let url = format!(
+        "https://github.com/{}/releases/download/{}{}/{}",
+        repository, prefix, version, asset
+      );
+      let response = client
+        .get(&url)
+        .map_err(|e| format!("Failed to download {}: {}", asset, e))?;
 
-    let response2 = client
-      .get(&url_no_v)
-      .map_err(|e| format!("Failed to download embeddings: {}", e))?;
-
-    if response2.status_code != 200 {
-      return Err(format!(
-        "Embeddings not found for version {} (HTTP {})",
-        version, response2.status_code
-      ));
+      if response.status_code == 200 {
+        return String::from_utf8(response.body)
+          .map_err(|e| format!("Invalid UTF-8 in {} response: {}", asset, e));
+      }
     }
-
-    return String::from_utf8(response2.body)
-      .map_err(|e| format!("Invalid UTF-8 in embeddings response: {}", e));
   }
 
-  String::from_utf8(response.body)
-    .map_err(|e| format!("Invalid UTF-8 in embeddings response: {}", e))
+  Err(format!("Docs index not found for version {}", version))
 }
 
-/// Parse embeddings JSON into structured data
 fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
-  let json = parse_json(json_str).map_err(|e| format!("Failed to parse embeddings JSON: {}", e))?;
+  let json = parse_json(json_str).map_err(|e| format!("Failed to parse docs index JSON: {}", e))?;
 
   let version = json
     .get("version")
@@ -178,22 +173,10 @@ fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
     .unwrap_or("unknown")
     .to_string();
 
-  let model = json.get("model").and_then(|v| v.as_str()).map(String::from);
-
-  let dimensions = json
-    .get("dimensions")
-    .and_then(|v| v.as_f64())
-    .map(|n| n as usize);
-
-  let has_vectors = json
-    .get("has_vectors")
-    .and_then(|v| v.as_bool())
-    .unwrap_or(false);
-
   let docs_array = json
     .get("documents")
     .and_then(|v| v.as_array())
-    .ok_or("Missing 'documents' array in embeddings")?;
+    .ok_or("Missing 'documents' array in docs index")?;
 
   let mut documents = Vec::with_capacity(docs_array.len());
 
@@ -244,13 +227,6 @@ fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
       .unwrap_or("")
       .to_string();
 
-    let vector = doc.get("vector").and_then(|v| v.as_array()).map(|arr| {
-      arr
-        .iter()
-        .filter_map(|n| n.as_f64().map(|f| f as f32))
-        .collect()
-    });
-
     documents.push(EmbeddedDocument {
       id,
       path,
@@ -259,64 +235,47 @@ fn parse_embeddings(json_str: &str) -> Result<EmbeddingsData, String> {
       category,
       keywords,
       content,
-      vector,
     });
   }
 
-  Ok(EmbeddingsData {
-    version,
-    model,
-    dimensions,
-    has_vectors,
-    documents,
-  })
+  Ok(EmbeddingsData { version, documents })
 }
 
-/// Load embeddings with fallback strategy:
-/// 1. Local cache
-/// 2. Bundled file (development)
-/// 3. GitHub Release download
+/// Load the docs index with fallback chain: cache → bundled → download.
 pub fn load_embeddings(config: &EmbeddingsLoaderConfig) -> Result<EmbeddingsData, String> {
-  // 1. Try cache first (unless force download)
   if !config.force_download {
     if let Some(cached) = load_from_cache(&config.version) {
       return parse_embeddings(&cached);
     }
   }
 
-  // 2. Try bundled file (development mode)
   if let Some(bundled) = load_bundled() {
     return parse_embeddings(&bundled);
   }
 
-  // 3. Download from GitHub (unless offline)
   if config.offline {
-    return Err("Embeddings not found in cache and offline mode is enabled".to_string());
+    return Err("Docs index not found in cache and offline mode is enabled".to_string());
   }
 
   let content = download_from_github(&config.repository, &config.version)?;
 
-  // Save to cache for next time
   if let Err(e) = save_to_cache(&config.version, &content) {
-    eprintln!("Warning: Failed to cache embeddings: {}", e);
+    eprintln!("Warning: Failed to cache docs index: {}", e);
   }
 
   parse_embeddings(&content)
 }
 
-/// Check if embeddings are available (cached or bundled)
+/// Check if docs index is available locally (cached or bundled).
 pub fn embeddings_available(version: &str) -> bool {
   load_from_cache(version).is_some() || load_bundled().is_some()
 }
 
-/// Get cache info for diagnostics
+/// Get cache info for diagnostics.
 pub fn cache_info(version: &str) -> String {
-  let cache = cache_path(version);
-  let bundled = load_bundled().is_some();
-
   let mut info = Vec::new();
 
-  if let Some(path) = cache {
+  for path in cache_candidates(version) {
     if path.exists() {
       if let Ok(metadata) = fs::metadata(&path) {
         info.push(format!(
@@ -327,14 +286,21 @@ pub fn cache_info(version: &str) -> String {
       } else {
         info.push(format!("Cache: {} (exists)", path.display()));
       }
-    } else {
-      info.push(format!("Cache: {} (not found)", path.display()));
     }
-  } else {
-    info.push("Cache: unavailable (no home directory)".to_string());
   }
 
-  info.push(format!("Bundled: {}", if bundled { "yes" } else { "no" }));
+  if info.is_empty() {
+    info.push("Cache: not found".to_string());
+  }
+
+  info.push(format!(
+    "Bundled: {}",
+    if load_bundled().is_some() {
+      "yes"
+    } else {
+      "no"
+    }
+  ));
 
   info.join("\n")
 }
@@ -353,7 +319,6 @@ mod tests {
   fn test_parse_embeddings_minimal() {
     let json = r#"{
             "version": "1.0",
-            "has_vectors": false,
             "documents": [
                 {
                     "id": "doc-0",

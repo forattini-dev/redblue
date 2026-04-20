@@ -260,7 +260,7 @@ impl CompletionProvider {
 
     self.resource_prefixes.push(ResourcePrefix {
       prefix: "redblue://search/".into(),
-      description: "Semantic search".into(),
+      description: "Docs keyword search".into(),
       completions: vec![Completion {
         value: "redblue://search/index".into(),
         description: Some("Search index status".into()),
@@ -808,7 +808,7 @@ impl CompletionProvider {
         },
         Completion {
           value: "redblue://search/".into(),
-          description: Some("Semantic search".into()),
+          description: Some("Docs keyword search".into()),
         },
         Completion {
           value: "redblue://similar/".into(),

@@ -392,7 +392,7 @@ impl McpServer {
   }
 
   /// Initialize the MCP server (called before main loop)
-  /// This eagerly loads embeddings for semantic search
+  /// This eagerly loads the docs index for keyword search
   pub fn init(&mut self) {
     self.ensure_embeddings_loaded();
   }
@@ -408,21 +408,20 @@ impl McpServer {
     match load_embeddings(&config) {
       Ok(data) => {
         eprintln!(
-          "[MCP] Loaded {} documents with embeddings (has_vectors: {})",
-          data.documents.len(),
-          data.has_vectors
+          "[MCP] Loaded docs index: {} documents (keyword-based ranking)",
+          data.documents.len()
         );
         self.embeddings = Some(data);
       }
       Err(e) => {
-        eprintln!("[MCP] Warning: Could not load embeddings: {}", e);
+        eprintln!("[MCP] Warning: Could not load docs index: {}", e);
         eprintln!("[MCP] Falling back to basic text search");
       }
     }
   }
 
   pub fn run_stdio(core: Arc<Mutex<McpServer>>) -> Result<(), String> {
-    // Eagerly initialize embeddings for semantic search
+    // Eagerly initialize the docs index for keyword search
     {
       let mut guard = core
         .lock()
@@ -872,7 +871,7 @@ impl McpServer {
         max_results: 10,
         min_score: 0.1,
         fuzzy_weight: 0.4,
-        semantic_weight: 0.6,
+        keyword_weight: 0.6,
         mode: SearchMode::Hybrid,
       };
 

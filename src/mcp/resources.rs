@@ -443,12 +443,12 @@ impl ResourceRegistry {
     });
 
     // ───────────────────────────────────────────────────────────────────
-    // SEARCH (Semantic)
+    // SEARCH (keyword-based docs index)
     // ───────────────────────────────────────────────────────────────────
     self.static_resources.push(Resource {
       uri: "redblue://search/index".into(),
       name: "Search Index".into(),
-      description: "Semantic search index metadata".into(),
+      description: "Docs keyword-search index metadata".into(),
       mime_type: "application/json".into(),
       subscribable: false,
     });
@@ -542,12 +542,12 @@ impl ResourceRegistry {
     });
 
     // ───────────────────────────────────────────────────────────────────
-    // SEMANTIC SEARCH TEMPLATES
+    // KEYWORD SEARCH TEMPLATES
     // ───────────────────────────────────────────────────────────────────
     self.templates.push(ResourceTemplate {
       uri_template: "redblue://search/{query}".into(),
-      name: "Semantic Search".into(),
-      description: "Search across all data with natural language".into(),
+      name: "Docs Keyword Search".into(),
+      description: "Keyword search across indexed documentation".into(),
       mime_type: "application/json".into(),
     });
 
@@ -1421,7 +1421,7 @@ impl ResourceRegistry {
 
   fn gen_search_results(&self, query: &str) -> String {
     format!(
-      r#"{{"query":"{}","results":[],"total":0,"note":"Semantic search requires embeddings. Use rb mcp embeddings build."}}"#,
+      r#"{{"query":"{}","results":[],"total":0,"note":"Keyword search over bundled docs index. Use rb mcp embeddings build to regenerate."}}"#,
       query
     )
   }

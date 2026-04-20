@@ -1,9 +1,15 @@
-//! Hybrid search implementation combining fuzzy and semantic search.
+//! Hybrid search implementation combining fuzzy and keyword matching.
 //!
 //! This module provides:
 //! - Fuzzy text search using Levenshtein distance and n-gram matching
-//! - Semantic search using cosine similarity with pre-computed vectors
+//! - Keyword search over the precomputed title/section/keyword index
 //! - Hybrid search combining both with Reciprocal Rank Fusion
+//!
+//! NOTE: there is no vector embedding at runtime. The docs index lists
+//! keywords extracted at build time; ranking uses Jaccard similarity
+//! between query tokens and those keywords. An earlier implementation
+//! shipped BGE-small vectors that were never actually consumed — those
+//! vectors have been removed.
 
 #![allow(clippy::needless_range_loop)]
 
@@ -23,7 +29,7 @@ pub struct SearchResult {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchType {
   Fuzzy,
-  Semantic,
+  Keyword,
   Hybrid,
 }
 
@@ -36,8 +42,8 @@ pub struct SearchConfig {
   pub min_score: f32,
   /// Weight for fuzzy search in hybrid mode (0.0 to 1.0)
   pub fuzzy_weight: f32,
-  /// Weight for semantic search in hybrid mode (0.0 to 1.0)
-  pub semantic_weight: f32,
+  /// Weight for keyword search in hybrid mode (0.0 to 1.0)
+  pub keyword_weight: f32,
   /// Search mode
   pub mode: SearchMode,
 }
@@ -45,7 +51,7 @@ pub struct SearchConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SearchMode {
   Fuzzy,
-  Semantic,
+  Keyword,
   Hybrid,
 }
 
@@ -55,7 +61,7 @@ impl Default for SearchConfig {
       max_results: 10,
       min_score: 0.1,
       fuzzy_weight: 0.4,
-      semantic_weight: 0.6,
+      keyword_weight: 0.6,
       mode: SearchMode::Hybrid,
     }
   }
@@ -309,121 +315,10 @@ pub fn fuzzy_search(
     .collect()
 }
 
-/// Calculate cosine similarity between two vectors
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-  if a.len() != b.len() || a.is_empty() {
-    return 0.0;
-  }
-
-  let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-  let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-  let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-  if norm_a == 0.0 || norm_b == 0.0 {
-    return 0.0;
-  }
-
-  dot / (norm_a * norm_b)
-}
-
-/// Generate a pseudo-embedding from query terms (term-based approximation)
-/// This is used when we don't have a runtime model to embed the query
-fn term_based_query_vector(query: &str, documents: &[EmbeddedDocument]) -> Vec<f32> {
-  // This is a simplified approach that creates a sparse vector
-  // based on keyword matching. Not as good as real embeddings,
-  // but works without a model.
-
-  let query_terms: std::collections::HashSet<_> = tokenize(query).into_iter().collect();
-
-  // For each document, calculate a relevance score based on term overlap
-  let mut doc_scores: Vec<f32> = Vec::with_capacity(documents.len());
-
-  for doc in documents {
-    let doc_terms: std::collections::HashSet<_> = doc
-      .keywords
-      .iter()
-      .map(|k| k.to_lowercase())
-      .chain(tokenize(&doc.title))
-      .chain(tokenize(&doc.content))
-      .collect();
-
-    let intersection = query_terms.intersection(&doc_terms).count();
-    let score = if query_terms.is_empty() {
-      0.0
-    } else {
-      intersection as f32 / query_terms.len() as f32
-    };
-
-    doc_scores.push(score);
-  }
-
-  doc_scores
-}
-
-/// Perform semantic search using pre-computed embeddings
-/// Note: This uses term-based approximation since we don't have a runtime model
-pub fn semantic_search(
-  query: &str,
-  documents: &[EmbeddedDocument],
-  config: &SearchConfig,
-) -> Vec<SearchResult> {
-  // Check if documents have vectors
-  let has_vectors = documents.iter().any(|d| d.vector.is_some());
-
-  if !has_vectors {
-    // Fall back to term-based similarity
-    return term_based_semantic_search(query, documents, config);
-  }
-
-  // Use pre-computed vectors with term-based query approximation
-  let query_scores = term_based_query_vector(query, documents);
-
-  let mut results: Vec<(usize, f32)> = Vec::new();
-
-  for (idx, doc) in documents.iter().enumerate() {
-    if let Some(ref _vector) = doc.vector {
-      // Use the term-based score as our semantic score
-      // (In a full implementation, we'd embed the query and use cosine similarity)
-      let score = query_scores.get(idx).copied().unwrap_or(0.0);
-
-      if score > 0.0 {
-        results.push((idx, score));
-      }
-    }
-  }
-
-  // Sort by score descending
-  results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-  // Normalize and convert
-  let max_score = results.first().map(|(_, s)| *s).unwrap_or(1.0);
-
-  results
-    .into_iter()
-    .take(config.max_results)
-    .filter_map(|(idx, score)| {
-      let normalized_score = if max_score > 0.0 {
-        score / max_score
-      } else {
-        0.0
-      };
-
-      if normalized_score < config.min_score {
-        return None;
-      }
-
-      Some(SearchResult {
-        document: documents[idx].clone(),
-        score: normalized_score,
-        match_type: MatchType::Semantic,
-        highlights: vec![],
-      })
-    })
-    .collect()
-}
-
-/// Term-based semantic search (fallback when no vectors available)
-fn term_based_semantic_search(
+/// Keyword search: ranks documents by Jaccard similarity between the
+/// query tokens and each document's precomputed keyword/title tokens.
+/// Pure text matching — no vector embedding at runtime.
+pub fn keyword_search(
   query: &str,
   documents: &[EmbeddedDocument],
   config: &SearchConfig,
@@ -440,7 +335,6 @@ fn term_based_semantic_search(
       .chain(tokenize(&doc.title))
       .collect();
 
-    // Jaccard similarity
     let intersection = query_terms.intersection(&doc_terms).count();
     let union = query_terms.union(&doc_terms).count();
 
@@ -471,17 +365,17 @@ fn term_based_semantic_search(
       Some(SearchResult {
         document: documents[idx].clone(),
         score: normalized_score,
-        match_type: MatchType::Semantic,
+        match_type: MatchType::Keyword,
         highlights: vec![],
       })
     })
     .collect()
 }
 
-/// Reciprocal Rank Fusion to combine fuzzy and semantic results
+/// Reciprocal Rank Fusion to combine fuzzy and keyword results
 fn reciprocal_rank_fusion(
   fuzzy_results: &[SearchResult],
-  semantic_results: &[SearchResult],
+  keyword_results: &[SearchResult],
   k: f32,
 ) -> HashMap<String, f32> {
   let mut scores: HashMap<String, f32> = HashMap::new();
@@ -492,8 +386,8 @@ fn reciprocal_rank_fusion(
     *scores.entry(result.document.id.clone()).or_insert(0.0) += rrf_score;
   }
 
-  // Add semantic results
-  for (rank, result) in semantic_results.iter().enumerate() {
+  // Add keyword results
+  for (rank, result) in keyword_results.iter().enumerate() {
     let rrf_score = 1.0 / (k + rank as f32 + 1.0);
     *scores.entry(result.document.id.clone()).or_insert(0.0) += rrf_score;
   }
@@ -501,7 +395,7 @@ fn reciprocal_rank_fusion(
   scores
 }
 
-/// Perform hybrid search combining fuzzy and semantic
+/// Perform hybrid search combining fuzzy and keyword
 pub fn hybrid_search(
   query: &str,
   documents: &[EmbeddedDocument],
@@ -509,16 +403,16 @@ pub fn hybrid_search(
 ) -> Vec<SearchResult> {
   match config.mode {
     SearchMode::Fuzzy => return fuzzy_search(query, documents, config),
-    SearchMode::Semantic => return semantic_search(query, documents, config),
+    SearchMode::Keyword => return keyword_search(query, documents, config),
     SearchMode::Hybrid => {}
   }
 
   // Get results from both methods
   let fuzzy_results = fuzzy_search(query, documents, config);
-  let semantic_results = semantic_search(query, documents, config);
+  let keyword_results = keyword_search(query, documents, config);
 
   // Combine using Reciprocal Rank Fusion
-  let combined_scores = reciprocal_rank_fusion(&fuzzy_results, &semantic_results, 60.0);
+  let combined_scores = reciprocal_rank_fusion(&fuzzy_results, &keyword_results, 60.0);
 
   // Create document lookup
   let doc_map: HashMap<String, &EmbeddedDocument> =
@@ -529,7 +423,7 @@ pub fn hybrid_search(
     .map(|r| (r.document.id.clone(), r))
     .collect();
 
-  let semantic_map: HashMap<String, &SearchResult> = semantic_results
+  let keyword_map: HashMap<String, &SearchResult> = keyword_results
     .iter()
     .map(|r| (r.document.id.clone(), r))
     .collect();
@@ -557,8 +451,8 @@ pub fn hybrid_search(
       if let Some(fuzzy) = fuzzy_map.get(id) {
         highlights.extend(fuzzy.highlights.clone());
       }
-      if let Some(semantic) = semantic_map.get(id) {
-        highlights.extend(semantic.highlights.clone());
+      if let Some(keyword) = keyword_map.get(id) {
+        highlights.extend(keyword.highlights.clone());
       }
 
       Some(SearchResult {

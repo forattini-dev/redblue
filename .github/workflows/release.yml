@@ -138,8 +138,8 @@ jobs:
           echo "github_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
           echo "skip_reason=${SKIP_REASON}" >> "${GITHUB_OUTPUT}"
 
-  build-embeddings:
-    name: Build Embeddings
+  build-docs-index:
+    name: Build Docs Index
     needs: [plan]
     if: needs.plan.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
@@ -152,23 +152,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-fastembed
+      - name: Build docs index
+        run: python3 scripts/build-docs-index.py
 
-      - name: Install dependencies
-        run: pip install fastembed
-
-      - name: Build embeddings
-        run: python scripts/build-embeddings.py
-
-      - name: Upload embeddings artifact
+      - name: Upload docs index artifact
         uses: actions/upload-artifact@v4
         with:
-          name: embeddings
-          path: src/mcp/data/embeddings.json
+          name: docs-index
+          path: src/mcp/data/docs-index.json
 
   build:
     name: Build ${{ matrix.target }}
@@ -315,7 +306,7 @@ jobs:
 
   prepare-release:
     name: Prepare release artifacts
-    needs: [plan, build, build-embeddings]
+    needs: [plan, build, build-docs-index]
     if: needs.plan.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -341,8 +332,8 @@ jobs:
           done
           cd ..
 
-          if [ -f artifacts/embeddings/embeddings.json ]; then
-            cp artifacts/embeddings/embeddings.json release/
+          if [ -f artifacts/docs-index/docs-index.json ]; then
+            cp artifacts/docs-index/docs-index.json release/
           fi
 
           ls -la release/
