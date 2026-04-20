@@ -284,18 +284,14 @@ impl PersistenceManager {
     })
   }
 
-  /// Get database file path for target
+  /// Get database file path for target.
+  /// Default location is `$XDG_DATA_HOME/redblue/dbs/` (or platform equivalent);
+  /// CWD is never used as a bare sink. Override with `REDBLUE_DB_DIR`,
+  /// `config.database.db_dir`, or the per-command `--db` flag.
   fn get_db_path(target: &str) -> Result<PathBuf, String> {
     let config = config::get();
+    let base_dir = crate::storage::default_db_dir();
 
-    // Base directory
-    let base_dir = if let Some(dir) = &config.database.db_dir {
-      PathBuf::from(dir)
-    } else {
-      std::env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?
-    };
-
-    // File name (using .json for now as it is JSON based)
     let filename = if config.database.auto_name {
       format!("{}.json", sanitize_filename(target))
     } else {

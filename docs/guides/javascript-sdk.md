@@ -207,7 +207,7 @@ const asset = await rb.web.asset.describe({ target: 'https://example.com' });
 
 Resolution order (first match wins):
 
-1. explicit `binaryPath`
+1. explicit `binaryPath` option (or `REDBLUE_FORCE_BINARY` env var) — hard override; any other candidates are ignored
 2. package-local `<package>/.redblue/bin/rb` (postinstall default)
 3. managed install at `~/.local/bin/rb` (or `REDBLUE_INSTALL_DIR`)
 4. legacy `~/.redblue/bin/rb`
@@ -236,6 +236,14 @@ const rb = await createClient({
   channel: 'stable'
 });
 ```
+
+Hard override via environment:
+
+```bash
+REDBLUE_FORCE_BINARY=/opt/redblue/rb node app.js
+```
+
+`REDBLUE_FORCE_BINARY` behaves exactly like passing `binaryPath` to `createClient`: the SDK runs that binary and skips every other resolution step. The resolved info reports `source: 'forced-env'` so logs make the override visible.
 
 ## `ensureInstalled` & Binary Management
 

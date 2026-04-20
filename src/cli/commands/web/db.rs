@@ -114,20 +114,28 @@ pub fn get_db_path(ctx: &CliContext, host: &str) -> Result<PathBuf, String> {
     return Ok(PathBuf::from(db_path));
   }
 
-  let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
   let base = host
     .trim_start_matches("www.")
     .trim_start_matches("http://")
     .trim_start_matches("https://")
     .to_lowercase();
-  let candidate = cwd.join(format!("{}.rdb", &base));
-  if candidate.exists() {
-    return Ok(candidate);
+
+  let primary = crate::storage::default_db_path(&base);
+  if primary.exists() {
+    return Ok(primary);
+  }
+
+  // Legacy fallback: CWD copy from pre-0.2.13 scans.
+  if let Ok(cwd) = std::env::current_dir() {
+    let legacy = cwd.join(format!("{}.rdb", &base));
+    if legacy.exists() {
+      return Ok(legacy);
+    }
   }
 
   Err(format!(
     "Database not found: {}\nRun HTTP request first: rb web asset headers {} --persist",
-    candidate.display(),
+    primary.display(),
     host
   ))
 }

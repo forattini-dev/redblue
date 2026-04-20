@@ -1864,16 +1864,23 @@ impl DnsCommand {
       return Ok(std::path::PathBuf::from(db_path));
     }
 
-    let cwd = std::env::current_dir().map_err(|e| format!("Failed to get CWD: {}", e))?;
+    let primary = crate::storage::default_db_path(domain);
+    if primary.exists() {
+      return Ok(primary);
+    }
+
+    // Legacy fallback: check CWD for users coming from pre-0.2.13 scans.
     let base = domain.trim_start_matches("www.").to_lowercase();
-    let candidate = cwd.join(format!("{}.rdb", &base));
-    if candidate.exists() {
-      return Ok(candidate);
+    if let Ok(cwd) = std::env::current_dir() {
+      let legacy = cwd.join(format!("{}.rdb", &base));
+      if legacy.exists() {
+        return Ok(legacy);
+      }
     }
 
     Err(format!(
       "Database not found: {}\nRun a scan first: rb dns record lookup {} --persist",
-      candidate.display(),
+      primary.display(),
       domain
     ))
   }

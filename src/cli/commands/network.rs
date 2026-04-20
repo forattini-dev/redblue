@@ -727,16 +727,21 @@ impl NetworkCommand {
     }
 
     let base = identifier.replace(':', "_");
-    let cwd =
-      std::env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
-    let candidate = cwd.join(format!("{}.rdb", &base));
-    if candidate.exists() {
-      return Ok(candidate);
+    let primary = crate::storage::default_db_path(&base);
+    if primary.exists() {
+      return Ok(primary);
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+      let legacy = cwd.join(format!("{}.rdb", &base));
+      if legacy.exists() {
+        return Ok(legacy);
+      }
     }
 
     Err(format!(
       "Database file not found. Expected: {}",
-      candidate.display()
+      primary.display()
     ))
   }
 

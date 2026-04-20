@@ -288,12 +288,31 @@ impl UnifiedStore {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf)?;
 
-    // Verify magic bytes "RDST" (RedDB Store)
+    // Verify magic bytes "RDST" (RedDB Store).
+    // Errors prefixed with "INCOMPATIBLE_DB:" are sentinels that higher-level
+    // callers (`rb dns record get`, `describe`, etc.) detect to skip the DB
+    // and fall through to a live collection path instead of aborting.
     if buf.len() < 8 {
-      return Err("File too small".into());
+      return Err(
+        format!(
+          "INCOMPATIBLE_DB: file is too small to be an RDST store ({} bytes). \
+         If this file was not produced by redblue, delete it or point --db at a real scan DB.",
+          buf.len()
+        )
+        .into(),
+      );
     }
     if &buf[0..4] != STORE_MAGIC {
-      return Err("Invalid magic bytes - expected RDST".into());
+      let found = String::from_utf8_lossy(&buf[0..4]).into_owned();
+      return Err(
+        format!(
+          "INCOMPATIBLE_DB: magic bytes {:?} (hex {:02X?}) do not match expected RDST. \
+         Legacy or foreign file — delete it or point --db at a real scan DB.",
+          found,
+          &buf[0..4]
+        )
+        .into(),
+      );
     }
     let mut pos = 4;
 
@@ -301,7 +320,14 @@ impl UnifiedStore {
     let version = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
     pos += 4;
     if version != STORE_VERSION_V1 && version != STORE_VERSION_V2 {
-      return Err(format!("Unsupported version: {}", version).into());
+      return Err(
+        format!(
+          "INCOMPATIBLE_DB: unsupported RDST version {} (supported: {}, {}). \
+         Regenerate the DB with `rb ... --persist`.",
+          version, STORE_VERSION_V1, STORE_VERSION_V2
+        )
+        .into(),
+      );
     }
 
     let store = Self::with_config(UnifiedStoreConfig::default());

@@ -4121,3 +4121,35 @@ test('ensureInstalled exposes status, skipIfFresh, stale, offline and binary-not
     );
   });
 });
+test('REDBLUE_FORCE_BINARY env var short-circuits resolution', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-force-'));
+  const forcedPath = path.join(tmpDir, 'rb-forced');
+  await installFixtureBinary(forcedPath);
+
+  const resolved = await sdk._internal.resolveBinaryWithInfo({
+    env: { REDBLUE_FORCE_BINARY: forcedPath }
+  });
+  assert.equal(resolved.binaryPath, forcedPath);
+  assert.equal(resolved.source, 'forced-env');
+
+  const previous = process.env.REDBLUE_FORCE_BINARY;
+  process.env.REDBLUE_FORCE_BINARY = forcedPath;
+  try {
+    const resolvedGlobal = await sdk._internal.resolveBinaryWithInfo({});
+    assert.equal(resolvedGlobal.binaryPath, forcedPath);
+    assert.equal(resolvedGlobal.source, 'forced-env');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.REDBLUE_FORCE_BINARY;
+    } else {
+      process.env.REDBLUE_FORCE_BINARY = previous;
+    }
+  }
+
+  await assert.rejects(
+    sdk._internal.resolveBinaryWithInfo({
+      env: { REDBLUE_FORCE_BINARY: path.join(tmpDir, 'does-not-exist') }
+    }),
+    (err) => err instanceof sdk.RedblueBinaryNotFoundError
+  );
+});

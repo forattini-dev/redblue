@@ -1345,14 +1345,11 @@ impl TlsCommand {
   }
 
   fn get_db_path(&self, ctx: &CliContext, host: &str) -> Result<std::path::PathBuf, String> {
-    use std::env;
     use std::path::PathBuf;
 
     if let Some(db_path) = ctx.get_flag("db") {
       return Ok(PathBuf::from(db_path));
     }
-
-    let cwd = env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
 
     let base = host
       .trim_start_matches("www.")
@@ -1363,14 +1360,23 @@ impl TlsCommand {
       .unwrap_or(host)
       .to_lowercase();
 
-    let candidate = cwd.join(format!("{}.rdb", &base));
-    if candidate.exists() {
-      return Ok(candidate);
+    let primary = crate::storage::default_db_path(&base);
+    if primary.exists() {
+      return Ok(primary);
+    }
+
+    // Legacy fallback: CWD copy from pre-0.2.13.
+    if let Ok(cwd) = std::env::current_dir() {
+      let legacy = cwd.join(format!("{}.rdb", &base));
+      if legacy.exists() {
+        return Ok(legacy);
+      }
     }
 
     Err(format!(
-      "Database file not found: {}.rdb\nRun `rb tls security audit {}` first to collect data",
-      base, host
+      "Database file not found: {}\nRun `rb tls security audit {} --persist` first to collect data",
+      primary.display(),
+      host
     ))
   }
 }

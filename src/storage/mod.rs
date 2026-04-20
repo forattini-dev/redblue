@@ -64,6 +64,82 @@ pub use service::{PartitionKey, PartitionMetadata, StorageService};
 pub use session::{SessionFile, SessionMetadata};
 pub use unified::RedDB;
 
+/// Prefix that `UnifiedStore::load_from_file` tags on errors coming from a
+/// foreign or obsolete DB file. Consumers that want to fall back to a live
+/// collection path (instead of aborting) should check `err_message.starts_with(INCOMPATIBLE_DB_PREFIX)`.
+pub const INCOMPATIBLE_DB_PREFIX: &str = "INCOMPATIBLE_DB:";
+
+/// True if the given error message originated from a DB file whose format
+/// redblue cannot read (missing/mismatched magic, unsupported version).
+pub fn is_incompatible_db_error(err: impl AsRef<str>) -> bool {
+  err.as_ref().starts_with(INCOMPATIBLE_DB_PREFIX)
+}
+
+/// Resolve the default on-disk location for persisted `.rdb` scan databases.
+///
+/// Order of precedence:
+///   1. `REDBLUE_DB_DIR` environment variable (explicit override).
+///   2. `config.database.db_dir` from `.redblue.yaml`.
+///   3. `$XDG_DATA_HOME/redblue/dbs/` (typically `~/.local/share/redblue/dbs/` on Linux/macOS).
+///   4. `$LOCALAPPDATA/redblue/dbs/` on Windows.
+///   5. Last-resort fallback: `<cwd>/.redblue/dbs/` (scoped to a subdir, never bare CWD).
+///
+/// The current working directory is **never** used as a bare DB sink by default —
+/// that behavior was the source of several surprises (stray `.rdb` files,
+/// incompatible files shadowing fresh scans) and has been removed.
+pub fn default_db_dir() -> std::path::PathBuf {
+  use std::path::PathBuf;
+
+  if let Ok(explicit) = std::env::var("REDBLUE_DB_DIR") {
+    if !explicit.is_empty() {
+      return PathBuf::from(explicit);
+    }
+  }
+
+  if let Some(dir) = &crate::config::get().database.db_dir {
+    return PathBuf::from(dir);
+  }
+
+  if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+    if !xdg.is_empty() {
+      return PathBuf::from(xdg).join("redblue").join("dbs");
+    }
+  }
+
+  if let Ok(home) = std::env::var("HOME") {
+    if !home.is_empty() {
+      return PathBuf::from(home)
+        .join(".local")
+        .join("share")
+        .join("redblue")
+        .join("dbs");
+    }
+  }
+
+  #[cfg(windows)]
+  if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+    if !localappdata.is_empty() {
+      return PathBuf::from(localappdata).join("redblue").join("dbs");
+    }
+  }
+
+  std::env::current_dir()
+    .unwrap_or_else(|_| PathBuf::from("."))
+    .join(".redblue")
+    .join("dbs")
+}
+
+/// Resolve the default on-disk path for a target's scan database file.
+pub fn default_db_path(target: &str) -> std::path::PathBuf {
+  let sanitized = target
+    .replace('/', "_")
+    .replace('\\', "_")
+    .replace(':', "_")
+    .trim_start_matches("www.")
+    .to_lowercase();
+  default_db_dir().join(format!("{}.rdb", sanitized))
+}
+
 // Unified intelligence layer exports
 pub use segments::actions::{
   ActionOutcome, ActionRecord, ActionSource, ActionTrace, ActionType, IntoActionRecord,

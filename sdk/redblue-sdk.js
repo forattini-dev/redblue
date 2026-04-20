@@ -389,8 +389,13 @@ async function downloadBinary(options = {}) {
 }
 
 async function resolveBinaryWithInfo(options = {}) {
-  if (options.binaryPath) {
-    const binaryPath = path.resolve(options.binaryPath);
+  const forcedPath =
+    options.binaryPath ||
+    (options.env && options.env.REDBLUE_FORCE_BINARY) ||
+    process.env.REDBLUE_FORCE_BINARY;
+
+  if (forcedPath) {
+    const binaryPath = path.resolve(forcedPath);
     if (!exists(binaryPath)) {
       throw new RedblueBinaryNotFoundError(
         `redblue binary not found at ${binaryPath}`,
@@ -399,7 +404,7 @@ async function resolveBinaryWithInfo(options = {}) {
     }
     return {
       binaryPath,
-      source: 'explicit'
+      source: options.binaryPath ? 'explicit' : 'forced-env'
     };
   }
 
