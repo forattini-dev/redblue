@@ -11,7 +11,23 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# Fast release build for CI/iteration: skips LTO and keeps codegen parallel.
+# Binary is ~30% larger and a few % slower at runtime, but compiles ~3-5x faster.
+# Use with: cargo build --profile release-fast
+[profile.release-fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = "debuginfo"
+
 [profile.dev]
+opt-level = 0
+debug = "line-tables-only"
+codegen-units = 256
+incremental = true
+
+# Speed up dev builds of heavy deps (crypto, parsers) without penalizing app code.
+[profile.dev.package."*"]
 opt-level = 1
 
 [dependencies]
