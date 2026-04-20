@@ -129,7 +129,7 @@ impl InitCommand {
     println!();
     Output::info("Edit this file to customize your redblue settings");
     Output::info("Key features:");
-    Output::info("  • auto_persist: true   → Automatically save all scan results to .rdb files");
+    Output::info("  • auto_persist: false  → Opt-in per command with --persist/--save");
     Output::info("  • threads: 50          → Adjust for faster/slower scans");
     Output::info("  • preset: aggressive   → Use scanning presets");
     println!();
@@ -163,9 +163,11 @@ fn generate_full_config() -> String {
 # Place this file as .redblue.yaml in your working directory
 # All values shown are the default settings
 
-# Automatic persistence - saves all scan results to .rdb files
-# Set to 'true' to enable global auto-save for all commands
-auto_persist: true
+# Automatic persistence — saves all scan results to .rdb files.
+# Default is false: nothing is written to disk unless a command is invoked
+# with --persist (or --save). Flip to true only when you want every scan
+# to persist automatically (e.g. long-running recon sessions).
+auto_persist: false
 
 # Scan preset: stealth, balanced, aggressive
 # Controls threads, timeouts, and delay settings
@@ -193,7 +195,8 @@ wordlists:
 # ============================================================================
 # NOTES:
 # - Command-line flags always override config file settings
-# - With auto_persist enabled, all scans save to .rdb files automatically
+# - auto_persist is off by default: commands only read/write the DB when
+#   invoked with --persist / --save (or --db <file>).
 # - RESTful commands (list, get, describe) query saved .rdb files
 # - Action commands (scan, lookup, whois) perform active operations
 # ============================================================================
@@ -273,7 +276,7 @@ mod tests {
     let config = generate_full_config();
 
     // Verify key configuration sections exist
-    assert!(config.contains("auto_persist: true"));
+    assert!(config.contains("auto_persist: false"));
     assert!(config.contains("output: human"));
     assert!(config.contains("threads: 50"));
     assert!(config.contains("rate_limit: 0"));

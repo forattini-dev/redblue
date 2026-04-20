@@ -1485,7 +1485,13 @@ impl DnsCommand {
 
     let mut query = StorageService::global()
       .open_query_manager(&db_path)
-      .map_err(|e| format!("Failed to open database: {}", e))?;
+      .map_err(|e| {
+        format!(
+          "Unable to open DB at {}: {}. If this file was not produced by `rb ... --persist`, delete it or point --db at a real scan DB.",
+          db_path.display(),
+          e
+        )
+      })?;
 
     annotate_query_partition(
       ctx,
@@ -1559,7 +1565,13 @@ impl DnsCommand {
 
     let mut query = StorageService::global()
       .open_query_manager(&db_path)
-      .map_err(|e| format!("Failed to open database: {}", e))?;
+      .map_err(|e| {
+        format!(
+          "Unable to open DB at {}: {}. If this file was not produced by `rb ... --persist`, delete it or point --db at a real scan DB.",
+          db_path.display(),
+          e
+        )
+      })?;
 
     annotate_query_partition(
       ctx,
@@ -1617,7 +1629,13 @@ impl DnsCommand {
 
     let mut query = StorageService::global()
       .open_query_manager(&db_path)
-      .map_err(|e| format!("Failed to open database: {}", e))?;
+      .map_err(|e| {
+        format!(
+          "Unable to open DB at {}: {}. If this file was not produced by `rb ... --persist`, delete it or point --db at a real scan DB.",
+          db_path.display(),
+          e
+        )
+      })?;
 
     annotate_query_partition(
       ctx,

@@ -128,7 +128,7 @@ impl RedBlueConfig {
       database: DatabaseConfig {
         db_dir: cfg.db_dir,
         auto_name: cfg.db_auto_name.unwrap_or(true),
-        auto_persist: cfg.db_auto_persist.unwrap_or(true),
+        auto_persist: cfg.db_auto_persist.unwrap_or(false),
         format_version: cfg.db_format_version.unwrap_or(1),
       },
 

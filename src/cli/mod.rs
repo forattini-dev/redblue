@@ -162,11 +162,12 @@ impl CliContext {
   pub fn get_persistence_config(&self) -> PersistenceConfig {
     let config = crate::config::get();
 
-    // --no-save explicitly disables, --save explicitly enables
-    // Otherwise fall back to config.database.auto_persist
-    let force_save = if self.has_flag("no-save") {
+    // --no-save/--no-persist explicitly disables.
+    // --save/--persist explicitly enables.
+    // Otherwise fall back to config.database.auto_persist (default: false).
+    let force_save = if self.has_flag("no-save") || self.has_flag("no-persist") {
       false
-    } else if self.has_flag("save") {
+    } else if self.has_flag("save") || self.has_flag("persist") {
       true
     } else {
       config.database.auto_persist
