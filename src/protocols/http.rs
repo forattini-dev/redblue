@@ -1552,10 +1552,46 @@ fn read_response_with_ttfb(
   let header_end_pos = match header_end {
     Some(pos) => pos,
     None => {
+      // Helpful diagnostics so callers can tell whether the server spoke a
+      // binary protocol (likely HTTP/2 frames from an ALPN peer) or truncated.
+      let preview_len = buffer.len().min(64);
+      let preview = &buffer[..preview_len];
+      let printable: String = preview
+        .iter()
+        .map(|&b| {
+          if (0x20..=0x7e).contains(&b) {
+            b as char
+          } else {
+            '.'
+          }
+        })
+        .collect();
+      let hex: String = preview
+        .iter()
+        .map(|b| format!("{:02X}", b))
+        .collect::<Vec<_>>()
+        .join(" ");
+      let looks_like_h2 =
+        preview.starts_with(&[0x00, 0x00]) || preview.starts_with(b"PRI * HTTP/2.0");
+      let hint = if looks_like_h2 {
+        " Bytes look like an HTTP/2 frame — the peer likely negotiated h2 via ALPN. \
+         HTTP/2 fallback is not yet implemented in this client; retry with an \
+         HTTP/1.1-only target or use `rb tls security audit` to confirm ALPN."
+      } else {
+        " The server may have closed early or emitted a non-HTTP payload."
+      };
       return Err(HttpSendError {
-        message: "Malformed HTTP response: missing headers".to_string(),
+        message: format!(
+          "Malformed HTTP response: no CRLF CRLF header delimiter in {} bytes. \
+           First {} bytes (hex): {} | ascii: {:?}.{}",
+          buffer.len(),
+          preview_len,
+          hex,
+          printable,
+          hint
+        ),
         ttfb,
-      })
+      });
     }
   };
 
