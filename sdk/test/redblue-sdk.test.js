@@ -577,6 +577,7 @@ test('binary lifecycle helpers cover installed versions, update checks and manag
       env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
     }),
     {
+      status: 'ready',
       binaryPath: managedPath,
       source: 'explicit',
       version: 'v1.2.3',
@@ -4019,4 +4020,104 @@ test('wrapper cli execution forwards raw argv and main entrypoint uses the same 
   const errorWait = waitForChild(errorChild);
   errorChild.emit('error', new Error('boom'));
   await assert.rejects(errorWait, /boom/);
+});
+
+test('typed error classes are exported and preserve metadata', () => {
+  const err = new sdk.RedblueError('base', { code: 'X' });
+  assert.equal(err.name, 'RedblueError');
+  assert.equal(err.code, 'X');
+  assert.ok(err instanceof Error);
+
+  const notFound = new sdk.RedblueBinaryNotFoundError('missing', { binaryPath: '/bin/rb' });
+  assert.ok(notFound instanceof sdk.RedblueError);
+  assert.equal(notFound.code, 'REDBLUE_BINARY_NOT_FOUND');
+  assert.equal(notFound.binaryPath, '/bin/rb');
+
+  const route = new sdk.RedblueRouteError('bad', { selector: ['a', 'b', 'c'], route: 'a b c' });
+  assert.equal(route.code, 'REDBLUE_ROUTE_ERROR');
+  assert.deepEqual(route.selector, ['a', 'b', 'c']);
+  assert.equal(route.route, 'a b c');
+
+  const parse = new sdk.RedblueParseError('bad json', { stdout: 'x', stderr: 'y', args: ['z'] });
+  assert.equal(parse.code, 'REDBLUE_PARSE_ERROR');
+  assert.equal(parse.stdout, 'x');
+  assert.equal(parse.stderr, 'y');
+  assert.deepEqual(parse.args, ['z']);
+
+  const timeout = new sdk.RedblueTimeoutError('slow', { timeout: 1000, args: ['t'] });
+  assert.equal(timeout.code, 'REDBLUE_TIMEOUT');
+  assert.equal(timeout.timeout, 1000);
+  assert.deepEqual(timeout.args, ['t']);
+
+  const checksum = new sdk.RedblueChecksumError('bad', { expected: 'aa', actual: 'bb' });
+  assert.equal(checksum.code, 'REDBLUE_CHECKSUM_MISMATCH');
+  assert.equal(checksum.expected, 'aa');
+  assert.equal(checksum.actual, 'bb');
+
+  const net = new sdk.RedblueNetworkError('http', { statusCode: 500, url: 'https://x' });
+  assert.equal(net.code, 'REDBLUE_NETWORK_ERROR');
+  assert.equal(net.statusCode, 500);
+  assert.equal(net.url, 'https://x');
+
+  const withCause = new sdk.RedblueError('wrap', { cause: new Error('inner') });
+  assert.equal(withCause.cause.message, 'inner');
+});
+
+test('ensureInstalled exposes status, skipIfFresh, stale, offline and binary-not-found branches', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-ensure-'));
+  const managedPath = path.join(tmpDir, getDefaultBinaryName(process.platform));
+  await installFixtureBinary(managedPath);
+
+  const ready = await ensureInstalled({
+    binaryPath: managedPath,
+    env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' }
+  });
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.changed, false);
+  assert.equal(ready.version, 'v1.2.3');
+
+  await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v1.2.3"}' }], async () => {
+    const checked = await ensureInstalled({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' },
+      skipIfFresh: false
+    });
+    assert.equal(checked.status, 'ready');
+    assert.equal(checked.latestVersion, 'v1.2.3');
+  });
+
+  await withHttpsMock([{ statusCode: 200, body: '{"tag_name":"v2.0.0"}' }], async () => {
+    const stale = await ensureInstalled({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' },
+      skipIfFresh: false
+    });
+    assert.equal(stale.status, 'stale');
+    assert.equal(stale.version, 'v1.2.3');
+    assert.equal(stale.latestVersion, 'v2.0.0');
+  });
+
+  await withHttpsMock(
+    [{ error: new Error('offline') }],
+    async () => {
+      const offline = await ensureInstalled({
+        binaryPath: managedPath,
+        env: { RB_FAKE_VERSION: 'RedBlue CLI v1.2.3' },
+        skipIfFresh: false
+      });
+      assert.equal(offline.status, 'offline');
+      assert.equal(offline.binaryPath, managedPath);
+    }
+  );
+
+  await withHttpsMock([{ error: new Error('offline') }], async () => {
+    await assert.rejects(
+      ensureInstalled({
+        binaryPath: path.join(tmpDir, 'does-not-exist'),
+        assetName: 'rb-fixture',
+        verify: false
+      }),
+      (err) => err instanceof sdk.RedblueBinaryNotFoundError && err.code === 'REDBLUE_BINARY_NOT_FOUND'
+    );
+  });
 });

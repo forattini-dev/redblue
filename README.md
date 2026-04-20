@@ -253,6 +253,73 @@ import { createClient } from 'redblue-cli';
 
 `redblue-cli` ships with bundled TypeScript declarations so `createClient`, `runCli` and SDK routes are auto-completed in editors.
 
+#### Discover routes from code (`$describe` / `$help`)
+
+The client exposes a typed introspection surface. Prefer this over building raw `string[]` argv:
+
+```js
+const rb = await createClient();
+
+// Walk the full route catalog
+rb.$commands.forEach((entry) => console.log(entry.canonical_path, entry.summary));
+
+// Inspect a single route (flags, positionals, aliases, machine output)
+const descriptor = rb.$describe(['recon', 'domain', 'subdomains']);
+
+// Render the same help text the CLI prints
+console.log(rb.$help('recon/domain/subdomains'));
+
+// Suggest completions for a partially typed selector
+const { stage, completions } = rb.$complete(['recon', 'domain']);
+```
+
+#### Typed errors
+
+`runJson`, `createClient` routes, and `ensureInstalled` throw typed errors so you can react selectively:
+
+```js
+const {
+  RedblueBinaryNotFoundError,
+  RedblueRouteError,
+  RedblueParseError,
+  RedblueTimeoutError
+} = require('redblue-cli');
+
+try {
+  await rb.recon.domain.subdomains({ target, timeout: 30_000 });
+} catch (err) {
+  if (err instanceof RedblueTimeoutError) retryLater(err.timeout);
+  else if (err instanceof RedblueBinaryNotFoundError) disableFeature(err);
+  else if (err instanceof RedblueRouteError) reportSchemaDrift(err.route);
+  else if (err instanceof RedblueParseError) logStderr(err.stderr);
+  else throw err;
+}
+```
+
+#### Describe bundles (`recon/domain/describe`, `web/asset/describe`)
+
+Instead of orchestrating seven calls (`fingerprint`, `cms`, `headers`, `security`, `grade`, `host/fingerprint`, `tls/fingerprint`), use the consolidated bundles:
+
+```js
+const domain = await rb.recon.domain.describe({ target: 'example.com' });
+// → { whois, dns, subdomains, tls, http, fingerprint, timings }
+
+const asset = await rb.web.asset.describe({ target: 'https://example.com' });
+// → { headers, security, technologies, tls, har }
+```
+
+#### Boot-time install (`ensureInstalled`)
+
+```js
+const { ensureInstalled } = require('redblue-cli');
+
+const result = await ensureInstalled({ skipIfFresh: true });
+// result.status: 'ready' | 'downloaded' | 'stale' | 'offline'
+// result.changed === true when a fresh binary was fetched
+```
+
+`skipIfFresh: true` (default) avoids a GitHub release-check round-trip when the binary already exists. Pass `false` to surface `status: 'stale'` when a newer release is available, or `status: 'offline'` when the version check fails but a usable binary is present.
+
 ---
 
 ## Protocols from Scratch

@@ -176,6 +176,7 @@ export interface WrapperOptionSet {
   verify?: boolean;
   source?: string;
   assetName?: string;
+  preferSystemBinary?: boolean;
   cwd?: string;
   env?: Record<string, string | undefined>;
   timeout?: number;
@@ -207,10 +208,54 @@ export interface BinaryInfo {
   version?: string | null;
 }
 
+export type BinaryInstallStatus = 'ready' | 'downloaded' | 'stale' | 'offline';
+
 export interface BinaryInstallResult extends BinaryInfo {
+  status: BinaryInstallStatus;
   source: string;
   changed: boolean;
   version?: string;
+  latestVersion?: string | null;
+}
+
+export interface EnsureInstalledOptions extends WrapperOptions {
+  skipIfFresh?: boolean;
+}
+
+export declare class RedblueError extends Error {
+  readonly code: string;
+  readonly cause?: unknown;
+  constructor(message: string, options?: { code?: string; cause?: unknown });
+}
+
+export declare class RedblueBinaryNotFoundError extends RedblueError {
+  readonly binaryPath?: string;
+}
+
+export declare class RedblueRouteError extends RedblueError {
+  readonly route?: string;
+  readonly selector?: string[];
+}
+
+export declare class RedblueParseError extends RedblueError {
+  readonly stdout?: string;
+  readonly stderr?: string;
+  readonly args?: string[];
+}
+
+export declare class RedblueTimeoutError extends RedblueError {
+  readonly timeout?: number;
+  readonly args?: string[];
+}
+
+export declare class RedblueChecksumError extends RedblueError {
+  readonly expected?: string;
+  readonly actual?: string;
+}
+
+export declare class RedblueNetworkError extends RedblueError {
+  readonly statusCode?: number;
+  readonly url?: string;
 }
 
 export interface BinaryUpgradeResult {
@@ -381,7 +426,7 @@ export function createManifestCLI(
 ): Promise<unknown>;
 export function createClient(options?: WrapperOptions): Promise<RedblueClient>;
 export function downloadBinary(options?: WrapperOptions): Promise<string>;
-export function ensureInstalled(options?: WrapperOptions): Promise<BinaryInstallResult>;
+export function ensureInstalled(options?: EnsureInstalledOptions): Promise<BinaryInstallResult>;
 export function getBinaryInfo(options?: WrapperOptions): Promise<BinaryInfo>;
 export function getManifest(options?: WrapperOptions): Promise<ManifestResult>;
 export function getInstalledVersion(binaryPath: string, options?: ResolveOptions): Promise<string | null>;
@@ -423,6 +468,13 @@ export interface RedblueSdkExports {
   resolveBinary: typeof resolveBinary;
   resolveBinaryWithInfo: typeof resolveBinaryWithInfo;
   upgradeBinary: typeof upgradeBinary;
+  RedblueError: typeof RedblueError;
+  RedblueBinaryNotFoundError: typeof RedblueBinaryNotFoundError;
+  RedblueRouteError: typeof RedblueRouteError;
+  RedblueParseError: typeof RedblueParseError;
+  RedblueTimeoutError: typeof RedblueTimeoutError;
+  RedblueChecksumError: typeof RedblueChecksumError;
+  RedblueNetworkError: typeof RedblueNetworkError;
   _internal: InternalNamespace;
   default: RedblueSdkExports;
 }

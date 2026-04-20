@@ -39,6 +39,69 @@ function getDefaultBinaryName(platform = process.platform) {
 
 const DEFAULT_BINARY_NAME = getDefaultBinaryName();
 
+class RedblueError extends Error {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = 'RedblueError';
+    this.code = options.code || 'REDBLUE_ERROR';
+    if (options.cause) this.cause = options.cause;
+  }
+}
+
+class RedblueBinaryNotFoundError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_BINARY_NOT_FOUND' }, options));
+    this.name = 'RedblueBinaryNotFoundError';
+    if (options.binaryPath) this.binaryPath = options.binaryPath;
+  }
+}
+
+class RedblueRouteError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_ROUTE_ERROR' }, options));
+    this.name = 'RedblueRouteError';
+    if (options.route) this.route = options.route;
+    if (options.selector) this.selector = options.selector;
+  }
+}
+
+class RedblueParseError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_PARSE_ERROR' }, options));
+    this.name = 'RedblueParseError';
+    if (options.stdout !== undefined) this.stdout = options.stdout;
+    if (options.stderr !== undefined) this.stderr = options.stderr;
+    if (options.args !== undefined) this.args = options.args;
+  }
+}
+
+class RedblueTimeoutError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_TIMEOUT' }, options));
+    this.name = 'RedblueTimeoutError';
+    if (options.timeout !== undefined) this.timeout = options.timeout;
+    if (options.args !== undefined) this.args = options.args;
+  }
+}
+
+class RedblueChecksumError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_CHECKSUM_MISMATCH' }, options));
+    this.name = 'RedblueChecksumError';
+    if (options.expected) this.expected = options.expected;
+    if (options.actual) this.actual = options.actual;
+  }
+}
+
+class RedblueNetworkError extends RedblueError {
+  constructor(message, options = {}) {
+    super(message, Object.assign({ code: 'REDBLUE_NETWORK_ERROR' }, options));
+    this.name = 'RedblueNetworkError';
+    if (options.statusCode) this.statusCode = options.statusCode;
+    if (options.url) this.url = options.url;
+  }
+}
+
 function kebabToCamel(value) {
   return String(value).replace(/[-_]+([a-zA-Z0-9])/g, (_, ch) => ch.toUpperCase());
 }
@@ -289,8 +352,9 @@ async function verifyChecksum(filePath, checksumUrl, options = {}) {
     }
     const actual = await sha256File(filePath);
     if (expected !== actual) {
-      throw new Error(
-        `Checksum mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}`
+      throw new RedblueChecksumError(
+        `Checksum mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}`,
+        { expected, actual }
       );
     }
   } catch (error) {
@@ -328,7 +392,10 @@ async function resolveBinaryWithInfo(options = {}) {
   if (options.binaryPath) {
     const binaryPath = path.resolve(options.binaryPath);
     if (!exists(binaryPath)) {
-      throw new Error(`redblue binary not found at ${binaryPath}`);
+      throw new RedblueBinaryNotFoundError(
+        `redblue binary not found at ${binaryPath}`,
+        { binaryPath }
+      );
     }
     return {
       binaryPath,
@@ -337,20 +404,28 @@ async function resolveBinaryWithInfo(options = {}) {
   }
 
   const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
-  const installedCandidate = resolveManagedBinaryPath(options);
-  if (exists(installedCandidate)) {
-    return {
-      binaryPath: installedCandidate,
-      source: 'managed'
-    };
-  }
+  const preferSystem =
+    options.preferSystemBinary === true ||
+    (options.env && options.env.REDBLUE_PREFER_SYSTEM_BINARY === '1') ||
+    process.env.REDBLUE_PREFER_SYSTEM_BINARY === '1';
 
+  const managedCandidate = resolveManagedBinaryPath(options);
   const packageCandidate = resolvePackageLocalBinaryPath(options);
-  if (exists(packageCandidate)) {
-    return {
-      binaryPath: packageCandidate,
-      source: 'package'
-    };
+
+  const ordered = preferSystem
+    ? [
+        { path: managedCandidate, source: 'managed' },
+        { path: packageCandidate, source: 'package' }
+      ]
+    : [
+        { path: packageCandidate, source: 'package' },
+        { path: managedCandidate, source: 'managed' }
+      ];
+
+  for (const candidate of ordered) {
+    if (exists(candidate.path)) {
+      return { binaryPath: candidate.path, source: candidate.source };
+    }
   }
 
   const legacyCandidate = resolveLegacyBinaryPath(options);
@@ -376,7 +451,7 @@ async function resolveBinaryWithInfo(options = {}) {
     };
   }
 
-  throw new Error(
+  throw new RedblueBinaryNotFoundError(
     `Unable to resolve redblue binary. Set binaryPath, provide autoDownload=true, or install ${binaryName} in PATH.`
   );
 }
@@ -450,22 +525,64 @@ function resolveManagedUpgradeDestination(options = {}, currentInfo = null) {
 }
 
 async function ensureInstalled(options = {}) {
+  const skipIfFresh = options.skipIfFresh !== false;
+  let info = null;
   try {
-    const info = await getBinaryInfo(Object.assign({}, options, { autoDownload: false }));
-    return Object.assign({ changed: false }, info);
+    info = await getBinaryInfo(Object.assign({}, options, { autoDownload: false }));
   } catch (_) {
+    info = null;
+  }
+
+  if (info && skipIfFresh) {
+    return {
+      status: 'ready',
+      binaryPath: info.binaryPath,
+      source: info.source,
+      version: info.version,
+      changed: false
+    };
+  }
+
+  if (info) {
+    try {
+      const remote = await getReleaseTag(options);
+      const status = remote && info.version && info.version !== remote ? 'stale' : 'ready';
+      return {
+        status,
+        binaryPath: info.binaryPath,
+        source: info.source,
+        version: info.version,
+        latestVersion: remote,
+        changed: false
+      };
+    } catch (_) {
+      return {
+        status: 'offline',
+        binaryPath: info.binaryPath,
+        source: info.source,
+        version: info.version,
+        changed: false
+      };
+    }
+  }
+
+  try {
     const releaseTag = normalizeReleaseTag(options.releaseVersion || options.version) || (await getReleaseTag(options));
     const binaryPath = await downloadBinary(
-      Object.assign({}, options, {
-        version: releaseTag
-      })
+      Object.assign({}, options, { version: releaseTag })
     );
     return {
+      status: 'downloaded',
       binaryPath,
       source: 'downloaded',
       version: releaseTag,
       changed: true
     };
+  } catch (downloadError) {
+    throw new RedblueBinaryNotFoundError(
+      `Unable to ensure redblue binary: ${downloadError.message}`,
+      { cause: downloadError }
+    );
   }
 }
 
@@ -1297,8 +1414,9 @@ function buildInvocation(command, route, input, execOptions) {
 
     if (value === undefined || value === null || value === '') {
       if (positional.required) {
-        throw new Error(
-          `Missing required positional "${positional.name}" for ${routeIdentifier(command, route)}`
+        throw new RedblueRouteError(
+          `Missing required positional "${positional.name}" for ${routeIdentifier(command, route)}`,
+          { route: routeIdentifier(command, route) }
         );
       }
       continue;
@@ -1382,8 +1500,9 @@ function buildInvocation(command, route, input, execOptions) {
 
   for (const key of Object.keys(extraFlags)) {
     if (!findFlag(command, key)) {
-      throw new Error(
-        `Unknown flag "${key}" for ${routeIdentifier(command, route)}`
+      throw new RedblueRouteError(
+        `Unknown flag "${key}" for ${routeIdentifier(command, route)}`,
+        { route: routeIdentifier(command, route) }
       );
     }
   }
@@ -1401,8 +1520,9 @@ function buildInvocation(command, route, input, execOptions) {
 
   for (const key of Object.keys(payload)) {
     if (!consumedKeys.has(key) && !knownKeys.has(key) && !findFlag(command, key)) {
-      throw new Error(
-        `Unknown parameter "${key}" for ${routeIdentifier(command, route)}`
+      throw new RedblueRouteError(
+        `Unknown parameter "${key}" for ${routeIdentifier(command, route)}`,
+        { route: routeIdentifier(command, route) }
       );
     }
   }
@@ -1525,12 +1645,12 @@ async function runJson(argv, options = {}) {
     ? inputArgv.slice(0, 3)
     : extractRouteSelectorFromArgv(inputArgv, manifest);
   if (!selector) {
-    throw new Error('Unable to resolve command route selector for JSON execution');
+    throw new RedblueRouteError('Unable to resolve command route selector for JSON execution');
   }
   const descriptor = resolveManifestRouteDescriptor(manifest, selector);
   /* node:coverage disable */
   if (!descriptor) {
-    throw new Error(`Unknown command: ${selector.join(' ')}`);
+    throw new RedblueRouteError(`Unknown command: ${selector.join(' ')}`, { selector });
   }
   /* node:coverage enable */
   const machineOutput = resolveMachineOutput(descriptor.command, descriptor.route);
@@ -1538,18 +1658,30 @@ async function runJson(argv, options = {}) {
   const jsonSupport =
     typeof machineOutput.json_support === 'string' ? machineOutput.json_support : 'undeclared';
   if (jsonSupport === 'undeclared') {
-    throw new Error(
-      `Route ${descriptor.route.command || `rb ${selector.join(' ')}`} does not declare machine-safe JSON output`
+    throw new RedblueRouteError(
+      `Route ${descriptor.route.command || `rb ${selector.join(' ')}`} does not declare machine-safe JSON output`,
+      { selector, route: descriptor.route.command }
     );
   }
   /* node:coverage enable */
   const args = buildJsonCliArgs(inputArgv, null, manifest);
-  const result = await execFilePromise(binaryPath, args, {
-    cwd: defaults.cwd,
-    env: defaults.env,
-    timeout: defaults.timeout,
-    maxBuffer: defaults.maxBuffer
-  });
+  let result;
+  try {
+    result = await execFilePromise(binaryPath, args, {
+      cwd: defaults.cwd,
+      env: defaults.env,
+      timeout: defaults.timeout,
+      maxBuffer: defaults.maxBuffer
+    });
+  } catch (error) {
+    if (error && (error.killed === true || error.signal === 'SIGTERM') && defaults.timeout) {
+      throw new RedblueTimeoutError(
+        `redblue command timed out after ${defaults.timeout}ms`,
+        { timeout: defaults.timeout, args, cause: error }
+      );
+    }
+    throw error;
+  }
   const stdout = String(result.stdout || '').trim();
 
   if (!stdout) {
@@ -1559,11 +1691,10 @@ async function runJson(argv, options = {}) {
   try {
     return JSON.parse(stdout);
   } catch (error) {
-    const wrapped = new Error(`redblue command did not emit valid JSON: ${error.message}`);
-    wrapped.stdout = stdout;
-    wrapped.stderr = result.stderr;
-    wrapped.args = args;
-    throw wrapped;
+    throw new RedblueParseError(
+      `redblue command did not emit valid JSON: ${error.message}`,
+      { stdout, stderr: result.stderr, args, cause: error }
+    );
   }
 }
 
@@ -2425,7 +2556,14 @@ module.exports = {
   runJson,
   resolveAssetName,
   resolveBinary,
-  upgradeBinary
+  upgradeBinary,
+  RedblueError,
+  RedblueBinaryNotFoundError,
+  RedblueRouteError,
+  RedblueParseError,
+  RedblueTimeoutError,
+  RedblueChecksumError,
+  RedblueNetworkError
 };
 
 module.exports._internal = {
