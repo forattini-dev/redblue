@@ -205,8 +205,22 @@ function resolveLegacyBinaryPath(options = {}) {
 
 function resolvePackageLocalBinaryPath(options = {}) {
   const binaryName = options.binaryName || DEFAULT_BINARY_NAME;
+  // postinstall writes into `<sdk>/.redblue/bin/` (path.join(__dirname, ...)).
+  // The SDK lives at `<pkg>/sdk/`, so the primary path is `<sdk>/.redblue/bin/rb`.
+  // Also check `<pkg>/.redblue/bin/rb` as a secondary location for historical
+  // installs that landed the binary at the package root.
+  const sdkLocal = path.resolve(__dirname, '.redblue', 'bin', binaryName);
+  if (exists(sdkLocal)) {
+    return sdkLocal;
+  }
   const packageRoot = path.resolve(__dirname, '..');
-  return path.resolve(packageRoot, '.redblue', 'bin', binaryName);
+  const rootLocal = path.resolve(packageRoot, '.redblue', 'bin', binaryName);
+  if (exists(rootLocal)) {
+    return rootLocal;
+  }
+  // Return the canonical location (sdk-local) even when neither exists — the
+  // caller's `exists()` check will drive the fallback chain.
+  return sdkLocal;
 }
 
 function resolveAssetName(options = {}) {
