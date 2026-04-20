@@ -436,15 +436,19 @@ async function resolveBinaryWithInfo(options = {}) {
   // resolution up to system PATH in that case — fall straight to download.
   const strictTargetDir = options.strictTargetDir === true || !!options.targetDir;
 
-  const ordered = preferSystem
-    ? [
-        { path: managedCandidate, source: 'managed' },
-        { path: packageCandidate, source: 'package' }
-      ]
-    : [
-        { path: packageCandidate, source: 'package' },
-        { path: managedCandidate, source: 'managed' }
-      ];
+  // An explicit targetDir pins resolution to the managed path. Package-local
+  // is a fallback only when the caller did not specify a location.
+  const ordered = options.targetDir
+    ? [{ path: managedCandidate, source: 'managed' }]
+    : preferSystem
+      ? [
+          { path: managedCandidate, source: 'managed' },
+          { path: packageCandidate, source: 'package' }
+        ]
+      : [
+          { path: packageCandidate, source: 'package' },
+          { path: managedCandidate, source: 'managed' }
+        ];
 
   for (const candidate of ordered) {
     if (exists(candidate.path)) {
