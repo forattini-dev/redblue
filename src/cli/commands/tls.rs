@@ -118,6 +118,15 @@ impl Command for TlsCommand {
       Flag::new("port", "Target port").with_default("443"),
       Flag::new("persist", "Save results to binary database (.rdb file)"),
       Flag::new("no-persist", "Don't save results (overrides config)"),
+      Flag::new(
+        "from-db",
+        "describe/get: read from an existing DB instead of collecting live",
+      ),
+      Flag::new("cache-only", "Alias for --from-db"),
+      Flag::new(
+        "from-json",
+        "describe/get: ingest a pre-collected payload (path or '-' for stdin)",
+      ),
       Flag::new("output", "Output format (text|json)")
         .with_short('o')
         .with_default("text"),
@@ -1263,9 +1272,41 @@ impl TlsCommand {
   }
 
   fn describe_tls(&self, ctx: &CliContext) -> Result<(), String> {
+    use crate::cli::commands::describe_mode::{
+      read_from_json_source, resolve_describe_mode, DescribeMode,
+    };
+
     let host = ctx.target.as_ref().ok_or(
-            "Missing target host.\nUsage: rb tls security describe <HOST> [--db <file>]\nExample: rb tls security describe google.com",
+            "Missing target host.\nUsage: rb tls security describe <HOST> [--from-db | --persist | --from-json -]\nExample: rb tls security describe google.com",
         )?;
+
+    match resolve_describe_mode(ctx)? {
+      DescribeMode::FromJson(source) => {
+        let bytes = read_from_json_source(&source)?;
+        Output::header(&format!("TLS Describe: {} (from {})", host, source));
+        let preview: String = String::from_utf8_lossy(&bytes).chars().take(1000).collect();
+        println!("{}", preview);
+        return Ok(());
+      }
+      mode @ (DescribeMode::Live | DescribeMode::LivePersist) => {
+        let persist_hint = matches!(mode, DescribeMode::LivePersist);
+        Output::header(&format!(
+          "TLS Describe (live{}): {}",
+          if persist_hint { " + persist" } else { "" },
+          host
+        ));
+        let mut sub_ctx = ctx.clone();
+        sub_ctx.verb = Some("audit".to_string());
+        if !persist_hint {
+          sub_ctx.flags.remove("persist");
+          sub_ctx.flags.remove("save");
+        }
+        return self.audit(&sub_ctx);
+      }
+      DescribeMode::FromDb => {
+        // Fall through to existing DB read path below.
+      }
+    }
 
     let db_path = self.get_db_path(ctx, host)?;
 

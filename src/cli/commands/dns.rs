@@ -1536,6 +1536,10 @@ impl DnsCommand {
   }
 
   fn get_record(&self, ctx: &CliContext) -> Result<(), String> {
+    use crate::cli::commands::describe_mode::{
+      read_from_json_source, resolve_describe_mode, DescribeMode,
+    };
+
     let target = ctx
       .target
       .as_ref()
@@ -1565,6 +1569,39 @@ impl DnsCommand {
         ))
       }
     };
+
+    match resolve_describe_mode(ctx)? {
+      DescribeMode::FromJson(source) => {
+        let bytes = read_from_json_source(&source)?;
+        Output::header(&format!(
+          "DNS Record: {} {} (from {})",
+          domain, record_type_str, source
+        ));
+        let preview: String = String::from_utf8_lossy(&bytes).chars().take(1000).collect();
+        println!("{}", preview);
+        return Ok(());
+      }
+      DescribeMode::Live | DescribeMode::LivePersist => {
+        // Default (Live) and LivePersist both delegate to the live `lookup`
+        // verb. Persist is forwarded through ctx so the storage layer writes
+        // when auto_persist allows. Discard-mode strips persist/save.
+        let mut sub_ctx = ctx.clone();
+        sub_ctx.verb = Some("lookup".to_string());
+        sub_ctx
+          .flags
+          .insert("type".to_string(), record_type_str.clone());
+        if matches!(resolve_describe_mode(ctx)?, DescribeMode::Live) {
+          sub_ctx.flags.remove("persist");
+          sub_ctx.flags.remove("save");
+        }
+        // Rewrite the target to just the domain (strip the :type suffix).
+        sub_ctx.target = Some(domain.to_string());
+        return self.lookup(&sub_ctx);
+      }
+      DescribeMode::FromDb => {
+        // Fall through to existing DB read path below.
+      }
+    }
 
     let db_path = self.get_db_path(ctx, domain)?;
 
@@ -1630,7 +1667,50 @@ impl DnsCommand {
   }
 
   fn describe_records(&self, ctx: &CliContext) -> Result<(), String> {
+    use crate::cli::commands::describe_mode::{
+      read_from_json_source, resolve_describe_mode, DescribeMode,
+    };
+
     let domain = ctx.target.as_ref().ok_or("Missing target domain")?;
+
+    match resolve_describe_mode(ctx)? {
+      DescribeMode::FromJson(source) => {
+        let bytes = read_from_json_source(&source)?;
+        Output::header(&format!("DNS Describe: {} (from {})", domain, source));
+        let preview: String = String::from_utf8_lossy(&bytes).chars().take(1000).collect();
+        println!("{}", preview);
+        return Ok(());
+      }
+      mode @ (DescribeMode::Live | DescribeMode::LivePersist) => {
+        let persist_hint = matches!(mode, DescribeMode::LivePersist);
+        Output::header(&format!(
+          "DNS Describe (live{}): {}",
+          if persist_hint { " + persist" } else { "" },
+          domain
+        ));
+        let mut sub_ctx = ctx.clone();
+        sub_ctx.verb = Some("lookup".to_string());
+        if !persist_hint {
+          sub_ctx.flags.remove("persist");
+          sub_ctx.flags.remove("save");
+        }
+        for record_type in ["A", "AAAA", "MX", "NS", "TXT", "CNAME"] {
+          let mut type_ctx = sub_ctx.clone();
+          type_ctx
+            .flags
+            .insert("type".to_string(), record_type.to_string());
+          println!();
+          println!("─── {} ───", record_type);
+          if let Err(e) = self.lookup(&type_ctx) {
+            Output::warning(&format!("{}: {}", record_type, e));
+          }
+        }
+        return Ok(());
+      }
+      DescribeMode::FromDb => {
+        // Fall through to existing DB read path below.
+      }
+    }
 
     let db_path = self.get_db_path(ctx, domain)?;
 
