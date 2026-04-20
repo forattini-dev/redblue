@@ -479,7 +479,6 @@ mod tests {
         category: "network".to_string(),
         keywords: vec!["port".to_string(), "scan".to_string(), "tcp".to_string()],
         content: "Port scanning is used to discover open ports on a target host.".to_string(),
-        vector: None,
       },
       EmbeddedDocument {
         id: "doc-1".to_string(),
@@ -493,7 +492,6 @@ mod tests {
           "record".to_string(),
         ],
         content: "DNS reconnaissance involves querying DNS servers for information.".to_string(),
-        vector: None,
       },
     ]
   }
