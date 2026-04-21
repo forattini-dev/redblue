@@ -201,21 +201,26 @@ pub(crate) fn run_describe_subcommands_json(
 
   let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("rb"));
 
-  // Build a stable forwarded-flag list from the ctx so downstream commands
-  // behave identically to a direct invocation.
+  // Forward only a small whitelist of flags that every sub-command accepts.
+  // Forwarding every flag from ctx (which includes global + config-inherited
+  // values like rate-limit, threads, preset, etc.) causes subprocesses to
+  // reject with "unknown flag" because each CLI sub-command declares only
+  // its own flag set. The allowlist keeps network/auth knobs while dropping
+  // describe-specific flags + CLI globals that the children don't parse.
+  const SAFE_FORWARD_FLAGS: &[&str] = &[
+    "timeout",
+    "user-agent",
+    "headers",
+    "method",
+    "body",
+    "body-file",
+    "browser",
+    "db",
+    "db-password",
+  ];
   let mut forwarded: Vec<(String, String)> = Vec::new();
   for (key, value) in &ctx.flags {
-    if matches!(
-      key.as_str(),
-      "output"
-        | "from-db"
-        | "cache-only"
-        | "from-json"
-        | "persist"
-        | "save"
-        | "no-persist"
-        | "no-save"
-    ) {
+    if !SAFE_FORWARD_FLAGS.contains(&key.as_str()) {
       continue;
     }
     forwarded.push((key.clone(), value.clone()));
