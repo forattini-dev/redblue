@@ -4153,3 +4153,88 @@ test('REDBLUE_FORCE_BINARY env var short-circuits resolution', async () => {
     (err) => err instanceof sdk.RedblueBinaryNotFoundError
   );
 });
+
+test('normalizeVersion strips v prefix and handles edge cases', () => {
+  const { normalizeVersion } = sdk._internal;
+  assert.equal(normalizeVersion('v0.2.22'), '0.2.22');
+  assert.equal(normalizeVersion('0.2.22'), '0.2.22');
+  assert.equal(normalizeVersion('  v1.0.0  '), '1.0.0');
+  assert.equal(normalizeVersion(null), null);
+  assert.equal(normalizeVersion(undefined), null);
+  assert.equal(normalizeVersion(''), null);
+  assert.equal(normalizeVersion('   '), null);
+});
+
+test('getManifest honors autoHeal:false even with drifted version', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-heal-'));
+  const managedPath = path.join(tmpDir, getDefaultBinaryName(process.platform));
+  await installFixtureBinary(managedPath);
+
+  try {
+    const result = await sdk.getManifest({
+      binaryPath: managedPath,
+      env: { RB_FAKE_VERSION: 'RedBlue CLI v0.0.0-stale' },
+      autoHeal: false
+    });
+    assert.ok(result.manifest);
+    assert.equal(result.binaryPath, managedPath);
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('REDBLUE_DISABLE_AUTO_HEAL env var short-circuits heal path', async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-heal-env-'));
+  const managedPath = path.join(tmpDir, getDefaultBinaryName(process.platform));
+  await installFixtureBinary(managedPath);
+
+  try {
+    const result = await sdk.getManifest({
+      binaryPath: managedPath,
+      env: {
+        RB_FAKE_VERSION: 'RedBlue CLI v0.0.0-stale',
+        REDBLUE_DISABLE_AUTO_HEAL: '1'
+      }
+    });
+    assert.ok(result.manifest);
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('getManifest auto-heals when binary version drifts and source is not explicit', async () => {
+  // To hit the heal path we must not pass binaryPath (would mark source
+  // 'explicit'). Instead point targetDir at a tmp install directory and seed
+  // a stale fixture there. Auto-heal downloads a replacement from the mocked
+  // GitHub release.
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rb-sdk-heal-fire-'));
+  const binaryName = getDefaultBinaryName(process.platform);
+  const targetDir = path.join(tmpDir, 'bin');
+  await fsp.mkdir(targetDir, { recursive: true });
+  const installedPath = path.join(targetDir, binaryName);
+  await installFixtureBinary(installedPath);
+
+  await withHttpsMock(
+    [
+      { statusCode: 200, body: '{"tag_name":"v0.0.1-heal"}' },
+      { statusCode: 200, body: 'healed-binary-bytes' }
+    ],
+    async () => {
+      const result = await sdk.getManifest({
+        targetDir,
+        verify: false,
+        env: {
+          RB_FAKE_VERSION: 'RedBlue CLI v0.0.0-stale',
+          RB_FAKE_VERSION_STREAM: 'stdout'
+        }
+      });
+      assert.ok(result.manifest);
+      // After heal, the binary file at installedPath was overwritten with
+      // the mocked download payload.
+      const content = await fsp.readFile(installedPath, 'utf8');
+      assert.match(content, /healed-binary-bytes|#!/);
+    }
+  );
+
+  await fsp.rm(tmpDir, { recursive: true, force: true });
+});

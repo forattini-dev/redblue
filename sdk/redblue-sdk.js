@@ -490,6 +490,18 @@ function normalizeReleaseTag(value) {
   return stringValue.startsWith('v') ? stringValue : `v${stringValue}`;
 }
 
+/// Strip any leading `v` so two version strings can be compared textually.
+function normalizeVersion(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const s = String(value).trim();
+  if (!s) {
+    return null;
+  }
+  return s.startsWith('v') ? s.slice(1) : s;
+}
+
 function parseInstalledVersion(output) {
   const text = String(output || '').trim();
   if (!text) {
@@ -1351,7 +1363,49 @@ async function runCli(argv = process.argv.slice(2), runtime = {}) {
 }
 
 async function getManifest(options = {}) {
-  const binaryPath = await resolveBinary(options);
+  const resolved = await resolveBinaryWithInfo(options);
+  let binaryPath = resolved.binaryPath;
+
+  // Auto-heal: if the binary version drifts from the SDK version, transparently
+  // re-download into the same location. Skip for explicit / forced-env sources
+  // (caller pinned the binary on purpose) and when disabled via opt-out.
+  const autoHeal =
+    options.autoHeal !== false &&
+    !(options.env && options.env.REDBLUE_DISABLE_AUTO_HEAL === '1') &&
+    process.env.REDBLUE_DISABLE_AUTO_HEAL !== '1' &&
+    resolved.source !== 'explicit' &&
+    resolved.source !== 'forced-env';
+
+  if (autoHeal) {
+    try {
+      const installed = await getInstalledVersion(binaryPath, options);
+      const expected = normalizeVersion(SDK_VERSION);
+      const actual = normalizeVersion(installed);
+      if (expected && actual && expected !== actual) {
+        const healed = await ensureInstalled(
+          Object.assign({}, options, {
+            skipIfFresh: false,
+            autoDownload: true,
+            version: `v${expected}`,
+            binaryPath: binaryPath
+          })
+        );
+        if (healed && healed.binaryPath) {
+          binaryPath = healed.binaryPath;
+          if (typeof process !== 'undefined' && process.stderr) {
+            process.stderr.write(
+              `redblue-cli: self-healed binary — was ${actual || 'unknown'}, ` +
+                `now ${expected} at ${binaryPath}\n`
+            );
+          }
+        }
+      }
+    } catch (_) {
+      // Auto-heal is best-effort. Fall through to the original binary and let
+      // the manifest command surface any real problem below.
+    }
+  }
+
   const result = await execFilePromise(binaryPath, ['sdk', 'bridge', 'manifest'], options);
   const stdout = String(result.stdout || '').trim();
 
@@ -2616,6 +2670,7 @@ module.exports._internal = {
   kebabToCamel,
   legacyInstallDir,
   normalizeReleaseTag,
+  normalizeVersion,
   normalizeCliArgv,
   normalizeSdkHelpSelector,
   normalizeTokenSelector,
