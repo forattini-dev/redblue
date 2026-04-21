@@ -134,20 +134,39 @@ fn describe_live(ctx: &CliContext, host: &str, mode: &DescribeMode) -> Result<()
   use crate::cli::commands::web::{fingerprint, http, security};
 
   let persist_hint = matches!(mode, DescribeMode::LivePersist);
+  let json_mode = ctx
+    .get_flag("output")
+    .map(|v| v.eq_ignore_ascii_case("json"))
+    .unwrap_or(false);
+
+  let mut sub_ctx = ctx.clone();
+  if !persist_hint {
+    sub_ctx.flags.remove("persist");
+    sub_ctx.flags.remove("save");
+  }
+
+  if json_mode {
+    // Aggregate sub-command output into a single JSON envelope by invoking
+    // the binary as subprocesses with -o json. Keeps describe parsable by
+    // consumers that pipe through runJson.
+    let aggregate = run_describe_subcommands_json(
+      host,
+      &[
+        ("headers", &["web", "asset", "headers"]),
+        ("security", &["web", "asset", "security"]),
+        ("fingerprint", &["web", "asset", "fingerprint"]),
+      ],
+      &sub_ctx,
+    );
+    println!("{}", aggregate);
+    return Ok(());
+  }
 
   Output::header(&format!(
     "HTTP Describe (live{}): {}",
     if persist_hint { " + persist" } else { "" },
     host
   ));
-
-  let mut sub_ctx = ctx.clone();
-  if !persist_hint {
-    // Ensure downstream collectors don't attempt to write DB when user asked
-    // for discard-only describe.
-    sub_ctx.flags.remove("persist");
-    sub_ctx.flags.remove("save");
-  }
 
   println!();
   println!("─── Headers ───");
@@ -168,6 +187,104 @@ fn describe_live(ctx: &CliContext, host: &str, mode: &DescribeMode) -> Result<()
   }
 
   Ok(())
+}
+
+/// Invoke `rb <route> <target> -o json` for each named sub-command and
+/// aggregate the parsed outputs into a single JSON object. Lives in
+/// describe bundles that need a machine-safe envelope.
+pub(crate) fn run_describe_subcommands_json(
+  target: &str,
+  commands: &[(&str, &[&str])],
+  ctx: &CliContext,
+) -> String {
+  use std::process::Command;
+
+  let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("rb"));
+
+  // Build a stable forwarded-flag list from the ctx so downstream commands
+  // behave identically to a direct invocation.
+  let mut forwarded: Vec<(String, String)> = Vec::new();
+  for (key, value) in &ctx.flags {
+    if matches!(
+      key.as_str(),
+      "output"
+        | "from-db"
+        | "cache-only"
+        | "from-json"
+        | "persist"
+        | "save"
+        | "no-persist"
+        | "no-save"
+    ) {
+      continue;
+    }
+    forwarded.push((key.clone(), value.clone()));
+  }
+
+  let mut out = String::from("{\n");
+  out.push_str(&format!("  \"target\": {},\n", json_quote(target)));
+  out.push_str("  \"bundle\": {\n");
+
+  for (idx, (name, route)) in commands.iter().enumerate() {
+    let mut cmd = Command::new(&exe);
+    cmd.args(route.iter().copied());
+    cmd.arg(target);
+    cmd.arg("-o");
+    cmd.arg("json");
+    for (k, v) in &forwarded {
+      cmd.arg(format!("--{}", k));
+      if !v.is_empty() {
+        cmd.arg(v);
+      }
+    }
+
+    let outcome = cmd.output();
+    let payload = match outcome {
+      Ok(o) if o.status.success() => {
+        let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if stdout.is_empty() {
+          "null".to_string()
+        } else if stdout.starts_with('{') || stdout.starts_with('[') {
+          stdout
+        } else {
+          format!("{{ \"raw\": {} }}", json_quote(&stdout))
+        }
+      }
+      Ok(o) => {
+        let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        format!(
+          "{{ \"error\": {}, \"exit_code\": {} }}",
+          json_quote(&stderr),
+          o.status.code().unwrap_or(-1)
+        )
+      }
+      Err(e) => format!("{{ \"error\": {} }}", json_quote(&e.to_string())),
+    };
+
+    let comma = if idx + 1 < commands.len() { "," } else { "" };
+    out.push_str(&format!("    {}: {}{}\n", json_quote(name), payload, comma));
+  }
+
+  out.push_str("  }\n}");
+  out
+}
+
+fn json_quote(s: &str) -> String {
+  let mut out = String::with_capacity(s.len() + 2);
+  out.push('"');
+  for c in s.chars() {
+    match c {
+      '"' => out.push_str("\\\""),
+      '\\' => out.push_str("\\\\"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+      c => out.push(c),
+    }
+  }
+  out.push('"');
+  out
 }
 
 fn render_http_summary(http_records: &[crate::storage::records::HttpHeadersRecord]) {

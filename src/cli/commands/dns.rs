@@ -266,6 +266,67 @@ impl Command for DnsCommand {
   }
 }
 
+/// Subprocess-invoke `rb dns record lookup <domain> --type <T> -o json` and
+/// return the raw stdout (or a serialized error envelope) so describe bundles
+/// can aggregate per-type payloads into a single JSON document.
+fn capture_dns_lookup_json(ctx: &CliContext, domain: &str, record_type: &str) -> String {
+  use std::process::Command;
+  let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("rb"));
+  let mut cmd = Command::new(&exe);
+  cmd.args([
+    "dns",
+    "record",
+    "lookup",
+    domain,
+    "--type",
+    record_type,
+    "-o",
+    "json",
+  ]);
+  if let Some(server) = ctx.get_flag("server") {
+    cmd.args(["--server", &server]);
+  }
+  match cmd.output() {
+    Ok(o) if o.status.success() => {
+      let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
+      if stdout.is_empty() {
+        "null".to_string()
+      } else if stdout.starts_with('{') || stdout.starts_with('[') {
+        stdout
+      } else {
+        format!("{{\"raw\":{}}}", json_escape(&stdout))
+      }
+    }
+    Ok(o) => {
+      let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+      format!(
+        "{{\"error\":{},\"exit_code\":{}}}",
+        json_escape(&stderr),
+        o.status.code().unwrap_or(-1)
+      )
+    }
+    Err(e) => format!("{{\"error\":{}}}", json_escape(&e.to_string())),
+  }
+}
+
+fn json_escape(s: &str) -> String {
+  let mut out = String::with_capacity(s.len() + 2);
+  out.push('"');
+  for c in s.chars() {
+    match c {
+      '"' => out.push_str("\\\""),
+      '\\' => out.push_str("\\\\"),
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+      c => out.push(c),
+    }
+  }
+  out.push('"');
+  out
+}
+
 impl DnsCommand {
   fn lookup(&self, ctx: &CliContext) -> Result<(), String> {
     let domain = ctx.target.as_ref().ok_or(
@@ -1683,17 +1744,50 @@ impl DnsCommand {
       }
       mode @ (DescribeMode::Live | DescribeMode::LivePersist) => {
         let persist_hint = matches!(mode, DescribeMode::LivePersist);
-        Output::header(&format!(
-          "DNS Describe (live{}): {}",
-          if persist_hint { " + persist" } else { "" },
-          domain
-        ));
+        let json_mode = ctx
+          .get_flag("output")
+          .map(|v| v.eq_ignore_ascii_case("json"))
+          .unwrap_or(false);
         let mut sub_ctx = ctx.clone();
         sub_ctx.verb = Some("lookup".to_string());
         if !persist_hint {
           sub_ctx.flags.remove("persist");
           sub_ctx.flags.remove("save");
         }
+
+        if json_mode {
+          use crate::cli::commands::web::db::run_describe_subcommands_json;
+          let records: Vec<(&str, Vec<&str>)> = ["A", "AAAA", "MX", "NS", "TXT", "CNAME"]
+            .iter()
+            .map(|t| (*t, vec!["dns", "record", "lookup"]))
+            .collect();
+          let refs: Vec<(&str, &[&str])> =
+            records.iter().map(|(n, v)| (*n, v.as_slice())).collect();
+          // For DNS, each sub-invocation needs `--type <T>` to differ. Since
+          // our helper forwards one flag set, we invoke each type inline and
+          // aggregate manually.
+          let mut out = String::from("{\n");
+          out.push_str(&format!("  \"target\": \"{}\",\n", domain));
+          out.push_str("  \"records\": {\n");
+          for (idx, (name, _)) in refs.iter().enumerate() {
+            let mut type_ctx = sub_ctx.clone();
+            type_ctx
+              .flags
+              .insert("type".to_string(), (*name).to_string());
+            let payload = capture_dns_lookup_json(&type_ctx, domain, name);
+            let comma = if idx + 1 < refs.len() { "," } else { "" };
+            out.push_str(&format!("    \"{}\": {}{}\n", name, payload, comma));
+          }
+          out.push_str("  }\n}");
+          println!("{}", out);
+          return Ok(());
+        }
+
+        Output::header(&format!(
+          "DNS Describe (live{}): {}",
+          if persist_hint { " + persist" } else { "" },
+          domain
+        ));
         for record_type in ["A", "AAAA", "MX", "NS", "TXT", "CNAME"] {
           let mut type_ctx = sub_ctx.clone();
           type_ctx

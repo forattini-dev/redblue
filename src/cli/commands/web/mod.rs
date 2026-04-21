@@ -9,7 +9,7 @@ use crate::cli::{output::Output, validator::Validator, CliContext};
 
 mod analysis;
 mod cms;
-mod db;
+pub mod db;
 mod enumerators;
 mod fingerprint;
 mod har;

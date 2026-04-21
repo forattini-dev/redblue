@@ -1290,17 +1290,25 @@ impl TlsCommand {
       }
       mode @ (DescribeMode::Live | DescribeMode::LivePersist) => {
         let persist_hint = matches!(mode, DescribeMode::LivePersist);
-        Output::header(&format!(
-          "TLS Describe (live{}): {}",
-          if persist_hint { " + persist" } else { "" },
-          host
-        ));
+        let json_mode = ctx
+          .get_flag("output")
+          .map(|v| v.eq_ignore_ascii_case("json"))
+          .unwrap_or(false);
         let mut sub_ctx = ctx.clone();
         sub_ctx.verb = Some("audit".to_string());
         if !persist_hint {
           sub_ctx.flags.remove("persist");
           sub_ctx.flags.remove("save");
         }
+        if !json_mode {
+          Output::header(&format!(
+            "TLS Describe (live{}): {}",
+            if persist_hint { " + persist" } else { "" },
+            host
+          ));
+        }
+        // audit already honors -o json on its own, so delegating preserves the
+        // JSON envelope when json_mode is true.
         return self.audit(&sub_ctx);
       }
       DescribeMode::FromDb => {

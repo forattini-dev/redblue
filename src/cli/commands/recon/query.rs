@@ -222,21 +222,39 @@ fn describe_domain_from_db(_ctx: &CliContext, domain: &str) -> Result<(), String
 fn describe_domain_live(ctx: &CliContext, domain: &str, mode: &DescribeMode) -> Result<(), String> {
   use crate::cli::commands::dns::DnsCommand;
   use crate::cli::commands::recon::whois;
+  use crate::cli::commands::web::db::run_describe_subcommands_json;
   use crate::cli::commands::Command;
 
   let persist_hint = matches!(mode, DescribeMode::LivePersist);
-
-  Output::header(&format!(
-    "Describe Domain (live{}): {}",
-    if persist_hint { " + persist" } else { "" },
-    domain
-  ));
+  let json_mode = ctx
+    .get_flag("output")
+    .map(|v| v.eq_ignore_ascii_case("json"))
+    .unwrap_or(false);
 
   let mut sub_ctx = ctx.clone();
   if !persist_hint {
     sub_ctx.flags.remove("persist");
     sub_ctx.flags.remove("save");
   }
+
+  if json_mode {
+    let aggregate = run_describe_subcommands_json(
+      domain,
+      &[
+        ("whois", &["recon", "domain", "whois"]),
+        ("dns", &["dns", "record", "lookup"]),
+      ],
+      &sub_ctx,
+    );
+    println!("{}", aggregate);
+    return Ok(());
+  }
+
+  Output::header(&format!(
+    "Describe Domain (live{}): {}",
+    if persist_hint { " + persist" } else { "" },
+    domain
+  ));
 
   println!();
   println!("─── WHOIS ───");
