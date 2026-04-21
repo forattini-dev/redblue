@@ -41,11 +41,19 @@ impl WhoisClient {
       .write_all(query.as_bytes())
       .map_err(|e| format!("Failed to send query: {}", e))?;
 
-    // Read response
-    let mut response = String::new();
+    // Read response as bytes, then decode lossily.
+    //
+    // Several registrars (registro.br, denic.de, tcinet.ru, older IANA mirrors)
+    // ship non-UTF-8 payloads — usually latin1/cp1252 accented characters in
+    // registrant names or address fields. Using `read_to_string` here failed
+    // with "stream did not contain valid UTF-8" and aborted the whole lookup.
+    // Switch to raw bytes + from_utf8_lossy so we replace the bad bytes with
+    // U+FFFD instead of dropping the whole response.
+    let mut raw = Vec::new();
     stream
-      .read_to_string(&mut response)
+      .read_to_end(&mut raw)
       .map_err(|e| format!("Failed to read response: {}", e))?;
+    let response = String::from_utf8_lossy(&raw).into_owned();
 
     Ok(Self::parse_response(&response))
   }
