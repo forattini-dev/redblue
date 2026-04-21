@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "redblue"
-version = "0.2.22"
+version = "0.2.23"
 dependencies = [
  "boring",
  "hex",
