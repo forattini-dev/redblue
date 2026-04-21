@@ -223,13 +223,23 @@ pub(crate) fn run_describe_subcommands_json(
   // Per-slot timeout. Consumers (SDK runJson / tinyseo wrapper) impose
   // their own outer timeout; without a per-slot cap one stuck subprocess
   // (e.g. a 3-minute fingerprint against a heavy target) would blow the
-  // whole envelope. Override with --timeout on the describe call itself.
-  let slot_timeout = Duration::from_secs(
-    ctx
-      .get_flag("timeout")
-      .and_then(|s| s.parse::<u64>().ok())
-      .unwrap_or(30),
-  );
+  // whole envelope. Override priority: --slot-timeout flag >
+  // REDBLUE_DESCRIBE_SLOT_TIMEOUT env var > --timeout flag > 120s default.
+  //
+  // 120s is conservative but covers heavy Cloudflare-behind targets
+  // (stone.com.br scanned at ~60-90s for fingerprint alone). Consumers
+  // that want stricter caps can pass --slot-timeout 30.
+  let slot_timeout_secs = ctx
+    .get_flag("slot-timeout")
+    .and_then(|s| s.parse::<u64>().ok())
+    .or_else(|| {
+      std::env::var("REDBLUE_DESCRIBE_SLOT_TIMEOUT")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+    })
+    .or_else(|| ctx.get_flag("timeout").and_then(|s| s.parse::<u64>().ok()))
+    .unwrap_or(120);
+  let slot_timeout = Duration::from_secs(slot_timeout_secs);
 
   // Spawn all sub-commands concurrently and collect results.
   let results: Arc<Mutex<Vec<(usize, String, String)>>> = Arc::new(Mutex::new(Vec::new()));

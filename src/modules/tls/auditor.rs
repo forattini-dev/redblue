@@ -236,6 +236,28 @@ impl TlsAuditor {
       if let Ok(chain) = tls_client.get_certificate_chain(host, port) {
         result.certificate_valid = validate_certificate_chain(&chain, &mut result.vulnerabilities);
         result.certificate_chain = chain;
+        // The tls_cert fallback succeeded: that implies at least one TLS
+        // version handshake worked even though our scanner's per-version
+        // probes failed (common against anti-bot Cloudflare peers that
+        // accept modern TLS but reject probe-shaped ClientHellos). Flip
+        // the "supported" flag for the likely-working version so consumers
+        // see truthful data and top-level `protocol` is populated.
+        if result.negotiated_version.is_none() {
+          let hint_version = "TLS 1.2".to_string();
+          if let Some(v) = result
+            .supported_versions
+            .iter_mut()
+            .find(|v| v.version == hint_version)
+          {
+            v.supported = true;
+            if v.error.is_none() {
+              v.error = Some(
+                "marked supported via cert-chain fallback (handshake probes blocked)".to_string(),
+              );
+            }
+          }
+          result.negotiated_version = Some(hint_version);
+        }
       }
     }
 

@@ -297,6 +297,10 @@ impl Command for WebCommand {
         "describe/get: ingest a pre-collected payload (path or '-' for stdin)",
       ),
       Flag::new(
+        "slot-timeout",
+        "describe: per sub-command timeout in seconds (default 120; override via REDBLUE_DESCRIBE_SLOT_TIMEOUT env)",
+      ),
+      Flag::new(
         "db",
         "Database file path for RESTful queries (default: auto-detect)",
       )
