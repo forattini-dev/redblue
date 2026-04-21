@@ -5,7 +5,9 @@ const path = require('node:path');
 const { ensureInstalled } = require('./redblue-sdk');
 
 const SKIP_TOKEN = '1';
-const targetDir = path.join(__dirname, '.redblue', 'bin');
+// Target the package root's .redblue/bin/ so the sdk resolver
+// (path.resolve(__dirname, '..', '.redblue', 'bin', ...)) finds it.
+const targetDir = path.join(__dirname, '..', '.redblue', 'bin');
 const shouldSkip = process.env.REDBLUE_SKIP_POSTINSTALL === SKIP_TOKEN;
 const verify = process.env.REDBLUE_POSTINSTALL_NO_VERIFY !== SKIP_TOKEN;
 const channel = process.env.REDBLUE_POSTINSTALL_CHANNEL;
