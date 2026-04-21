@@ -246,6 +246,25 @@ impl TlsAuditor {
     result.peer_fingerprints = handshake_fingerprints;
     result.certificate_chain_pem = handshake_pem;
 
+    // The TLS 1.2-specific branch above only populates `negotiated_version`
+    // when the TLS 1.2 handshake succeeds. On peers that speak only TLS 1.3
+    // (google, modern Cloudflare, etc.) we would leave `negotiated_version`
+    // as None, which shows up as `undefined` in consumer payloads.
+    // Fall back to the highest version the scanner reported as supported.
+    if result.negotiated_version.is_none() {
+      const VERSION_RANK: &[&str] = &["TLS 1.3", "TLS 1.2", "TLS 1.1", "TLS 1.0", "SSLv3", "SSLv2"];
+      for candidate in VERSION_RANK {
+        if result
+          .supported_versions
+          .iter()
+          .any(|v| v.supported && v.version == *candidate)
+        {
+          result.negotiated_version = Some((*candidate).to_string());
+          break;
+        }
+      }
+    }
+
     Ok(result)
   }
 

@@ -941,11 +941,57 @@ impl TlsCommand {
       })
       .collect();
 
+    // Top-level convenience fields for consumers that don't want to walk
+    // the nested structure. `protocol` mirrors handshake.negotiated_version,
+    // `issuer` is the leaf certificate's issuer, `grade` is a coarse
+    // bucket derived from vulnerability severity so the caller has a single
+    // scalar it can check without reimplementing Mozilla's grading rules.
+    let leaf_issuer = result
+      .certificate_chain
+      .first()
+      .map(|cert| cert.issuer.clone());
+    let leaf_subject = result
+      .certificate_chain
+      .first()
+      .map(|cert| cert.subject.clone());
+    let valid_until = result
+      .certificate_chain
+      .first()
+      .map(|cert| cert.valid_until.clone());
+    let has_critical = result
+      .vulnerabilities
+      .iter()
+      .any(|v| matches!(v.severity, crate::modules::common::Severity::Critical));
+    let has_high = result
+      .vulnerabilities
+      .iter()
+      .any(|v| matches!(v.severity, crate::modules::common::Severity::High));
+    let has_medium = result
+      .vulnerabilities
+      .iter()
+      .any(|v| matches!(v.severity, crate::modules::common::Severity::Medium));
+    let grade = if has_critical {
+      "F"
+    } else if has_high {
+      "C"
+    } else if has_medium {
+      "B"
+    } else {
+      "A"
+    };
+
     json!({
         "target": json!({
             "host": host,
             "port": port
         }),
+        "protocol": result.negotiated_version.clone(),
+        "cipher": result.negotiated_cipher.clone(),
+        "issuer": leaf_issuer,
+        "subject": leaf_subject,
+        "valid_until": valid_until,
+        "grade": grade,
+        "certificate_valid": result.certificate_valid,
         "handshake": json!({
             "negotiated_version": result.negotiated_version.clone(),
             "negotiated_cipher": result.negotiated_cipher.clone(),
