@@ -251,9 +251,20 @@ pub(crate) fn run_describe_subcommands_json(
         }
       }
       Ok(o) => {
+        // Sub-command failed: carry BOTH stdout and stderr into the envelope.
+        // Many commands print "✗ error..." to stdout, not stderr, so only
+        // reporting stderr would give consumers an empty error field.
+        let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
         let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        let message = if !stderr.is_empty() {
+          stderr.clone()
+        } else {
+          stdout.clone()
+        };
         format!(
-          "{{ \"error\": {}, \"exit_code\": {} }}",
+          "{{ \"error\": {}, \"stdout\": {}, \"stderr\": {}, \"exit_code\": {} }}",
+          json_quote(&message),
+          json_quote(&stdout),
           json_quote(&stderr),
           o.status.code().unwrap_or(-1)
         )
