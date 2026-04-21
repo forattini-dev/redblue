@@ -925,10 +925,30 @@ impl HttpDispatcher {
       keep_alive_requested,
     )?;
 
-    let response = HttpResponse::from_bytes(&read_outcome.buffer).map_err(|e| HttpSendError {
-      message: e,
-      ttfb: Some(read_outcome.ttfb),
-    })?;
+    let response = match HttpResponse::from_bytes(&read_outcome.buffer) {
+      Ok(r) => r,
+      Err(parse_err) => {
+        // Detect HTTP/2 frames (server picked h2 via ALPN or its own defaults)
+        // and transparently retry over a native HTTP/2 connection. Only
+        // attempts the fallback when the peer actually looks like h2.
+        if use_tls && looks_like_h2_frame(&read_outcome.buffer) {
+          match dispatch_via_http2(request, headers_timeout, body_timeout) {
+            Ok(h2_response) => h2_response,
+            Err(h2_err) => {
+              return Err(HttpSendError {
+                message: format!("{} | HTTP/2 fallback also failed: {}", parse_err, h2_err),
+                ttfb: Some(read_outcome.ttfb),
+              });
+            }
+          }
+        } else {
+          return Err(HttpSendError {
+            message: parse_err,
+            ttfb: Some(read_outcome.ttfb),
+          });
+        }
+      }
+    };
 
     if keep_alive_requested && read_outcome.reusable && response.status_code < 400 {
       self.pool.return_connection(
@@ -1436,6 +1456,115 @@ impl Default for HttpClient {
   fn default() -> Self {
     Self::new()
   }
+}
+
+/// Returns true when the buffered bytes resemble an HTTP/2 frame
+/// (leading `00 00` length prefix or the "PRI * HTTP/2.0" preface that
+/// some servers echo back). Used to decide if the H1 parse failure is
+/// actually a protocol mismatch vs. garbage / truncation.
+fn looks_like_h2_frame(buf: &[u8]) -> bool {
+  buf.starts_with(&[0x00, 0x00]) || buf.starts_with(b"PRI * HTTP/2.0")
+}
+
+/// Buffering handler that collects an entire HTTP/2 response so we can
+/// return it via the HTTP/1.1-shaped `HttpResponse` type.
+struct BufferingH2Handler {
+  head: Option<crate::protocols::http2::Http2ResponseHead>,
+  body: Vec<u8>,
+}
+
+impl BufferingH2Handler {
+  fn new() -> Self {
+    Self {
+      head: None,
+      body: Vec::new(),
+    }
+  }
+}
+
+impl crate::protocols::http2::Http2ResponseHandler for BufferingH2Handler {
+  fn on_head(&mut self, head: &crate::protocols::http2::Http2ResponseHead) -> Result<(), String> {
+    self.head = Some(head.clone());
+    Ok(())
+  }
+
+  fn on_data(&mut self, chunk: &[u8]) -> Result<(), String> {
+    self.body.extend_from_slice(chunk);
+    Ok(())
+  }
+}
+
+/// Run the request over a native HTTP/2 client and convert the response
+/// back into the HTTP/1.1-shaped `HttpResponse` that the rest of the
+/// client expects. Only invoked as a fallback when the H1 parser fails
+/// on what looks like H2 frames.
+fn dispatch_via_http2(
+  request: &HttpRequest,
+  _headers_timeout: Option<Duration>,
+  _body_timeout: Option<Duration>,
+) -> Result<HttpResponse, String> {
+  use crate::protocols::http2::{Http2Client, Http2Request};
+
+  let host = request.host().to_string();
+  let port = request.port();
+
+  let mut client =
+    Http2Client::connect(&host, port).map_err(|e| format!("HTTP/2 connect failed: {}", e))?;
+
+  let h2_request = Http2Request::new(&request.method, &request.full_url())
+    .map_err(|e| format!("HTTP/2 request build failed: {}", e))?;
+
+  let mut headers: Vec<crate::protocols::http2::Header> = Vec::new();
+  for (k, v) in &request.headers {
+    // Skip connection-level headers that don't belong in HTTP/2.
+    let lower = k.to_ascii_lowercase();
+    if matches!(
+      lower.as_str(),
+      "connection" | "keep-alive" | "proxy-connection" | "transfer-encoding" | "upgrade" | "host"
+    ) {
+      continue;
+    }
+    headers.push(crate::protocols::http2::Header::new(&lower, v));
+  }
+  let h2_request = h2_request.with_headers(headers);
+  let h2_request = if request.body.is_empty() {
+    h2_request
+  } else {
+    h2_request.with_body(Some(request.body.clone()))
+  };
+
+  let mut handler = BufferingH2Handler::new();
+  client
+    .send_request_with_handler(
+      &h2_request.method,
+      &h2_request.path,
+      &h2_request.authority,
+      h2_request.headers.clone(),
+      h2_request.body.clone(),
+      &mut handler,
+    )
+    .map_err(|e| format!("HTTP/2 request failed: {}", e))?;
+
+  let head = handler
+    .head
+    .ok_or_else(|| "HTTP/2 response had no headers".to_string())?;
+
+  let mut response_headers: std::collections::HashMap<String, String> =
+    std::collections::HashMap::new();
+  for h in &head.headers {
+    if h.name.starts_with(':') {
+      continue; // Pseudo-headers (already reflected in status)
+    }
+    response_headers.insert(h.name.clone(), h.value.clone());
+  }
+
+  Ok(HttpResponse {
+    status_code: head.status,
+    status_text: String::new(),
+    headers: response_headers,
+    body: handler.body,
+    version: "HTTP/2".to_string(),
+  })
 }
 
 fn read_response_with_ttfb(
