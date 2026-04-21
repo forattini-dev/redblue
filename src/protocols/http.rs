@@ -919,21 +919,40 @@ impl HttpDispatcher {
       .flush()
       .map_err(|e| HttpSendError::from(format!("Failed to flush request: {}", e)))?;
 
-    let read_outcome = read_response_with_ttfb(
+    let read_outcome = match read_response_with_ttfb(
       &mut stream,
       start,
       headers_timeout,
       body_timeout,
       max_response_bytes,
       keep_alive_requested,
-    )?;
+    ) {
+      Ok(r) => r,
+      Err(err) if use_tls && err.message.starts_with("H2_FRAME_DETECTED:") => {
+        // Peer spoke HTTP/2 frames — re-dispatch over native HTTP/2.
+        match dispatch_via_http2(request, headers_timeout, body_timeout) {
+          Ok(h2_response) => {
+            return Ok(HttpDispatchResult {
+              response: h2_response,
+              metrics: HttpDispatchMetrics {
+                ttfb: err.ttfb.unwrap_or_default(),
+              },
+            });
+          }
+          Err(h2_err) => {
+            return Err(HttpSendError {
+              message: format!("HTTP/2 fallback failed: {}", h2_err),
+              ttfb: err.ttfb,
+            });
+          }
+        }
+      }
+      Err(err) => return Err(err),
+    };
 
     let response = match HttpResponse::from_bytes(&read_outcome.buffer) {
       Ok(r) => r,
       Err(parse_err) => {
-        // Detect HTTP/2 frames (server picked h2 via ALPN or its own defaults)
-        // and transparently retry over a native HTTP/2 connection. Only
-        // attempts the fallback when the peer actually looks like h2.
         if use_tls && looks_like_h2_frame(&read_outcome.buffer) {
           match dispatch_via_http2(request, headers_timeout, body_timeout) {
             Ok(h2_response) => h2_response,
@@ -1424,22 +1443,23 @@ fn read_response_with_ttfb(
         .join(" ");
       let looks_like_h2 =
         preview.starts_with(&[0x00, 0x00]) || preview.starts_with(b"PRI * HTTP/2.0");
-      let hint = if looks_like_h2 {
-        " Bytes look like an HTTP/2 frame — the peer likely negotiated h2 via ALPN. \
-         HTTP/2 fallback is not yet implemented in this client; retry with an \
-         HTTP/1.1-only target or use `rb tls security audit` to confirm ALPN."
-      } else {
-        " The server may have closed early or emitted a non-HTTP payload."
-      };
+      if looks_like_h2 {
+        // Sentinel error the caller (dispatch_once) detects to dispatch over
+        // native HTTP/2 instead of reporting a parse failure to the user.
+        return Err(HttpSendError {
+          message: "H2_FRAME_DETECTED: peer negotiated HTTP/2; fall back required".to_string(),
+          ttfb,
+        });
+      }
       return Err(HttpSendError {
         message: format!(
           "Malformed HTTP response: no CRLF CRLF header delimiter in {} bytes. \
-           First {} bytes (hex): {} | ascii: {:?}.{}",
+           First {} bytes (hex): {} | ascii: {:?}. The server may have closed \
+           early or emitted a non-HTTP payload.",
           buffer.len(),
           preview_len,
           hex,
-          printable,
-          hint
+          printable
         ),
         ttfb,
       });
