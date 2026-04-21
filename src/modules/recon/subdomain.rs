@@ -109,13 +109,18 @@ impl SubdomainEnumerator {
     self
   }
 
+  /// Expose the detected wildcard IP pool for payload annotation.
+  pub fn wildcard_pool(&self) -> Vec<String> {
+    let mut pool: Vec<String> = self.wildcard_ips.iter().cloned().collect();
+    pool.sort();
+    pool
+  }
+
   /// Detect wildcard IPs by probing random non-existent subdomains.
   /// This needs to be called before actual enumeration if filtering is desired.
   pub fn detect_wildcard_ips(&mut self) {
-    if !self.filter_wildcards {
-      return;
-    }
-
+    // Always probe — the pool must be exposed in the payload regardless of
+    // whether we filter. Filtering is gated separately on `filter_wildcards`.
     let resolver_addr = config::get().network.dns_resolver.clone();
     let client = DnsClient::new(&resolver_addr).with_timeout(self.timeout_ms);
 
@@ -145,7 +150,7 @@ impl SubdomainEnumerator {
 
   /// Filters a list of SubdomainResults, removing those that resolve to known wildcard IPs.
   fn filter_wildcard_results(&self, results: Vec<SubdomainResult>) -> Vec<SubdomainResult> {
-    if self.wildcard_ips.is_empty() {
+    if !self.filter_wildcards || self.wildcard_ips.is_empty() {
       return results;
     }
 
@@ -156,6 +161,15 @@ impl SubdomainEnumerator {
         res.ips.is_empty() || !res.ips.iter().any(|ip| self.wildcard_ips.contains(ip))
       })
       .collect()
+  }
+
+  /// Returns whether a single SubdomainResult sits entirely in the wildcard pool.
+  /// Used for per-entry annotation in the payload even when filtering is off.
+  pub fn is_wildcard_hit(&self, result: &SubdomainResult) -> bool {
+    if self.wildcard_ips.is_empty() || result.ips.is_empty() {
+      return false;
+    }
+    result.ips.iter().all(|ip| self.wildcard_ips.contains(ip))
   }
 
   /// Run all enumeration methods with recursive queue-based discovery

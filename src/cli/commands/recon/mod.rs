@@ -233,7 +233,11 @@ impl Command for ReconCommand {
       Flag::new("delay", "Delay between queries in ms for rate limiting").with_default("10"),
       Flag::new(
         "filter-wildcards",
-        "Enable wildcard detection and filtering (for subdomains command)",
+        "Force wildcard filtering on (subdomains). Default already filters — use --include-wildcards to disable.",
+      ),
+      Flag::new(
+        "include-wildcards",
+        "Return every subdomain hit including those inside the wildcard pool. Each entry gets a wildcard_suspect marker.",
       ),
       Flag::new(
         "resolve",

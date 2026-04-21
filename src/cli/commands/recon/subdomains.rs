@@ -44,8 +44,13 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     enumerator = enumerator.with_wordlist(wordlist);
   }
 
-  // Apply wildcard filtering flag
-  let filter_wildcards = ctx.has_flag("filter-wildcards");
+  // Wildcard policy: default = filter (reject hits inside the wildcard pool).
+  // Opt out with --include-wildcards (returns every hit, each marked with
+  // wildcard_suspect: true/false). Legacy --filter-wildcards flag is kept as
+  // an explicit opt-in alias that forces filtering on.
+  let include_wildcards = ctx.has_flag("include-wildcards");
+  let legacy_filter_request = ctx.has_flag("filter-wildcards");
+  let filter_wildcards = legacy_filter_request || !include_wildcards;
   enumerator = enumerator.with_wildcard_filtering(filter_wildcards);
 
   let passive_only = ctx.has_flag("passive");
@@ -75,6 +80,22 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     results.clone()
   };
 
+  // Wildcard metadata for the payload. `detect_wildcard_ips` ran inside the
+  // enumeration step; we now publish the pool + how many hits sat inside it.
+  let wildcard_pool = enumerator.wildcard_pool();
+  let wildcard_detected = !wildcard_pool.is_empty();
+  let wildcard_rejected_count = results
+    .iter()
+    .filter(|r| enumerator.is_wildcard_hit(r))
+    .count();
+  let verification_method = if passive_only {
+    "passive"
+  } else if validate_dns {
+    "dns-brute+resolve"
+  } else {
+    "dns-brute"
+  };
+
   let persisted_to = persist_subdomain_results(
     ctx,
     domain,
@@ -91,6 +112,12 @@ pub fn subdomains(ctx: &CliContext) -> Result<(), String> {
     passive_only,
     validate_dns,
     persisted_to.as_deref(),
+    wildcard_detected,
+    &wildcard_pool,
+    wildcard_rejected_count,
+    filter_wildcards,
+    verification_method,
+    &enumerator,
   );
   if render::render_machine_output_with_yaml(ctx, "rb recon domain subdomains", &payload, || {
     println!("domain: {}", domain);
@@ -283,6 +310,7 @@ fn partition_confirmed_candidates(
   (confirmed_results.to_vec(), candidates)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_subdomains_payload(
   domain: &str,
   display_results: &[SubdomainResult],
@@ -291,14 +319,46 @@ fn build_subdomains_payload(
   passive_only: bool,
   validate_dns: bool,
   persisted_to: Option<&str>,
+  wildcard_detected: bool,
+  wildcard_pool: &[String],
+  wildcard_rejected_count: usize,
+  wildcard_filter_active: bool,
+  verification_method: &str,
+  enumerator: &SubdomainEnumerator,
 ) -> Value {
   let json = JsonValue::object(vec![
+    ("schema_version".to_string(), JsonValue::Number(2.0)),
     ("domain".to_string(), JsonValue::String(domain.to_string())),
     (
       "mode".to_string(),
       JsonValue::String(if passive_only { "passive" } else { "hybrid" }.to_string()),
     ),
     ("validated".to_string(), JsonValue::Bool(validate_dns)),
+    (
+      "verification_method".to_string(),
+      JsonValue::String(verification_method.to_string()),
+    ),
+    (
+      "wildcard_detected".to_string(),
+      JsonValue::Bool(wildcard_detected),
+    ),
+    (
+      "wildcard_pool".to_string(),
+      JsonValue::array(
+        wildcard_pool
+          .iter()
+          .map(|ip| JsonValue::String(ip.clone()))
+          .collect(),
+      ),
+    ),
+    (
+      "wildcard_rejected_count".to_string(),
+      JsonValue::Number(wildcard_rejected_count as f64),
+    ),
+    (
+      "wildcard_filter_active".to_string(),
+      JsonValue::Bool(wildcard_filter_active),
+    ),
     (
       "total".to_string(),
       JsonValue::Number(display_results.len() as f64),
@@ -329,15 +389,21 @@ fn build_subdomains_payload(
     ),
     (
       "entries".to_string(),
-      JsonValue::array(subdomain_entries(display_results)),
+      JsonValue::array(subdomain_entries_with_wildcard(display_results, enumerator)),
     ),
     (
       "confirmed_entries".to_string(),
-      JsonValue::array(subdomain_entries(confirmed_results)),
+      JsonValue::array(subdomain_entries_with_wildcard(
+        confirmed_results,
+        enumerator,
+      )),
     ),
     (
       "candidate_entries".to_string(),
-      JsonValue::array(subdomain_entries(candidate_results)),
+      JsonValue::array(subdomain_entries_with_wildcard(
+        candidate_results,
+        enumerator,
+      )),
     ),
     (
       "persisted_to".to_string(),
@@ -350,6 +416,23 @@ fn build_subdomains_payload(
   Value::from(json)
 }
 
+fn subdomain_entries_with_wildcard(
+  results: &[SubdomainResult],
+  enumerator: &SubdomainEnumerator,
+) -> Vec<JsonValue> {
+  results
+    .iter()
+    .map(|r| {
+      let mut entry = subdomain_entry_fields(r);
+      entry.push((
+        "wildcard_suspect".to_string(),
+        JsonValue::Bool(enumerator.is_wildcard_hit(r)),
+      ));
+      JsonValue::object(entry)
+    })
+    .collect()
+}
+
 fn subdomain_names(results: &[SubdomainResult]) -> Vec<JsonValue> {
   results
     .iter()
@@ -357,45 +440,48 @@ fn subdomain_names(results: &[SubdomainResult]) -> Vec<JsonValue> {
     .collect()
 }
 
+fn subdomain_entry_fields(result: &SubdomainResult) -> Vec<(String, JsonValue)> {
+  vec![
+    (
+      "subdomain".to_string(),
+      JsonValue::String(result.subdomain.clone()),
+    ),
+    (
+      "ips".to_string(),
+      JsonValue::array(
+        result
+          .ips
+          .iter()
+          .map(|ip| JsonValue::String(ip.clone()))
+          .collect(),
+      ),
+    ),
+    (
+      "cname_chain".to_string(),
+      JsonValue::array(
+        result
+          .cname_chain
+          .iter()
+          .map(|cname| JsonValue::String(cname.clone()))
+          .collect(),
+      ),
+    ),
+    (
+      "source".to_string(),
+      JsonValue::String(render_source_label(&result.source)),
+    ),
+    (
+      "resolved".to_string(),
+      JsonValue::Bool(!result.ips.is_empty()),
+    ),
+  ]
+}
+
+#[allow(dead_code)]
 fn subdomain_entries(results: &[SubdomainResult]) -> Vec<JsonValue> {
   results
     .iter()
-    .map(|result| {
-      JsonValue::object(vec![
-        (
-          "subdomain".to_string(),
-          JsonValue::String(result.subdomain.clone()),
-        ),
-        (
-          "ips".to_string(),
-          JsonValue::array(
-            result
-              .ips
-              .iter()
-              .map(|ip| JsonValue::String(ip.clone()))
-              .collect(),
-          ),
-        ),
-        (
-          "cname_chain".to_string(),
-          JsonValue::array(
-            result
-              .cname_chain
-              .iter()
-              .map(|cname| JsonValue::String(cname.clone()))
-              .collect(),
-          ),
-        ),
-        (
-          "source".to_string(),
-          JsonValue::String(render_source_label(&result.source)),
-        ),
-        (
-          "resolved".to_string(),
-          JsonValue::Bool(!result.ips.is_empty()),
-        ),
-      ])
-    })
+    .map(|r| JsonValue::object(subdomain_entry_fields(r)))
     .collect()
 }
 
@@ -448,6 +534,7 @@ mod tests {
       EnumerationSource::HackerTarget,
     )];
 
+    let enumerator = SubdomainEnumerator::new("example.com");
     let rendered = build_subdomains_payload(
       "example.com",
       &display,
@@ -456,12 +543,27 @@ mod tests {
       false,
       true,
       Some("/tmp/example.rdb"),
+      false,
+      &[],
+      0,
+      true,
+      "dns-brute+resolve",
+      &enumerator,
     )
     .to_string_pretty();
     let parsed = crate::serde_json::from_str::<Value>(&rendered).unwrap();
 
+    assert_eq!(parsed["schema_version"].as_i64(), Some(2));
     assert_eq!(parsed["domain"].as_str(), Some("example.com"));
     assert_eq!(parsed["validated"].as_bool(), Some(true));
+    assert_eq!(
+      parsed["verification_method"].as_str(),
+      Some("dns-brute+resolve")
+    );
+    assert_eq!(parsed["wildcard_detected"].as_bool(), Some(false));
+    assert_eq!(parsed["wildcard_pool"].as_array().unwrap().len(), 0);
+    assert_eq!(parsed["wildcard_rejected_count"].as_i64(), Some(0));
+    assert_eq!(parsed["wildcard_filter_active"].as_bool(), Some(true));
     assert_eq!(parsed["total"].as_i64(), Some(1));
     assert_eq!(parsed["confirmed_total"].as_i64(), Some(1));
     assert_eq!(parsed["candidate_total"].as_i64(), Some(1));
@@ -477,6 +579,7 @@ mod tests {
     let entries = parsed["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["resolved"].as_bool(), Some(true));
+    assert_eq!(entries[0]["wildcard_suspect"].as_bool(), Some(false));
   }
 }
 
