@@ -1009,14 +1009,30 @@ impl HttpDispatcher {
       .flush()
       .map_err(|e| HttpSendError::from(format!("Failed to flush request: {}", e)))?;
 
-    let (head, metrics, allow_reuse) = read_response_streaming(
+    let (head, metrics, allow_reuse) = match read_response_streaming(
       &mut stream,
       start,
       headers_timeout,
       body_timeout,
       max_response_bytes,
       handler,
-    )?;
+    ) {
+      Ok(r) => r,
+      Err(err) if use_tls && err.message.starts_with("H2_FRAME_DETECTED:") => {
+        // Connection was consumed by read_response_streaming; it's no longer
+        // usable. Switch to a fresh native HTTP/2 dispatch.
+        match dispatch_via_http2_with_handler(request, handler) {
+          Ok((h2_head, h2_metrics)) => (h2_head, h2_metrics, false),
+          Err(h2_err) => {
+            return Err(HttpSendError {
+              message: format!("{} | HTTP/2 fallback also failed: {}", err.message, h2_err),
+              ttfb: err.ttfb,
+            });
+          }
+        }
+      }
+      Err(err) => return Err(err),
+    };
 
     if keep_alive_requested && allow_reuse && head.status_code < 400 {
       self.pool.return_connection(
@@ -1140,6 +1156,137 @@ fn dispatch_via_http2(
     body: handler.body,
     version: "HTTP/2".to_string(),
   })
+}
+
+/// Adapter that forwards HTTP/2 response events to an HttpResponseHandler
+/// so the streaming dispatch can transparently consume H2 responses.
+struct StreamingH2Adapter<'a, H: HttpResponseHandler> {
+  head_forwarded: bool,
+  head: Option<crate::protocols::http2::Http2ResponseHead>,
+  handler: &'a mut H,
+  start: Instant,
+  ttfb: Option<Duration>,
+}
+
+impl<'a, H: HttpResponseHandler> StreamingH2Adapter<'a, H> {
+  fn new(handler: &'a mut H, start: Instant) -> Self {
+    Self {
+      head_forwarded: false,
+      head: None,
+      handler,
+      start,
+      ttfb: None,
+    }
+  }
+}
+
+impl<'a, H: HttpResponseHandler> crate::protocols::http2::Http2ResponseHandler
+  for StreamingH2Adapter<'a, H>
+{
+  fn on_head(&mut self, head: &crate::protocols::http2::Http2ResponseHead) -> Result<(), String> {
+    if self.ttfb.is_none() {
+      self.ttfb = Some(self.start.elapsed());
+    }
+    self.head = Some(head.clone());
+    // Translate the H2 head into the HTTP/1.1-shaped HttpResponseHead that
+    // the streaming handler expects.
+    let mut h1_headers: std::collections::HashMap<String, String> =
+      std::collections::HashMap::new();
+    for h in &head.headers {
+      if h.name.starts_with(':') {
+        continue;
+      }
+      h1_headers.insert(h.name.clone(), h.value.clone());
+    }
+    let h1_head = HttpResponseHead {
+      version: "HTTP/2".to_string(),
+      status_code: head.status,
+      status_text: String::new(),
+      headers: h1_headers,
+    };
+    self.handler.on_head(&h1_head)?;
+    self.head_forwarded = true;
+    Ok(())
+  }
+
+  fn on_data(&mut self, chunk: &[u8]) -> Result<(), String> {
+    self.handler.on_chunk(chunk)
+  }
+
+  fn on_complete(&mut self) -> Result<(), String> {
+    self.handler.on_complete()
+  }
+}
+
+/// Same as dispatch_via_http2 but feeds head + chunks to the caller's
+/// HttpResponseHandler instead of buffering the whole response. Used by
+/// dispatch_once_with_handler's H2 fallback so streaming collectors
+/// (`web asset headers`, `security`, `fingerprint`) keep working against
+/// H2-only peers.
+fn dispatch_via_http2_with_handler<H: HttpResponseHandler>(
+  request: &HttpRequest,
+  handler: &mut H,
+) -> Result<(HttpResponseHead, HttpDispatchMetrics), String> {
+  use crate::protocols::http2::{Http2Client, Http2Request};
+
+  let host = request.host().to_string();
+  let port = request.port();
+
+  let mut client =
+    Http2Client::connect(&host, port).map_err(|e| format!("HTTP/2 connect failed: {}", e))?;
+
+  let h2_request = Http2Request::new(&request.method, &request.full_url())
+    .map_err(|e| format!("HTTP/2 request build failed: {}", e))?;
+
+  let mut h2_headers: Vec<crate::protocols::http2::Header> = Vec::new();
+  for (k, v) in &request.headers {
+    let lower = k.to_ascii_lowercase();
+    if matches!(
+      lower.as_str(),
+      "connection" | "keep-alive" | "proxy-connection" | "transfer-encoding" | "upgrade" | "host"
+    ) {
+      continue;
+    }
+    h2_headers.push(crate::protocols::http2::Header::new(&lower, v));
+  }
+  let h2_request = h2_request.with_headers(h2_headers);
+  let h2_request = if request.body.is_empty() {
+    h2_request
+  } else {
+    h2_request.with_body(Some(request.body.clone()))
+  };
+
+  let start = Instant::now();
+  let mut adapter = StreamingH2Adapter::new(handler, start);
+  client
+    .send_request_with_handler(
+      &h2_request.method,
+      &h2_request.path,
+      &h2_request.authority,
+      h2_request.headers.clone(),
+      h2_request.body.clone(),
+      &mut adapter,
+    )
+    .map_err(|e| format!("HTTP/2 request failed: {}", e))?;
+
+  let head = adapter
+    .head
+    .ok_or_else(|| "HTTP/2 response had no headers".to_string())?;
+  let mut h1_headers: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+  for h in &head.headers {
+    if h.name.starts_with(':') {
+      continue;
+    }
+    h1_headers.insert(h.name.clone(), h.value.clone());
+  }
+  let h1_head = HttpResponseHead {
+    version: "HTTP/2".to_string(),
+    status_code: head.status,
+    status_text: String::new(),
+    headers: h1_headers,
+  };
+  let ttfb = adapter.ttfb.unwrap_or_else(|| start.elapsed());
+  Ok((h1_head, HttpDispatchMetrics { ttfb }))
 }
 
 fn read_response_with_ttfb(
@@ -1486,6 +1633,14 @@ fn read_response_streaming<H: HttpResponseHandler>(
     buffer.extend_from_slice(&temp_buf[..read]);
     if ttfb.is_none() {
       ttfb = Some(start.elapsed());
+    }
+    // Early H2 detection: as soon as we have enough bytes to tell, bail out
+    // with a sentinel so the caller can re-dispatch over native HTTP/2.
+    if buffer.len() >= 2 && looks_like_h2_frame(&buffer) {
+      return Err(HttpSendError {
+        message: "H2_FRAME_DETECTED: peer negotiated HTTP/2; fall back required".to_string(),
+        ttfb,
+      });
     }
     if let Some(pos) = find_header_end(&buffer) {
       header_end = Some(pos);
