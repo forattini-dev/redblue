@@ -1,6 +1,6 @@
 [package]
 name = "redblue"
-version = "0.2.30"
+version = "0.2.31"
 edition = "2021"
 authors = ["RedBlue Security Team"]
 
