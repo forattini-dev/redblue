@@ -810,6 +810,7 @@ fn spawn_live_reporter(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::str::FromStr;
 
   #[test]
   fn test_protocol_preference_from_str() {

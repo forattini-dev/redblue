@@ -294,6 +294,7 @@ pub(super) fn ioc_search_payload(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::modules::intel::IocSource;
 
   #[test]
   fn ioc_extract_payload_serializes_collection() {
