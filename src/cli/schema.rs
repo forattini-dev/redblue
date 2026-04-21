@@ -1033,8 +1033,24 @@ fn parse_route_positionals(command: &dyn Command, route: &Route) -> Vec<JsonValu
   let mut positionals = Vec::new();
   let mut has_target = false;
   let mut arg_index = 0usize;
+  // Track open `[…]` groups that start with a flag (e.g. `[--db <file>]`).
+  // Tokens inside such a group must NOT be parsed as positionals — `<file>`
+  // there is the flag's argument, not a command positional.
+  let mut skip_until_close = false;
 
   for token in usage_tail.split_whitespace() {
+    if skip_until_close {
+      if token.ends_with(']') {
+        skip_until_close = false;
+      }
+      continue;
+    }
+    // A token like `[--flag` opens a flag group. Skip it and every following
+    // token up to and including the one that ends with `]`.
+    if token.starts_with("[-") && !token.ends_with(']') {
+      skip_until_close = true;
+      continue;
+    }
     let Some((name, required, repeated)) = parse_placeholder(token) else {
       continue;
     };

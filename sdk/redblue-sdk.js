@@ -1444,13 +1444,31 @@ function routeIdentifier(command, route) {
 }
 
 function resolveMachineOutput(command, route) {
-  if (route && route.machine_output && typeof route.machine_output === 'object') {
-    return route.machine_output;
+  const routeMo =
+    route && typeof route.machine_output === 'object' && route.machine_output !== null
+      ? route.machine_output
+      : null;
+  const cmdMo =
+    command && typeof command.machine_output === 'object' && command.machine_output !== null
+      ? command.machine_output
+      : null;
+  if (!routeMo && !cmdMo) {
+    return {};
   }
-  if (command && command.machine_output && typeof command.machine_output === 'object') {
-    return command.machine_output;
+  // Route overrides command, BUT null keys on the route fall back to the
+  // command. The manifest emits route machine_output with preferred_flag:null
+  // when the route inherits, while the stricter-typed defaults ('output',
+  // 'json') live only on the command. Without this fallback, verbs like
+  // `web asset describe` drop -o json entirely and the SDK pipes human text.
+  const merged = Object.assign({}, cmdMo || {});
+  if (routeMo) {
+    for (const key of Object.keys(routeMo)) {
+      if (routeMo[key] !== null && routeMo[key] !== undefined) {
+        merged[key] = routeMo[key];
+      }
+    }
   }
-  return {};
+  return merged;
 }
 
 function buildInvocation(command, route, input, execOptions) {
