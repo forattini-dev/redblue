@@ -134,10 +134,7 @@ fn describe_live(ctx: &CliContext, host: &str, mode: &DescribeMode) -> Result<()
   use crate::cli::commands::web::{fingerprint, http, security};
 
   let persist_hint = matches!(mode, DescribeMode::LivePersist);
-  let json_mode = ctx
-    .get_flag("output")
-    .map(|v| v.eq_ignore_ascii_case("json"))
-    .unwrap_or(false);
+  let json_mode = ctx.get_output_format() == crate::cli::format::OutputFormat::Json;
 
   let mut sub_ctx = ctx.clone();
   if !persist_hint {
