@@ -194,16 +194,13 @@ pub(crate) fn run_describe_subcommands_json(
   commands: &[(&str, &[&str])],
   ctx: &CliContext,
 ) -> String {
-  use std::process::Command;
+  use std::io::Read;
+  use std::process::{Command, Stdio};
+  use std::sync::{Arc, Mutex};
+  use std::time::{Duration, Instant};
 
   let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("rb"));
 
-  // Forward only a small whitelist of flags that every sub-command accepts.
-  // Forwarding every flag from ctx (which includes global + config-inherited
-  // values like rate-limit, threads, preset, etc.) causes subprocesses to
-  // reject with "unknown flag" because each CLI sub-command declares only
-  // its own flag set. The allowlist keeps network/auth knobs while dropping
-  // describe-specific flags + CLI globals that the children don't parse.
   const SAFE_FORWARD_FLAGS: &[&str] = &[
     "timeout",
     "user-agent",
@@ -223,63 +220,139 @@ pub(crate) fn run_describe_subcommands_json(
     forwarded.push((key.clone(), value.clone()));
   }
 
+  // Per-slot timeout. Consumers (SDK runJson / tinyseo wrapper) impose
+  // their own outer timeout; without a per-slot cap one stuck subprocess
+  // (e.g. a 3-minute fingerprint against a heavy target) would blow the
+  // whole envelope. Override with --timeout on the describe call itself.
+  let slot_timeout = Duration::from_secs(
+    ctx
+      .get_flag("timeout")
+      .and_then(|s| s.parse::<u64>().ok())
+      .unwrap_or(30),
+  );
+
+  // Spawn all sub-commands concurrently and collect results.
+  let results: Arc<Mutex<Vec<(usize, String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+  std::thread::scope(|scope| {
+    for (idx, (name, route)) in commands.iter().enumerate() {
+      let exe = exe.clone();
+      let forwarded = forwarded.clone();
+      let results = Arc::clone(&results);
+      let name = name.to_string();
+      let route = route.to_vec();
+      let target = target.to_string();
+      scope.spawn(move || {
+        let mut cmd = Command::new(&exe);
+        cmd.args(route.iter().copied());
+        cmd.arg(&target);
+        cmd.arg("-o");
+        cmd.arg("json");
+        for (k, v) in &forwarded {
+          cmd.arg(format!("--{}", k));
+          if !v.is_empty() {
+            cmd.arg(v);
+          }
+        }
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let payload = match cmd.spawn() {
+          Ok(mut child) => {
+            let start = Instant::now();
+            let mut stdout_data = Vec::new();
+            let mut stderr_data = Vec::new();
+            let mut timed_out = false;
+            // Poll for completion with timeout. If exceeded, kill the child.
+            loop {
+              match child.try_wait() {
+                Ok(Some(status)) => {
+                  if let Some(mut s) = child.stdout.take() {
+                    let _ = s.read_to_end(&mut stdout_data);
+                  }
+                  if let Some(mut s) = child.stderr.take() {
+                    let _ = s.read_to_end(&mut stderr_data);
+                  }
+                  let code = status.code().unwrap_or(-1);
+                  let success = status.success();
+                  break build_slot_payload(success, code, &stdout_data, &stderr_data, false);
+                }
+                Ok(None) => {
+                  if start.elapsed() >= slot_timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    if let Some(mut s) = child.stdout.take() {
+                      let _ = s.read_to_end(&mut stdout_data);
+                    }
+                    if let Some(mut s) = child.stderr.take() {
+                      let _ = s.read_to_end(&mut stderr_data);
+                    }
+                    timed_out = true;
+                    break build_slot_payload(false, -1, &stdout_data, &stderr_data, true);
+                  }
+                  std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => {
+                  break format!("{{ \"error\": {} }}", json_quote(&e.to_string()));
+                }
+              }
+            }
+          }
+          Err(e) => format!("{{ \"error\": {} }}", json_quote(&e.to_string())),
+        };
+        results.lock().unwrap().push((idx, name, payload));
+        let _ = ();
+      });
+    }
+  });
+
+  // Collect in declaration order.
+  let mut collected = results.lock().unwrap().clone();
+  collected.sort_by_key(|(idx, _, _)| *idx);
+
   let mut out = String::from("{\n");
   out.push_str(&format!("  \"target\": {},\n", json_quote(target)));
   out.push_str("  \"bundle\": {\n");
-
-  for (idx, (name, route)) in commands.iter().enumerate() {
-    let mut cmd = Command::new(&exe);
-    cmd.args(route.iter().copied());
-    cmd.arg(target);
-    cmd.arg("-o");
-    cmd.arg("json");
-    for (k, v) in &forwarded {
-      cmd.arg(format!("--{}", k));
-      if !v.is_empty() {
-        cmd.arg(v);
-      }
-    }
-
-    let outcome = cmd.output();
-    let payload = match outcome {
-      Ok(o) if o.status.success() => {
-        let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        if stdout.is_empty() {
-          "null".to_string()
-        } else if stdout.starts_with('{') || stdout.starts_with('[') {
-          stdout
-        } else {
-          format!("{{ \"raw\": {} }}", json_quote(&stdout))
-        }
-      }
-      Ok(o) => {
-        // Sub-command failed: carry BOTH stdout and stderr into the envelope.
-        // Many commands print "✗ error..." to stdout, not stderr, so only
-        // reporting stderr would give consumers an empty error field.
-        let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
-        let message = if !stderr.is_empty() {
-          stderr.clone()
-        } else {
-          stdout.clone()
-        };
-        format!(
-          "{{ \"error\": {}, \"stdout\": {}, \"stderr\": {}, \"exit_code\": {} }}",
-          json_quote(&message),
-          json_quote(&stdout),
-          json_quote(&stderr),
-          o.status.code().unwrap_or(-1)
-        )
-      }
-      Err(e) => format!("{{ \"error\": {} }}", json_quote(&e.to_string())),
-    };
-
-    let comma = if idx + 1 < commands.len() { "," } else { "" };
+  for (pos, (_, name, payload)) in collected.iter().enumerate() {
+    let comma = if pos + 1 < collected.len() { "," } else { "" };
     out.push_str(&format!("    {}: {}{}\n", json_quote(name), payload, comma));
   }
-
   out.push_str("  }\n}");
   out
+}
+
+fn build_slot_payload(
+  success: bool,
+  exit_code: i32,
+  stdout: &[u8],
+  stderr: &[u8],
+  timed_out: bool,
+) -> String {
+  let stdout_s = String::from_utf8_lossy(stdout).trim().to_string();
+  let stderr_s = String::from_utf8_lossy(stderr).trim().to_string();
+  if success {
+    if stdout_s.is_empty() {
+      return "null".to_string();
+    }
+    if stdout_s.starts_with('{') || stdout_s.starts_with('[') {
+      return stdout_s;
+    }
+    return format!("{{ \"raw\": {} }}", json_quote(&stdout_s));
+  }
+  let message = if timed_out {
+    "slot timed out".to_string()
+  } else if !stderr_s.is_empty() {
+    stderr_s.clone()
+  } else {
+    stdout_s.clone()
+  };
+  format!(
+    "{{ \"error\": {}, \"timed_out\": {}, \"stdout\": {}, \"stderr\": {}, \"exit_code\": {} }}",
+    json_quote(&message),
+    timed_out,
+    json_quote(&stdout_s),
+    json_quote(&stderr_s),
+    exit_code
+  )
 }
 
 fn json_quote(s: &str) -> String {
