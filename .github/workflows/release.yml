@@ -527,3 +527,46 @@ jobs:
           echo "| **Package** | \`redblue-cli\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Version** | \`${{ needs.plan.outputs.package_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| **Tag** | \`${{ needs.plan.outputs.npm_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [plan, publish-github]
+    runs-on: ubuntu-latest
+    # Stable channel only — crates.io accepts pre-release semver but we
+    # keep `latest` clean.
+    if: needs.plan.outputs.should_skip != 'true' && needs.plan.outputs.release_channel == 'stable'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go ninja-build clang mold
+
+      - name: Sync Cargo.toml version
+        run: |
+          VERSION="${{ needs.plan.outputs.package_version }}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+          cargo generate-lockfile
+          echo "Publishing redblue@${VERSION} to crates.io"
+
+      - name: Dry-run package
+        run: cargo publish --dry-run --allow-dirty
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --allow-dirty --token "${CARGO_REGISTRY_TOKEN}"
+
+      - name: Job summary
+        run: |
+          echo "## crates.io published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Crate** | \`redblue\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Version** | \`${{ needs.plan.outputs.package_version }}\` |" >> "$GITHUB_STEP_SUMMARY"

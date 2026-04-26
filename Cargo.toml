@@ -3,6 +3,24 @@ name = "redblue"
 version = "0.2.33"
 edition = "2021"
 authors = ["RedBlue Security Team"]
+description = "The ultimate security arsenal in a single binary — DNS, HTTP, TLS, SOCKS, recon and offensive security primitives implemented from scratch in Rust"
+license = "MIT"
+repository = "https://github.com/forattini-dev/redblue"
+homepage = "https://github.com/forattini-dev/redblue"
+documentation = "https://docs.rs/redblue"
+readme = "README.md"
+keywords = ["security", "pentesting", "redteam", "blueteam", "cli"]
+categories = ["command-line-utilities", "network-programming"]
+exclude = [
+    "/.github/**",
+    "/.dispatch/**",
+    "/scripts/**",
+    "/docs/**",
+    "/sdk/**",
+    "/tests/**",
+    "/benches/**",
+    "/.agents/**",
+]
 
 [profile.release]
 opt-level = 3
